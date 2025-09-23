@@ -8,6 +8,7 @@ import {
     CompareFilter,
     ConversionGoalFilter,
     DataTableNode,
+    MARKETING_ANALYTICS_SCHEMA,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
     NodeKind,
@@ -33,6 +34,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'loading',
                 'draftConversionGoal',
                 'chartDisplayType',
+                'tileColumnSelection',
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
@@ -46,13 +48,15 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.createMarketingDataWarehouseNodes,
                 s.campaignCostsBreakdown,
                 s.chartDisplayType,
+                s.tileColumnSelection,
             ],
             (
                 compareFilter,
                 dateFilter,
                 createMarketingDataWarehouseNodes,
                 campaignCostsBreakdown,
-                chartDisplayType
+                chartDisplayType,
+                tileColumnSelection
             ) => {
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
@@ -62,6 +66,11 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     }
                 }
 
+                const isCurrency = tileColumnSelection
+                    ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
+                    : false
+
+                const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
                 return [
                     {
                         kind: 'query',
@@ -70,7 +79,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             colSpanClassName: 'md:col-span-2',
                             orderWhenLargeClassName: 'xxl:order-1',
                         },
-                        title: 'Marketing costs',
+                        title: `Marketing ${tileColumnSelectionName}`,
                         query: {
                             kind: NodeKind.InsightVizNode,
                             embedded: true,
@@ -99,7 +108,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                                 trendsFilter: {
                                     display: chartDisplayType,
                                     aggregationAxisFormat: 'numeric',
-                                    aggregationAxisPrefix: '$',
+                                    aggregationAxisPrefix: isCurrency ? '$' : '',
                                 },
                             },
                         },
@@ -108,11 +117,11 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         canOpenInsight: true,
                         canOpenModal: false,
                         docs: {
-                            title: 'Marketing costs',
+                            title: `Marketing ${tileColumnSelectionName}`,
                             description:
                                 createMarketingDataWarehouseNodes.length > 0
-                                    ? 'Track costs from your configured marketing data sources.'
-                                    : 'Configure marketing data sources in the settings to track costs from your ad platforms.',
+                                    ? `Track ${tileColumnSelectionName || 'costs'} from your configured marketing data sources.`
+                                    : `Configure marketing data sources in the settings to track ${tileColumnSelectionName || 'costs'} from your ad platforms.`,
                         },
                     },
                     campaignCostsBreakdown

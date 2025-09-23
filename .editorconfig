@@ -1,0 +1,24 @@
+# Top-most EditorConfig file
+root = true
+
+# Defaults for all files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[{package.json,.prettierrc}]
+indent_style = space
+indent_size = 4
+
+# Python → 4 spaces (PEP 8)
+[*.{py,pyi}]
+indent_style = space
+indent_size = 4
+
+# Markdown specific rules
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off
+indent_size = 4
