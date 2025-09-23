@@ -167,7 +167,7 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
                 conditions_page_size=min(1000, limit),  # Don't fetch more than we need
             )
 
-            # Start child workflow (non-blocking)
+            # Start child workflow - fire and forget, don't wait for result
             # Set parent_close_policy to ABANDON so child workflows continue after parent completes
             await temporalio.workflow.start_child_workflow(
                 "behavioral-cohorts-analysis",
