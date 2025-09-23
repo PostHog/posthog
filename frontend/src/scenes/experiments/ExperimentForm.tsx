@@ -478,11 +478,11 @@ const SelectExistingFeatureFlagModal = ({
     )
 
     return (
-        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag" width="30%">
+        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag" width="50%">
             <div className="deprecated-space-y-2">
                 <div className="text-muted mb-2 max-w-xl">
-                    Select an existing feature flag to use with this experiment. The feature flag must use multiple
-                    variants with <code>'control'</code> as the first, and not be associated with an existing
+                    Select an existing multivariate feature flag to use with this experiment. The feature flag must use
+                    multiple variants with <code>'control'</code> as the first, and not be associated with an existing
                     experiment.
                 </div>
                 {filtersSection}
@@ -524,17 +524,19 @@ const SelectExistingFeatureFlagModal = ({
                             title: null,
                             render: function RenderActions(_, flag) {
                                 return (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="primary"
-                                        disabledReason={undefined}
-                                        onClick={() => {
-                                            onSelect(flag)
-                                            handleClose()
-                                        }}
-                                    >
-                                        Select
-                                    </LemonButton>
+                                    <div className="flex items-center justify-end">
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="primary"
+                                            disabledReason={undefined}
+                                            onClick={() => {
+                                                onSelect(flag)
+                                                handleClose()
+                                            }}
+                                        >
+                                            Select
+                                        </LemonButton>
+                                    </div>
                                 )
                             },
                         },
