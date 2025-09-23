@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.vercel_installation import VercelErrorResponseMixin, validate_installation_id
 from ee.api.vercel.vercel_permission import VercelPermission
+from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
 from ee.vercel.integration import VercelIntegration
 
 
@@ -154,7 +155,7 @@ def validate_resource_id(resource_id: str | None) -> str:
     return resource_id
 
 
-class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
+class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, viewsets.GenericViewSet):
     lookup_field = "resource_id"
     authentication_classes = [VercelAuthentication]
     permission_classes = [VercelPermission]

@@ -166,6 +166,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             showMovingAverage: undefined,
             movingAverageIntervals: undefined,
             stacked: undefined,
+            detailedResultsAggregationType: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

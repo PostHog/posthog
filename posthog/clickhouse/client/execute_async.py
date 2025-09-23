@@ -207,8 +207,13 @@ def execute_process_query(
     except CHQueryErrorTooManySimultaneousQueries:
         raise
     except Exception as err:
+        from posthog.rbac.user_access_control import UserAccessControlError
+
         query_status.results = None  # Clear results in case they are faulty
-        if isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError) or is_staff_user:
+        if (
+            isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError)
+            or is_staff_user
+        ):
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)

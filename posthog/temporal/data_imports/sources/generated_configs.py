@@ -167,7 +167,8 @@ class PostgresSourceConfig(config.Config):
 
 @config.config
 class RedditAdsSourceConfig(config.Config):
-    pass
+    account_id: str
+    reddit_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config

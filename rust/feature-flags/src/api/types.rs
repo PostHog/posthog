@@ -225,23 +225,24 @@ pub struct LegacyFlagsResponse {
 
 impl LegacyFlagsResponse {
     pub fn from_response(response: FlagsResponse) -> Self {
+        let mut feature_flags = HashMap::with_capacity(response.flags.len());
+        let mut feature_flag_payloads = HashMap::with_capacity(response.flags.len());
+
+        for (key, mut flag) in response.flags {
+            let payload = flag.metadata.payload.take();
+            let flag_value = flag.into_value();
+            if let Some(payload) = payload {
+                feature_flags.insert(key.clone(), flag_value);
+                feature_flag_payloads.insert(key, payload);
+            } else {
+                feature_flags.insert(key, flag_value);
+            }
+        }
+
         Self {
             errors_while_computing_flags: response.errors_while_computing_flags,
-            feature_flags: response
-                .flags
-                .iter()
-                .map(|(key, flag)| (key.clone(), flag.to_value()))
-                .collect(),
-            feature_flag_payloads: response
-                .flags
-                .iter()
-                .filter_map(|(key, flag)| {
-                    flag.metadata
-                        .payload
-                        .clone()
-                        .map(|payload| (key.clone(), payload))
-                })
-                .collect(),
+            feature_flags,
+            feature_flag_payloads,
             quota_limited: response.quota_limited,
             request_id: response.request_id,
             config: response.config,
@@ -267,9 +268,9 @@ impl DecideV1Response {
         // Only include flags that are enabled (active)
         let active_flags: Vec<String> = response
             .flags
-            .iter()
+            .into_iter()
             .filter(|(_, flag)| flag.enabled)
-            .map(|(key, _)| key.clone())
+            .map(|(key, _)| key)
             .collect();
 
         Self {
@@ -299,9 +300,9 @@ impl DecideV2Response {
         // Only include flags that are enabled
         let active_flags: HashMap<String, FlagValue> = response
             .flags
-            .iter()
+            .into_iter()
             .filter(|(_, flag)| flag.enabled)
-            .map(|(key, flag)| (key.clone(), flag.to_value()))
+            .map(|(key, flag)| (key, flag.into_value()))
             .collect();
 
         Self {
@@ -348,6 +349,14 @@ impl FlagDetails {
     pub fn to_value(&self) -> FlagValue {
         if let Some(variant) = &self.variant {
             FlagValue::String(variant.clone())
+        } else {
+            FlagValue::Boolean(self.enabled)
+        }
+    }
+
+    pub fn into_value(self) -> FlagValue {
+        if let Some(variant) = self.variant {
+            FlagValue::String(variant)
         } else {
             FlagValue::Boolean(self.enabled)
         }

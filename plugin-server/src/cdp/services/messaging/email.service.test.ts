@@ -131,7 +131,7 @@ describe('EmailService', () => {
                     [
                       "https://api.mailjet.com/v3.1/send",
                       {
-                        "body": "{"Messages":[{"From":{"Email":"test@posthog.com","Name":"Test User"},"To":[{"Email":"test@example.com","Name":"Test User"}],"Subject":"Test Subject","TextPart":"Test Text","HTMLPart":"Test HTML","CustomID":"ph_fn_id=function-1&ph_inv_id=invocation-1"}]}",
+                        "body": "{"Messages":[{"From":{"Email":"test@posthog.com","Name":"Test User"},"To":[{"Email":"test@example.com","Name":"Test User"}],"Subject":"Test Subject","TextPart":"Test Text","HTMLPart":"Test HTML","EventPayload":"ph_fn_id=function-1&ph_inv_id=invocation-1"}]}",
                         "headers": {
                           "Authorization": "Basic bWFpbGpldC1wdWJsaWMta2V5Om1haWxqZXQtc2VjcmV0LWtleQ==",
                           "Content-Type": "application/json",

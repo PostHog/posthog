@@ -9,6 +9,7 @@ import {
     ProductIconWrapper,
     getDefaultTreeData,
     getDefaultTreeNew,
+    getDefaultTreePersons,
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -51,9 +52,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setSearch: (search: string) => ({ search }),
         selectNext: true,
         selectPrevious: true,
-        onFocus: true,
-        onBlur: true,
         onSubmit: true,
+        setSelectedCategory: (category: string) => ({ category }),
     }),
     reducers({
         search: [
@@ -62,23 +62,32 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 setSearch: (_, { search }) => search,
             },
         ],
+        selectedCategory: [
+            'all' as string,
+            {
+                setSelectedCategory: (_, { category }) => category,
+            },
+        ],
         rawSelectedIndex: [
             0,
             {
                 selectNext: (state) => state + 1,
                 selectPrevious: (state) => state - 1,
                 setSearch: () => 0,
-            },
-        ],
-        focused: [
-            false,
-            {
-                onFocus: () => true,
-                onBlur: () => false,
+                setSelectedCategory: () => 0,
             },
         ],
     }),
     selectors({
+        categories: [
+            () => [],
+            (): { key: string; label: string }[] => [
+                { key: 'all', label: 'All' },
+                { key: 'create-new', label: 'Create new' },
+                { key: 'apps', label: 'Apps' },
+                { key: 'data-management', label: 'Data management' },
+            ],
+        ],
         itemsGrid: [
             (s) => [s.featureFlags],
             (featureFlags): ItemsGridItem[] => {
@@ -86,7 +95,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs) => ({
                         href: fs.href,
-                        name: fs.path.substring(8),
+                        name: 'new ' + fs.path.substring(8),
                         icon: getIconForFileSystemItem(fs),
                         flag: fs.flag,
                     }))
@@ -104,13 +113,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ path }) => !path.startsWith('Insight/') && !path.startsWith('Data/'))
                     .map((fs) => ({
                         href: fs.href,
-                        name: fs.path,
+                        name: 'new ' + fs.path,
                         icon: getIconForFileSystemItem(fs),
                         flag: fs.flag,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const products = getDefaultTreeProducts()
+                const products = [...getDefaultTreeProducts(), ...getDefaultTreePersons()]
                     .map((fs) => ({
                         href: fs.href,
                         name: fs.path,
@@ -118,6 +127,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
+                    .toSorted((a, b) => a.name.localeCompare(b.name))
 
                 const data = getDefaultTreeData()
                     .map((fs) => ({
@@ -130,41 +140,46 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 const queryTree: ItemsGridItem[] = [
                     {
-                        category: 'Create new insight',
-                        types: [{ name: 'SQL editor', icon: <IconDatabase />, href: '/sql' }, ...newInsightItems],
-                    },
-                    {
-                        category: 'Create new ...',
+                        category: 'create-new',
                         types: [
+                            { name: 'new SQL query', icon: <IconDatabase />, href: '/sql' },
+                            ...newInsightItems,
                             ...newOtherItems,
-                            ...newDataItems,
-                            { name: 'Hog program', icon: <IconHogQL />, href: '/debug/hog' },
+                            { name: 'new Hog program', icon: <IconHogQL />, href: '/debug/hog' },
                         ],
                     },
                     {
-                        category: 'Apps',
+                        category: 'apps',
                         types: [...products],
                     },
                     {
-                        category: 'Data in or out',
-                        types: [...data],
+                        category: 'data-management',
+                        types: [...data, ...newDataItems],
                     },
                 ]
                 return queryTree
             },
         ],
         filteredItemsGrid: [
-            (s) => [s.itemsGrid, s.search],
-            (itemsGrid, search): ItemsGridItem[] => {
+            (s) => [s.itemsGrid, s.search, s.selectedCategory],
+            (itemsGrid, search, selectedCategory): ItemsGridItem[] => {
+                let filtered = itemsGrid
+
+                // Filter by selected category
+                if (selectedCategory !== 'all') {
+                    filtered = filtered.filter(({ category }) => category === selectedCategory)
+                }
+
+                // Filter by search
                 if (!search.trim()) {
-                    return itemsGrid
+                    return filtered
                 }
                 const lowerSearchChunks = search
                     .toLowerCase()
                     .split(' ')
                     .map((s) => s.trim())
                     .filter((s) => s)
-                return itemsGrid
+                return filtered
                     .map(({ category, types }) => ({
                         category,
                         types: types.filter(

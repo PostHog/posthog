@@ -1,24 +1,16 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconEllipsis, IconHourglass, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
+import { IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import {
-    SettingsBar,
-    SettingsButton,
-    SettingsMenu,
-    SettingsToggle,
-} from 'scenes/session-recordings/components/PanelSettings'
+import { SettingsBar, SettingsButton, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-meta/PlayerInspectorButton'
-import { PlayerMetaBreakpoints } from 'scenes/session-recordings/player/player-meta/PlayerMeta'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
@@ -53,22 +45,6 @@ function SetPlaybackSpeed(): JSX.Element {
                 status: speed === speedToggle ? 'danger' : 'default',
             }))}
             label={`Speed ${speed}x`}
-        />
-    )
-}
-
-function SkipInactivity(): JSX.Element {
-    const { skipInactivitySetting } = useValues(playerSettingsLogic)
-    const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
-
-    return (
-        <SettingsToggle
-            title="Skip inactive parts of the recording"
-            label="Skip inactivity"
-            active={skipInactivitySetting}
-            data-attr="skip-inactivity"
-            onClick={() => setSkipInactivitySetting(!skipInactivitySetting)}
-            icon={<IconHourglass />}
         />
     )
 }
@@ -138,64 +114,55 @@ function TTLWarning(): JSX.Element | null {
     )
 }
 
-export function PlayerMetaTopSettings({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
+export function PlayerMetaTopSettings(): JSX.Element {
     const {
         logicProps: { noInspector },
+        hoverModeIsEnabled,
+        showPlayerChrome,
     } = useValues(sessionRecordingPlayerLogic)
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
-    const { skipInactivitySetting } = useValues(playerSettingsLogic)
-    const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
-    const isSmall = size === 'small'
-
-    const menuItems: LemonMenuItem[] = [
-        isSmall
-            ? {
-                  label: 'Skip inactivity',
-                  active: skipInactivitySetting,
-                  'data-attr': 'skip-inactivity-in-menu',
-                  onClick: () => setSkipInactivitySetting(!skipInactivitySetting),
-                  icon: <IconHourglass />,
-              }
-            : undefined,
-    ].filter(Boolean) as LemonMenuItem[]
 
     return (
-        <SettingsBar border="top">
-            <div className="flex w-full justify-between items-center gap-0.5">
-                <div className="flex flex-row gap-0.5 h-full items-center">
-                    <SetPlaybackSpeed />
-                    {!isSmall && <SkipInactivity />}
-                    {isSmall && (
-                        <SettingsMenu
-                            icon={<IconEllipsis />}
-                            items={menuItems}
-                            highlightWhenActive={false}
-                            closeOnClickInside={false}
-                        />
-                    )}
-                </div>
-                {!isSmall && (
+        <div
+            className={cn(
+                hoverModeIsEnabled
+                    ? 'absolute top-full left-0 right-0 z-10 transition-all duration-750 ease-in-out'
+                    : '',
+                hoverModeIsEnabled && showPlayerChrome
+                    ? 'opacity-100 pointer-events-auto'
+                    : hoverModeIsEnabled
+                      ? 'opacity-0 pointer-events-none'
+                      : ''
+            )}
+        >
+            <SettingsBar border="top">
+                <div className="flex w-full justify-between items-center gap-0.5">
+                    <div className="flex flex-row gap-0.5 h-full items-center">
+                        <SetPlaybackSpeed />
+                    </div>
+
                     <div>
                         <TTLWarning />
                     </div>
-                )}
-                <div className="flex flex-row gap-0.5">
-                    <FlaggedFeature match={true} flag={FEATURE_FLAGS.HEATMAPS_UI}>
-                        <SettingsButton
-                            size="xsmall"
-                            icon={<IconHeatmap />}
-                            onClick={() => {
-                                setPause()
-                                openHeatmap()
-                            }}
-                            label="View heatmap"
-                            tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
-                        />
-                    </FlaggedFeature>
-                    {noInspector ? null : <InspectDOM />}
-                    <PlayerInspectorButton />
+
+                    <div className="flex flex-row gap-0.5">
+                        <FlaggedFeature match={true} flag={FEATURE_FLAGS.HEATMAPS_UI}>
+                            <SettingsButton
+                                size="xsmall"
+                                icon={<IconHeatmap />}
+                                onClick={() => {
+                                    setPause()
+                                    openHeatmap()
+                                }}
+                                label="View heatmap"
+                                tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
+                            />
+                        </FlaggedFeature>
+                        {noInspector ? null : <InspectDOM />}
+                        {noInspector ? null : <PlayerInspectorButton />}
+                    </div>
                 </div>
-            </div>
-        </SettingsBar>
+            </SettingsBar>
+        </div>
     )
 }

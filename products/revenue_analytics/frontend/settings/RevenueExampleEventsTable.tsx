@@ -1,8 +1,5 @@
 import { useValues } from 'kea'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { cn } from 'lib/utils/css-classes'
-
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '~/queries/Query/Query'
 import { CurrencyCode } from '~/queries/schema/schema-general'
@@ -46,7 +43,6 @@ const queryContext: QueryContext = {
 
 export function RevenueExampleEventsTable(): JSX.Element | null {
     const { exampleEventsQuery } = useValues(revenueAnalyticsSettingsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (!exampleEventsQuery) {
         return null
@@ -54,22 +50,10 @@ export function RevenueExampleEventsTable(): JSX.Element | null {
 
     return (
         <SceneSection
-            hideTitleAndDescription={!newSceneLayout}
-            className={cn(!newSceneLayout && 'gap-y-0')}
             title="Revenue events"
             description="The following revenue events are available in your data. This is helpful when you're trying to debug what your revenue events look like."
         >
-            {!newSceneLayout && (
-                <>
-                    <h3>Revenue events</h3>
-                    <p>
-                        The following revenue events are available in your data. This is helpful when you're trying to
-                        debug what your revenue events look like.
-                    </p>
-                </>
-            )}
-
-            <Query query={exampleEventsQuery} context={queryContext} />
+            <Query attachTo={revenueAnalyticsSettingsLogic} query={exampleEventsQuery} context={queryContext} />
         </SceneSection>
     )
 }

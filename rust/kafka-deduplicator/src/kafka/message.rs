@@ -117,6 +117,7 @@ impl Drop for AckableMessage {
                 offset: self.handle.offset,
                 result: MessageResult::Failed("Message dropped without acking".to_string()),
                 memory_size: self.handle.memory_size,
+                processing_duration_ms: self.handle.created_at.elapsed().as_millis() as u64,
             };
 
             if self.handle.completion_tx.send(completion).is_err() {
