@@ -31,12 +31,14 @@ import {
 } from 'lib/components/Sharing/templateLinkMessages'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { isEmptyObject, isObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
@@ -109,6 +111,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
     const { createStaticCohort } = useActions(exportsLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
     const { createQueryEndpoint } = useActions(queryEndpointLogic({ tabId: 'qe-insight' }))
 
     // other logics
@@ -412,24 +415,28 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         ) : null}
 
-                        <ButtonPrimitive
-                            onClick={() => {
-                                {
-                                    query &&
-                                        createQueryEndpoint({
-                                            name: (defaultInsightName || Math.random().toString(36).substring(2, 15))
-                                                .slice(0, 20)
-                                                .replace(/\s+/g, '-'),
-                                            description: insight.description,
-                                            query: insightQuery as HogQLQuery | InsightQueryNode,
-                                        })
-                                }
-                            }}
-                            menuItem
-                        >
-                            <IconCode2 />
-                            Create query endpoint
-                        </ButtonPrimitive>
+                        {featureFlags[FEATURE_FLAGS.EMBEDDED_ANALYTICS] ? (
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    {
+                                        query &&
+                                            createQueryEndpoint({
+                                                name: (
+                                                    defaultInsightName || Math.random().toString(36).substring(2, 15)
+                                                )
+                                                    .slice(0, 20)
+                                                    .replace(/\s+/g, '-'),
+                                                description: insight.description,
+                                                query: insightQuery as HogQLQuery | InsightQueryNode,
+                                            })
+                                    }
+                                }}
+                                menuItem
+                            >
+                                <IconCode2 />
+                                Create query endpoint
+                            </ButtonPrimitive>
+                        ) : null}
 
                         {hogQL &&
                             !isHogQLQuery(query) &&
