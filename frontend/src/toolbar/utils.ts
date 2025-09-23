@@ -156,11 +156,20 @@ export function inBounds(min: number, value: number, max: number): number {
 
 export function elementIsVisible(element: HTMLElement, cache: WeakMap<HTMLElement, boolean>): boolean {
     try {
-        // Fast path: check element's own styles first
         const alreadyCached = cache.get(element)
         if (alreadyCached !== undefined) {
             return alreadyCached
         }
+
+        if (element.checkVisibility) {
+            const nativeIsVisible = element.checkVisibility({
+                checkOpacity: true,
+                checkVisibilityCSS: true,
+            })
+            cache.set(element, nativeIsVisible)
+            return nativeIsVisible
+        }
+
         const style = window.getComputedStyle(element)
         const isInvisible = style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0
         if (isInvisible) {
