@@ -1,7 +1,18 @@
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { getDefaultInterval } from 'lib/utils'
 
 import { QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
+
+export const INITIAL_DATE_FROM = '-7d' as string
+export const INITIAL_DATE_TO = null as string | null
+export const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
+export const INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED = false
+
+export enum EmbeddedTab {
+    USAGE = 'usage',
+    QUERY_ENDPOINTS = 'query-endpoints',
+}
 
 export interface EmbeddedTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -20,6 +31,7 @@ export enum EmbeddedAnalyticsTileId {
     API_QUERIES_PER_KEY = 'API_QUERIES_PER_KEY',
     API_LAST_20_QUERIES = 'API_LAST_20_QUERIES',
     API_EXPENSIVE_QUERIES = 'API_EXPENSIVE_QUERIES',
+    API_FAILED_QUERIES = 'API_FAILED_QUERIES',
 }
 
 export const loadPriorityMap: Record<EmbeddedAnalyticsTileId, number> = {
@@ -29,6 +41,7 @@ export const loadPriorityMap: Record<EmbeddedAnalyticsTileId, number> = {
     [EmbeddedAnalyticsTileId.API_QUERIES_PER_KEY]: 4,
     [EmbeddedAnalyticsTileId.API_LAST_20_QUERIES]: 5,
     [EmbeddedAnalyticsTileId.API_EXPENSIVE_QUERIES]: 6,
+    [EmbeddedAnalyticsTileId.API_FAILED_QUERIES]: 7,
 }
 
 export interface EmbeddedBaseTile {

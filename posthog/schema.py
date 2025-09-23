@@ -90,6 +90,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_DOCS = "search_docs"
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
+    CREATE_DASHBOARD = "create_dashboard"
 
 
 class AssistantDateRange(BaseModel):
@@ -207,40 +208,41 @@ class AssistantMessageType(StrEnum):
 
 
 class AssistantNavigateUrls(StrEnum):
-    CREATE_ACTION = "createAction"
     ACTIONS = "actions"
-    COHORTS = "cohorts"
-    PROJECT_HOMEPAGE = "projectHomepage"
-    MAX = "max"
-    SETTINGS = "settings"
-    EVENT_DEFINITIONS = "eventDefinitions"
-    PROPERTY_DEFINITIONS = "propertyDefinitions"
-    DATABASE = "database"
     ACTIVITY = "activity"
+    ALERTS = "alerts"
+    ANNOTATIONS = "annotations"
+    CREATE_ACTION = "createAction"
+    COHORTS = "cohorts"
+    DASHBOARDS = "dashboards"
+    DATABASE = "database"
+    EARLY_ACCESS_FEATURES = "earlyAccessFeatures"
+    EVENT_DEFINITIONS = "eventDefinitions"
+    ERROR_TRACKING = "errorTracking"
+    EXPERIMENTS = "experiments"
+    FEATURE_FLAGS = "featureFlags"
+    GAME368HEDGEHOGS = "game368hedgehogs"
+    HEATMAPS = "heatmaps"
     INGESTION_WARNINGS = "ingestionWarnings"
     INSIGHTS = "insights"
     INSIGHT_NEW = "insightNew"
-    SAVED_INSIGHTS = "savedInsights"
-    WEB_ANALYTICS = "webAnalytics"
-    WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
-    ALERTS = "alerts"
-    DASHBOARDS = "dashboards"
-    EXPERIMENTS = "experiments"
-    FEATURE_FLAGS = "featureFlags"
-    SURVEYS = "surveys"
-    SURVEY_TEMPLATES = "surveyTemplates"
+    PIPELINE = "pipeline"
+    PROJECT_HOMEPAGE = "projectHomepage"
+    PROPERTY_DEFINITIONS = "propertyDefinitions"
+    MAX = "max"
+    NOTEBOOKS = "notebooks"
     REPLAY = "replay"
     REPLAY_SETTINGS = "replaySettings"
-    PIPELINE = "pipeline"
+    REVENUE_ANALYTICS = "revenueAnalytics"
+    SAVED_INSIGHTS = "savedInsights"
+    SETTINGS = "settings"
     SQL_EDITOR = "sqlEditor"
-    ANNOTATIONS = "annotations"
-    HEATMAPS = "heatmaps"
-    EARLY_ACCESS_FEATURES = "earlyAccessFeatures"
-    ERROR_TRACKING = "errorTracking"
-    GAME368HEDGEHOGS = "game368hedgehogs"
-    NOTEBOOKS = "notebooks"
-    PERSONS = "persons"
+    SURVEYS = "surveys"
+    SURVEY_TEMPLATES = "surveyTemplates"
     TOOLBAR_LAUNCH = "toolbarLaunch"
+    WEB_ANALYTICS = "webAnalytics"
+    WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
+    PERSONS = "persons"
 
 
 class AssistantNumericValuePropertyFilterOperator(StrEnum):
@@ -875,6 +877,7 @@ class DatabaseSchemaSource(BaseModel):
 
 class DatabaseSchemaTableType(StrEnum):
     POSTHOG = "posthog"
+    SYSTEM = "system"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
     BATCH_EXPORT = "batch_export"
@@ -918,6 +921,11 @@ class DateRange(BaseModel):
 
 class DatetimeDay(RootModel[datetime]):
     root: datetime
+
+
+class DeepResearchType(StrEnum):
+    PLANNING = "planning"
+    REPORT = "report"
 
 
 class DefaultChannelTypes(StrEnum):
@@ -1173,6 +1181,13 @@ class ExperimentMetricOutlierHandling(BaseModel):
     )
     lower_bound_percentile: Optional[float] = None
     upper_bound_percentile: Optional[float] = None
+
+
+class Status5(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
 
 
 class ExperimentMetricType(StrEnum):
@@ -1553,6 +1568,7 @@ class SessionTableVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
     V2 = "v2"
+    V3 = "v3"
 
 
 class SessionsV2JoinMode(StrEnum):
@@ -2684,6 +2700,12 @@ class TimelineEntry(BaseModel):
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
 
 
+class DetailedResultsAggregationType(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    MEDIAN = "median"
+
+
 class TrendsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3600,6 +3622,17 @@ class DatabaseSchemaPostHogTable(BaseModel):
     type: Literal["posthog"] = "posthog"
 
 
+class DatabaseSchemaSystemTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: Optional[float] = None
+    type: Literal["system"] = "system"
+
+
 class DatabaseSchemaTableCommon(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3613,6 +3646,16 @@ class DatabaseSchemaTableCommon(BaseModel):
 
 class Day(RootModel[int]):
     root: int
+
+
+class DeepResearchNotebook(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Literal["deep_research"] = "deep_research"
+    notebook_id: str
+    notebook_type: Optional[DeepResearchType] = None
+    title: str
 
 
 class ElementPropertyFilter(BaseModel):
@@ -4120,8 +4163,11 @@ class NotebookUpdateMessage(BaseModel):
         extra="forbid",
     )
     content: ProsemirrorJSONContent
+    conversation_notebooks: Optional[list[DeepResearchNotebook]] = None
+    current_run_notebooks: Optional[list[DeepResearchNotebook]] = None
     id: Optional[str] = None
     notebook_id: str
+    notebook_type: Literal["deep_research"] = "deep_research"
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
 
@@ -4858,6 +4904,7 @@ class SurveyQuestionSchema(BaseModel):
     descriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
     display: Optional[Display1] = None
     hasOpenChoice: Optional[bool] = None
+    id: Optional[str] = None
     link: Optional[str] = None
     lowerBoundLabel: Optional[str] = None
     optional: Optional[bool] = None
@@ -4886,6 +4933,7 @@ class TaskExecutionItem(BaseModel):
     progress_text: Optional[str] = None
     prompt: str
     status: TaskExecutionStatus
+    task_type: str
 
 
 class TaskExecutionMessage(BaseModel):
@@ -5038,6 +5086,9 @@ class TrendsFilter(BaseModel):
     breakdown_histogram_bin_count: Optional[float] = None
     confidenceLevel: Optional[float] = None
     decimalPlaces: Optional[float] = None
+    detailedResultsAggregationType: Optional[DetailedResultsAggregationType] = Field(
+        default=None, description="detailed results table"
+    )
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
     formulaNodes: Optional[list[TrendsFormulaNode]] = Field(
@@ -9000,6 +9051,33 @@ class MultipleBreakdownOptions(BaseModel):
         extra="forbid",
     )
     values: list[BreakdownItem]
+
+
+class NamedQueryRunRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    client_query_id: Optional[str] = Field(
+        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    filters_override: Optional[DashboardFilter] = None
+    query_override: Optional[dict[str, Any]] = None
+    refresh: Optional[RefreshType] = Field(
+        default=RefreshType.BLOCKING,
+        description=(
+            "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
+            " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
+            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
+            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
+            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
+            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
+            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
+            " completes immediately as it never calculates Background calculation can be tracked using the"
+            " `query_status` response field."
+        ),
+    )
+    variables_override: Optional[dict[str, dict[str, Any]]] = None
+    variables_values: Optional[dict[str, Any]] = None
 
 
 class PathsQueryResponse(BaseModel):
@@ -13357,6 +13435,20 @@ class ExperimentFunnelsQueryResponse(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
+class ExperimentMetricTimeseries(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computed_at: Optional[str] = None
+    created_at: str
+    errors: Optional[dict[str, str]] = None
+    experiment_id: float
+    metric_uuid: str
+    status: Status5
+    timeseries: Optional[dict[str, ExperimentQueryResponse]] = None
+    updated_at: str
+
+
 class ExperimentQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13500,6 +13592,7 @@ class QueryResponseAlternative62(BaseModel):
         str,
         Union[
             DatabaseSchemaPostHogTable,
+            DatabaseSchemaSystemTable,
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaManagedViewTable,
@@ -13685,6 +13778,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
         str,
         Union[
             DatabaseSchemaPostHogTable,
+            DatabaseSchemaSystemTable,
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaManagedViewTable,
@@ -13761,6 +13855,18 @@ class MultiVisualizationMessage(BaseModel):
     id: Optional[str] = None
     type: Literal["ai/multi_viz"] = "ai/multi_viz"
     visualizations: list[VisualizationItem]
+
+
+class NamedQueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    name: Optional[str] = None
+    query: Optional[
+        Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
+    ] = None
 
 
 class WebVitalsQuery(BaseModel):

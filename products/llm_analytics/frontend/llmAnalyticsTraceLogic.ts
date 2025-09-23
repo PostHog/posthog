@@ -64,6 +64,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         hideAllMessages: (type: 'input' | 'output') => ({ type }),
         applySearchResults: (inputMatches: boolean[], outputMatches: boolean[]) => ({ inputMatches, outputMatches }),
         setDisplayOption: (displayOption: DisplayOption) => ({ displayOption }),
+        toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
     }),
 
     reducers({
@@ -141,6 +142,16 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 setDisplayOption: (_, { displayOption }) => displayOption,
             },
         ],
+        eventTypeExpandedMap: [
+            {} as Record<string, boolean>,
+            persistConfig,
+            {
+                toggleEventTypeExpanded: (state, { eventType }) => ({
+                    ...state,
+                    [eventType]: !(state[eventType] ?? true),
+                }),
+            },
+        ],
     }),
 
     selectors({
@@ -191,6 +202,13 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     },
                 ]
             },
+        ],
+        eventTypeExpanded: [
+            (s) => [s.eventTypeExpandedMap],
+            (eventTypeExpandedMap) =>
+                (eventType: string): boolean => {
+                    return eventTypeExpandedMap[eventType] ?? true
+                },
         ],
     }),
 

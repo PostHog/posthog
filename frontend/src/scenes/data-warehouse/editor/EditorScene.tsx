@@ -79,7 +79,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
-        setQuery: setSourceQuery,
+        setQuery: (setter) => setSourceQuery(setter(sourceQuery)),
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -108,7 +108,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     const variablesLogicProps: VariablesLogicProps = {
         key: dataVisualizationLogicProps.key,
         readOnly: false,
-        queryInput,
+        queryInput: queryInput ?? '',
         sourceQuery,
         setQuery: setSourceQuery,
         onUpdate: (query) => {
@@ -123,7 +123,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
                     <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
                         <BindLogic logic={variablesLogic} props={variablesLogicProps}>
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                                <BindLogic logic={outputPaneLogic} props={{}}>
+                                <BindLogic logic={outputPaneLogic} props={{ tabId }}>
                                     <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
                                         <div
                                             data-attr="editor-scene"
