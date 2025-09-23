@@ -1414,7 +1414,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.stopAnimation()
         },
         setSpeed: () => {
-            if (isWatchableMode(props.mode)) {
+            if (!isWatchableMode(props.mode)) {
                 actions.syncPlayerSpeed()
             }
         },
