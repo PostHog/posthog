@@ -1,6 +1,7 @@
 import { LogicWrapper, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
@@ -138,6 +139,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insight,
             redirectToInsight,
         }),
+        setInsightFeedback: (feedback: 'liked' | 'disliked') => ({ feedback }),
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -335,6 +337,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             {
                 setSuggestedQuery: (_, { suggestedQuery }) => suggestedQuery,
                 saveInsight: () => null,
+            },
+        ],
+        insightFeedback: [
+            null as 'liked' | 'disliked' | null,
+            {
+                persist: true,
+                prefix: `${window.POSTHOG_APP_CONTEXT?.current_team?.id}_`,
+            },
+            {
+                setInsightFeedback: (_, { feedback }) => feedback,
             },
         ],
     })),
@@ -599,6 +611,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 logic.actions.addInsight(newInsight)
             }
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
+        },
+        setInsightFeedback: ({ feedback }) => {
+            const eventName = `customer-analytics-insight-${feedback}`
+            posthog.capture(eventName, {
+                insight_id: values.insight.short_id,
+                insight_name: values.insight.name,
+                dashboard_id: values.insightProps.dashboardId,
+            })
+            lemonToast.success(`Insight ${feedback}`)
         },
     })),
     events(({ props, actions }) => ({

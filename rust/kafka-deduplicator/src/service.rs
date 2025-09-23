@@ -75,15 +75,17 @@ impl KafkaDeduplicatorService {
         // Create checkpoint manager and inject an exporter to enable uploads
         let checkpoint_config = CheckpointConfig {
             checkpoint_interval: config.checkpoint_interval(),
-            cleanup_interval: config.cleanup_interval(),
+            cleanup_interval: config.checkpoint_cleanup_interval(),
             local_checkpoint_dir: config.local_checkpoint_dir.clone(),
             s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
             s3_key_prefix: config.s3_key_prefix.clone(),
-            full_upload_interval: config.full_upload_interval,
+            full_upload_interval: config.checkpoint_full_upload_interval,
             aws_region: config.aws_region.clone(),
             max_local_checkpoints: config.max_local_checkpoints,
             max_checkpoint_retention_hours: config.max_checkpoint_retention_hours,
             max_concurrent_checkpoints: config.max_concurrent_checkpoints,
+            checkpoint_gate_interval: config.checkpoint_gate_interval(),
+            checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
             s3_timeout: config.s3_timeout(),
         };
 
