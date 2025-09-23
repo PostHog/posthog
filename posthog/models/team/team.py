@@ -223,7 +223,6 @@ class CookielessServerHashMode(models.IntegerChoices):
 
 
 class SessionRecordingRetentionPeriod(models.TextChoices):
-    LEGACY = "legacy", "Legacy Retention"
     THIRTY_DAYS = "30d", "30 Days"
     NINETY_DAYS = "90d", "90 Days"
     ONE_YEAR = "1y", "1 Year"
@@ -353,9 +352,9 @@ class Team(UUIDTClassicModel):
     )
     session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "session_recording", "editor")
     session_recording_retention_period = models.CharField(
-        max_length=6,
+        max_length=3,
         choices=SessionRecordingRetentionPeriod.choices,
-        default=SessionRecordingRetentionPeriod.LEGACY,
+        default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
     survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
@@ -428,11 +427,6 @@ class Team(UUIDTClassicModel):
 
     # DEPRECATED, DISUSED: recordings on CH are cleared with Clickhouse's TTL
     session_recording_retention_period_days = models.IntegerField(null=True, default=None, blank=True)
-    session_recording_retention_period = models.CharField(
-        max_length=6,
-        choices=SessionRecordingRetentionPeriod.choices,
-        default=SessionRecordingRetentionPeriod.LEGACY,
-    )
     # DEPRECATED, DISUSED: plugins are enabled for everyone now
     plugins_opt_in = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data

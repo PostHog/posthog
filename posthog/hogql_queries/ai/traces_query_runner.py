@@ -103,7 +103,6 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 SELECT properties.$ai_trace_id as trace_id
                 FROM events
                 WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-                  AND properties.$ai_trace_id IS NOT NULL
                   AND {subquery_conditions}
                 ORDER BY timestamp DESC
                 LIMIT 1 BY properties.$ai_trace_id
@@ -273,10 +272,16 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         )
 
     def _get_subquery_filter(self) -> ast.Expr:
+        exprs: list[ast.Expr] = [
+            ast.Call(name="isNotNull", args=[ast.Field(chain=["properties", "$ai_trace_id"])]),
+            self._get_where_clause(),
+        ]
+
         properties_filter = self._get_properties_filter()
-        if properties_filter is None:
-            return self._get_where_clause()
-        return ast.And(exprs=[self._get_where_clause(), properties_filter])
+        if properties_filter is not None:
+            exprs.append(properties_filter)
+
+        return ast.And(exprs=exprs)
 
     def _get_properties_filter(self) -> ast.Expr | None:
         property_filters: list[ast.Expr] = []

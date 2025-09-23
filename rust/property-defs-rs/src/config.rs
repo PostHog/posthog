@@ -14,8 +14,9 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub read_groups_from_persons_db: bool,
 
-    // if populated, we set up a connection pool to the new persons DB for reading group type mappings
-    pub database_persons_url: Option<String>,
+    // connection string for the new persons DB; unused if not enabled with read_groups_from_persons_db
+    #[envconfig(default = "")]
+    pub database_persons_url: String,
 
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,

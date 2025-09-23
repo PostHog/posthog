@@ -830,6 +830,16 @@ class _Printer(Visitor[str]):
         if hack_sessions_timestamp == left or hack_sessions_timestamp == right:
             not_nullable = True
 
+        # :HACK: Prevent ifNull() wrapping for $ai_trace_id to allow bloom filter index usage
+        # The materialized column mat_$ai_trace_id has a bloom filter index for performance
+        if (
+            "mat_$ai_trace_id" in left
+            or "mat_$ai_trace_id" in right
+            or "$ai_trace_id" in left
+            or "$ai_trace_id" in right
+        ):
+            not_nullable = True
+
         constant_lambda = None
         value_if_one_side_is_null = False
         value_if_both_sides_are_null = False
@@ -1576,7 +1586,14 @@ class _Printer(Visitor[str]):
 
         materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
+            # Special handling for $ai_trace_id to avoid nullIf wrapping for bloom filter index optimization
             if (
+                len(type.chain) == 1
+                and type.chain[0] == "$ai_trace_id"
+                and isinstance(materialized_property_source, PrintableMaterializedColumn)
+            ):
+                materialized_property_sql = str(materialized_property_source)
+            elif (
                 isinstance(materialized_property_source, PrintableMaterializedColumn)
                 and not materialized_property_source.is_nullable
             ):
@@ -1829,6 +1846,8 @@ class _Printer(Visitor[str]):
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
     def _is_nullable(self, node: ast.Expr) -> bool:
+        if node.type and not node.type.nullable:
+            return False
         if isinstance(node, ast.Constant):
             return node.value is None
         elif isinstance(node.type, ast.PropertyType):

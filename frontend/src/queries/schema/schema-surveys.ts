@@ -37,6 +37,7 @@ export type SurveyQuestionBranchingType = 'next_question' | 'end' | 'response_ba
 export interface SurveyQuestionSchema {
     type: SurveyQuestionType
     question: string
+    id?: string
     description?: string
     descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean

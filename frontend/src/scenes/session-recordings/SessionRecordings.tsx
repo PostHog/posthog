@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import {
     AuthorizedUrlListType,
     authorizedUrlListLogic,
@@ -20,7 +21,6 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -80,22 +80,19 @@ function Header(): JSX.Element {
                         )}
 
                         {tab === ReplayTabs.Playlists && (
-                            <LemonButton
-                                type="primary"
-                                onClick={(e) => newPlaylistHandler.onEvent?.(e)}
-                                data-attr="save-recordings-playlist-button"
-                                loading={newPlaylistHandler.loading}
-                                accessControl={{
-                                    resourceType: AccessControlResourceType.SessionRecording,
-                                    minAccessLevel: AccessControlLevel.Editor,
-                                    userAccessLevel:
-                                        getAppContext()?.resource_access_control?.[
-                                            AccessControlResourceType.SessionRecording
-                                        ],
-                                }}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.SessionRecording}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                New collection
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={(e) => newPlaylistHandler.onEvent?.(e)}
+                                    data-attr="save-recordings-playlist-button"
+                                    loading={newPlaylistHandler.loading}
+                                >
+                                    New collection
+                                </LemonButton>
+                            </AccessControlAction>
                         )}
                     </>
                 }

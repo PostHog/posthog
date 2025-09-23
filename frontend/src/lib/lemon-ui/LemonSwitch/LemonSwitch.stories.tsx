@@ -1,6 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonSwitchProps, LemonSwitch as RawLemonSwitch } from './LemonSwitch'
@@ -122,26 +124,20 @@ SizesLoading.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 export const WithAccessControl = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
-            <LemonSwitch
-                label="Enabled (admin ≥ admin)"
-                checked={true}
-                onChange={() => {}}
-                accessControl={{
-                    resourceType: AccessControlResourceType.Project,
-                    minAccessLevel: AccessControlLevel.Admin,
-                    userAccessLevel: AccessControlLevel.Admin,
-                }}
-            />
-            <LemonSwitch
-                label="Disabled (viewer < admin)"
-                checked={false}
-                onChange={() => {}}
-                accessControl={{
-                    resourceType: AccessControlResourceType.Project,
-                    minAccessLevel: AccessControlLevel.Admin,
-                    userAccessLevel: AccessControlLevel.Viewer,
-                }}
-            />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Project}
+                minAccessLevel={AccessControlLevel.Admin}
+                userAccessLevel={AccessControlLevel.Admin}
+            >
+                <LemonSwitch label="Enabled (admin ≥ admin)" checked={true} onChange={() => {}} />
+            </AccessControlAction>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Project}
+                minAccessLevel={AccessControlLevel.Admin}
+                userAccessLevel={AccessControlLevel.Viewer}
+            >
+                <LemonSwitch label="Disabled (viewer < admin)" checked={false} onChange={() => {}} />
+            </AccessControlAction>
         </div>
     )
 }
