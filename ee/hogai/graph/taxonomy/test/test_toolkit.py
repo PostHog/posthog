@@ -134,24 +134,24 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
                 results=results,
             )
 
-    # def test_retrieve_entity_properties_person(self):
-    #     self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
-    #     result = self.toolkit.retrieve_entity_properties("person")
-    #     self.assertIn("email", result)
-    #     self.assertIn("String", result)
+    def test_retrieve_entity_properties_person(self):
+        self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
+        result = self.toolkit.retrieve_entity_properties("person")
+        self.assertIn("email", result)
+        self.assertIn("String", result)
 
-    # def test_retrieve_entity_properties_session(self):
-    #     result = self.toolkit.retrieve_entity_properties("session")
-    #     self.assertIn("$session_duration", result)
-    #     self.assertIn("properties", result)
+    def test_retrieve_entity_properties_session(self):
+        result = self.toolkit.retrieve_entity_properties("session")
+        self.assertIn("$session_duration", result)
+        self.assertIn("properties", result)
 
-    # def test_retrieve_entity_properties_group(self):
-    #     create_group_type_mapping_without_created_at(
-    #         team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
-    #     )
-    #     self._create_property_definition(PropertyDefinition.Type.GROUP, "org_name", group_type_index=0)
-    #     result = self.toolkit.retrieve_entity_properties("organization")
-    #     self.assertIn("org_name", result)
+    def test_retrieve_entity_properties_group(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
+        )
+        self._create_property_definition(PropertyDefinition.Type.GROUP, "org_name", group_type_index=0)
+        result = self.toolkit.retrieve_entity_properties("organization")
+        self.assertIn("org_name", result)
 
     @parameterized.expand(
         [
