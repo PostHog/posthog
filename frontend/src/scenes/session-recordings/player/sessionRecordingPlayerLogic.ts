@@ -112,6 +112,9 @@ export enum SessionRecordingPlayerMode {
     Video = 'video',
 }
 
+const isWatchableMode = (mode: SessionRecordingPlayerMode | undefined): boolean =>
+    [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook].includes(mode)
+
 const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
@@ -404,7 +407,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         pauseIframePlayback: true,
         restartIframePlayback: true,
         setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
-        setRootFrame: (frame: HTMLDivElement) => ({ frame }),
+        setRootFrame: (frame: HTMLDivElement | null) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
         incrementErrorCount: true,
@@ -591,13 +594,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         : state
                 },
                 startBuffer: (state) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
+                    if (!isWatchableMode(props.mode)) {
                         return state
                     }
                     return updatePlayerTimeTrackingIfChanged(state, 'buffering')
                 },
                 endBuffer: (state) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
+                    if (!isWatchableMode(props.mode)) {
                         return state
                     }
 
@@ -610,21 +613,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return updatePlayerTimeTracking(state, state.state)
                 },
                 setPlay: (state) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
+                    if (!isWatchableMode(props.mode)) {
                         return state
                     }
 
                     return updatePlayerTimeTrackingIfChanged(state, 'playing')
                 },
                 setPause: (state) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
+                    if (!isWatchableMode(props.mode)) {
                         return state
                     }
 
                     return updatePlayerTimeTrackingIfChanged(state, 'paused')
                 },
                 setEndReached: (state, { reached }) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
+                    if (!isWatchableMode(props.mode)) {
                         return state
                     }
 
@@ -635,7 +638,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return updatePlayerTimeTrackingIfChanged(state, 'ended')
                 },
                 setPlayerError: (state) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
+                    if (!isWatchableMode(props.mode)) {
                         return state
                     }
 
@@ -1109,10 +1112,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             actions.setPlayer(null)
 
-            if (values.rootFrame) {
-                values.rootFrame.innerHTML = '' // Clear the previously drawn frames
-            }
-
             if (
                 !values.rootFrame ||
                 windowId === undefined ||
@@ -1149,7 +1148,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ...COMMON_REPLAYER_CONFIG,
                 // these two settings are attempts to improve performance of running two Replayers at once
                 // the main player and a preview player
-                mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
+                mouseTail: isWatchableMode(props.mode),
                 useVirtualDom: false,
                 plugins,
                 onError: (error) => {
@@ -1159,33 +1158,34 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
 
-            // Listen for resource errors from rrweb
-            replayer.on('fullsnapshot-rebuilded', () => {
-                const iframeContentWindow = replayer.iframe.contentWindow
-                const iframeFetch = replayer.iframe.contentWindow?.fetch
+            if (isWatchableMode(props.mode)) {
+                replayer.on('fullsnapshot-rebuilded', () => {
+                    const iframeContentWindow = replayer.iframe.contentWindow
+                    const iframeFetch = replayer.iframe.contentWindow?.fetch
 
-                if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
-                    // We have to monkey patch fetch as rrweb doesn't provide a way to listen for these errors
-                    // We do this after every fullsnapshot-rebuilded as rrweb creates a new iframe each time
-                    iframeContentWindow.fetch = wrapFetchAndReport({
-                        fetch: iframeFetch,
-                        onError: (errorDetails: ResourceErrorDetails) => {
-                            actions.caughtAssetErrorFromIframe(errorDetails)
-                        },
-                    })
-                    ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
-                }
+                    if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
+                        // We have to monkey patch fetch as rrweb doesn't provide a way to listen for these errors
+                        // We do this after every fullsnapshot-rebuilded as rrweb creates a new iframe each time
+                        iframeContentWindow.fetch = wrapFetchAndReport({
+                            fetch: iframeFetch,
+                            onError: (errorDetails: ResourceErrorDetails) => {
+                                actions.caughtAssetErrorFromIframe(errorDetails)
+                            },
+                        })
+                        ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+                    }
 
-                if (iframeContentWindow) {
-                    // Clean up any previous listeners before adding new ones
-                    cache.iframeErrorListenerCleanup?.()
+                    if (iframeContentWindow) {
+                        // Clean up any previous listeners before adding new ones
+                        cache.iframeErrorListenerCleanup?.()
 
-                    cache.iframeErrorListenerCleanup = registerErrorListeners({
-                        iframeWindow: iframeContentWindow,
-                        onError: (error) => actions.caughtAssetErrorFromIframe(error),
-                    })
-                }
-            })
+                        cache.iframeErrorListenerCleanup = registerErrorListeners({
+                            iframeWindow: iframeContentWindow,
+                            onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                        })
+                    }
+                })
+            }
 
             actions.setPlayer({ replayer, windowId })
         },
@@ -1414,7 +1414,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.stopAnimation()
         },
         setSpeed: () => {
-            if (props.mode !== SessionRecordingPlayerMode.Preview) {
+            if (isWatchableMode(props.mode)) {
                 actions.syncPlayerSpeed()
             }
         },
@@ -1818,21 +1818,33 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     beforeUnmount(({ values, actions, cache, props }) => {
-        if (props.mode === SessionRecordingPlayerMode.Preview) {
-            values.player?.replayer?.destroy()
-            return
-        }
-
         actions.stopAnimation()
 
         cache.hasInitialized = false
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
         cache.pausedMediaElements = []
+        cache.iframeErrorListenerCleanup?.()
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
+        actions.setRootFrame(null)
 
         if (cache.playerTimeTrackingTimer) {
             clearTimeout(cache.playerTimeTrackingTimer)
+        }
+
+        if (cache.consoleDebounceTimers) {
+            Object.values(cache.consoleDebounceTimers as BuiltLogging['timers']).forEach((timer) => {
+                if (timer) {
+                    clearTimeout(timer)
+                }
+            })
+        }
+        ;(window as any)[`__posthog_player_logs`] = undefined
+        ;(window as any)[`__posthog_player_warnings`] = undefined
+
+        if (!isWatchableMode(props.mode)) {
+            // we don't capture analytics
+            return
         }
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
@@ -1855,24 +1867,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             playTimeMs === 0 ? 'recording viewed with no playtime summary' : 'recording viewed summary',
             summaryAnalytics
         )
-
-        if (cache.consoleDebounceTimers) {
-            Object.values(cache.consoleDebounceTimers as BuiltLogging['timers']).forEach((timer) => {
-                if (timer) {
-                    clearTimeout(timer)
-                }
-            })
-        }
-        ;(window as any)[`__posthog_player_logs`] = undefined
-        ;(window as any)[`__posthog_player_warnings`] = undefined
     }),
 
     afterMount(({ props, actions, cache }) => {
-        if (props.mode === SessionRecordingPlayerMode.Preview || props.sessionRecordingId.trim() === '') {
+        cache.pausedMediaElements = []
+
+        if (!isWatchableMode(props.mode)) {
             return
         }
 
-        cache.pausedMediaElements = []
         cache.fullScreenListener = () => {
             actions.setIsFullScreen(document.fullscreenElement !== null)
         }
