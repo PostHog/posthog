@@ -164,7 +164,6 @@ export class EmailTrackingService {
     ): Promise<{ status: number; message?: string; metrics?: AppMetricType[] }> {
         const okResponse = { status: 200, message: 'OK' }
 
-        // TODO: Add verification of webhook request once we move to SES
         if (!req.rawBody) {
             return { status: 403, message: 'Missing request body' }
         }
