@@ -62,6 +62,7 @@ For events requiring updates based on Step 1:
    - Remove error language if no error occurred
    - Focus on the actual user action observed
    - Keep descriptions concise (4-8 words)
+   - If the current description properly represents the event - don't generate a new one
    
    Examples:
    - "Blocking store path exception rendered Error tracking unusable" → "Clicked into Error tracking feature"
