@@ -96,7 +96,7 @@ import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
-import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
+import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
@@ -1375,8 +1375,36 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     onRemoveVariant={removeVariant}
                                     onDistributeEqually={distributeVariantsEqually}
                                     canEditVariant={canEditVariant}
-                                    hasExperiment={hasExperiment}
                                     isDraftExperiment={isDraftExperiment}
+                                    onVariantChange={(index, field, value) => {
+                                        const currentVariants = [...variants]
+                                        currentVariants[index] = { ...currentVariants[index], [field]: value }
+                                        setFeatureFlag({
+                                            ...featureFlag,
+                                            filters: {
+                                                ...featureFlag.filters,
+                                                multivariate: {
+                                                    ...featureFlag.filters.multivariate,
+                                                    variants: currentVariants,
+                                                },
+                                            },
+                                        })
+                                    }}
+                                    onPayloadChange={(index, value) => {
+                                        const currentPayloads = { ...featureFlag.filters.payloads }
+                                        if (value === undefined) {
+                                            delete currentPayloads[index]
+                                        } else {
+                                            currentPayloads[index] = value
+                                        }
+                                        setFeatureFlag({
+                                            ...featureFlag,
+                                            filters: {
+                                                ...featureFlag.filters,
+                                                payloads: currentPayloads,
+                                            },
+                                        })
+                                    }}
                                 />
                             </SceneSection>
                         </>

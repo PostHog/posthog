@@ -127,8 +127,9 @@ def process_scheduled_changes() -> None:
                     else:
                         failure_context["error_classification"] = "recoverable"
 
-                    # Store as JSON string
-                    scheduled_change.failure_reason = json.dumps(failure_context)
+                    # Store as JSON string, truncated to fit database field limit
+                    failure_json = json.dumps(failure_context)
+                    scheduled_change.failure_reason = failure_json[:400] if len(failure_json) > 400 else failure_json
 
                     # Only mark as permanently failed if we won't retry
                     if not will_retry:

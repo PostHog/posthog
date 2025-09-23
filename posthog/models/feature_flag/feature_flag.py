@@ -399,6 +399,21 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             serializer_data["filters"] = {**current_filters, "groups": current_groups + new_groups}
         elif payload["operation"] == "update_status":
             serializer_data["active"] = payload["value"]
+        elif payload["operation"] == "update_variants":
+            current_filters = self.get_filters()
+            variant_data = payload["value"]
+
+            new_variants = variant_data.get("variants", [])
+            new_payloads = variant_data.get("payloads", {})
+
+            updated_multivariate = current_filters.get("multivariate", {})
+            updated_multivariate["variants"] = new_variants
+
+            serializer_data["filters"] = {
+                **current_filters,
+                "multivariate": updated_multivariate,
+                "payloads": new_payloads,
+            }
         else:
             raise Exception(f"Unrecognized operation: {payload['operation']}")
 

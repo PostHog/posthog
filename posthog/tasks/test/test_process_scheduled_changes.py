@@ -515,3 +515,275 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertTrue(failure_data["retry_exhausted"])  # Indicates limit reached
         self.assertEqual(failure_data["retry_count"], MAX_RETRY_ATTEMPTS)
         self.assertEqual(failure_data["max_retries"], MAX_RETRY_ATTEMPTS)
+
+    def test_schedule_feature_flag_update_variants(self) -> None:
+        """Test that scheduled update_variants operation correctly updates variants and payloads"""
+        # Create initial variants
+        initial_variants = [
+            {
+                "key": "control",
+                "name": "Control",
+                "rollout_percentage": 50,
+            },
+            {
+                "key": "test",
+                "name": "Test",
+                "rollout_percentage": 50,
+            },
+        ]
+
+        # Create initial payloads (key-based format for serializer validation)
+        initial_payloads = {
+            "control": {"message": "control message"},
+            "test": {"message": "test message"},
+        }
+
+        feature_flag = FeatureFlag.objects.create(
+            name="Variant Flag",
+            key="variant-flag",
+            active=True,
+            filters={
+                "groups": [],
+                "multivariate": {"variants": initial_variants},
+                "payloads": initial_payloads,
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Create new variants configuration
+        new_variants = [
+            {
+                "key": "control",
+                "name": "Control Updated",
+                "rollout_percentage": 30,
+            },
+            {
+                "key": "test",
+                "name": "Test Updated",
+                "rollout_percentage": 40,
+            },
+            {
+                "key": "new-variant",
+                "name": "New Variant",
+                "rollout_percentage": 30,
+            },
+        ]
+
+        # Create new payloads (key-based format for serializer validation)
+        new_payloads = {
+            "control": {"message": "updated control message"},
+            "test": {"message": "updated test message"},
+            "new-variant": {"message": "new variant message"},
+        }
+
+        payload = {
+            "operation": "update_variants",
+            "value": {
+                "variants": new_variants,
+                "payloads": new_payloads,
+            },
+        }
+
+        ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload=payload,
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+            created_by=self.user,
+        )
+
+        process_scheduled_changes()
+
+        # Verify the flag was updated
+        updated_flag = FeatureFlag.objects.get(key="variant-flag")
+
+        # Check that variants were updated
+        self.assertEqual(len(updated_flag.filters["multivariate"]["variants"]), 3)
+        self.assertEqual(updated_flag.filters["multivariate"]["variants"], new_variants)
+
+        # Check that payloads were updated
+        self.assertEqual(updated_flag.filters["payloads"], new_payloads)
+
+        # Verify other filter properties were preserved
+        self.assertEqual(updated_flag.filters["groups"], [])
+        self.assertTrue(updated_flag.active)
+
+    def test_schedule_feature_flag_update_variants_preserve_other_filters(self) -> None:
+        """Test that update_variants preserves existing release conditions and other filter properties"""
+        # Create initial setup with release conditions
+        initial_variants = [
+            {"key": "control", "name": "Control", "rollout_percentage": 50},
+            {"key": "test", "name": "Test", "rollout_percentage": 50},
+        ]
+
+        existing_release_condition = {
+            "variant": None,
+            "properties": [{"key": "$browser", "type": "person", "value": ["Chrome"], "operator": "exact"}],
+            "rollout_percentage": 75,
+        }
+
+        feature_flag = FeatureFlag.objects.create(
+            name="Complex Variant Flag",
+            key="complex-variant-flag",
+            active=True,
+            filters={
+                "groups": [existing_release_condition],
+                "multivariate": {"variants": initial_variants},
+                "payloads": {"control": {"msg": "control"}, "test": {"msg": "test"}},
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Update only variants, not release conditions
+        new_variants = [
+            {"key": "control", "name": "Control V2", "rollout_percentage": 60},
+            {"key": "test", "name": "Test V2", "rollout_percentage": 40},
+        ]
+
+        new_payloads = {
+            "control": {"msg": "control v2"},
+            "test": {"msg": "test v2"},
+        }
+
+        payload = {
+            "operation": "update_variants",
+            "value": {
+                "variants": new_variants,
+                "payloads": new_payloads,
+            },
+        }
+
+        ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload=payload,
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+            created_by=self.user,
+        )
+
+        process_scheduled_changes()
+
+        # Verify the flag was updated
+        updated_flag = FeatureFlag.objects.get(key="complex-variant-flag")
+
+        # Check that variants were updated
+        self.assertEqual(updated_flag.filters["multivariate"]["variants"], new_variants)
+        self.assertEqual(updated_flag.filters["payloads"], new_payloads)
+
+        # Check that existing release conditions were preserved
+        self.assertEqual(len(updated_flag.filters["groups"]), 1)
+        self.assertEqual(updated_flag.filters["groups"][0], existing_release_condition)
+
+    def test_schedule_feature_flag_update_variants_empty_variants_with_payloads(self) -> None:
+        """Test that update_variants works correctly when clearing variants but having old payloads"""
+        # Create initial setup with variants and payloads
+        initial_variants = [
+            {"key": "control", "name": "Control", "rollout_percentage": 50},
+            {"key": "test", "name": "Test", "rollout_percentage": 50},
+        ]
+
+        feature_flag = FeatureFlag.objects.create(
+            name="Test Variant Flag",
+            key="test-variant-flag",
+            active=True,
+            filters={
+                "groups": [],
+                "multivariate": {"variants": initial_variants},
+                "payloads": {"control": {"msg": "control"}, "test": {"msg": "test"}},
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Clear variants and payloads (this was causing the validation error)
+        payload = {
+            "operation": "update_variants",
+            "value": {
+                "variants": [],  # Empty variants
+                "payloads": {},  # Empty payloads
+            },
+        }
+
+        ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload=payload,
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+            created_by=self.user,
+        )
+
+        process_scheduled_changes()
+
+        # Verify the flag was updated correctly
+        updated_flag = FeatureFlag.objects.get(key="test-variant-flag")
+
+        # Check that variants were cleared
+        self.assertEqual(updated_flag.filters["multivariate"]["variants"], [])
+        self.assertEqual(updated_flag.filters["payloads"], {})
+
+    def test_schedule_feature_flag_update_variants_with_mismatched_payload_keys_fails(self) -> None:
+        """Test that update_variants fails validation when payload keys don't match variant keys"""
+        initial_variants = [
+            {"key": "control", "name": "Control", "rollout_percentage": 50},
+            {"key": "test", "name": "Test", "rollout_percentage": 50},
+        ]
+
+        feature_flag = FeatureFlag.objects.create(
+            name="Mismatched Payload Flag",
+            key="mismatched-payload-flag",
+            active=True,
+            filters={
+                "groups": [],
+                "multivariate": {"variants": initial_variants},
+                "payloads": {"control": {"msg": "control"}, "test": {"msg": "test"}},
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        new_variants = [
+            {"key": "orange", "name": "a", "rollout_percentage": 40},
+            {"key": "apples", "name": "b", "rollout_percentage": 25},
+            {"key": "test", "name": "c", "rollout_percentage": 5},
+            {"key": "variant", "name": "d", "rollout_percentage": 30},
+        ]
+
+        mismatched_payloads = {
+            "0": '{"value": 1}',
+            "1": '{"value": 2}',
+            "2": '{"value": 35}',
+            "3": '{"value": 5}',
+        }
+
+        payload = {
+            "operation": "update_variants",
+            "value": {
+                "variants": new_variants,
+                "payloads": mismatched_payloads,
+            },
+        }
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload=payload,
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+            created_by=self.user,
+        )
+
+        process_scheduled_changes()
+
+        updated_flag = FeatureFlag.objects.get(key="mismatched-payload-flag")
+
+        self.assertEqual(len(updated_flag.filters["multivariate"]["variants"]), 2)
+        self.assertEqual(updated_flag.filters["multivariate"]["variants"], initial_variants)
+
+        updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
+        self.assertIsNotNone(updated_scheduled_change.failure_reason)
+        self.assertEqual(updated_scheduled_change.failure_count, 1)
