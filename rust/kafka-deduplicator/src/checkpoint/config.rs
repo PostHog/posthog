@@ -34,6 +34,13 @@ pub struct CheckpointConfig {
     /// Maximum number of concurrent checkpoints to perform
     pub max_concurrent_checkpoints: usize,
 
+    /// How often to attempt to check if a slot is available
+    /// when max_concurrent_checkpoints slots are occupied
+    pub checkpoint_gate_interval: Duration,
+
+    /// Timeout for checkpoint worker graceful shutdown (applied in CheckpointManager::stop)
+    pub checkpoint_worker_shutdown_timeout: Duration,
+
     /// Timeout for S3 operations
     pub s3_timeout: Duration,
 }
@@ -41,6 +48,8 @@ pub struct CheckpointConfig {
 impl Default for CheckpointConfig {
     fn default() -> Self {
         Self {
+            // NOTE! production & local dev defaults can be overridden in top-level config.rs
+            //or env vars; assume these defaults are only applied as-is in unit tests and CI
             checkpoint_interval: Duration::from_secs(300), // 5 minutes (TBD)
             cleanup_interval: Duration::from_secs(1320),   // 22 minutes (TBD)
             local_checkpoint_dir: "./checkpoints".to_string(),
@@ -48,9 +57,11 @@ impl Default for CheckpointConfig {
             s3_key_prefix: "deduplication-checkpoints".to_string(),
             full_upload_interval: 0, // TODO: always full checkpoints until we impl incremental
             aws_region: "us-east-1".to_string(),
-            max_local_checkpoints: 10, // number of most-recent local checkpoints to retain per partition
-            max_checkpoint_retention_hours: 72, // no local checkpoint is stored longer than this
-            max_concurrent_checkpoints: 3, // max number of concurrent checkpoint jobs to run
+            max_local_checkpoints: 10,
+            max_checkpoint_retention_hours: 72,
+            max_concurrent_checkpoints: 3,
+            checkpoint_gate_interval: Duration::from_millis(200),
+            checkpoint_worker_shutdown_timeout: Duration::from_secs(10),
             s3_timeout: Duration::from_secs(300), // 5 minutes
         }
     }

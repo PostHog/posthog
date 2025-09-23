@@ -100,8 +100,7 @@ class Command(BaseCommand):
 
         if use_temporal:
             # Use Temporal workflow for parallel processing
-            start_time = time.time()
-            result = self.run_temporal_workflow(
+            self.run_temporal_workflow(
                 team_id=team_id,
                 cohort_id=cohort_id,
                 condition=condition,
@@ -113,31 +112,15 @@ class Command(BaseCommand):
                 conditions_per_workflow=conditions_per_workflow,
             )
 
-            if result:
-                total_time_seconds = round(time.time() - start_time, 2)
+            logger.info(
+                "Coordinator workflow scheduled child workflows",
+                parallelism=parallelism,
+            )
 
-                logger.info(
-                    "Completed (Temporal parallel processing)",
-                    total_memberships=result["total_memberships"],
-                    conditions_processed=result["conditions_processed"],
-                    batches_processed=result["batches_processed"],
-                    parallelism=parallelism,
-                    total_time_seconds=total_time_seconds,
-                )
-
-                self.stdout.write(
-                    f"Workflow completed: {result['total_memberships']} memberships from {result['conditions_processed']} conditions"
-                )
-                self.stdout.write(
-                    f"Processed across {result.get('child_workflows', result.get('batches_processed', 0))} parallel child workflows"
-                )
-                self.stdout.write(f"Total time: {total_time_seconds} seconds")
-
-                # Note: Individual membership data not returned (only counts for performance)
-                self.stdout.write(
-                    f"\nNote: Processed {result['total_memberships']} total memberships (counts only, no individual data returned)"
-                )
-                self.stdout.write("Individual membership data can be written to storage in future versions.")
+            self.stdout.write(f"Coordinator workflow scheduled {parallelism} child workflows")
+            self.stdout.write(
+                "Child workflows are running in the background. Check Temporal UI for progress and results."
+            )
         else:
             # Legacy sequential processing
             logger.info("Using legacy sequential processing")
@@ -186,7 +169,7 @@ class Command(BaseCommand):
         parallelism: int,
         conditions_page_size: int,
         conditions_per_workflow: int,
-    ) -> dict[str, Any] | None:
+    ) -> None:
         """Run the Temporal workflow for parallel processing."""
 
         async def _run_workflow():
@@ -211,8 +194,8 @@ class Command(BaseCommand):
             logger.info(f"Starting Temporal coordinator workflow: {workflow_id}")
 
             try:
-                # Execute the coordinator workflow
-                result = await client.execute_workflow(
+                # Execute the coordinator workflow (no result expected)
+                await client.execute_workflow(
                     "behavioral-cohorts-coordinator",
                     inputs,
                     id=workflow_id,
@@ -221,7 +204,6 @@ class Command(BaseCommand):
                 )
 
                 logger.info(f"Workflow {workflow_id} completed successfully")
-                return result
 
             except Exception as e:
                 logger.exception(f"Workflow execution failed: {e}")
@@ -229,11 +211,9 @@ class Command(BaseCommand):
 
         try:
             # Run the async function
-            result = asyncio.run(_run_workflow())
-            return result
+            asyncio.run(_run_workflow())
         except Exception as e:
             logger.exception(f"Failed to execute Temporal workflow: {e}")
-            return None
 
     def get_unique_conditions(
         self,

@@ -44,7 +44,7 @@
     window.JS_URL = "{{ js_url|default:"" }}";
     window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
     window.JS_KEA_VERBOSE_LOGGING = {{js_kea_verbose_logging | yesno:"true,false"}};
-    window.APP_STATE_LOGGING_SAMPLE_RATE = {{  js_app_state_logging_sample_rate|default:"0.1" }};
+    window.APP_STATE_LOGGING_SAMPLE_RATE = {{  js_app_state_logging_sample_rate|default:"0" }};
 </script>
 
 {% if debug and not e2e_testing %}

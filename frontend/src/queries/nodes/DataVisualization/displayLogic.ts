@@ -80,17 +80,17 @@ export const displayLogic = kea<displayLogicType>([
             actions.setGoalLines(chartSettings.goalLines)
         }
     }),
-    subscriptions(({ values, actions }) => ({
+    subscriptions(({ actions }) => ({
         goalLines: (value: GoalLine[]) => {
             const goalLines = value.length > 0 ? value : undefined
 
-            actions.setQuery({
-                ...values.query,
+            actions.setQuery((query) => ({
+                ...query,
                 chartSettings: {
-                    ...values.query.chartSettings,
+                    ...query.chartSettings,
                     goalLines,
                 },
-            })
+            }))
         },
     })),
 ])
