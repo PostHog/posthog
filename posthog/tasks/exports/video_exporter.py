@@ -316,7 +316,6 @@ def record_replay_to_file(
                 if (ext == ".mp4" and recording_duration > DURATION_THRESHOLD_FOR_SPEED_UP)
                 else 1
             )
-            # TODO: Test the idea of using 0.25 playback speed
             # Record for actual_duration (shorter if sped up)
             actual_duration = recording_duration / playback_speed
             page.wait_for_timeout(int(actual_duration * 1000))
