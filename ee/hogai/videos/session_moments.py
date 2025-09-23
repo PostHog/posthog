@@ -96,16 +96,16 @@ class SessionMomentsLLMAnalyzer:
                     self._generate_video_for_single_moment(moment=moment, expires_after_days=expires_after_days)
                 )
         # Collect asset IDs
-        moment_to_asset_id = {}
+        moment_to_asset_id: dict[str, int] = {}
         for moment_id, task in tasks.items():
-            res = task.result()
+            res: int | Exception = task.result()
             if isinstance(res, Exception):
                 logger.exception(
                     f"Failed to generate video for moment {moment} from session {self.session_id} of team {self.team_id}: {res}"
                 )
                 # Not failing explicitly to avoid failing all the generations if one fails
                 continue
-            moment_to_asset_id[moment_id] = await task
+            moment_to_asset_id[moment_id] = res
         # Check if enough moments were generated
         expected_min_moments = ceil(len(moments_input) * failed_moments_min_ratio)
         if expected_min_moments > len(moment_to_asset_id):
