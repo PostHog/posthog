@@ -2638,9 +2638,15 @@ class TestExperimentCRUD(APILicensedTest):
         exp_id = response.json()["id"]
         initial_metrics = response.json()["metrics"]
 
+        expected_initial_fingerprints = {
+            "mean": "de1dab82a19408c2964a29b96df7d1a6c85b3c71b8fe73a9510e0b399d25174f",
+            "funnel": "3bfed12a5bfad881855c3bf35f52fb6fcb0925568b5fb5e876f10c7cc912b3f7",
+            "ratio": "8f713ea90302cc058ce14c2fba5f61423eedc8f406dbf685b7f51f06e2cdad72",
+        }
+
         for metric in initial_metrics:
-            self.assertIn("fingerprint", metric)
-            self.assertIsNotNone(metric["fingerprint"])
+            metric_type = metric["metric_type"]
+            self.assertEqual(metric["fingerprint"], expected_initial_fingerprints[metric_type])
 
         # Step 2: Update with different metrics, conversion windows, start_date, stats_config, exposure_criteria
         updated_funnel_metric = {
@@ -2699,7 +2705,6 @@ class TestExperimentCRUD(APILicensedTest):
             "ratio": "2d82c06a61dabb8b86ca0c317cf64ba9dd33b6744176e0e2777294bf2eec598f",
         }
 
-        # Verify updated fingerprints match expected values (from update method)
         for metric in updated_metrics:
             metric_type = metric["metric_type"]
             self.assertEqual(metric["fingerprint"], expected_updated_fingerprints[metric_type])
