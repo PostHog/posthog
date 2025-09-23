@@ -1287,7 +1287,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
     })),
-    sharedListeners(({ values, props }) => ({
+    sharedListeners(({ values, props, actions }) => ({
         reportRefreshTiming: ({ shortId }) => {
             const refreshStatus = values.refreshStatus[shortId]
 
@@ -1300,6 +1300,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.loadTimer) {
                 const loadingMilliseconds = new Date().getTime() - values.loadTimer.getTime()
                 eventUsageLogic.actions.reportDashboardLoadingTime(loadingMilliseconds, props.id)
+            }
+        },
+        handleDashboardLoadComplete: () => {
+            // Shared logic for refreshing dashboard items after load (used by both regular and streaming loads)
+            if (values.placement !== DashboardPlacement.Export) {
+                // access stored values from dashboardLoadData
+                // as we can't pass them down to this listener
+                const action = values.dashboardLoadData.action!
+                actions.refreshDashboardItems({ action, forceRefresh: false })
+            }
+
+            if (values.shouldReportOnAPILoad) {
+                actions.setShouldReportOnAPILoad(false)
+                actions.reportDashboardViewed()
             }
         },
     })),
@@ -1687,23 +1701,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
 
-            if (values.placement !== DashboardPlacement.Export) {
-                // access stored values from dashboardLoadData
-                // as we can't pass them down to this listener
-                const action = values.dashboardLoadData.action!
-                actions.refreshDashboardItems({ action, forceRefresh: false })
-            }
-
-            if (values.shouldReportOnAPILoad) {
-                actions.setShouldReportOnAPILoad(false)
-                actions.reportDashboardViewed()
-            }
+            sharedListeners.handleDashboardLoadComplete()
         },
         loadDashboardMetadataSuccess: ({ dashboard }) => {
             if (!dashboard) {
                 actions.dashboardNotFound()
                 return // We hit a 404
             }
+        },
+        tileStreamingComplete: () => {
+            sharedListeners.handleDashboardLoadComplete()
         },
         reportDashboardViewed: async (_, breakpoint) => {
             // Caching `dashboard`, as the dashboard might have unmounted after the breakpoint,
