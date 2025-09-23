@@ -11735,6 +11735,67 @@
                 }
             ]
         },
+        "ExperimentMetricTimeseries": {
+            "additionalProperties": false,
+            "properties": {
+                "computed_at": {
+                    "type": ["string", "null"]
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "errors": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "experiment_id": {
+                    "type": "number"
+                },
+                "metric_uuid": {
+                    "type": "string"
+                },
+                "status": {
+                    "enum": ["pending", "completed", "partial", "failed"],
+                    "type": "string"
+                },
+                "timeseries": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ExperimentQueryResponse"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "experiment_id",
+                "metric_uuid",
+                "status",
+                "timeseries",
+                "errors",
+                "computed_at",
+                "created_at",
+                "updated_at"
+            ],
+            "type": "object"
+        },
         "ExperimentMetricType": {
             "enum": ["funnel", "mean", "ratio"],
             "type": "string"
