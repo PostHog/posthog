@@ -27,7 +27,7 @@ export const template: HogFunctionTemplate = {
             required: true,
             default: {
                 to: {
-                    email: '{person.properties.email}',
+                    email: '{{ person.properties.email }}',
                     name: '',
                 },
                 from: {
@@ -37,11 +37,11 @@ export const template: HogFunctionTemplate = {
                 subject: '',
                 preheader: '',
                 text: 'Hello from PostHog!',
-                html: '<div>Hello from PostHog!</div>',
+                html: '<div>Hi {{ person.properties.name }}, this email was sent from PostHog!</div>',
             },
             secret: false,
             description: 'The email message to send. Configure the recipient, sender, subject, and content.',
-            templating: true,
+            templating: 'liquid',
         },
     ],
 }

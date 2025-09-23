@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -9,6 +9,7 @@ import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -26,7 +27,7 @@ import {
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, PipelineStage, ProductKey } from '~/types'
+import { DataWarehouseSavedQuery, ProductKey } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from '../settings/DataWarehouseSourceIcon'
@@ -70,8 +71,14 @@ export const renderTableCount = (count: undefined | number): null | JSX.Element 
     )
 }
 
+export interface EditorSceneLogicProps {
+    tabId: string
+}
+
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
+    props({} as EditorSceneLogicProps),
+    tabAwareScene(),
     connect(() => ({
         values: [
             sceneLogic,
@@ -109,14 +116,20 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         reportAIQueryPromptOpen: true,
         setWasPanelActive: (wasPanelActive: boolean) => ({ wasPanelActive }),
     }),
-    reducers({
+    reducers(() => ({
         wasPanelActive: [
             false,
             {
                 setWasPanelActive: (_, { wasPanelActive }) => wasPanelActive,
             },
         ],
-    }),
+        panelExplicitlyClosed: [
+            false,
+            {
+                [panelLayoutLogic.actionTypes.closePanel]: () => true,
+            },
+        ],
+    })),
     listeners(() => ({
         reportAIQueryPrompted: () => {
             posthog.capture('ai_query_prompted')
@@ -131,7 +144,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             posthog.capture('ai_query_prompt_open')
         },
     })),
-    selectors(({ actions }) => ({
+    selectors(({ actions, props }) => ({
         contents: [
             (s) => [
                 s.relevantViews,
@@ -169,8 +182,8 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                       : null,
                                   onClick: () => {
                                       multitabEditorLogic({
-                                          key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                      }).actions.createTab(`SELECT * FROM ${table.name}`)
+                                          tabId: props.tabId,
+                                      }).actions.createTab('SELECT * FROM ' + table.name)
                                   },
                                   menuItems: [
                                       {
@@ -196,7 +209,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                               }))
                             : dataWarehouseTablesBySourceType,
                     onAdd: () => {
-                        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                        router.actions.push(urls.dataWarehouseSourceNew())
                     },
                     emptyComponentLogic: (items) => {
                         // We will always show the posthog tables, so we wanna check for length == 1 instead of 0
@@ -205,15 +218,15 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     emptyComponent: (
                         <div
                             data-attr="sql-editor-source-empty-state"
-                            className="p-4 text-center flex flex-col justify-center items-center border-t"
+                            className="flex flex-col justify-center items-center p-4 text-center border-t"
                         >
-                            <div className="mb-4 flex justify-center gap-6">
+                            <div className="flex gap-6 justify-center mb-4">
                                 <DataWarehouseSourceIcon type="Postgres" size="small" />
                                 <DataWarehouseSourceIcon type="Stripe" size="small" />
                             </div>
                             <h4 className="mb-2">No data warehouse sources connected</h4>
                             {/* eslint-disable-next-line react/forbid-dom-props */}
-                            <p className="text-muted mb-4 text-xs px-2 break-words w" style={{ whiteSpace: 'normal' }}>
+                            <p className="px-2 mb-4 text-xs break-words text-muted w" style={{ whiteSpace: 'normal' }}>
                                 Import data from external sources like Postgres, Stripe, or other databases to enrich
                                 your analytics.
                             </p>
@@ -224,7 +237,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                         product_type: ProductKey.DATA_WAREHOUSE,
                                         intent_context: ProductIntentContext.SQL_EDITOR_EMPTY_STATE,
                                     })
-                                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                                    router.actions.push(urls.dataWarehouseSourceNew())
                                 }}
                                 center
                                 size="small"
@@ -246,11 +259,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         const onClick = (): void => {
                             isManagedView
                                 ? multitabEditorLogic({
-                                      key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                  }).actions.createTab(`SELECT * FROM ${view.name}`)
+                                      tabId: props.tabId,
+                                  }).actions.createTab('SELECT * FROM ' + view.name)
                                 : isSavedQuery
                                   ? multitabEditorLogic({
-                                        key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                        tabId: props.tabId,
                                     }).actions.editView(view.query.query, view)
                                   : null
                         }
@@ -261,7 +274,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                       label: 'Edit view definition',
                                       onClick: () => {
                                           multitabEditorLogic({
-                                              key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                              tabId: props.tabId,
                                           }).actions.editView(view.query.query, view)
                                       },
                                   },
@@ -391,8 +404,8 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         searchMatch: null,
                         onClick: () => {
                             multitabEditorLogic({
-                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                            }).actions.createTab(`SELECT * FROM ${table.name}`)
+                                tabId: props.tabId,
+                            }).actions.createTab('SELECT * FROM ' + table.name)
                         },
                         menuItems: [
                             {
@@ -441,8 +454,8 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         searchMatch: null,
                         onClick: () => {
                             multitabEditorLogic({
-                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                            }).actions.createTab(`SELECT * FROM ${table.name}`)
+                                tabId: props.tabId,
+                            }).actions.createTab('SELECT * FROM ' + table.name)
                         },
                         menuItems: [
                             {
@@ -507,11 +520,13 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
     })),
-    urlToAction(() => ({
+    urlToAction(({ values }) => ({
         [urls.sqlEditor()]: () => {
-            panelLayoutLogic.actions.showLayoutPanel(true)
-            panelLayoutLogic.actions.setActivePanelIdentifier('Database')
-            panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
+            if (!values.panelExplicitlyClosed) {
+                panelLayoutLogic.actions.showLayoutPanel(true)
+                panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+                panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
+            }
         },
         '*': () => {
             if (router.values.location.pathname !== urls.sqlEditor()) {

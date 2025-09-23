@@ -93,6 +93,7 @@ class MainAssistant(BaseAssistant):
             TaxonomyNodeName.LOOP_NODE,
             AssistantNodeName.SESSION_SUMMARIZATION,
             AssistantNodeName.INSIGHTS_SEARCH,
+            AssistantNodeName.DASHBOARD_CREATION,
         }
 
     @property
@@ -105,11 +106,14 @@ class MainAssistant(BaseAssistant):
 
     @property
     def THINKING_NODES(self) -> set[MaxNodeName]:
-        return {
+        return self.VISUALIZATION_NODES.keys() | {
+            AssistantNodeName.ROOT_TOOLS,
             AssistantNodeName.QUERY_PLANNER,
+            AssistantNodeName.QUERY_EXECUTOR,
             AssistantNodeName.MEMORY_INITIALIZER,
             TaxonomyNodeName.LOOP_NODE,
             AssistantNodeName.SESSION_SUMMARIZATION,
+            AssistantNodeName.DASHBOARD_CREATION,
         }
 
     def get_initial_state(self) -> AssistantState:

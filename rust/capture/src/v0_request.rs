@@ -1,6 +1,7 @@
 use std::io::prelude::*;
 
 use bytes::{Buf, Bytes};
+use chrono::{DateTime, Utc};
 use common_types::{CapturedEvent, RawEngageEvent, RawEvent};
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Deserializer};
@@ -378,7 +379,7 @@ pub struct ProcessingContext {
     pub user_agent: Option<String>,
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
-    pub now: String,
+    pub now: DateTime<Utc>,
     pub client_ip: String,
     pub request_id: String,
     pub path: String,
@@ -418,6 +419,7 @@ pub struct ProcessedEvent {
 pub struct ProcessedEventMetadata {
     pub data_type: DataType,
     pub session_id: Option<String>,
+    pub computed_timestamp: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[cfg(test)]

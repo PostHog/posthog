@@ -2,34 +2,26 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconCopy, IconInfo, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCopy, IconMinusSmall, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
+import { LemonBanner, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
-import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
+import { CohortTypeEnum } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
-import { pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 
 import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
@@ -39,9 +31,11 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { QueryContext } from '~/queries/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
 
 const RESOURCE_TYPE = 'cohort'
@@ -50,29 +44,59 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
 
     const logic = cohortEditLogic(logicProps)
-    const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue } = useActions(logic)
+    const {
+        deleteCohort,
+        setOuterGroupsType,
+        setQuery,
+        duplicateCohort,
+        setCohortValue,
+        addPersonToCreateStaticCohort,
+        removePersonFromCreateStaticCohort,
+        setCreationPersonQuery,
+    } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
     const { showAddPersonToCohortModal } = useActions(modalLogic)
-    const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
+    const { cohort, cohortLoading, cohortMissing, query, creationPersonQuery, personsToCreateStaticCohort } =
+        useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
+    const warningLogic = cohortCountWarningLogic({ cohort, query, dataNodeLogicKey })
+    const { shouldShowCountWarning } = useValues(warningLogic)
+
+    const createStaticCohortContext: QueryContext = {
+        columns: {
+            id: {
+                renderTitle: () => null,
+                render: (props) => {
+                    const id = props.value as string
+                    const isAdded = personsToCreateStaticCohort[id] != null
+                    return (
+                        <LemonButton
+                            type="secondary"
+                            status={isAdded ? 'danger' : 'default'}
+                            size="small"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                if (isAdded) {
+                                    removePersonFromCreateStaticCohort(id)
+                                } else {
+                                    addPersonToCreateStaticCohort(id)
+                                }
+                            }}
+                        >
+                            {isAdded ? <IconMinusSmall /> : <IconPlusSmall />}
+                        </LemonButton>
+                    )
+                },
+            },
+        },
+        showOpenEditorButton: false,
+    }
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
     }
 
-    if (cohortLoading && !newSceneLayout) {
-        return (
-            <div className="flex flex-col gap-y-2">
-                <LemonSkeleton active className="h-4 w-2/5" />
-                <LemonSkeleton active className="h-4 w-full" />
-                <LemonSkeleton active className="h-4 w-full" />
-                <LemonSkeleton active className="h-4 w-3/5" />
-            </div>
-        )
-    }
     return (
         <div className="cohort">
             <AddPersonToCohortModal id={id} />
@@ -90,64 +114,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             >
                                 Cancel
                             </LemonButton>
-                        ) : (
-                            <>
-                                {!newSceneLayout && (
-                                    <More
-                                        overlay={
-                                            <>
-                                                {!cohort.is_static && (
-                                                    <>
-                                                        <LemonButton
-                                                            onClick={() => duplicateCohort(false)}
-                                                            fullWidth
-                                                            disabledReason={
-                                                                cohort.is_calculating
-                                                                    ? 'Cohort is still calculating'
-                                                                    : undefined
-                                                            }
-                                                            loading={duplicatedCohortLoading}
-                                                        >
-                                                            Duplicate as dynamic cohort
-                                                        </LemonButton>
-                                                        <LemonButton
-                                                            onClick={() => duplicateCohort(true)}
-                                                            fullWidth
-                                                            disabledReason={
-                                                                cohort.is_calculating
-                                                                    ? 'Cohort is still calculating'
-                                                                    : undefined
-                                                            }
-                                                            loading={duplicatedCohortLoading}
-                                                        >
-                                                            Duplicate as static cohort
-                                                        </LemonButton>
-                                                        <LemonDivider />
-                                                    </>
-                                                )}
-                                                <LemonButton
-                                                    data-attr="delete-cohort"
-                                                    fullWidth
-                                                    status="danger"
-                                                    onClick={deleteCohort}
-                                                >
-                                                    Delete cohort
-                                                </LemonButton>
-                                            </>
-                                        }
-                                    />
-                                )}
-                            </>
-                        )}
-                        {!isNewCohort && !newSceneLayout && (
-                            <NotebookSelectButton
-                                type="secondary"
-                                resource={{
-                                    type: NotebookNodeType.Cohort,
-                                    attrs: { id },
-                                }}
-                            />
-                        )}
+                        ) : null}
                         <LemonButton
                             type="primary"
                             data-attr="save-cohort"
@@ -180,7 +147,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         onClick={() => duplicateCohort(false)}
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
-                            'Cohort must be static to duplicate': !cohort.is_static,
+                            'Cohort must be dynamic to duplicate': cohort.is_static === true,
                             'Cohort is still calculating': cohort.is_calculating ?? false,
                         }}
                         menuItem
@@ -192,7 +159,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         onClick={() => duplicateCohort(true)}
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
-                            'Cohort must be static to duplicate': !cohort.is_static,
+                            'Cohort must be dynamic to duplicate': cohort.is_static === true,
                             'Cohort is still calculating': cohort.is_calculating ?? false,
                         }}
                         menuItem
@@ -218,46 +185,37 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
 
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <SceneContent>
-                    <SceneTitleSection
-                        name={cohort.name}
-                        description={cohort.description || ''}
-                        resourceType={{
-                            to: urls.cohorts(),
-                            type: RESOURCE_TYPE,
-                        }}
-                        isLoading={cohortLoading}
-                        onNameChange={(value) => {
-                            setCohortValue('name', value)
-                        }}
-                        onDescriptionChange={(value) => {
-                            setCohortValue('description', value)
-                        }}
-                        docsURL="https://posthog.com/docs/data/cohorts"
-                        canEdit
-                        forceEdit={isNewCohort}
-                    />
+                    <LemonField name="name">
+                        <SceneTitleSection
+                            name={cohort.name}
+                            description={cohort.description || ''}
+                            resourceType={{
+                                to: urls.cohorts(),
+                                type: RESOURCE_TYPE,
+                            }}
+                            isLoading={cohortLoading}
+                            onNameChange={(value) => {
+                                setCohortValue('name', value)
+                            }}
+                            onDescriptionChange={(value) => {
+                                setCohortValue('description', value)
+                            }}
+                            canEdit
+                            forceEdit={isNewCohort}
+                        />
+                    </LemonField>
 
                     <SceneDivider />
 
                     <SceneSection
                         title="Type"
                         description="Static cohorts are created once and never updated, while dynamic cohorts are recalculated based on the latest data."
-                        className={cn('max-w-200', {
-                            'deprecated-space-y-2 ': !newSceneLayout,
-                            'flex flex-col gap-y-2': newSceneLayout,
-                        })}
+                        className="max-w-200 flex flex-col gap-y-2"
                         hideTitleAndDescription
                     >
                         <div className="flex gap-4 flex-wrap">
-                            {!newSceneLayout && (
-                                <div className="flex-1">
-                                    <LemonField name="name" label="Name">
-                                        <LemonInput data-attr="cohort-name" />
-                                    </LemonField>
-                                </div>
-                            )}
-                            <div className={cn('flex-1', newSceneLayout && 'flex flex-col gap-y-4')}>
-                                <LemonField name="is_static" label={newSceneLayout ? null : 'Type'}>
+                            <div className={cn('flex-1 flex flex-col gap-y-4')}>
+                                <LemonField name="is_static" label={null}>
                                     {({ value, onChange }) => (
                                         <LemonSelect
                                             disabledReason={
@@ -276,7 +234,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     )}
                                 </LemonField>
 
-                                {newSceneLayout && !isNewCohort && !cohort?.is_static && (
+                                {!isNewCohort && !cohort?.is_static && (
                                     <div className="max-w-70 w-fit">
                                         <p className="flex items-center gap-x-1 my-0">
                                             <strong>Last calculated:</strong>
@@ -303,44 +261,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     </div>
                                 )}
                             </div>
-                            {!newSceneLayout && !isNewCohort && !cohort?.is_static && (
-                                <div className="max-w-70 w-fit">
-                                    <div className="flex gap-1 flex-col">
-                                        <LemonLabel>Last calculated</LemonLabel>
-                                        {cohort.is_calculating ? (
-                                            <div className="text-s">In progress...</div>
-                                        ) : cohort.last_calculation ? (
-                                            <div className="flex flex-1 flex-row gap-1">
-                                                <TZLabel time={cohort.last_calculation} />
-                                                {cohort.errors_calculating ? (
-                                                    <Tooltip
-                                                        title={
-                                                            "The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation."
-                                                        }
-                                                    >
-                                                        <div className="text-danger">
-                                                            <IconErrorOutline className="text-danger text-xl shrink-0" />
-                                                        </div>
-                                                    </Tooltip>
-                                                ) : null}
-                                            </div>
-                                        ) : (
-                                            <div className="text-s">Not yet calculated</div>
-                                        )}
-                                        <div className="text-secondary text-xs">
-                                            Cohorts are recalculated every 24 hours
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
                         </div>
-                        {!newSceneLayout && (
-                            <div className="ph-ignore-input">
-                                <LemonField name="description" label="Description" data-attr="cohort-description">
-                                    <LemonTextArea />
-                                </LemonField>
-                            </div>
-                        )}
                     </SceneSection>
                     {cohort.is_static ? (
                         <>
@@ -355,9 +276,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         identifiers.`
                                         : undefined
                                 }
-                                className={cn('ph-ignore-input', !newSceneLayout && 'mt-4')}
+                                className={cn('ph-ignore-input')}
                             >
-                                {!isNewCohort && newSceneLayout && (
+                                {!isNewCohort && (
                                     <div className="flex flex-col gap-y-0 flex-1 justify-center">
                                         <h3 className="text-sm">Upload a CSV</h3>
                                         <span className="max-w-prose">
@@ -372,100 +293,68 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 {/* TODO: @adamleithp Tell users that adding ANOTHER file will NOT(?) replace the current one */}
                                 {/* TODO: @adamleithp Render the csv file and validate it */}
                                 {/* TODO: @adamleithp Adding a csv file doesn't show up with cohort.csv... */}
-                                <LemonField
-                                    name="csv"
-                                    label={newSceneLayout ? null : isNewCohort ? null : 'Upload users'}
-                                    data-attr="cohort-csv"
-                                >
+                                <LemonField name="csv" data-attr="cohort-csv">
                                     {({ onChange }) => (
-                                        <>
-                                            {!newSceneLayout && !isNewCohort && (
-                                                <div className="flex items-center gap-2">
-                                                    <span>
-                                                        Upload a CSV file to add users to your cohort using distinct IDs
-                                                        or person UUIDs.
-                                                    </span>
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                <div className="space-y-2">
-                                                                    <div>
-                                                                        <strong>Distinct IDs:</strong> Use "
-                                                                        <code>distinct_id</code>" (or "
-                                                                        <code>distinct-id</code>") as the column header
-                                                                        (for multi-column CSV uploads) or include one
-                                                                        distinct ID per row (no header needed) for a
-                                                                        single-column CSV.
-                                                                    </div>
-                                                                    <div>
-                                                                        <strong>Person UUIDs:</strong> Use "
-                                                                        <code>person_id</code>" (or "
-                                                                        <code>person-id</code>" or "
-                                                                        <code>Person .id</code>") as the column header
-                                                                        (for single-column or multi-column CSV uploads).
-                                                                    </div>
-                                                                </div>
-                                                            </>
-                                                        }
-                                                    >
-                                                        <IconInfo className="text-secondary text-lg" />
-                                                    </Tooltip>
+                                        <LemonFileInput
+                                            accept=".csv"
+                                            multiple={false}
+                                            value={cohort.csv ? [cohort.csv] : []}
+                                            onChange={(files) => onChange(files[0])}
+                                            showUploadedFiles={false}
+                                            callToAction={
+                                                <div
+                                                    className={cn(
+                                                        'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
+                                                        'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
+                                                        cohort.csv?.name && 'border-success'
+                                                    )}
+                                                >
+                                                    {cohort.csv ? (
+                                                        <>
+                                                            <IconUploadFile
+                                                                style={{
+                                                                    fontSize: '3rem',
+                                                                    color: 'var(--color-text-primary)',
+                                                                }}
+                                                            />
+                                                            <div>{cohort.csv?.name ?? 'File chosen'}</div>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <IconUploadFile
+                                                                style={{
+                                                                    fontSize: '3rem',
+                                                                    color: 'var(--color-text-primary)',
+                                                                }}
+                                                            />
+                                                            <div>Drag a file here or click to browse for a file</div>
+                                                            <div className="text-secondary text-xs">
+                                                                Accepts .csv files only
+                                                            </div>
+                                                        </>
+                                                    )}
                                                 </div>
-                                            )}
-                                            <LemonFileInput
-                                                accept=".csv"
-                                                multiple={false}
-                                                value={cohort.csv ? [cohort.csv] : []}
-                                                onChange={(files) => onChange(files[0])}
-                                                showUploadedFiles={false}
-                                                callToAction={
-                                                    <div
-                                                        className={cn(
-                                                            'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
-                                                            newSceneLayout &&
-                                                                'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
-                                                            newSceneLayout && cohort.csv?.name && 'border-success'
-                                                        )}
-                                                    >
-                                                        {cohort.csv ? (
-                                                            <>
-                                                                <IconUploadFile
-                                                                    style={{
-                                                                        fontSize: '3rem',
-                                                                        color: !newSceneLayout
-                                                                            ? 'var(--color-text-secondary)'
-                                                                            : 'var(--color-text-primary)',
-                                                                    }}
-                                                                />
-                                                                <div>{cohort.csv?.name ?? 'File chosen'}</div>
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <IconUploadFile
-                                                                    style={{
-                                                                        fontSize: '3rem',
-                                                                        color: !newSceneLayout
-                                                                            ? 'var(--color-text-secondary)'
-                                                                            : 'var(--color-text-primary)',
-                                                                    }}
-                                                                />
-                                                                <div>
-                                                                    Drag a file here or click to browse for a file
-                                                                </div>
-                                                                {newSceneLayout && (
-                                                                    <div className="text-secondary text-xs">
-                                                                        Accepts .csv files only
-                                                                    </div>
-                                                                )}
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                }
-                                            />
-                                        </>
+                                            }
+                                        />
                                     )}
                                 </LemonField>
                             </SceneSection>
+                            {isNewCohort && (
+                                <>
+                                    <LemonDivider label="OR" />
+                                    <div>
+                                        <h3 className="font-semibold my-0 mb-1 max-w-prose">Add users manually</h3>
+                                        <span className="max-w-prose">
+                                            Select the users that you would like to add to the new cohort.
+                                        </span>
+                                    </div>
+                                    <Query
+                                        query={creationPersonQuery}
+                                        setQuery={setCreationPersonQuery}
+                                        context={createStaticCohortContext}
+                                    />
+                                </>
+                            )}
                             {!isNewCohort && (
                                 <>
                                     <LemonDivider label="OR" />
@@ -487,7 +376,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </>
                     ) : (
                         <>
-                            {!newSceneLayout ? <LemonDivider /> : <SceneDivider />}
+                            <SceneDivider />
                             {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
                                 <LemonBanner type="info">
                                     This cohort manages exposure for an experiment. Editing this cohort may change
@@ -504,15 +393,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 className={cn('flex items-start justify-between')}
                                 hideTitleAndDescription
                             >
-                                {!newSceneLayout && (
-                                    <div className="flex flex-col">
-                                        <LemonLabel htmlFor="groups">Matching criteria</LemonLabel>
-                                        <span>
-                                            Actors who match the following criteria will be part of the cohort.
-                                            Continuously updated automatically.
-                                        </span>
-                                    </div>
-                                )}
                                 <AndOrFilterSelect
                                     value={cohort.filters.properties.type}
                                     onChange={(value) => {
@@ -521,7 +401,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     topLevelFilter={true}
                                     suffix={['criterion', 'criteria']}
                                 />
-                                <div className={cn('w-full', newSceneLayout && '[&>div]:my-0 [&>div]:w-full')}>
+                                <div className={cn('w-full [&>div]:my-0 [&>div]:w-full')}>
                                     <CohortCriteriaGroups id={logicProps.id} />
                                 </div>
                             </SceneSection>
@@ -537,32 +417,19 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     <>
                                         Persons in this cohort
                                         <span className="text-secondary ml-2">
-                                            {!cohort.is_calculating &&
-                                                cohort.count !== undefined &&
-                                                `(${cohort.count})`}
+                                            {!cohort.is_calculating && cohort.count != undefined && `(${cohort.count})`}
                                         </span>
+                                        {shouldShowCountWarning && (
+                                            <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
+                                                <IconWarning className="text-warning ml-2" />
+                                            </Tooltip>
+                                        )}
                                     </>
                                 }
                                 description="Persons who match the following criteria will be part of the cohort."
                                 hideTitleAndDescription
                             >
-                                {!newSceneLayout && <LemonDivider />}
                                 <div>
-                                    {!newSceneLayout && (
-                                        <h3 className="l3 mb-4">
-                                            Persons in this cohort
-                                            <span className="text-secondary ml-2">
-                                                {!cohort.is_calculating &&
-                                                    cohort.count !== undefined &&
-                                                    `(${cohort.count} matching ${pluralize(
-                                                        cohort.count,
-                                                        'person',
-                                                        'persons',
-                                                        false
-                                                    )})`}
-                                            </span>
-                                        </h3>
-                                    )}
                                     {cohort.is_calculating ? (
                                         <div className="cohort-recalculating flex items-center">
                                             <Spinner className="mr-4" />

@@ -66,7 +66,12 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             databaseTableListLogic,
             ['database'],
         ],
-        actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSourceRevenueAnalyticsConfig']],
+        actions: [
+            teamLogic,
+            ['updateCurrentTeam'],
+            dataWarehouseSettingsLogic,
+            ['updateSourceRevenueAnalyticsConfig', 'deleteJoin'],
+        ],
     })),
     actions({
         addEvent: (eventName: string, revenueCurrency: CurrencyCode) => ({ eventName, revenueCurrency }),

@@ -21,7 +21,7 @@ import { UpstreamGraph } from './graph/UpstreamGraph'
 import { infoTabLogic } from './infoTabLogic'
 
 interface QueryInfoProps {
-    codeEditorKey: string
+    tabId: string
 }
 
 function getMaterializationStatusMessage(
@@ -113,8 +113,8 @@ function getMaterializationDisabledReasons(
     }
 }
 
-export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
-    const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
+export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
+    const { sourceTableItems } = useValues(infoTabLogic({ tabId }))
     const { editingView, upstream, upstreamViewMode } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(multitabEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -573,7 +573,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 dataSource={upstream.nodes}
                             />
                         ) : (
-                            <UpstreamGraph codeEditorKey={codeEditorKey} />
+                            <UpstreamGraph tabId={tabId} />
                         )}
                     </>
                 )}

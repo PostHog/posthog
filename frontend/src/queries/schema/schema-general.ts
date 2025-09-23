@@ -152,6 +152,7 @@ export enum NodeKind {
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
+    TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
 }
 
@@ -195,6 +196,7 @@ export type AnyDataNode =
     | CalendarHeatmapQuery
     | RecordingsQuery
     | TracesQuery
+    | TraceQuery
     | VectorSearchQuery
 
 /**
@@ -272,6 +274,7 @@ export type QuerySchema =
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
+    | TraceQuery
     | VectorSearchQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
@@ -652,6 +655,7 @@ export interface EntityNode extends Node {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    optionalInFunnel?: boolean
 }
 
 export interface EventsNode extends EntityNode {
@@ -829,6 +833,7 @@ export interface DataTableNode
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | TracesQuery
+        | TraceQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1513,6 +1518,35 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
+export interface NamedQueryRequest {
+    name?: string
+    description?: string
+    query?: HogQLQuery
+    is_active?: boolean
+}
+
+export interface NamedQueryRunRequest {
+    /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
+    client_query_id?: string
+
+    // Sync the `refresh` description here with the two instances in posthog/api/insight.py
+    /**
+     * Whether results should be calculated sync or async, and how much to rely on the cache:
+     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
+     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+     * Background calculation can be tracked using the `query_status` response field.
+     * @default 'blocking'
+     */
+    refresh?: RefreshType
+    filters_override?: DashboardFilter
+    variables_override?: Record<string, Record<string, any>>
+    variables_values?: Record<string, any>
+}
+
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
@@ -1549,6 +1583,11 @@ export interface QueryRequest {
     query: QuerySchema
     filters_override?: DashboardFilter
     variables_override?: Record<string, Record<string, any>>
+    /**
+     * Name given to a query. It's used to identify the query in the UI.
+     * Up to 128 characters for a name.
+     */
+    name?: string
 }
 
 export interface QueryUpgradeRequest {
@@ -2359,6 +2398,9 @@ export type FileSystemIconType =
     | 'llm_analytics'
     | 'product_analytics'
     | 'revenue_analytics'
+    | 'revenue_analytics_metadata'
+    | 'marketing_settings'
+    | 'embedded_analytics'
     | 'sql_editor'
     | 'web_analytics'
     | 'error_tracking'
@@ -2370,6 +2412,7 @@ export type FileSystemIconType =
     | 'experiment'
     | 'feature_flag'
     | 'data_pipeline'
+    | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
     | 'link'
@@ -2385,13 +2428,13 @@ export type FileSystemIconType =
     | 'person'
     | 'cohort'
     | 'group'
-    | 'insight_funnel'
-    | 'insight_trend'
-    | 'insight_retention'
-    | 'insight_user_path'
-    | 'insight_lifecycle'
-    | 'insight_stickiness'
-    | 'insight_hogql'
+    | 'insight/funnels'
+    | 'insight/trends'
+    | 'insight/retention'
+    | 'insight/paths'
+    | 'insight/lifecycle'
+    | 'insight/stickiness'
+    | 'insight/hog'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2895,6 +2938,7 @@ export interface DatabaseSchemaField {
 
 export type DatabaseSchemaTableType =
     | 'posthog'
+    | 'system'
     | 'data_warehouse'
     | 'view'
     | 'batch_export'
@@ -2940,6 +2984,10 @@ export interface DatabaseSchemaPostHogTable extends DatabaseSchemaTableCommon {
     type: 'posthog'
 }
 
+export interface DatabaseSchemaSystemTable extends DatabaseSchemaTableCommon {
+    type: 'system'
+}
+
 export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCommon {
     type: 'data_warehouse'
     format: string
@@ -2954,6 +3002,7 @@ export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommo
 
 export type DatabaseSchemaTable =
     | DatabaseSchemaPostHogTable
+    | DatabaseSchemaSystemTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable
@@ -3043,6 +3092,13 @@ export interface DashboardFilter {
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
     breakdown_filter?: BreakdownFilter | null
+}
+
+export interface TileFilters {
+    date_from?: string | null | undefined
+    date_to?: string | null | undefined
+    properties?: AnyPropertyFilter[] | null | undefined
+    breakdown_filter?: BreakdownFilter | null | undefined
 }
 
 export interface InsightsThresholdBounds {
@@ -3286,7 +3342,6 @@ export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
 
 export interface TracesQuery extends DataNode<TracesQueryResponse> {
     kind: NodeKind.TracesQuery
-    traceId?: string
     dateRange?: DateRange
     limit?: integer
     offset?: integer
@@ -3296,7 +3351,24 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     properties?: AnyPropertyFilter[]
 }
 
+export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
+    results: LLMTrace[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+
+export interface TraceQuery extends DataNode<TraceQueryResponse> {
+    kind: NodeKind.TraceQuery
+    traceId: string
+    dateRange?: DateRange
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
+export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
@@ -3733,6 +3805,7 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Date = 'date',
     Impressions = 'impressions',
     Source = 'source',
+    ReportedConversion = 'reported_conversion',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -3743,6 +3816,10 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
     [MarketingAnalyticsColumnsSchemaNames.Clicks]: { type: ['integer', 'number', 'float'], required: false },
     [MarketingAnalyticsColumnsSchemaNames.Currency]: { type: ['string'], required: false },
     [MarketingAnalyticsColumnsSchemaNames.Impressions]: { type: ['integer', 'number', 'float'], required: false },
+    [MarketingAnalyticsColumnsSchemaNames.ReportedConversion]: {
+        type: ['integer', 'number', 'float'],
+        required: false,
+    },
 }
 
 export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | undefined>
@@ -3768,6 +3845,7 @@ export enum MarketingAnalyticsBaseColumns {
     Impressions = 'Impressions',
     CPC = 'CPC',
     CTR = 'CTR',
+    ReportedConversion = 'Reported Conversion',
 }
 
 export enum MarketingAnalyticsHelperForColumnNames {
@@ -3852,12 +3930,15 @@ export type SourceFieldConfig =
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
-    caption: string | any
+    docsUrl?: string
+    caption?: string | any
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     existingSource?: boolean
     unreleasedSource?: boolean
     betaSource?: boolean
+    iconPath: string
+    featureFlag?: string
 }
 
 export const externalDataSources = [

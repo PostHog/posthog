@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import {
     AuthorizedUrlListType,
     authorizedUrlListLogic,
@@ -15,7 +16,6 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -28,8 +28,9 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneActions } from '~/layout/scenes/SceneActions'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { ProductKey, ReplayTab, ReplayTabs } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { createPlaylist } from './playlist/playlistUtils'
@@ -43,7 +44,6 @@ function Header(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
-
     // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
     const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
 
@@ -80,14 +80,19 @@ function Header(): JSX.Element {
                         )}
 
                         {tab === ReplayTabs.Playlists && (
-                            <LemonButton
-                                type="primary"
-                                onClick={(e) => newPlaylistHandler.onEvent?.(e)}
-                                data-attr="save-recordings-playlist-button"
-                                loading={newPlaylistHandler.loading}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.SessionRecording}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                New collection
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={(e) => newPlaylistHandler.onEvent?.(e)}
+                                    data-attr="save-recordings-playlist-button"
+                                    loading={newPlaylistHandler.loading}
+                                >
+                                    New collection
+                                </LemonButton>
+                            </AccessControlAction>
                         )}
                     </>
                 }
@@ -203,7 +208,7 @@ function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <Warnings />
 
             {!tab ? (
@@ -249,37 +254,44 @@ const ReplayPageTabs: ReplayTab[] = [
 
 function PageTabs(): JSX.Element {
     const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
-        <LemonTabs
-            activeKey={tab}
-            className={cn('flex', newSceneLayout && 'mt-0')}
-            barClassName="mb-0"
-            onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-            sceneInset={newSceneLayout}
-            tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
-                return {
-                    label: (
-                        <>
-                            {replayTab.label}
-                            {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
-                                <LemonBadge className="ml-1" size="small" />
-                            )}
-                        </>
-                    ),
-                    key: replayTab.key,
-                    tooltip: replayTab.tooltip,
-                    tooltipDocLink: replayTab.tooltipDocLink,
-                    'data-attr': replayTab['data-attr'],
-                }
-            })}
-        />
+        // TRICKY @adamleithp: since session replay doesn't want a scene title section, we need to add our SceneActions to the top of the page
+        <div className="flex flex-col gap-2">
+            <LemonTabs
+                activeKey={tab}
+                className={cn('flex -mt-4')}
+                // TRICKY @adamleithp: we need to add a right padding to the tabs bar to account for the SceneActions
+                barClassName="mb-0 pr-48"
+                onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
+                sceneInset
+                tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
+                    return {
+                        label: (
+                            <>
+                                {replayTab.label}
+                                {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
+                                    <LemonBadge className="ml-1" size="small" />
+                                )}
+                            </>
+                        ),
+                        key: replayTab.key,
+                        tooltip: replayTab.tooltip,
+                        tooltipDocLink: replayTab.tooltipDocLink,
+                        'data-attr': replayTab['data-attr'],
+                    }
+                })}
+            />
+            {/* TRICKY @adamleithp: position the actions to the right of the tabs bar absolutely */}
+            <div className="absolute right-0 top-0 pt-[6px] pr-4 bg-primary">
+                <SceneActions />
+            </div>
+        </div>
     )
 }
 export function SessionsRecordings(): JSX.Element {
     return (
-        <SceneContent forceNewSpacing className="h-full">
+        <SceneContent className="h-full">
             <Header />
             <PageTabs />
             <MainPanel />

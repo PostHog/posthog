@@ -39,9 +39,9 @@ import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/p
 import { IconWindow } from '../../icons'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
-import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
+import { ItemAppState, ItemAppStateDetail, ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
-import { ItemEvent, ItemEventDetail } from './ItemEvent'
+import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
 
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
@@ -53,6 +53,10 @@ const typeToIconAndDescription = {
     console: {
         Icon: IconTerminal,
         tooltip: 'Console log',
+    },
+    'app-state': {
+        Icon: IconTerminal,
+        tooltip: 'State log',
     },
     network: {
         Icon: IconDashboard,
@@ -156,6 +160,8 @@ function RowItemTitle({
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === 'console' ? (
                 <ItemConsoleLog item={item} />
+            ) : item.type === 'app-state' ? (
+                <ItemAppState item={item} />
             ) : item.type === 'events' ? (
                 <ItemEvent item={item} />
             ) : item.type === 'offline-status' ? (
@@ -179,6 +185,14 @@ function RowItemTitle({
     )
 }
 
+/**
+ * Some items show a menu button in the item title bar when expanded.
+ * For example to add sharing actions
+ */
+function RowItemMenu({ item }: { item: InspectorListItem }): JSX.Element | null {
+    return item.type === 'events' ? <ItemEventMenu item={item} /> : null
+}
+
 function RowItemDetail({
     item,
     finalTimestamp,
@@ -192,6 +206,8 @@ function RowItemDetail({
         <div onClick={onClick}>
             {item.type === 'network' ? (
                 <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
+            ) : item.type === 'app-state' ? (
+                <ItemAppStateDetail item={item} />
             ) : item.type === 'console' ? (
                 <ItemConsoleLogDetail item={item} />
             ) : item.type === 'events' ? (
@@ -334,6 +350,7 @@ export function PlayerInspectorListItem({
                         <RowItemTitle item={item} finalTimestamp={end} />
                     </div>
                 </div>
+                {isExpanded && <RowItemMenu item={item} />}
                 {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
                     <LemonButton
                         icon={isExpanded ? <IconCollapse /> : <IconExpand />}
