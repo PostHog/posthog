@@ -284,45 +284,87 @@ class TaxonomyAgentToolkit:
         """Get custom tools. Override in subclasses to add custom tools."""
         raise NotImplementedError("_get_custom_tools must be implemented in subclasses")
 
-    def retrieve_entity_properties(self, entity: str, max_properties: int = 500) -> str:
+    def retrieve_entity_properties(self, entity: str | list[str], max_properties: int = 500) -> str:
         """
-        Retrieve properties for an entitiy like person, session, or one of the groups.
+        Retrieve properties for an entity or multiple entities like person, session, or one of the groups.
         """
+        if isinstance(entity, str):
+            return self._bulk_get_entity_properties([entity], max_properties).get(entity)
+        else:
+            return self._bulk_get_entity_properties(entity, max_properties)
 
-        if entity not in ("person", "session", *[group.group_type for group in self._groups]):
-            return TaxonomyErrorMessages.entity_not_found(entity, self._entity_names)
-
-        if entity == "person":
-            qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
-                "name", "property_type"
-            )
-            props = self._enrich_props_with_descriptions("person", qs)
-        elif entity == "session":
-            # Session properties are not in the DB.
-            props = self._enrich_props_with_descriptions(
-                "session",
-                [
+    def _bulk_get_entity_properties(self, entities: list[str], max_properties: int = 500) -> dict[str, list]:
+        result = {}
+        group_entities = []
+        entities_set = set(entities)
+        for entity in entities_set:
+            if entity not in ("person", "session", *[group.group_type for group in self._groups]):
+                result[entity] = TaxonomyErrorMessages.entity_not_found(entity, self._entity_names)
+                continue
+            if entity == "person":
+                person_qs = PropertyDefinition.objects.filter(
+                    team=self._team, type=PropertyDefinition.Type.PERSON
+                ).values_list("name", "property_type")
+                result[entity] = (
+                    self._format_properties(self._enrich_props_with_descriptions("person", person_qs))
+                    if person_qs
+                    else TaxonomyErrorMessages.properties_not_found(entity)
+                )
+            elif entity == "session":
+                props = [
                     (prop_name, prop["type"])
                     for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items()
                     if prop.get("type") is not None
-                ],
-            )
+                ]
+                result[entity] = (
+                    self._format_properties(
+                        self._enrich_props_with_descriptions(
+                            "session",
+                            props,
+                        )
+                    )
+                    if props
+                    else TaxonomyErrorMessages.properties_not_found(entity)
+                )
+            else:
+                group_entities.append(entity)
 
-        else:
-            group_type_index = next(
-                (group.group_type_index for group in self._groups if group.group_type == entity), None
-            )
-            if group_type_index is None:
-                return f"Group {entity} does not exist in the taxonomy."
-            qs = PropertyDefinition.objects.filter(
-                team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
-            ).values_list("name", "property_type")[:max_properties]
-            props = self._enrich_props_with_descriptions(entity, qs)
+        # Bulk fetch group properties (single query for all group entities)
+        if group_entities:
+            entity_to_group_index = {}
 
-        if not props:
-            return f"Properties do not exist in the taxonomy for the entity {entity}."
+            for entity in group_entities:
+                group_type_index = next(
+                    (group.group_type_index for group in self._groups if group.group_type == entity), None
+                )
+                if group_type_index is not None:
+                    entity_to_group_index[entity] = group_type_index
+                else:
+                    result[entity] = TaxonomyErrorMessages.properties_not_found(entity)
+                    continue
 
-        return self._format_properties(props)
+            if entity_to_group_index.values():
+                # Single query for all group types
+                group_qs = PropertyDefinition.objects.filter(
+                    team=self._team,
+                    type=PropertyDefinition.Type.GROUP,
+                    group_type_index__in=entity_to_group_index.values(),
+                ).values_list("name", "property_type", "group_type_index")[
+                    : max_properties * len(entity_to_group_index.values())
+                ]
+
+                # Group results by entity
+                for entity in group_entities:
+                    if entity in entity_to_group_index.keys():
+                        group_index = entity_to_group_index[entity]
+                        properties = [(name, prop_type) for name, prop_type, gti in group_qs if gti == group_index]
+                        result[entity] = (
+                            self._format_properties(self._enrich_props_with_descriptions(entity, properties))
+                            if properties
+                            else TaxonomyErrorMessages.properties_not_found(entity)
+                        )
+
+        return result
 
     def retrieve_entity_property_values(self, entity: str, property_name: str | list[str]) -> str | list[str]:
         """Retrieve property values for an entity. Supports single property or list of properties."""
