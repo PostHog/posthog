@@ -165,6 +165,7 @@ class SessionSummaryVideoValidator:
         # Sort fields to update by path
         fields_to_update_mapping = dict(sorted(fields_to_update_mapping.items(), key=lambda x: x[0]))
         fields_to_update = list(fields_to_update_mapping.values())
+        # TODO: Remove after testing
         with open(f"fields_to_update_{self.session_id}.yml", "w") as f:
             yaml.dump([asdict(x) for x in fields_to_update], f, allow_unicode=True, sort_keys=False)
         return events_to_validate, fields_to_update
@@ -206,11 +207,11 @@ class SessionSummaryVideoValidator:
 
     # TODO: Add more specific instructions on updates
     # - when to update the event description, or keep it if it matches, or extend it with new info, if possible
-    def _generate_video_validation_prompt(
+    def _generate_video_validation_prompts(
         self,
         description_results: list[SessionMomentOutput],
         fields_to_update: list[_SessionSummaryVideoValidationFieldToUpdate],
-    ) -> str:
+    ) -> tuple[str, str]:
         """Generate a prompt for validating a video"""
         template_dir = Path(__file__).parent / "templates" / "video-validation"
         # Remove excessive content (UUIDs, etc.) from session summary to not feed LLM excessive info
@@ -230,7 +231,12 @@ class SessionSummaryVideoValidator:
                 ),
             },
         )
-        return prompt
+        # Get system prompt
+        system_prompt = load_custom_template(
+            template_dir,
+            "validation-system-prompt.djt",
+        )
+        return prompt, system_prompt
 
     async def _generate_updates(
         self,
@@ -239,7 +245,7 @@ class SessionSummaryVideoValidator:
         model_to_use: str,
     ) -> list[dict[str, str]] | None:
         # Generate prompt for video validation
-        validation_prompt = self._generate_video_validation_prompt(
+        validation_prompt, system_prompt = self._generate_video_validation_prompts(
             description_results=description_results,
             fields_to_update=fields_to_update,
         )
@@ -253,7 +259,7 @@ class SessionSummaryVideoValidator:
             user_key=self.user.id,
             session_id=self.session_id,
             model=model_to_use,
-            system_prompt=None,  # TODO: Add proper system prompt
+            system_prompt=system_prompt,
             trace_id=trace_id,
         )
         updates_content = updates_raw.choices[0].message.content
