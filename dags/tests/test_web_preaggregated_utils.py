@@ -1,8 +1,9 @@
 import inspect
 
-from unittest.mock import Mock
+import pytest
+from unittest.mock import Mock, patch
 
-from dagster import DagsterInstance, DagsterRunStatus, RunsFilter, SkipReason, job, op, schedule
+from dagster import DagsterInstance, DagsterRunStatus, Failure, RunsFilter, SkipReason, job, op, schedule
 
 import dags.web_preaggregated as wp
 import dags.web_preaggregated_daily as wpd
@@ -17,7 +18,12 @@ from dags.web_preaggregated_hourly import (
     web_pre_aggregate_current_day_hourly_job,
     web_pre_aggregate_current_day_hourly_schedule,
 )
-from dags.web_preaggregated_utils import check_for_concurrent_runs, recreate_staging_table
+from dags.web_preaggregated_utils import (
+    check_for_concurrent_runs,
+    recreate_staging_table,
+    swap_partitions_from_staging,
+    validate_partitions_on_all_hosts,
+)
 
 
 class TestWebPreaggregatedUtils:
@@ -202,3 +208,152 @@ class TestWebPreaggregatedUtils:
         recreate_staging_table(context, cluster, "my_test_staging_table", mock_sql_func)
 
         context.log.info.assert_called_once_with("Recreating staging table my_test_staging_table")
+
+    def test_validate_partitions_on_all_hosts_success(self):
+        """Test successful validation when all hosts have expected partitions."""
+        context = Mock()
+        cluster = Mock()
+
+        # Mock successful response from all hosts
+        host_results = {
+            "host1": Mock(error=None, value=[["host1", ["20240101", "20240102"]]]),
+            "host2": Mock(error=None, value=[["host2", ["20240101", "20240102"]]]),
+        }
+        cluster.map_hosts_by_roles.return_value.result.return_value = host_results
+
+        # Should not raise an exception
+        validate_partitions_on_all_hosts(context, cluster, "test_table", ["20240101", "20240102"])
+
+        # Verify success logged
+        context.log.info.assert_any_call("All hosts validated successfully for table test_table")
+
+    def test_validate_partitions_on_all_hosts_missing_partitions(self):
+        """Test validation fails when hosts are missing partitions."""
+        context = Mock()
+        cluster = Mock()
+
+        # Mock response with missing partitions on one host
+        host_results = {
+            "host1": Mock(error=None, value=[["host1", ["20240101", "20240102"]]]),
+            "host2": Mock(error=None, value=[["host2", ["20240101"]]]),  # Missing 20240102
+        }
+        cluster.map_hosts_by_roles.return_value.result.return_value = host_results
+
+        # Should raise Failure after max retries
+        with pytest.raises(Failure) as exc_info:
+            validate_partitions_on_all_hosts(
+                context, cluster, "test_table", ["20240101", "20240102"], max_retries=1, retry_delay=0
+            )
+
+        assert "Partition validation failed after 1 attempts" in str(exc_info.value)
+        assert "20240102" in str(exc_info.value)
+
+    @patch("dags.web_preaggregated_utils.sleep")
+    @patch("dags.web_preaggregated_utils.sync_partitions_on_replicas")
+    def test_validate_partitions_on_all_hosts_retry_success(self, mock_sync, mock_sleep):
+        """Test validation succeeds on retry after initial failure."""
+        context = Mock()
+        cluster = Mock()
+
+        # First attempt: missing partition on host2
+        first_results = {
+            "host1": Mock(error=None, value=[["host1", ["20240101", "20240102"]]]),
+            "host2": Mock(error=None, value=[["host2", ["20240101"]]]),  # Missing 20240102
+        }
+
+        # Second attempt: all partitions present
+        second_results = {
+            "host1": Mock(error=None, value=[["host1", ["20240101", "20240102"]]]),
+            "host2": Mock(error=None, value=[["host2", ["20240101", "20240102"]]]),
+        }
+
+        # Set up side effect to return different results on each call
+        cluster.map_hosts_by_roles.return_value.result.side_effect = [first_results, second_results]
+
+        # Should succeed on second attempt
+        validate_partitions_on_all_hosts(
+            context, cluster, "test_table", ["20240101", "20240102"], max_retries=2, retry_delay=1
+        )
+
+        # Verify retry behavior
+        mock_sleep.assert_called_once_with(1)
+        mock_sync.assert_called_once_with(context, cluster, "test_table")
+        context.log.info.assert_any_call("All hosts validated successfully for table test_table")
+
+    def test_validate_partitions_on_all_hosts_with_query_error(self):
+        """Test validation handles query errors on hosts."""
+        context = Mock()
+        cluster = Mock()
+
+        # Mock response with error on one host
+        host_results = {
+            "host1": Mock(error=None, value=[["host1", ["20240101", "20240102"]]]),
+            "host2": Mock(error="Connection timeout", value=None),
+        }
+        cluster.map_hosts_by_roles.return_value.result.return_value = host_results
+
+        # Should raise Failure due to query error
+        with pytest.raises(Failure) as exc_info:
+            validate_partitions_on_all_hosts(
+                context, cluster, "test_table", ["20240101", "20240102"], max_retries=1, retry_delay=0
+            )
+
+        assert "Partition validation failed" in str(exc_info.value)
+        context.log.error.assert_any_call("Error querying host host2: Connection timeout")
+
+    def test_validate_partitions_on_all_hosts_empty_response(self):
+        """Test validation handles empty responses from hosts."""
+        context = Mock()
+        cluster = Mock()
+
+        # Mock empty response from one host
+        host_results = {
+            "host1": Mock(error=None, value=[["host1", ["20240101", "20240102"]]]),
+            "host2": Mock(error=None, value=[]),  # Empty response
+        }
+        cluster.map_hosts_by_roles.return_value.result.return_value = host_results
+
+        # Should raise Failure due to empty response
+        with pytest.raises(Failure) as exc_info:
+            validate_partitions_on_all_hosts(
+                context, cluster, "test_table", ["20240101", "20240102"], max_retries=1, retry_delay=0
+            )
+
+        assert "Partition validation failed" in str(exc_info.value)
+        context.log.warning.assert_any_call("No partition data returned from host host2")
+
+    @patch("dags.web_preaggregated_utils.validate_partitions_on_all_hosts")
+    @patch("dags.web_preaggregated_utils.get_partitions")
+    def test_swap_partitions_from_staging_calls_validation(self, mock_get_partitions, mock_validate):
+        """Test that swap_partitions_from_staging calls validation before swapping."""
+        context = Mock()
+        cluster = Mock()
+
+        # Mock partitions found in staging table
+        mock_get_partitions.return_value = ["20240101", "20240102"]
+
+        swap_partitions_from_staging(context, cluster, "target_table", "staging_table")
+
+        # Verify validation was called with correct parameters
+        mock_validate.assert_called_once_with(context, cluster, "staging_table", ["20240101", "20240102"])
+
+        # Verify replacement operations were called
+        assert cluster.any_host.call_count == 2  # Once for each partition
+
+    @patch("dags.web_preaggregated_utils.validate_partitions_on_all_hosts")
+    @patch("dags.web_preaggregated_utils.get_partitions")
+    def test_swap_partitions_from_staging_skips_validation_when_no_partitions(self, mock_get_partitions, mock_validate):
+        """Test that swap_partitions_from_staging skips validation when no partitions found."""
+        context = Mock()
+        cluster = Mock()
+
+        # Mock no partitions found in staging table
+        mock_get_partitions.return_value = []
+
+        swap_partitions_from_staging(context, cluster, "target_table", "staging_table")
+
+        # Verify validation was not called when no partitions
+        mock_validate.assert_not_called()
+
+        # Verify no replacement operations were called
+        cluster.any_host.assert_not_called()
