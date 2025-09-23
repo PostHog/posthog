@@ -1,5 +1,4 @@
 import math
-import asyncio
 import datetime as dt
 import dataclasses
 from typing import Any, Optional
@@ -120,7 +119,7 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
         return CoordinatorWorkflowInputs()
 
     @temporalio.workflow.run
-    async def run(self, inputs: CoordinatorWorkflowInputs) -> dict[str, Any]:
+    async def run(self, inputs: CoordinatorWorkflowInputs) -> None:
         """Run the coordinator workflow that spawns child workflows."""
         workflow_logger = temporalio.workflow.logger
         workflow_logger.info(f"Starting coordinator with parallelism={inputs.parallelism}")
@@ -136,28 +135,19 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
         total_conditions = count_result.count
         if total_conditions == 0:
             workflow_logger.warning("No conditions found")
-            return {
-                "total_memberships": 0,
-                "conditions_processed": 0,
-                "child_workflows": 0,
-            }
+            return
 
-        workflow_logger.info(f"Coordinating {total_conditions} conditions across {inputs.parallelism} child workflows")
+        workflow_logger.info(f"Scheduling {total_conditions} conditions across {inputs.parallelism} child workflows")
 
-        # Step 2: Calculate ranges for each child workflow (potential perf improvement later)
-        #  Each child workflow processes a fixed range regardless of actual data
-        #  distribution. If conditions are sparse in certain ranges, some child
-        # workflows may finish quickly while others take much longer, leading to
-        # inefficient resource utilization.
-
+        # Step 2: Calculate ranges for each child workflow
         conditions_per_workflow = math.ceil(total_conditions / inputs.parallelism)
         conditions_per_workflow = min(conditions_per_workflow, inputs.conditions_per_workflow)
 
         # Step 3: Import the child workflow inputs
         from posthog.temporal.messaging.behavioral_cohorts_workflow import BehavioralCohortsWorkflowInputs
 
-        # Step 4: Launch child workflows in parallel
-        child_handles = []
+        # Step 4: Launch child workflows - fire and forget
+        workflows_scheduled = 0
         for i in range(inputs.parallelism):
             offset = i * conditions_per_workflow
             limit = min(conditions_per_workflow, total_conditions - offset)
@@ -177,36 +167,16 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
                 conditions_page_size=min(1000, limit),  # Don't fetch more than we need
             )
 
-            # Start child workflow (non-blocking)
-            handle = await temporalio.workflow.start_child_workflow(
+            # Start child workflow - fire and forget, don't wait for result
+            await temporalio.workflow.start_child_workflow(
                 "behavioral-cohorts-analysis",
                 child_inputs,
                 id=child_id,
                 task_queue=MESSAGING_TASK_QUEUE,
             )
-            child_handles.append(handle)
+            workflows_scheduled += 1
 
-            workflow_logger.info(f"Started child workflow {i+1} for conditions {offset}-{offset+limit-1}")
+            workflow_logger.info(f"Scheduled child workflow {i+1} for conditions {offset}-{offset+limit-1}")
 
-        # Step 5: Wait for all children and aggregate results
-        child_results = await asyncio.gather(*[handle.result() for handle in child_handles])
-
-        total_memberships = 0
-        total_conditions_processed = 0
-
-        for i, result in enumerate(child_results):
-            total_memberships += result["total_memberships"]
-            total_conditions_processed += result["conditions_processed"]
-            workflow_logger.info(
-                f"Child {i} contributed {result['total_memberships']} memberships from {result['conditions_processed']} conditions"
-            )
-
-        workflow_logger.info(
-            f"Coordinator completed: {total_memberships} memberships from {total_conditions_processed} conditions"
-        )
-
-        return {
-            "total_memberships": total_memberships,
-            "conditions_processed": total_conditions_processed,
-            "child_workflows": len(child_handles),
-        }
+        workflow_logger.info(f"Coordinator completed: scheduled {workflows_scheduled} child workflows")
+        return
