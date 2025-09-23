@@ -12,6 +12,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
@@ -164,6 +165,7 @@ export function MessagingScene(): JSX.Element {
                 resourceType={{ type: 'messaging' }}
                 description="Create automated workflows triggered by PostHog events to onboard, retain, and re-engage your users."
             />
+            <SceneDivider />
             <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
     )
