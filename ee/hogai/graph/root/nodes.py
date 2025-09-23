@@ -360,8 +360,9 @@ class RootNode(RootNodeUIContextMixin):
 
         # Summarize the conversation if it's too long.
         if await self._should_summarize_conversation(state, tools, langchain_messages):
-            summarizer = AnthropicConversationSummarizer(team=self._team, user=self._user)
-            summary = await summarizer.summarize(state, config)
+            # Exclude the last message if it's the first turn.
+            messages_to_summarize = langchain_messages[:-1] if self._is_first_turn(state) else langchain_messages
+            summary = await AnthropicConversationSummarizer().summarize(messages_to_summarize, config)
             summary_message = HumanMessage(
                 content=ROOT_CONVERSATION_SUMMARY_PROMPT.format(summary=summary), id=str(uuid4()), visible=False
             )
