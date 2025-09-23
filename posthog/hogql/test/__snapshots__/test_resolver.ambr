@@ -44,9 +44,6 @@
                           $session_id: {
                             hidden: False
                           },
-                          $session_id_uuid: {
-                            hidden: False
-                          },
                           $window_id: {
                             hidden: False
                           },
@@ -193,15 +190,6 @@
                   nullable: False
                   type: {
                     name: "$session_id"
-                    nullable: False
-                    table_type: <recursion ...>
-                  }
-                },
-                $session_id_uuid: {
-                  alias: "$session_id_uuid"
-                  nullable: False
-                  type: {
-                    name: "$session_id_uuid"
                     nullable: False
                     table_type: <recursion ...>
                   }
@@ -539,25 +527,6 @@
         hidden: True
         type: {
           alias: "$session_id"
-          nullable: True
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "$session_id_uuid"
-        expr: {
-          chain: [
-            "$session_id_uuid"
-          ]
-          type: {
-            name: "$session_id_uuid"
-            nullable: True
-            table_type: <recursion ...>
-          }
-        }
-        hidden: True
-        type: {
-          alias: "$session_id_uuid"
           nullable: True
           type: <recursion ...>
         }
@@ -914,17 +883,6 @@
             expr: {
               chain: [
                 "$session_id"
-              ]
-              type: <recursion ...>
-            }
-            hidden: True
-            type: <recursion ...>
-          },
-          {
-            alias: "$session_id_uuid"
-            expr: {
-              chain: [
-                "$session_id_uuid"
               ]
               type: <recursion ...>
             }
@@ -1477,7 +1435,6 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
-        $session_id_uuid: <recursion ...>,
         $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
@@ -1536,9 +1493,6 @@
                     hidden: False
                   },
                   $session_id: {
-                    hidden: False
-                  },
-                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -1785,25 +1739,6 @@
         hidden: True
         type: {
           alias: "$session_id"
-          nullable: False
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "$session_id_uuid"
-        expr: {
-          chain: [
-            "$session_id_uuid"
-          ]
-          type: {
-            name: "$session_id_uuid"
-            nullable: False
-            table_type: <recursion ...>
-          }
-        }
-        hidden: True
-        type: {
-          alias: "$session_id_uuid"
           nullable: False
           type: <recursion ...>
         }
@@ -2503,7 +2438,6 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
-        $session_id_uuid: <recursion ...>,
         $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
@@ -3525,9 +3459,6 @@
                           $session_id: {
                             hidden: False
                           },
-                          $session_id_uuid: {
-                            hidden: False
-                          },
                           $window_id: {
                             hidden: False
                           },
@@ -3674,15 +3605,6 @@
                   nullable: False
                   type: {
                     name: "$session_id"
-                    nullable: False
-                    table_type: <recursion ...>
-                  }
-                },
-                $session_id_uuid: {
-                  alias: "$session_id_uuid"
-                  nullable: False
-                  type: {
-                    name: "$session_id_uuid"
                     nullable: False
                     table_type: <recursion ...>
                   }
@@ -4020,25 +3942,6 @@
         hidden: True
         type: {
           alias: "$session_id"
-          nullable: True
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "$session_id_uuid"
-        expr: {
-          chain: [
-            "$session_id_uuid"
-          ]
-          type: {
-            name: "$session_id_uuid"
-            nullable: True
-            table_type: <recursion ...>
-          }
-        }
-        hidden: True
-        type: {
-          alias: "$session_id_uuid"
           nullable: True
           type: <recursion ...>
         }
@@ -4396,17 +4299,6 @@
               expr: {
                 chain: [
                   "$session_id"
-                ]
-                type: <recursion ...>
-              }
-              hidden: True
-              type: <recursion ...>
-            },
-            {
-              alias: "$session_id_uuid"
-              expr: {
-                chain: [
-                  "$session_id_uuid"
                 ]
                 type: <recursion ...>
               }
@@ -4980,9 +4872,6 @@
                             $session_id: {
                               hidden: False
                             },
-                            $session_id_uuid: {
-                              hidden: False
-                            },
                             $window_id: {
                               hidden: False
                             },
@@ -5224,25 +5113,6 @@
                   hidden: True
                   type: {
                     alias: "$session_id"
-                    nullable: False
-                    type: <recursion ...>
-                  }
-                },
-                {
-                  alias: "$session_id_uuid"
-                  expr: {
-                    chain: [
-                      "$session_id_uuid"
-                    ]
-                    type: {
-                      name: "$session_id_uuid"
-                      nullable: False
-                      table_type: <recursion ...>
-                    }
-                  }
-                  hidden: True
-                  type: {
-                    alias: "$session_id_uuid"
                     nullable: False
                     type: <recursion ...>
                   }
@@ -5942,7 +5812,6 @@
                   $group_3: <recursion ...>,
                   $group_4: <recursion ...>,
                   $session_id: <recursion ...>,
-                  $session_id_uuid: <recursion ...>,
                   $window_id: <recursion ...>,
                   created_at: <recursion ...>,
                   distinct_id: <recursion ...>,
@@ -5993,7 +5862,6 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
-        $session_id_uuid: <recursion ...>,
         $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
@@ -6289,9 +6157,6 @@
                   $session_id: {
                     hidden: False
                   },
-                  $session_id_uuid: {
-                    hidden: False
-                  },
                   $window_id: {
                     hidden: False
                   },
@@ -6533,25 +6398,6 @@
         hidden: True
         type: {
           alias: "$session_id"
-          nullable: False
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "$session_id_uuid"
-        expr: {
-          chain: [
-            "$session_id_uuid"
-          ]
-          type: {
-            name: "$session_id_uuid"
-            nullable: False
-            table_type: <recursion ...>
-          }
-        }
-        hidden: True
-        type: {
-          alias: "$session_id_uuid"
           nullable: False
           type: <recursion ...>
         }
@@ -7251,7 +7097,6 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
-        $session_id_uuid: <recursion ...>,
         $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
@@ -7315,9 +7160,6 @@
                       hidden: False
                     },
                     $session_id: {
-                      hidden: False
-                    },
-                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -7562,25 +7404,6 @@
         hidden: True
         type: {
           alias: "$session_id"
-          nullable: False
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "$session_id_uuid"
-        expr: {
-          chain: [
-            "$session_id_uuid"
-          ]
-          type: {
-            name: "$session_id_uuid"
-            nullable: False
-            table_type: <recursion ...>
-          }
-        }
-        hidden: True
-        type: {
-          alias: "$session_id_uuid"
           nullable: False
           type: <recursion ...>
         }
@@ -8281,7 +8104,6 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
-        $session_id_uuid: <recursion ...>,
         $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
@@ -8344,9 +8166,6 @@
                         hidden: False
                       },
                       $session_id: {
-                        hidden: False
-                      },
-                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -8543,9 +8362,6 @@
                         hidden: False
                       },
                       $session_id: {
-                        hidden: False
-                      },
-                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -9064,9 +8880,6 @@
                   $session_id: {
                     hidden: False
                   },
-                  $session_id_uuid: {
-                    hidden: False
-                  },
                   $window_id: {
                     hidden: False
                   },
@@ -9296,9 +9109,6 @@
                       hidden: False
                     },
                     $session_id: {
-                      hidden: False
-                    },
-                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -9534,9 +9344,6 @@
                         hidden: False
                       },
                       $session_id: {
-                        hidden: False
-                      },
-                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -9813,9 +9620,6 @@
                                 hidden: False
                               },
                               $session_id: {
-                                hidden: False
-                              },
-                              $session_id_uuid: {
                                 hidden: False
                               },
                               $window_id: {
@@ -10096,9 +9900,6 @@
                   $session_id: {
                     hidden: False
                   },
-                  $session_id_uuid: {
-                    hidden: False
-                  },
                   $window_id: {
                     hidden: False
                   },
@@ -10337,9 +10138,6 @@
                       hidden: False
                     },
                     $session_id: {
-                      hidden: False
-                    },
-                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -10582,9 +10380,6 @@
                   $session_id: {
                     hidden: False
                   },
-                  $session_id_uuid: {
-                    hidden: False
-                  },
                   $window_id: {
                     hidden: False
                   },
@@ -10809,9 +10604,6 @@
                       hidden: False
                     },
                     $session_id: {
-                      hidden: False
-                    },
-                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -11143,9 +10935,6 @@
                     $session_id: {
                       hidden: False
                     },
-                    $session_id_uuid: {
-                      hidden: False
-                    },
                     $window_id: {
                       hidden: False
                     },
@@ -11335,9 +11124,6 @@
                           hidden: False
                         },
                         $session_id: {
-                          hidden: False
-                        },
-                        $session_id_uuid: {
                           hidden: False
                         },
                         $window_id: {
@@ -11542,9 +11328,6 @@
                     hidden: False
                   },
                   $session_id: {
-                    hidden: False
-                  },
-                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
