@@ -238,7 +238,7 @@ impl MessageProcessor for DeduplicationProcessor {
                             raw_event.distinct_id =
                                 Some(serde_json::Value::String(extracted_distinct_id));
                         }
-                        if raw_event.token.is_none() && extracted_token.is_empty() {
+                        if raw_event.token.is_none() && !extracted_token.is_empty() {
                             raw_event.token = Some(extracted_token);
                         }
 
