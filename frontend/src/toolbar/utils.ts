@@ -195,12 +195,13 @@ export function elementIsVisible(element: HTMLElement, cache: WeakMap<HTMLElemen
 
         // Check if element has actual rendered dimensions
         const rect = element.getBoundingClientRect()
-        return (
+        const elementHasActualRenderedDimensions =
             rect.width > 0 ||
             rect.height > 0 ||
             // Some elements might be 0x0 but still visible (e.g., inline elements with content)
             element.getClientRects().length > 0
-        )
+        cache.set(element, elementHasActualRenderedDimensions)
+        return elementHasActualRenderedDimensions
     } catch {
         // if we can't get the computed style, we'll assume the element is visible
         return true
@@ -237,7 +238,6 @@ export function getAllClickTargets(
         .filter((e) => e)
     const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 
-    // Create a shared cache for this batch of visibility checks
     const visibilityCache = new WeakMap<HTMLElement, boolean>()
     return uniqueElements.filter((el) => elementIsVisible(el, visibilityCache))
 }
