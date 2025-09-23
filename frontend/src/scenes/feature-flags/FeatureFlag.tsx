@@ -26,7 +26,6 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -93,6 +92,7 @@ import {
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -454,19 +454,24 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                     <LemonField name="tags" label="Tags">
-                                        {({ value, onChange }) => {
-                                            return (
-                                                <ObjectTags
-                                                    saving={featureFlagLoading}
-                                                    tags={value}
-                                                    onChange={(tags) => onChange(tags)}
-                                                    tagsAvailable={tags.filter(
-                                                        (tag: string) => !featureFlag.tags?.includes(tag)
-                                                    )}
-                                                    className="mt-2"
-                                                />
-                                            )
-                                        }}
+                                        {({ value: formTags, onChange: onChangeTags }) => (
+                                            <LemonField name="evaluation_tags">
+                                                {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
+                                                    <FeatureFlagEvaluationTags
+                                                        tags={formTags}
+                                                        evaluationTags={formEvalTags || []}
+                                                        onChange={(updatedTags, updatedEvaluationTags) => {
+                                                            onChangeTags(updatedTags)
+                                                            onChangeEvalTags(updatedEvaluationTags)
+                                                        }}
+                                                        tagsAvailable={tags.filter(
+                                                            (tag: string) => !formTags?.includes(tag)
+                                                        )}
+                                                        className="mt-2"
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        )}
                                     </LemonField>
                                 )}
                                 <LemonField name="active">
