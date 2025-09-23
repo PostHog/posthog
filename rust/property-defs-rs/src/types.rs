@@ -25,8 +25,9 @@ where
     }
 
     match StringOrInt::deserialize(deserializer)? {
-        StringOrInt::String(s) => s.parse::<i32>()
-            .map_err(|e| de::Error::custom(format!("Failed to parse string as i32: {}", e))),
+        StringOrInt::String(s) => s
+            .parse::<i32>()
+            .map_err(|e| de::Error::custom(format!("Failed to parse string as i32: {e}"))),
         StringOrInt::Int(i) => Ok(i),
     }
 }
@@ -46,8 +47,9 @@ where
     }
 
     match StringOrInt::deserialize(deserializer)? {
-        StringOrInt::String(s) => s.parse::<i64>()
-            .map_err(|e| de::Error::custom(format!("Failed to parse string as i64: {}", e))),
+        StringOrInt::String(s) => s
+            .parse::<i64>()
+            .map_err(|e| de::Error::custom(format!("Failed to parse string as i64: {e}"))),
         StringOrInt::Int(i) => Ok(i),
     }
 }
