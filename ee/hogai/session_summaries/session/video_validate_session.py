@@ -127,11 +127,9 @@ class SessionSummaryVideoValidator:
                 # Keep only blocking exceptions
                 validated_event = EnrichedKeyActionSerializer(data=event)
                 validated_event.is_valid(raise_exception=True)
-                # Collect the fields to validate/update and their current values
-                # Current event fields
+                # Collect the fields to validate and, potentially,update, and their current values
                 for field in ["description", "exception", "abandonment", "confusion"]:
                     field_path = f"key_actions.{ki}.events.{ei}.{field}"
-                    # TODO: Use dataclasses, avoid code repetition
                     fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
                         path=field_path,
                         current_value=event[field],
