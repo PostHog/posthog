@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from posthog.test.base import NonAtomicBaseTest
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -10,7 +10,7 @@ from ee.hogai.llm import MaxChatAnthropic, MaxChatOpenAI
 
 
 @patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key"})
-class TestMaxChatOpenAI(NonAtomicBaseTest):
+class TestMaxChatOpenAI(BaseTest):
     def setUp(self):
         super().setUp()
         # Setup test data
@@ -23,17 +23,17 @@ class TestMaxChatOpenAI(NonAtomicBaseTest):
 
     def test_initialization_and_context_variables(self):
         """Test initialization and context variable extraction."""
-        for llm in (
-            MaxChatOpenAI(user=self.user, team=self.team),
-            MaxChatAnthropic(user=self.user, team=self.team, model="claude"),
-        ):
-            # Test initialization
-            self.assertEqual(llm.user, self.user)
-            self.assertEqual(llm.team, self.team)
-            self.assertIsNotNone(llm.max_retries)
+        with patch("datetime.datetime") as mock_datetime:
+            for llm in (
+                MaxChatOpenAI(user=self.user, team=self.team),
+                MaxChatAnthropic(user=self.user, team=self.team, model="claude"),
+            ):
+                # Test initialization
+                self.assertEqual(llm.user, self.user)
+                self.assertEqual(llm.team, self.team)
+                self.assertIsNotNone(llm.max_retries)
 
-            # Test context variables
-            with patch("datetime.datetime") as mock_datetime:
+                # Test context variables
                 mock_now = datetime(2024, 1, 15, 10, 30, 45)
                 mock_datetime.now.return_value = mock_now
 
@@ -41,7 +41,7 @@ class TestMaxChatOpenAI(NonAtomicBaseTest):
 
                 self.assertEqual(variables["project_name"], "Test Project")
                 self.assertEqual(variables["project_timezone"], "America/New_York")
-                self.assertEqual(variables["project_datetime"], "2024-01-15 10:30:45")
+                self.assertEqual(variables["project_datetime"], "2024-01-15 05:30:45")
                 self.assertEqual(variables["organization_name"], "Test Organization")
                 self.assertEqual(variables["user_full_name"], "John Doe")
                 self.assertEqual(variables["user_email"], "john@example.com")
