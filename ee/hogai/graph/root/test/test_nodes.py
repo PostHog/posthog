@@ -511,9 +511,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         # Create state with existing human messages
         state = AssistantState(
             messages=[
-                HumanMessage(content="Existing message 1"),
+                ContextMessage(content="Existing message 1"),
                 AssistantMessage(content="Response"),
-                HumanMessage(content="Existing message 2"),
+                ContextMessage(content="Existing message 2"),
             ]
         )
 

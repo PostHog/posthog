@@ -132,9 +132,7 @@ class BaseAssistant(ABC):
             else None
         )
         self._trace_id = trace_id
-        self._streamed_update_ids = (
-            {self._latest_message.id} if self._latest_message and self._latest_message.id is not None else set()
-        )
+        self._streamed_update_ids = set()
         self._reasoning_headline_chunk = None
         self._last_reasoning_headline = None
         self._billing_context = billing_context
@@ -312,6 +310,15 @@ class BaseAssistant(ABC):
         snapshot = await self._graph.aget_state(config)
         saved_state = validate_state_update(snapshot.values, self._state_type)
         last_recorded_dt = saved_state.start_dt
+
+        # Add existing ids to streamed messages, so we don't send the messages again.
+        for message in saved_state.messages:
+            if message.id is not None:
+                self._streamed_update_ids.add(message.id)
+
+        # Add the latest message id to streamed messages, so we don't send it multiple times.
+        if self._latest_message and self._latest_message.id is not None:
+            self._streamed_update_ids.add(self._latest_message.id)
 
         # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
         if snapshot.next and self._latest_message and saved_state.graph_status == "interrupted":

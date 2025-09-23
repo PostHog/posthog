@@ -572,7 +572,7 @@ class RootNode(RootNodeUIContextMixin):
             ContextMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts
         ]
         # -1 to make the context messages appear before the start message
-        start_idx = find_start_message_idx(state.messages, state.start_id) - 1
+        start_idx = find_start_message_idx(state.messages, state.start_id)
         return [*state.messages[:start_idx], *context_messages, *state.messages[start_idx:]]
 
     async def _construct_and_update_messages_window(
@@ -680,12 +680,7 @@ class RootNode(RootNodeUIContextMixin):
         if len(human_messages) < 3:
             return None
 
-        # Contains an async method in get_num_tokens_from_messages
-        token_count = await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
-            window, thinking=self.THINKING_CONFIG
-        )
-
-        if token_count > self.CONVERSATION_WINDOW_SIZE:
+        if await self._has_reached_token_limit(model, window):
             trimmed_window: list[BaseMessage] = trim_messages(
                 window,
                 token_counter=model,
@@ -704,6 +699,13 @@ class RootNode(RootNodeUIContextMixin):
                 if len(window) > 1 and isinstance(window[-2], LangchainAIMessage):
                     return window[-2].id
         return None
+
+    async def _has_reached_token_limit(self, model: Any, window: list[BaseMessage]) -> bool:
+        # Contains an async method in get_num_tokens_from_messages
+        token_count = await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
+            window, thinking=self.THINKING_CONFIG
+        )
+        return token_count > self.CONVERSATION_WINDOW_SIZE
 
     def _get_conversation_window(self, messages: list[T], start_id: str) -> list[T]:
         for idx, message in enumerate(messages):

@@ -159,7 +159,5 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         next_state = node._construct_messages(state)
         self.assertEqual(len(next_state), 29)
         self.assertEqual(next_state[0].type, "system")
-        self.assertEqual(next_state[1].content, [{"type": "text", "text": "3"}])
-        self.assertEqual(
-            next_state[-1].content, [{"type": "text", "text": "30", "cache_control": {"type": "ephemeral"}}]
-        )
+        self.assertEqual(next_state[1].content, "3")
+        self.assertEqual(next_state[-1].content, "30")
