@@ -165,7 +165,6 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
 
     def test_retrieve_multiple_entities_properties(self):
         """Test retrieving properties for multiple entities at once."""
-        # Create some test data
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
         )
@@ -173,6 +172,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="account"
         )
+
         self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
         self._create_property_definition(PropertyDefinition.Type.GROUP, "org_name", group_type_index=0)
         self._create_property_definition(PropertyDefinition.Type.GROUP, "account_size", group_type_index=1)
