@@ -15,8 +15,9 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
 from posthog.models.team.team import Team
+
+from products.experiments.backend.models import Experiment
 
 
 def get_multiple_variant_handling_from_experiment(

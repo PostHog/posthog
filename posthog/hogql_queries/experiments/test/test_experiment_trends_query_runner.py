@@ -41,13 +41,14 @@ from posthog.hogql_queries.experiments.experiment_trends_query_runner import Exp
 from posthog.hogql_queries.experiments.types import ExperimentMetricType
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
+from products.experiments.backend.models import Experiment, ExperimentHoldout
 
 from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
 

@@ -30,7 +30,8 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
     calculate_probabilities_v2,
 )
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models.experiment import Experiment
+
+from products.experiments.backend.models import Experiment
 
 from ..insights.funnels.funnels_query_runner import FunnelsQueryRunner
 

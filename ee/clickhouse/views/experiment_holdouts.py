@@ -13,8 +13,9 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.experiment import ExperimentHoldout
 from posthog.models.signals import model_activity_signal
+
+from products.experiments.backend.models import ExperimentHoldout
 
 
 class ExperimentHoldoutSerializer(serializers.ModelSerializer):

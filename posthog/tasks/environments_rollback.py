@@ -14,7 +14,6 @@ from posthog.models import (
     Dashboard,
     EarlyAccessFeature,
     EventDefinition,
-    Experiment,
     FeatureFlag,
     GroupTypeMapping,
     Insight,
@@ -28,6 +27,8 @@ from posthog.models import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.ph_client import get_client
+
+from products.experiments.backend.models import Experiment
 
 
 @dataclass

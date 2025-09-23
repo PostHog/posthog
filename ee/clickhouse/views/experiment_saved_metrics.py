@@ -19,8 +19,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 from posthog.models.signals import model_activity_signal
+
+from products.experiments.backend.models import ExperimentSavedMetric, ExperimentToSavedMetric
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):

@@ -44,7 +44,9 @@ from posthog.schema import (
 from posthog.constants import PAGEVIEW_EVENT
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
-from posthog.models import Action, Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
+from posthog.models import Action, Cohort, Dashboard, DashboardTile, FeatureFlag, Insight, InsightViewed
+
+from products.experiments.backend.models import Experiment
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (

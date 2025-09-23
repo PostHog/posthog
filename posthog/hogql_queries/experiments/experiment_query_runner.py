@@ -47,7 +47,8 @@ from posthog.hogql_queries.experiments.utils import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
+
+from products.experiments.backend.models import Experiment
 
 logger = structlog.get_logger(__name__)
 

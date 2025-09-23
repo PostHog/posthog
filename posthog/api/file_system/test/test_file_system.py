@@ -8,8 +8,10 @@ from unittest.mock import patch
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
-from posthog.models import Dashboard, Experiment, FeatureFlag, Insight, Notebook, Project, Team, User
+from posthog.models import Dashboard, FeatureFlag, Insight, Notebook, Project, Team, User
 from posthog.models.file_system.file_system import FileSystem
+
+from products.experiments.backend.models import Experiment
 
 from ee.models.rbac.access_control import AccessControl
 

@@ -41,7 +41,6 @@ from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
-from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentToSavedMetric
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .surveys.survey import Survey
@@ -90,7 +89,6 @@ from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
-from .web_experiment import WebExperiment
 
 # Keeping products imports at the bottom to avoid circular imports errors
 # Products Imports

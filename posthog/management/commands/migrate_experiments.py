@@ -7,7 +7,8 @@ from posthog.schema import ExperimentFunnelsQuery, ExperimentTrendsQuery
 
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Experiment
+
+from products.experiments.backend.models import Experiment
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

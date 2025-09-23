@@ -78,39 +78,7 @@ class PostHogConfig(AppConfig):
 
     def _setup_lazy_admin(self):
         """Set up lazy loading of admin classes to avoid importing all at startup."""
-        import sys
 
-        from django.contrib import admin
+        from posthog.admin import register_all_admin
 
-        class LazyAdminRegistry(dict):
-            """Lazy admin registry that loads admin on first access."""
-
-            _loaded = False
-
-            def _ensure_loaded(self):
-                if not self._loaded:
-                    from posthog.admin import register_all_admin
-
-                    self._loaded = True
-                    register_all_admin()
-
-            # Override only the essential methods that trigger loading
-            def __getitem__(self, key):
-                self._ensure_loaded()
-                return super().__getitem__(key)
-
-            def __iter__(self):
-                self._ensure_loaded()
-                return super().__iter__()
-
-            def __len__(self):
-                self._ensure_loaded()
-                return super().__len__()
-
-            def __contains__(self, key):
-                self._ensure_loaded()
-                return super().__contains__(key)
-
-        # Don't use lazy loading in tests and migrations
-        if not settings.TEST and "migrate" not in sys.argv and "test" not in sys.argv:
-            admin.site._registry = LazyAdminRegistry()
+        register_all_admin()
