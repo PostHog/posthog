@@ -13,7 +13,8 @@ describe('pixel template', () => {
 
     const GOOD_RESPONSE = {
         httpResponse: {
-            body: 'R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
+            contentType: 'image/gif',
+            body: expect.stringContaining('GIF'),
             status: 200,
         },
     }
