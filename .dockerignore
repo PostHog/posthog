@@ -43,7 +43,6 @@
 !requirements.txt
 !rust
 !share/GeoLite2-City.mmdb
-!share/bot-ips.txt
 !staticfiles
 !tailwind.config.js
 !test-runner-jest-environment.js
