@@ -19,11 +19,8 @@ describe('pixel template', () => {
             },
             {
                 request: {
-                    body: {
-                        eventName: 'the event',
-                        rootLevel: 'rootLevelValue',
-                        nested: { nestedLevel: 'nestedLevelValue' },
-                    },
+                    method: 'GET',
+                    body: {},
                     stringBody: '',
                     headers: {},
                     query: { ph_event: 'the event', other: 'other', params: '2' },
@@ -59,6 +56,36 @@ describe('pixel template', () => {
                 "body": "R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==",
                 "status": 200,
               },
+            }
+        `)
+    })
+
+    it('should respond with pixel even if event cannot be parsed', async () => {
+        const response = await tester.invoke(
+            {
+                event: '{request.query.ph_event}',
+                distinct_id: 'hardcoded',
+            },
+            {
+                request: {
+                    method: 'GET',
+                    body: {},
+                    stringBody: '',
+                    headers: {},
+                    query: {},
+                    ip: '127.0.0.1',
+                },
+            }
+        )
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(true)
+        expect(response.capturedPostHogEvents).toEqual([])
+        expect(response.execResult).toMatchInlineSnapshot(`
+            {
+                "httpResponse": {
+                    "body": "R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==",
+                    "status": 200,
+                },
             }
         `)
     })
