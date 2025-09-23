@@ -113,6 +113,9 @@ class SessionMomentsLLMAnalyzer:
         if expected_min_moments > len(moment_to_asset_id):
             exception_message = f"Not enough moments were generated for session {self.session_id} of team {self.team_id}: {len(moment_to_asset_id)} out of {len(moments_input)}, expected at least {expected_min_moments}"
             logger.exception(exception_message)
+            # Remove all the generated videos to not bloat the database
+            asset_ids = list(moment_to_asset_id.values())
+            await ExportedAsset.objects.filter(id__in=asset_ids).adelete()
             raise Exception(exception_message)
         return moment_to_asset_id
 
@@ -212,6 +215,9 @@ class SessionMomentsLLMAnalyzer:
             logger.exception(
                 f"Failed to analyze moment video {moment_id} of session {self.session_id} of team {self.team_id} with LLM: {err}"
             )
+            # If the LLM validation fails - ensure to remove the generated video to not bloat the database,
+            # as it would be linked to the summary (to reuse) only after the LLM video validation is completed
+            await ExportedAsset.objects.filter(id=asset_id).adelete()
             return err  # Let caller handle the error
 
     async def _analyze_moment_videos_with_llm(
