@@ -350,7 +350,7 @@ class OauthIntegration:
                 token_info_config_fields=["id", "name", "email"],
                 client_id=settings.META_ADS_APP_CLIENT_ID,
                 client_secret=settings.META_ADS_APP_CLIENT_SECRET,
-                scope="ads_read ads_management business_management read_insights",
+                scope="ads_read",
                 id_path="id",
                 name_path="name",
             )

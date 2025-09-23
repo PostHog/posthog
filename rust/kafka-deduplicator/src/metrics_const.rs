@@ -30,7 +30,7 @@ pub const TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM: &str =
 
 /// Histogram for properties similarity score in timestamp deduplication
 pub const TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str =
-    "timestamp_dedup_properties_similarity";
+    "timestamp_dedup_properties_similarity_score";
 
 /// Counter for specific fields that differ in timestamp deduplication
 pub const TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER: &str =
@@ -53,7 +53,8 @@ pub const UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM: &str = "uuid_dedup_different_fi
 pub const UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM: &str = "uuid_dedup_different_properties";
 
 /// Histogram for properties similarity score in UUID deduplication
-pub const UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str = "uuid_dedup_properties_similarity";
+pub const UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str =
+    "uuid_dedup_properties_similarity_score";
 
 /// Counter for specific fields that differ in UUID deduplication
 pub const UUID_DEDUP_FIELD_DIFFERENCES_COUNTER: &str = "uuid_dedup_field_differences_total";
@@ -85,3 +86,8 @@ pub const CHECKPOINT_CLEANER_DIRS_FOUND: &str = "checkpoint_cleaner_dirs_found";
 
 /// Counter for the number of checkpoint directories deleted
 pub const CHECKPOINT_CLEANER_DELETE_ATTEMPTS: &str = "checkpoint_cleaner_delete_attempts";
+
+/// Counts number of times a StoreManager lookup by partition
+/// finds no associated DeduplicationStore, meaning ownership
+/// has changed across a rebalance or other event asynchronously
+pub const CHECKPOINT_STORE_NOT_FOUND_COUNTER: &str = "checkpoint_store_not_found";

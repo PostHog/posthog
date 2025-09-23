@@ -378,25 +378,29 @@ export class HogFlowExecutorService {
     private maybeContinueToNextActionOnError(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
     ): void {
-        const { invocation } = result
-        // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
-        const currentAction = ensureCurrentAction(invocation)
-        if (currentAction?.on_error === 'continue') {
-            const nextAction = findContinueAction(invocation)
-            if (nextAction) {
-                this.logAction(
-                    result,
-                    currentAction,
-                    'info',
-                    `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to on_error setting`
-                )
+        try {
+            const { invocation } = result
+            // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
+            const currentAction = ensureCurrentAction(invocation)
+            if (currentAction?.on_error === 'continue') {
+                const nextAction = findContinueAction(invocation)
+                if (nextAction) {
+                    this.logAction(
+                        result,
+                        currentAction,
+                        'info',
+                        `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to on_error setting`
+                    )
 
-                /**
-                 * TODO: Determine if we should track this as a 'succeeded' metric here or
-                 * a new metric_name e.g. 'continued_after_error'
-                 */
-                this.goToNextAction(result, currentAction, nextAction, 'succeeded')
+                    /**
+                     * TODO: Determine if we should track this as a 'succeeded' metric here or
+                     * a new metric_name e.g. 'continued_after_error'
+                     */
+                    this.goToNextAction(result, currentAction, nextAction, 'succeeded')
+                }
             }
+        } catch (err) {
+            logger.error('Error trying to continue to next action on error', { error: err })
         }
     }
 
