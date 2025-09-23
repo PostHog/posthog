@@ -199,6 +199,7 @@ class SessionSummaryVideoValidator:
             for prompt, event in events_to_validate
             if (moment := self._prepare_moment_input_from_summary_event(prompt=prompt, event=event))
         ]
+        # TODO: Remove after testing
         with open(f"moments_input_{self.session_id}.json", "w") as f:
             json.dump([asdict(x) for x in moments_input], f, indent=4)
         return moments_input
