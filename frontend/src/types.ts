@@ -242,6 +242,7 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
+    EMBEDDED_ANALYTICS = 'embedded_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -601,6 +602,8 @@ export interface TeamSurveyConfigType {
 
 export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'
 
+export type SessionRecordingRetentionPeriod = 'legacy' | '30d' | '90d' | '1y' | '5y'
+
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
@@ -634,6 +637,7 @@ export interface TeamType extends TeamBasicType {
         | undefined
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
+    session_recording_retention_period: SessionRecordingRetentionPeriod | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
@@ -1479,6 +1483,7 @@ export interface CohortType {
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
+    _create_static_person_ids?: string[]
 }
 
 export interface InsightHistory {
@@ -2103,6 +2108,23 @@ export interface InsightModel extends Cacheable, WithAccessControl {
 
 export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
+}
+
+export interface QueryEndpointType extends WithAccessControl {
+    id: string
+    name: string
+    description: string
+    query: HogQLQuery
+    parameters: Record<string, any>
+    is_active: boolean
+    endpoint_path: string
+    created_at: string
+    updated_at: string
+    created_by: UserBasicType | null
+    /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
+    _highlight?: boolean
+    /** Last execution time from ClickHouse query_log table */
+    last_executed_at?: string
 }
 
 export interface DashboardBasicType extends WithAccessControl {
@@ -3010,6 +3032,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Tile filters to override the ones in the query */
+    tileFiltersOverride?: TileFilters | null
     /** The tab of the scene if the insight is a full scene insight */
     tabId?: string | null
 }
@@ -3607,6 +3631,7 @@ export enum ItemMode {
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
+    CustomerAnalytics = 'customer-analytics', // When embedded on the customer analytics page
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
     FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
@@ -5579,6 +5604,27 @@ export enum ConversationType {
     ToolCall = 'tool_call',
     DeepResearch = 'deep_research',
 }
+
+export enum Category {
+    DEEP_RESEARCH = 'deep_research',
+}
+
+export enum DeepResearchType {
+    PLANNING = 'planning',
+    REPORT = 'report',
+}
+
+interface _NotebookBase {
+    notebook_id: string
+    title: string
+}
+
+export interface DeepResearchNotebook extends _NotebookBase {
+    category: Category.DEEP_RESEARCH
+    notebook_type?: DeepResearchType
+}
+
+export type NotebookInfo = DeepResearchNotebook
 
 export interface Conversation {
     id: string
