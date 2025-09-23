@@ -253,6 +253,7 @@ class SessionSummaryVideoValidator:
         with open(f"validation_prompt_{self.session_id}.txt", "w") as f:
             f.write(validation_prompt)
         # Call LLM with the validation prompt
+        # TODO: Provide trace id as an argument
         trace_id = temporalio.activity.info().workflow_id
         updates_raw = await call_llm(
             input_prompt=validation_prompt,
@@ -283,7 +284,7 @@ class SessionSummaryVideoValidator:
             try:
                 find_value(target=summary_to_update, spec=field["path"])
             except PathAccessError:
-                temporalio.workflow.logger.error(
+                logger.exception(
                     f"Field {field['path']} not found in the session summary to update for the session {self.session_id}, skipping"
                 )
                 continue

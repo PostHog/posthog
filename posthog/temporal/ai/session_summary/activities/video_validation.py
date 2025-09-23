@@ -10,7 +10,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
-from ee.hogai.session_summaries.session.video_validate_session import SessionSummaryVideoValidator
+from ee.hogai.session_summaries.session.video_validation import SessionSummaryVideoValidator
 from ee.models.session_summaries import SingleSessionSummary
 
 
