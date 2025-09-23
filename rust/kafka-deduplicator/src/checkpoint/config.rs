@@ -48,6 +48,8 @@ pub struct CheckpointConfig {
 impl Default for CheckpointConfig {
     fn default() -> Self {
         Self {
+            // NOTE! production & local dev defaults can be overridden in top-level config.rs
+            //or env vars; assume these defaults are only applied as-is in unit tests and CI
             checkpoint_interval: Duration::from_secs(300), // 5 minutes (TBD)
             cleanup_interval: Duration::from_secs(1320),   // 22 minutes (TBD)
             local_checkpoint_dir: "./checkpoints".to_string(),

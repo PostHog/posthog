@@ -1,4 +1,5 @@
 import os
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Optional
@@ -145,12 +146,20 @@ def clear_all_staging_partitions(
 
 
 def recreate_staging_table(
-    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, staging_table: str, replace_sql_func
+    context: dagster.AssetExecutionContext,
+    cluster: ClickhouseCluster,
+    staging_table: str,
+    replace_sql_func: Callable[[], str],
 ) -> None:
     """Recreate staging table on all hosts using REPLACE TABLE."""
     context.log.info(f"Recreating staging table {staging_table}")
+    # We generate a uuid with force_unique_zk_path=True, which we want to be unique per the cluster
+    # so we must get the result statement string here instead of inside the lambda to run the
+    # exact command on each host, otherwise we would get a new uuid per host and replication
+    # woudn't kick in.
+    sql_statement = replace_sql_func()
     cluster.map_hosts_by_roles(
-        lambda client: client.execute(replace_sql_func()), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+        lambda client: client.execute(sql_statement), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
     ).result()
 
 
