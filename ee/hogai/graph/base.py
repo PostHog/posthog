@@ -3,6 +3,8 @@ from collections.abc import Callable, Sequence
 from typing import Any, Generic, Literal, Union
 from uuid import UUID
 
+from django.conf import settings
+
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.types import StreamWriter
@@ -84,9 +86,7 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         if self._context_manager is None:
             if self.config is None:
                 # Only allow default config in test environments
-                import os
-
-                if os.environ.get("TEST", "").lower() in ("true", "1", "yes"):
+                if settings.TEST:
                     config = RunnableConfig(configurable={})
                 else:
                     raise ValueError("Config is required to create AssistantContextManager")
