@@ -4,13 +4,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from math import ceil
 
-from django.conf import settings
 from django.utils.timezone import now
 
 import structlog
-import posthoganalytics
-from google.genai.types import Blob, Content, Part
-from posthoganalytics.ai.gemini import genai
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
@@ -21,6 +17,10 @@ from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
+
+from products.llm_analytics.backend.providers.gemini import GeminiProvider
+
+from ee.hogai.session_summaries.constants import DEFAULT_EXPORT_MIME_TYPE, DEFAULT_VIDEO_UNDERSTANDING_MODEL
 
 logger = structlog.get_logger(__name__)
 
@@ -128,7 +128,7 @@ class SessionMomentsLLMAnalyzer:
             expires_after = created_at + timedelta(days=expires_after_days)
             exported_asset = await ExportedAsset.objects.acreate(
                 team_id=self.team_id,
-                export_format="video/mp4",
+                export_format=DEFAULT_EXPORT_MIME_TYPE,
                 export_context={
                     "session_recording_id": self.session_id,
                     "timestamp": moment.timestamp_s,
@@ -193,30 +193,13 @@ class SessionMomentsLLMAnalyzer:
                     f"No video bytes found for asset {asset_id} for moment {moment_id} of session {self.session_id} of team {self.team_id}"
                 )
                 return None
-            if len(video_bytes) > 20 * 1024 * 1024:  # 20MB limit
-                logger.warning(
-                    f"Video bytes for asset {asset_id} for moment {moment_id} of session {self.session_id} of team {self.team_id} are too large"
-                )
-                return None
             # TODO: Remove after testing, storing for debugging
             with open(f"video_{moment_id}.mp4", "wb") as f:
                 f.write(video_bytes)
-            # TODO: Use GeminiProvider instead (just add a regular call method)
-            api_key = settings.GEMINI_API_KEY
-            if not api_key:
-                raise ValueError("GEMINI_API_KEY is not set in environment or settings")
-            # Get response from LLM
-            client = genai.Client(api_key=api_key, posthog_client=posthoganalytics.default_client)
-            response = client.models.generate_content(
-                model="models/gemini-2.5-flash",
-                contents=Content(
-                    parts=[
-                        Part(inline_data=Blob(data=video_bytes, mime_type="video/mp4")),
-                        Part(text=prompt),
-                    ]
-                ),
+            provider = GeminiProvider(model_id=DEFAULT_VIDEO_UNDERSTANDING_MODEL)
+            content = provider.understand_video(
+                video_bytes=video_bytes, mime_type=DEFAULT_EXPORT_MIME_TYPE, prompt=prompt
             )
-            content = response.text
             if not content:
                 logger.warning(
                     f"No LLM content found for moment {moment_id} of session {self.session_id} of team {self.team_id}"
