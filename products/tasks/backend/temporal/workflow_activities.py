@@ -144,13 +144,14 @@ async def get_agent_triggered_transition_activity(params: dict[str, Any]) -> Opt
                 if not current_stage:
                     return None
 
-                if not current_stage.agent:
+                agent_definition = current_stage.get_agent_definition()
+                if not agent_definition:
                     return None
 
                 return {
-                    "agent_name": current_stage.agent.name,
-                    "agent_type": current_stage.agent.agent_type,
-                    "agent_config": current_stage.agent.config,
+                    "agent_name": agent_definition.name,
+                    "agent_type": agent_definition.agent_type,
+                    "agent_config": agent_definition.config,
                 }
 
         return await get_agent_transition()
@@ -254,7 +255,7 @@ async def should_trigger_agent_workflow_activity(params: dict[str, Any]) -> dict
                 if not current_stage:
                     return {"should_trigger": False, "trigger_reason": "Task has no current stage"}
 
-                agent_transitions = current_stage.agent is not None
+                agent_transitions = current_stage.get_agent_definition() is not None
 
                 if agent_transitions:
                     return {
