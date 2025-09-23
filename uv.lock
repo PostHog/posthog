@@ -585,6 +585,15 @@ wheels = [
 ]
 
 [[package]]
+name = "bytecode"
+version = "0.17.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/c4/4818b392104bd426171fc2ce9c79c8edb4019ba6505747626d0f7107766c/bytecode-0.17.0.tar.gz", hash = "sha256:0c37efa5bd158b1b873f530cceea2c645611d55bd2dc2a4758b09f185749b6fd", size = 105863, upload-time = "2025-09-03T19:55:45.703Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ce/80/379e685099841f8501a19fb58b496512ef432331fed38276c3938ab09d8e/bytecode-0.17.0-py3-none-any.whl", hash = "sha256:64fb10cde1db7ef5cc39bd414ecebd54ba3b40e1c4cf8121ca5e72f170916ff8", size = 43045, upload-time = "2025-09-03T19:55:43.879Z" },
+]
+
+[[package]]
 name = "cachetools"
 version = "5.5.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2823,6 +2832,15 @@ wheels = [
 ]
 
 [[package]]
+name = "jsonpickle"
+version = "4.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e4/a6/d07afcfdef402900229bcca795f80506b207af13a838d4d99ad45abf530c/jsonpickle-4.1.1.tar.gz", hash = "sha256:f86e18f13e2b96c1c1eede0b7b90095bbb61d99fedc14813c44dc2f361dbbae1", size = 316885, upload-time = "2025-06-02T20:36:11.57Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c1/73/04df8a6fa66d43a9fd45c30f283cc4afff17da671886e451d52af60bdc7e/jsonpickle-4.1.1-py3-none-any.whl", hash = "sha256:bb141da6057898aa2438ff268362b126826c812a1721e31cf08a6e142910dc91", size = 47125, upload-time = "2025-06-02T20:36:08.647Z" },
+]
+
+[[package]]
 name = "jsonpointer"
 version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3098,6 +3116,16 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/51/f6/eb645ca1ff7408bb69e9b1fe692cce1d74394efdbb40d6207096c0cd8381/lazy_object_proxy-1.11.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:090935756cc041e191f22f4f9c7fd4fe9a454717067adf5b1bbd2ce3046b556e", size = 28047, upload-time = "2025-04-16T16:53:34.679Z" },
     { url = "https://files.pythonhosted.org/packages/13/9c/aabbe1e8b99b8b0edb846b49a517edd636355ac97364419d9ba05b8fa19f/lazy_object_proxy-1.11.0-cp311-cp311-win_amd64.whl", hash = "sha256:76ec715017f06410f57df442c1a8d66e6b5f7035077785b129817f5ae58810a4", size = 28440, upload-time = "2025-04-16T16:53:36.113Z" },
     { url = "https://files.pythonhosted.org/packages/e7/1e/fb441c07b6662ec1fc92b249225ba6e6e5221b05623cb0131d082f782edc/lazy_object_proxy-1.11.0-py3-none-any.whl", hash = "sha256:a56a5093d433341ff7da0e89f9b486031ccd222ec8e52ec84d0ec1cdc819674b", size = 16635, upload-time = "2025-04-16T16:53:47.198Z" },
+]
+
+[[package]]
+name = "libdebugger"
+version = "0.1.0"
+source = { git = "https://github.com/PostHog/libdebugger#f2d5f39a0a5b5d9fe46922d6e9151e2a7d12425e" }
+dependencies = [
+    { name = "bytecode" },
+    { name = "jsonpickle" },
+    { name = "posthoganalytics" },
 ]
 
 [[package]]
@@ -4202,6 +4230,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langchain-perplexity" },
     { name = "langgraph" },
+    { name = "libdebugger" },
     { name = "linkedin-api-client" },
     { name = "litellm" },
     { name = "lxml" },
@@ -4438,6 +4467,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = "==0.3.32" },
     { name = "langchain-perplexity", specifier = ">=0.1.1" },
     { name = "langgraph", specifier = "==0.4.10" },
+    { name = "libdebugger", git = "https://github.com/PostHog/libdebugger" },
     { name = "linkedin-api-client", specifier = ">=0.3.0" },
     { name = "litellm", specifier = ">=1.77.7" },
     { name = "lxml", specifier = "==5.2.1" },

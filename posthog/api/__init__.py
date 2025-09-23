@@ -26,6 +26,7 @@ import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
+import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
@@ -720,6 +721,13 @@ environments_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"live_debugger_breakpoints",
+    live_debugger.LiveDebuggerBreakpointViewSet,
+    "live_debugger_breakpoints",
     ["team_id"],
 )
 

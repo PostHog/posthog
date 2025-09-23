@@ -169,6 +169,7 @@ dependencies = [
     "databricks-sql-connector~=4.1.2",
     "databricks-sdk~=0.66.0",
     "litellm>=1.77.7",
+    "libdebugger",
 ]
 
 [dependency-groups]
@@ -244,7 +245,7 @@ required-version = ">=0.7.0"
 
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
-
+libdebugger = { git = "https://github.com/PostHog/libdebugger" }
 
 [tool.black]
 line-length = 120
@@ -341,3 +342,4 @@ python_version = "3.11"
 [tool.mypy-baseline]
 sort_baseline = true
 ignore_categories = ["note"]
+

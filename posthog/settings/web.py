@@ -37,6 +37,7 @@ PRODUCTS_APPS = [
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
+    "products.live_debugger.backend.apps.LiveDebuggerConfig",
 ]
 
 INSTALLED_APPS = [
