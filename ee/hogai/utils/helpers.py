@@ -22,7 +22,6 @@ from posthog.schema import (
     HogQLQuery,
     HumanMessage,
     MaxEventContext,
-    MaxUIContext,
     RetentionQuery,
     TeamTaxonomyQuery,
     TrendsQuery,
@@ -133,14 +132,6 @@ def should_output_assistant_message(candidate_message: AssistantMessageUnion) ->
         return False
 
     return True
-
-
-def find_last_ui_context(messages: Sequence[AssistantMessageUnion]) -> MaxUIContext | None:
-    """Returns the last recorded UI context from all messages."""
-    message = find_start_message(messages)
-    if isinstance(message, HumanMessage) and message.ui_context is not None:
-        return message.ui_context
-    return None
 
 
 def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -> tuple[list[dict], dict[str, str]]:

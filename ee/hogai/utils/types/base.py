@@ -58,6 +58,7 @@ AssistantOutput = (
 AnyAssistantGeneratedQuery = (
     AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 )
+# NOTE: This needs to be kept in sync with context.py
 AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
 # We define this since AssistantMessageUnion is a type and wouldn't work with isinstance()
 ASSISTANT_MESSAGE_TYPES = (

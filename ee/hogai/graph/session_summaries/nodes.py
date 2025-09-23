@@ -327,7 +327,9 @@ class _SessionSearch:
             return self._node._create_error_response(self._node._base_error_instructions, state)
         # If the current filters were marked as relevant, but not present in the context
         current_filters = (
-            self._node._get_contextual_tools(config).get("search_session_recordings", {}).get("current_filters")
+            self._node.context_manager.get_contextual_tools()
+            .get("search_session_recordings", {})
+            .get("current_filters")
         )
         try:
             # Use current filters, if provided
