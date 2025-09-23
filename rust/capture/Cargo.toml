@@ -57,7 +57,6 @@ regex = { workspace = true }
 assert-json-diff = { workspace = true }
 anyhow = { workspace = true }
 axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
-futures = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }

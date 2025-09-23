@@ -1439,7 +1439,6 @@ dependencies = [
  "dateparser",
  "envconfig",
  "flate2",
- "futures",
  "health",
  "jiff",
  "limiters",
