@@ -22,6 +22,7 @@ logger = structlog.get_logger(__name__)
 
 HEIGHT_OFFSET = 85
 PLAYBACK_SPEED_MULTIPLIER = 4  # Speed up playback during recording for long videos
+DURATION_THRESHOLD_FOR_SPEED_UP = 15
 
 
 def _wait_for_page_ready(page: Page, url_to_render: str, wait_for_css_selector: str) -> None:
@@ -310,11 +311,13 @@ def record_replay_to_file(
 
             # Speed up playback for long MP4 recordings to reduce recording time
             ext = os.path.splitext(image_path)[1].lower()
-            # playback_speed = PLAYBACK_SPEED_MULTIPLIER if (ext == ".mp4" and recording_duration > 5) else 1
-            # TODO: Temporary hotfix, as playback speed 4 slowing down the video 4 times
-            playback_speed = 1
-
+            playback_speed = (
+                PLAYBACK_SPEED_MULTIPLIER
+                if (ext == ".mp4" and recording_duration > DURATION_THRESHOLD_FOR_SPEED_UP)
+                else 1
+            )
             # Record for actual_duration (shorter if sped up)
+            # TODO: Leave a comment
             actual_duration = recording_duration / playback_speed
             page.wait_for_timeout(int(actual_duration * 1000))
             video = page.video
