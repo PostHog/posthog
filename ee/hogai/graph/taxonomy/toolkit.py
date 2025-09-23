@@ -284,16 +284,16 @@ class TaxonomyAgentToolkit:
         """Get custom tools. Override in subclasses to add custom tools."""
         raise NotImplementedError("_get_custom_tools must be implemented in subclasses")
 
-    def retrieve_entity_properties(self, entity: str | list[str], max_properties: int = 500) -> str:
+    def retrieve_entity_properties(self, entity: str | list[str], max_properties: int = 500) -> dict[str, str]:
         """
         Retrieve properties for an entity or multiple entities like person, session, or one of the groups.
         """
         if isinstance(entity, str):
-            return self._bulk_get_entity_properties([entity], max_properties).get(entity)
+            return self._bulk_get_entity_properties([entity], max_properties)
         else:
             return self._bulk_get_entity_properties(entity, max_properties)
 
-    def _bulk_get_entity_properties(self, entities: list[str], max_properties: int = 500) -> dict[str, list]:
+    def _bulk_get_entity_properties(self, entities: list[str], max_properties: int = 500) -> dict[str, str]:
         result = {}
         group_entities = []
         entities_set = set(entities)
@@ -595,16 +595,17 @@ class TaxonomyAgentToolkit:
                 tool_input.arguments.property_name,  # type: ignore
             )
             if isinstance(result, list):
-                result = result[0]  # This is temporary until we support parallel tool calls.
+                result = result[0]  # TODO: This is temporary until we support parallel tool calls.
         elif tool_name == "retrieve_entity_properties":
-            result = self.retrieve_entity_properties(tool_input.arguments.entity)  # type: ignore
+            # TODO:This is temporary until we support parallel tool calls.
+            result = self.retrieve_entity_properties(tool_input.arguments.entity)[tool_input.arguments.entity]  # type: ignore
         elif tool_name == "retrieve_event_property_values":
             result = self.retrieve_event_or_action_property_values(
                 tool_input.arguments.event_name,  # type: ignore
                 tool_input.arguments.property_name,  # type: ignore
             )
             if isinstance(result, list):
-                result = result[0]  # This is temporary until we support parallel tool calls.
+                result = result[0]  # TODO: This is temporary until we support parallel tool calls.
         elif tool_name == "retrieve_event_properties":
             result = self.retrieve_event_or_action_properties(tool_input.arguments.event_name)  # type: ignore
         elif tool_name == "ask_user_for_help":
