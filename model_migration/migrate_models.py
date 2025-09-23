@@ -360,6 +360,8 @@ class ModelMigrator:
 
     def _extract_updated_content(self, llm_output: str) -> str:
         """Pull the updated file contents out of a fenced code block, if present."""
+        import re
+
         code_block_match = re.search(r"```(?:python)?\n(.*?)\n```", llm_output, flags=re.DOTALL)
         if code_block_match:
             return code_block_match.group(1)
@@ -456,7 +458,7 @@ class ModelMigrator:
 class {app_name.title()}Config(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "products.{app_name}.backend"
-    label = "products.{app_name}"
+    label = "{app_name}"
 """
             with open(apps_py, "w") as f:
                 f.write(app_config_content)
@@ -1416,19 +1418,6 @@ class {app_name.title()}Config(AppConfig):
             with open(admin_file, "w") as f:
                 f.write("\n".join(combined_content))
 
-            # Update backend __init__.py to auto-register admin
-            backend_init = target_dir / "__init__.py"
-            if backend_init.exists():
-                with open(backend_init) as f:
-                    init_content = f.read()
-            else:
-                init_content = ""
-
-            if "from . import admin" not in init_content:
-                init_content += "\n# Auto-register admin classes\nfrom . import admin  # noqa: F401\n"
-                with open(backend_init, "w") as f:
-                    f.write(init_content)
-
             logger.info("✅ Created backend admin file: %s", admin_file)
             return True
 
@@ -1530,6 +1519,15 @@ class {app_name.title()}Config(AppConfig):
 
         # Step 8: Update settings
         if not self.update_settings(target_app):
+            return False
+
+        proceed = input(
+            "\n🔍 Please review the changes so far. "
+            "Also run `python manage.py migrate --plan` to verify there are no errors. "
+            "If everything looks good, type 'yes' to proceed with migrations: "
+        )
+        if proceed.strip().lower() != "yes":
+            logger.info("🛑 Migration aborted by user.")
             return False
 
         # Step 9: Generate migrations
