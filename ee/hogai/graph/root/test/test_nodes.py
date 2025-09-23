@@ -20,6 +20,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
+    ContextMessage,
     DashboardFilter,
     EntityType,
     EventsNode,
@@ -422,8 +423,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(len(result.messages), 3)
             # Context message
-            self.assertIsInstance(result.messages[0], HumanMessage)
-            assert isinstance(result.messages[0], HumanMessage)
+            self.assertIsInstance(result.messages[0], ContextMessage)
+            assert isinstance(result.messages[0], ContextMessage)
             self.assertIn("search_session_recordings", result.messages[0].content)
             # Original human message
             self.assertIsInstance(result.messages[1], HumanMessage)

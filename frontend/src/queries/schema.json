@@ -1538,6 +1538,7 @@
             "enum": [
                 "human",
                 "tool",
+                "context",
                 "ai",
                 "ai/reasoning",
                 "ai/viz",
@@ -7052,6 +7053,26 @@
                 }
             },
             "required": ["id", "templateId", "columnName", "bytecode", "input", "color"],
+            "type": "object"
+        },
+        "ContextMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "context",
+                    "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["type", "content"],
             "type": "object"
         },
         "ConversionGoalFilter": {

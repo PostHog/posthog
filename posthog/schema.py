@@ -197,6 +197,7 @@ class AssistantHogQLQuery(BaseModel):
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
     TOOL = "tool"
+    CONTEXT = "context"
     AI = "ai"
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
@@ -608,6 +609,16 @@ class ConditionalFormattingRule(BaseModel):
     id: str
     input: str
     templateId: str
+
+
+class ContextMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    type: Literal["context"] = "context"
+    visible: Optional[bool] = None
 
 
 class CountPerActorMathType(StrEnum):

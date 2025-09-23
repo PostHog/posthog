@@ -34,6 +34,7 @@ export interface ProsemirrorJSONContent {
 export enum AssistantMessageType {
     Human = 'human',
     ToolCall = 'tool',
+    Context = 'context',
     Assistant = 'ai',
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
@@ -91,6 +92,11 @@ export interface ReasoningMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Reasoning
     content: string
     substeps?: string[]
+}
+
+export interface ContextMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Context
+    content: string
 }
 
 /**

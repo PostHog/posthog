@@ -18,6 +18,7 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    ContextMessage,
     FailureMessage,
     FunnelsQuery,
     HogQLQuery,
@@ -46,7 +47,7 @@ AIMessageUnion = Union[
     TaskExecutionMessage,
     MultiVisualizationMessage,
 ]
-AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage]
+AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
 AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
@@ -70,6 +71,7 @@ ASSISTANT_MESSAGE_TYPES = (
     PlanningMessage,
     TaskExecutionMessage,
     MultiVisualizationMessage,
+    ContextMessage,
 )
 
 
@@ -343,10 +345,7 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    messages: Sequence[AssistantMessageUnion] = Field(default=[])
-    """
-    Messages exposed to the user.
-    """
+    pass
 
 
 class AssistantNodeName(StrEnum):

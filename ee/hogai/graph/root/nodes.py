@@ -25,6 +25,7 @@ from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
     AssistantToolCallMessage,
+    ContextMessage,
     FailureMessage,
     FunnelsQuery,
     HogQLQuery,
@@ -53,7 +54,7 @@ from ee.hogai.utils.anthropic import (
     get_thinking_from_assistant_message,
     normalize_ai_anthropic_message,
 )
-from ee.hogai.utils.helpers import find_last_ui_context, find_start_message, find_start_message_idx
+from ee.hogai.utils.helpers import find_last_ui_context, find_start_message_idx
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
     AssistantNodeName,
@@ -109,7 +110,7 @@ RouteName = Literal[
 ]
 
 
-RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
+RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 
@@ -339,15 +340,11 @@ class RootNode(RootNodeUIContextMixin):
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         # Add context messages on start of the conversation.
-        if self._is_first_turn(state):
-            context_prompts = await self._get_context_prompts(state, config)
-            if context_prompts:
-                updated_messages = self._inject_context_messages(state, context_prompts)
-                state.messages = updated_messages
-            else:
-                updated_messages = []
-        else:
-            updated_messages = []
+        updated_messages: list[AssistantMessageUnion] = []
+        if self._is_first_turn(state) and (context_prompts := await self._get_context_prompts(state, config)):
+            # Insert context messages BEFORE the start human message, so they're properly cached and the context is retained.
+            updated_messages = self._inject_context_messages(state, context_prompts)
+            state.messages = updated_messages
 
         message_window, billing_context, core_memory = await asyncio.gather(
             self._construct_and_update_messages_window(state, config),
@@ -385,17 +382,11 @@ class RootNode(RootNodeUIContextMixin):
         system_prompts = ChatPromptTemplate.from_messages(
             [
                 ("system", system_prompt_template),
-                (
-                    "system",
-                    CORE_MEMORY_PROMPT
-                    + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
-                    + " If users ask to save, update, or delete the core memory, say you have done it."
-                    + " If the '/remember [information]' command is used, the information gets appended verbatim to core memory.",
-                ),
             ],
             template_format="mustache",
         ).format_messages(
             personality_prompt=MAX_PERSONALITY_PROMPT,
+            core_memory_prompt=CORE_MEMORY_PROMPT,
             core_memory=core_memory,
             billing_context=billing_context_prompt,
         )
@@ -429,12 +420,6 @@ class RootNode(RootNodeUIContextMixin):
         if ui_context and (ui_context.dashboards or ui_context.insights):
             return ReasoningMessage(content="Calculating context")
         return None
-
-    def _is_first_turn(self, state: AssistantState) -> bool:
-        last_message = state.messages[-1]
-        if isinstance(last_message, HumanMessage):
-            return last_message == find_start_message(state.messages, start_id=state.start_id)
-        return False
 
     def _has_session_summarization_feature_flag(self) -> bool:
         """
@@ -583,10 +568,12 @@ class RootNode(RootNodeUIContextMixin):
     def _inject_context_messages(
         self, state: AssistantState, context_prompts: list[str]
     ) -> list[AssistantMessageUnion]:
-        human_messages = [HumanMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts]
+        context_messages = [
+            ContextMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts
+        ]
         # -1 to make the context messages appear before the start message
         start_idx = find_start_message_idx(state.messages, state.start_id) - 1
-        return [*state.messages[:start_idx], *human_messages, *state.messages[start_idx:]]
+        return [*state.messages[:start_idx], *context_messages, *state.messages[start_idx:]]
 
     async def _construct_and_update_messages_window(
         self, state: AssistantState, config: RunnableConfig
@@ -622,7 +609,7 @@ class RootNode(RootNodeUIContextMixin):
         history: list[BaseMessage] = []
 
         for message in conversation_window:
-            if isinstance(message, HumanMessage):
+            if isinstance(message, HumanMessage) or isinstance(message, ContextMessage):
                 history.append(LangchainHumanMessage(content=[{"type": "text", "text": message.content}]))
             elif isinstance(message, AssistantMessage):
                 content = get_thinking_from_assistant_message(message)
@@ -660,7 +647,8 @@ class RootNode(RootNodeUIContextMixin):
                     )
                 )
 
-        # Append a single cache control to the last human message or last tool message
+        # Append a single cache control to the last human message or last tool message,
+        # so we cache the full prefix of the conversation.
         for i in range(len(history) - 1, -1, -1):
             maybe_content_arr = history[i].content
             if (

@@ -17,6 +17,7 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     CachedTeamTaxonomyQueryResponse,
+    ContextMessage,
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
@@ -124,8 +125,11 @@ def should_output_assistant_message(candidate_message: AssistantMessageUnion) ->
     if isinstance(candidate_message, AssistantMessage) and not candidate_message.content:
         return False
 
-    # Filter out context messages
     if isinstance(candidate_message, HumanMessage) and candidate_message.visible is False:
+        return False
+
+    # Filter out context messages
+    if isinstance(candidate_message, ContextMessage):
         return False
 
     return True
@@ -272,20 +276,3 @@ def extract_stream_update(update: Any) -> Any:
 
     update = update[1:]  # we remove the first element, which is the node/subgraph node name
     return update
-
-
-def extract_thinking_content_from_ai_message(response: BaseMessage) -> list[dict[str, Any]] | None:
-    """
-    Extracts the Anthropic thinking from a BaseMessage.
-    """
-    if not isinstance(response.content, list):
-        return None
-    thinking_parts: list[dict[str, Any]] = []
-    for content_item in response.content:
-        if (
-            isinstance(content_item, dict)
-            and "type" in content_item
-            and content_item["type"] in ("thinking", "redacted_thinking")
-        ):
-            thinking_parts.append(content_item)
-    return thinking_parts if thinking_parts else None

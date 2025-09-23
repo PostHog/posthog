@@ -34,6 +34,7 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    ContextMessage,
     DashboardFilter,
     FailureMessage,
     HumanMessage,
@@ -1698,7 +1699,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         snapshot = await assistant._graph.aget_state(assistant._get_config())
         state = AssistantState.model_validate(snapshot.values)
         expected_state_messages = [
-            HumanMessage(
+            ContextMessage(
                 content="<system_reminder>\nContextual tools that are available to you on this page are:\n<create_and_query_insight>\nThe user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:\n\n```json\nquery\n```\n\nIMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT CHANGE ANY OTHER FIELDS THAN THE ONES THE USER ASKED FOR. KEEP THE REST AS IS.\n</create_and_query_insight>\nIMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system_reminder>"
             ),
             HumanMessage(content="Hello"),
