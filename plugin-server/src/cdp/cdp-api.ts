@@ -8,7 +8,11 @@ import { ModifiedRequest } from '~/api/router'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
-import { CdpSourceWebhooksConsumer, SourceWebhookError } from './consumers/cdp-source-webhooks.consumer'
+import {
+    CdpSourceWebhooksConsumer,
+    HogFunctionWebhookResult,
+    SourceWebhookError,
+} from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
@@ -509,9 +513,13 @@ export class CdpApi {
 
                 if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
                     // TODO: Better validation here before we directly use the result
-                    const httpResponse = result.execResult.httpResponse as { status: number; body: any }
+                    const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
+                    console.log('httpResponse', httpResponse)
                     if (typeof httpResponse.body === 'string') {
-                        return res.status(httpResponse.status).send(httpResponse.body)
+                        return res
+                            .status(httpResponse.status)
+                            .set('Content-Type', httpResponse.contentType ?? 'text/plain')
+                            .send(httpResponse.body)
                     } else if (typeof httpResponse.body === 'object') {
                         return res.status(httpResponse.status).json(httpResponse.body)
                     } else {

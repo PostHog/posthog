@@ -35,6 +35,7 @@ describe('incoming webhook template', () => {
                     stringBody: '',
                     headers: {},
                     ip: '127.0.0.1',
+                    query: {},
                 },
             }
         )
@@ -77,6 +78,7 @@ describe('incoming webhook template', () => {
                         authorization: 'Bearer wrong-token',
                     },
                     ip: '127.0.0.1',
+                    query: {},
                 },
             }
         )
@@ -109,6 +111,7 @@ describe('incoming webhook template', () => {
                         authorization: 'Bearer my-secret-token',
                     },
                     ip: '127.0.0.1',
+                    query: {},
                 },
             }
         )
@@ -134,6 +137,7 @@ describe('incoming webhook template', () => {
                     },
                     stringBody: '',
                     headers: {},
+                    query: {},
                 },
             }
         )

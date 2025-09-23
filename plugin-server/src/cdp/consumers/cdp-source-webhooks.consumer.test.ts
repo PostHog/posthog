@@ -9,6 +9,7 @@ import express from 'ultimate-express'
 import { setupExpressApp } from '~/api/router'
 import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
+import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.template'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { HogFunctionType } from '~/cdp/types'
 import { HogFlow } from '~/schema/hogflow'
@@ -44,6 +45,7 @@ describe('SourceWebhooksConsumer', () => {
         let api: CdpApi
         let app: express.Application
         let hogFunction: HogFunctionType
+        let hogFunctionPixel: HogFunctionType
         let server: Server
 
         let mockExecuteSpy: jest.SpyInstance
@@ -66,6 +68,13 @@ describe('SourceWebhooksConsumer', () => {
                 hog: incomingWebhookTemplate.code,
                 bytecode: await compileHog(incomingWebhookTemplate.code),
                 inputs: await compileInputs(incomingWebhookTemplate, {}),
+            })
+
+            hogFunctionPixel = await insertHogFunction(hub.postgres, team.id, {
+                type: 'source_webhook',
+                hog: pixelTemplate.code,
+                bytecode: await compileHog(pixelTemplate.code),
+                inputs: await compileInputs(pixelTemplate, {}),
             })
 
             Settings.defaultZone = 'UTC'
@@ -180,7 +189,25 @@ describe('SourceWebhooksConsumer', () => {
                         host: expect.any(String),
                     },
                     ip: '127.0.0.1',
+                    query: {},
                 })
+            })
+
+            it('should capture an event using GET request with the pixel template', async () => {
+                const res = await doRequest({
+                    method: 'GET',
+                    webhookId: hogFunctionPixel.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.status).toEqual(200)
+                expect(res.body).toBeInstanceOf(Buffer)
+                expect(res.headers['content-type']).toEqual('image/gif; charset=utf-8')
+                // parse body
+                const body = Buffer.from(res.body).toString()
+                expect(body).toContain('GIF')
             })
         })
 

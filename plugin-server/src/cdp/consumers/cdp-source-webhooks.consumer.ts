@@ -43,12 +43,15 @@ const getFirstHeaderValue = (value: string | string[] | undefined): string | und
     return Array.isArray(value) ? value[0] : value
 }
 
-export const getCustomHttpResponse = (
-    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
-): {
+export type HogFunctionWebhookResult = {
     status: number
     body: Record<string, any> | string
-} | null => {
+    contentType?: string
+}
+
+export const getCustomHttpResponse = (
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+): HogFunctionWebhookResult | null => {
     if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
         const httpResponse = result.execResult.httpResponse as Record<string, any>
         return {

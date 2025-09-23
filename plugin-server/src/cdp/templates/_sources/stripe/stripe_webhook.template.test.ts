@@ -99,6 +99,7 @@ describe('stripe webhook template', () => {
                     headers: {},
                     body: {},
                     stringBody: '',
+                    query: {},
                 },
             }
         )
@@ -187,5 +188,6 @@ const createStripeWebhook = (secret: string, body?: Record<string, any>) => {
         headers: {
             'stripe-signature': sigHeader,
         },
+        query: {},
     }
 }
