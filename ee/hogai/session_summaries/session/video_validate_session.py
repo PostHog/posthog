@@ -9,6 +9,7 @@ import yaml
 import structlog
 import temporalio
 from glom import (
+    PathAccessError,
     assign as assign_value,
     glom as find_value,
 )
@@ -70,8 +71,11 @@ class SessionSummaryVideoValidator:
         self, model_to_use: str
     ) -> tuple[SessionSummarySerializer, SessionSummaryRunMeta] | None:
         """Validate the session summary with videos"""
-        # Find the events that would value from video validation (currently, blocking exceptions)
+        # Find the events that would value from video validation (for example, blocking exceptions)
         events_to_validate, fields_to_update = self._pick_events_to_validate()
+        if not events_to_validate:
+            # No events to validate, no need to generate updates
+            return None
         # Prepare input for video validation
         moments_input = self._prepare_moments_input(
             events_to_validate=events_to_validate
@@ -79,7 +83,7 @@ class SessionSummaryVideoValidator:
         # Generate videos and ask LLM to describe them
         description_results = await self.moments_analyzer.analyze(moments_input=moments_input)
         if not description_results:
-            # No description results, don't try to generate updates
+            # No description results generated, no need to generate updates
             return None
         with open(f"description_results_{self.session_id}.json", "w") as f:
             json.dump([asdict(x) for x in description_results], f, indent=4)
@@ -279,14 +283,16 @@ class SessionSummaryVideoValidator:
         """Apply updates to the summary"""
         summary_to_update = copy.deepcopy(self.summary.data)
         for field in updates_result:
-            if field.get("new_value") is None:
-                continue
-            found_value = find_value(target=summary_to_update, spec=field["path"])
-            if found_value is None:
+            # Ensure the path exists and wasn't hallucinated
+            try:
+                find_value(target=summary_to_update, spec=field["path"])
+            except PathAccessError:
                 temporalio.workflow.logger.error(
                     f"Field {field['path']} not found in the session summary to update for the session {self.session_id}, skipping"
                 )
                 continue
+            # Assign the new value to the summary
+            # Allow None, as it's valid (for example, exception changed to None from `blocking`)
             assign_value(obj=summary_to_update, path=field["path"], val=field["new_value"])
         updated_summary = SessionSummarySerializer(data=summary_to_update)
         updated_summary.is_valid(raise_exception=True)
