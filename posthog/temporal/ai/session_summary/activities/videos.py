@@ -55,9 +55,13 @@ async def validate_llm_single_session_summary_with_videos_activity(
         team_id=inputs.team_id,
         user=user,
     )
-    updated_summary, updated_run_metadata = await video_validator.validate_session_summary_with_videos(
+    video_validation_result = await video_validator.validate_session_summary_with_videos(
         model_to_use=inputs.model_to_use
     )
+    if video_validation_result is None:
+        # No video validation result, don't try to update the summary
+        return None
+    updated_summary, updated_run_metadata = video_validation_result
     # Store the updated summary in the database
     summary_row.summary = updated_summary.data
     summary_row.run_metadata = asdict(updated_run_metadata)

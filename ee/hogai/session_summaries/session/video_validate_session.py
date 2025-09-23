@@ -68,7 +68,7 @@ class SessionSummaryVideoValidator:
 
     async def validate_session_summary_with_videos(
         self, model_to_use: str
-    ) -> tuple[SessionSummarySerializer, SessionSummaryRunMeta]:
+    ) -> tuple[SessionSummarySerializer, SessionSummaryRunMeta] | None:
         """Validate the session summary with videos"""
         # Find the events that would value from video validation (currently, blocking exceptions)
         events_to_validate, fields_to_update = self._pick_events_to_validate()
@@ -78,6 +78,9 @@ class SessionSummaryVideoValidator:
         )  # TODO: moment inputs instead of moments input?
         # Generate videos and ask LLM to describe them
         description_results = await self.moments_analyzer.analyze(moments_input=moments_input)
+        if not description_results:
+            # No description results, don't try to generate updates
+            return None
         with open(f"description_results_{self.session_id}.json", "w") as f:
             json.dump([asdict(x) for x in description_results], f, indent=4)
         # with open(
