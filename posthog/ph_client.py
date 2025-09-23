@@ -2,7 +2,6 @@ from contextlib import contextmanager
 from typing import Any
 
 import structlog
-
 from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 

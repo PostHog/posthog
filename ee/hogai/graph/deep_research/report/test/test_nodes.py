@@ -1,11 +1,9 @@
 from uuid import uuid4
 
 import pytest
-from unittest.mock import MagicMock, patch
-
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
-
+from posthog.models import Team, User
 from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsFilter,
@@ -23,8 +21,7 @@ from posthog.schema import (
     ProsemirrorJSONContent,
     TaskExecutionStatus,
 )
-
-from posthog.models import Team, User
+from unittest.mock import MagicMock, patch
 
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode, FormattedInsight
 from ee.hogai.graph.deep_research.types import (

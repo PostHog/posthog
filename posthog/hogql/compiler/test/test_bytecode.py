@@ -1,9 +1,8 @@
 import pytest
-from posthog.test.base import BaseTest
-
 from posthog.hogql.compiler.bytecode import create_bytecode, execute_hog, to_bytecode
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
+from posthog.test.base import BaseTest
 
 from common.hogvm.python.operation import (
     HOGQL_BYTECODE_IDENTIFIER as _H,

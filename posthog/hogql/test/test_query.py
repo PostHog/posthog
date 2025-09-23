@@ -4,15 +4,10 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
-
 from django.test import override_settings
 from django.utils import timezone
-
-from posthog.schema import DateRange, EventPropertyFilter, HogQLFilters, QueryTiming, SessionPropertyFilter
-
+from freezegun import freeze_time
+from posthog.errors import InternalCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
@@ -22,14 +17,15 @@ from posthog.hogql.test.utils import (
     pretty_print_in_tests,
     pretty_print_response_in_tests,
 )
-
-from posthog.errors import InternalCHQueryError
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.utils import UUIDT, uuid7
+from posthog.schema import DateRange, EventPropertyFilter, HogQLFilters, QueryTiming, SessionPropertyFilter
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):

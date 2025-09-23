@@ -2,18 +2,10 @@ import json
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
-from unittest import mock
-from unittest.mock import ANY, MagicMock, call, patch
-
 from django.core.cache import cache
 from django.http import HttpResponse
-
+from freezegun import freeze_time
 from parameterized import parameterized
-from rest_framework import status, test
-from temporalio.service import RPCError
-
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EarlyAccessFeature
@@ -28,8 +20,13 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
+from posthog.test.base import APIBaseTest
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
+from rest_framework import status, test
+from temporalio.service import RPCError
+from unittest import mock
+from unittest.mock import ANY, MagicMock, call, patch
 
 from ee.models.rbac.access_control import AccessControl
 

@@ -3,10 +3,8 @@ from uuid import uuid4
 
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables import Runnable, RunnableConfig
-
-from posthog.schema import NotebookUpdateMessage, ProsemirrorJSONContent
-
 from posthog.models.notebook.notebook import Notebook
+from posthog.schema import NotebookUpdateMessage, ProsemirrorJSONContent
 
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState

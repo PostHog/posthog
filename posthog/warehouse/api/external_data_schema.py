@@ -1,21 +1,14 @@
-import datetime as dt
 import dataclasses
+import datetime as dt
 from typing import Any, Optional
-
-from django.dispatch import receiver
 
 import structlog
 import temporalio
-from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.request import Request
-from rest_framework.response import Response
-
-from posthog.hogql.database.database import create_hogql_database
-
+from django.dispatch import receiver
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql.database.database import create_hogql_database
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal
 from posthog.temporal.data_imports.sources import SourceRegistry
@@ -36,6 +29,10 @@ from posthog.warehouse.models.external_data_schema import (
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
+from rest_framework import filters, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 logger = structlog.get_logger(__name__)
 

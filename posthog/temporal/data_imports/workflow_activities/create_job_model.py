@@ -1,16 +1,14 @@
-import uuid
-import typing
 import dataclasses
+import typing
+import uuid
 
 from django.db import close_old_connections
-
-from structlog.contextvars import bind_contextvars
-from temporalio import activity
-
 from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.data_load.service import delete_external_data_schedule
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from structlog.contextvars import bind_contextvars
+from temporalio import activity
 
 LOGGER = get_logger(__name__)
 

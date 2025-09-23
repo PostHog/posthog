@@ -2,20 +2,16 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from typing import Union
 
+from dateutil.relativedelta import MO, SU, relativedelta
 from django.conf import settings
 from django.core.cache import cache
-
-from dateutil.relativedelta import MO, SU, relativedelta
-
-from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode
-
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.query import execute_hogql_query
-
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.team import WeekStartDay
+from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode
 from posthog.utils import get_safe_cache
 
 EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60

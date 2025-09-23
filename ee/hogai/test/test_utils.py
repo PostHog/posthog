@@ -1,6 +1,5 @@
-from posthog.test.base import BaseTest
-
 from posthog.schema import AssistantMessage, AssistantTrendsQuery, FailureMessage, HumanMessage, VisualizationMessage
+from posthog.test.base import BaseTest
 
 from ee.hogai.utils.helpers import filter_and_merge_messages
 from ee.hogai.utils.types.base import AssistantMessageUnion

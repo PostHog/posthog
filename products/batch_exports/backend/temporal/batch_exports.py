@@ -1,21 +1,16 @@
-import ssl
-import json
-import uuid
-import typing
 import asyncio
-import datetime as dt
-import operator
-import dataclasses
 import collections.abc
+import dataclasses
+import datetime as dt
+import json
+import operator
+import ssl
+import typing
+import uuid
 
-from django.conf import settings
-
-import pyarrow as pa
 import aiokafka
-from structlog.contextvars import bind_contextvars
-from temporalio import activity, exceptions, workflow
-from temporalio.common import RetryPolicy
-
+import pyarrow as pa
+from django.conf import settings
 from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
     BackfillDetails,
@@ -37,7 +32,6 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import use_distributed_events_recent_table
@@ -48,6 +42,9 @@ from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
 )
+from structlog.contextvars import bind_contextvars
+from temporalio import activity, exceptions, workflow
+from temporalio.common import RetryPolicy
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 

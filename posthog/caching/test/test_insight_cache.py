@@ -1,20 +1,17 @@
 from datetime import timedelta
 from typing import Optional
 
-import pytest
-from freezegun import freeze_time
-from unittest.mock import call, patch
-
-from django.utils.timezone import now
-
 import orjson as json
-
+import pytest
+from django.utils.timezone import now
+from freezegun import freeze_time
 from posthog.caching.insight_cache import fetch_states_in_need_of_updating, schedule_cache_updates, update_cache
 from posthog.caching.insight_caching_state import upsert
 from posthog.caching.test.test_insight_caching_state import create_insight, filter_dict
 from posthog.models import InsightCachingState, Team, User
 from posthog.models.signals import mute_selected_signals
 from posthog.utils import get_safe_cache
+from unittest.mock import call, patch
 
 
 def create_insight_caching_state(

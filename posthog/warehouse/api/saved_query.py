@@ -2,29 +2,21 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+import structlog
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, Subquery, TextField
 from django.db.models.functions import Cast
-
-import structlog
-from asgiref.sync import async_to_sync
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
-from rest_framework.decorators import action
-from rest_framework.pagination import PageNumberPagination
-from rest_framework.response import Response
-from temporalio.client import ScheduleActionExecutionStartWorkflow
-
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import print_ast
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -57,6 +49,11 @@ from posthog.warehouse.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+from temporalio.client import ScheduleActionExecutionStartWorkflow
 
 logger = structlog.get_logger(__name__)
 

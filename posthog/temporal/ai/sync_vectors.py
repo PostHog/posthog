@@ -1,21 +1,19 @@
-import json
 import asyncio
+import json
 from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
 
-from django.db.models import F, Q
-
-import structlog
 import posthoganalytics
-import temporalio.common
+import structlog
 import temporalio.activity
-import temporalio.workflow
+import temporalio.common
 import temporalio.exceptions
+import temporalio.workflow
 from azure.core import exceptions as azure_exceptions
+from django.db.models import F, Q
 from openai import APIError as OpenAIAPIError
-
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Action

@@ -1,5 +1,4 @@
 from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from products.revenue_analytics.backend.views.core import Builder
 
 from .charge import build as charge_builder

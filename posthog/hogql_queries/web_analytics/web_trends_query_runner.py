@@ -2,14 +2,12 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from posthog.schema import CachedWebTrendsQueryResponse, WebTrendsItem, WebTrendsQuery, WebTrendsQueryResponse
-
 from posthog.hogql import ast
-
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.trends_pre_aggregated_query_builder import TrendsPreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.schema import CachedWebTrendsQueryResponse, WebTrendsItem, WebTrendsQuery, WebTrendsQueryResponse
 
 
 class WebTrendsQueryRunner(WebAnalyticsQueryRunner[WebTrendsQueryResponse]):

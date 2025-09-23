@@ -1,13 +1,11 @@
 from freezegun import freeze_time
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events
-
-from posthog.schema import DateRange, HogQLQueryModifiers, SessionTableVersion, WebOverviewQuery
-
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL
+from posthog.schema import DateRange, HogQLQueryModifiers, SessionTableVersion, WebOverviewQuery
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 
 
 class TestWebBouncesPreAggregated(WebAnalyticsPreAggregatedTestBase):

@@ -2,6 +2,14 @@ from datetime import datetime
 from math import floor
 from typing import Any, Optional, Union, cast
 
+from posthog.hogql_queries.insights.trends.breakdown import (
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_DISPLAY,
+    BREAKDOWN_OTHER_STRING_LABEL,
+)
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import Team
 from posthog.schema import (
     ActionsNode,
     AssistantFunnelsActionsNode,
@@ -22,15 +30,6 @@ from posthog.schema import (
     RetentionQuery,
     TrendsQuery,
 )
-
-from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_NULL_DISPLAY,
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_OTHER_DISPLAY,
-    BREAKDOWN_OTHER_STRING_LABEL,
-)
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Team
 
 
 def _format_matrix(matrix: list[list[str]]) -> str:

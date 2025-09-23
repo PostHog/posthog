@@ -6,9 +6,6 @@ from datetime import datetime
 from typing import Any
 
 import pytest
-
-from pytest_mock import MockerFixture
-
 from posthog.session_recordings.session_recording_helpers import (
     RRWEB_MAP_EVENT_TYPE,
     SessionRecordingEventSummary,
@@ -16,6 +13,7 @@ from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
 )
+from pytest_mock import MockerFixture
 
 MILLISECOND_TIMESTAMP = round(datetime(2019, 1, 1).timestamp() * 1000)
 

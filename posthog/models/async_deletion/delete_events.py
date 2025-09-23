@@ -1,12 +1,11 @@
 from typing import Any
 
 from clickhouse_driver.errors import SocketTimeoutError
-from prometheus_client import Counter
-
 from posthog.clickhouse.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from prometheus_client import Counter
 
 logger.setLevel("DEBUG")
 

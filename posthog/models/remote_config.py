@@ -1,7 +1,9 @@
-import os
 import json
+import os
 from typing import Any, Optional
 
+import requests
+import structlog
 from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
@@ -9,11 +11,6 @@ from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch.dispatcher import receiver
 from django.http import HttpRequest
 from django.utils import timezone
-
-import requests
-import structlog
-from prometheus_client import Counter
-
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
 from posthog.models.error_tracking.error_tracking import ErrorTrackingSuppressionRule
@@ -27,6 +24,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
+from prometheus_client import Counter
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 

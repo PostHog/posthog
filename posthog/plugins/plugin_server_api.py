@@ -3,7 +3,6 @@ from typing import Union
 
 import requests
 import structlog
-
 from posthog.models.utils import UUIDT
 from posthog.redis import get_client
 from posthog.settings import CDP_API_URL, PLUGINS_RELOAD_REDIS_URL

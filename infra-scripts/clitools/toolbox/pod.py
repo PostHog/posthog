@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Pod management functions."""
 
-import sys
 import json
-import time
 import subprocess
+import sys
+import time
 from datetime import datetime, timedelta
 
 

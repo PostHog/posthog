@@ -4,13 +4,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Generic, ParamSpec, TypeVar
 
-from django.utils.timezone import now
-
 import orjson
+from django.utils.timezone import now
 from django_redis.serializers.base import BaseSerializer
-from rest_framework.utils.encoders import JSONEncoder
-
 from posthog.settings import TEST
+from rest_framework.utils.encoders import JSONEncoder
 
 P = ParamSpec("P")
 R = TypeVar("R")

@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
-from django.conf import settings
-
 import dagster
 import psycopg2
 import psycopg2.extras
@@ -24,7 +22,7 @@ from dagster import (
     op,
 )
 from dagster._core.definitions.backfill_policy import BackfillPolicy
-
+from django.conf import settings
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import Query, get_cluster
 

@@ -2,13 +2,7 @@ import asyncio
 import datetime as dt
 
 import pytest
-from posthog.test.base import _create_event
-from unittest.mock import patch
-
 from django.test.client import Client as HttpClient
-
-from rest_framework import status
-
 from posthog.api.test.batch_exports.fixtures import create_organization, create_team, create_user
 from posthog.api.test.batch_exports.operations import (
     backfill_batch_export_ok,
@@ -19,6 +13,9 @@ from posthog.api.test.batch_exports.operations import (
     get_batch_export_runs_ok,
     wait_for_workflow_executions,
 )
+from posthog.test.base import _create_event
+from rest_framework import status
+from unittest.mock import patch
 
 pytestmark = [
     pytest.mark.django_db,

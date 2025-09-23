@@ -1,22 +1,8 @@
 import uuid
 from datetime import datetime
 
-from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    create_person_id_override_by_distinct_id,
-    snapshot_clickhouse_queries,
-)
-from unittest.case import skip
-
 from django.test import override_settings
-
-from rest_framework.exceptions import ValidationError
-
+from freezegun import freeze_time
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
 from posthog.models import Action, Element
@@ -26,7 +12,18 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelActors
 from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    create_person_id_override_by_distinct_id,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_journeys import journeys_for
+from rest_framework.exceptions import ValidationError
+from unittest.case import skip
 
 
 def _create_action(**kwargs):

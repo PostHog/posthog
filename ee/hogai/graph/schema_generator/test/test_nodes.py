@@ -2,16 +2,13 @@ import json
 from collections.abc import Iterable
 from typing import Any, cast
 
-from posthog.test.base import BaseTest
-from unittest.mock import patch
-
 from django.test import override_settings
-
 from langchain_core.agents import AgentAction
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig, RunnableLambda
-
 from posthog.schema import AssistantMessage, AssistantTrendsQuery, FailureMessage, HumanMessage, VisualizationMessage
+from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from ee.hogai.graph.schema_generator.nodes import RETRIES_ALLOWED, SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException

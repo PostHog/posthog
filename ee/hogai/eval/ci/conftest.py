@@ -1,17 +1,13 @@
-import os
 import datetime
+import os
 from collections.abc import Generator
 
 import pytest
-
-from django.test import override_settings
-
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
-
-from posthog.schema import FailureMessage, HumanMessage, VisualizationMessage
-
+from django.test import override_settings
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Organization, Team, User
+from posthog.schema import FailureMessage, HumanMessage, VisualizationMessage
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

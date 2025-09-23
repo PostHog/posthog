@@ -1,8 +1,6 @@
 import re
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import CustomChannelRule
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -25,7 +23,6 @@ from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATI
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV3
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-
 from posthog.models.property_definition import PropertyType
 from posthog.models.raw_sessions.sql_v3 import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3,
@@ -33,6 +30,7 @@ from posthog.models.raw_sessions.sql_v3 import (
     SESSION_V3_LOWER_TIER_AD_IDS,
 )
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema import CustomChannelRule
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

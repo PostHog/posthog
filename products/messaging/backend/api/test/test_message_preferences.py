@@ -1,20 +1,17 @@
 import json
 
-from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import patch
-
+import posthog.plugins.plugin_server_api as plugin_server_api
 from django.test import Client
 from django.urls import reverse
-
-from requests import Response
-
-import posthog.plugins.plugin_server_api as plugin_server_api
 from posthog.models.message_category import MessageCategory
 from posthog.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from posthog.test.base import APIBaseTest, BaseTest
+from requests import Response
+from unittest.mock import patch
 
 
 def mock_response(status_code: int, response_json: dict):

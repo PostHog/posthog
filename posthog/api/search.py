@@ -4,15 +4,13 @@ from typing import Any, Literal, TypedDict
 from django.db.models import CharField, F, Model, QuerySet, Value
 from django.db.models.functions import Cast, JSONObject
 from django.http import HttpResponse
-
-from rest_framework import serializers, viewsets
-from rest_framework.request import Request
-from rest_framework.response import Response
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
 from posthog.models import Action, Cohort, Dashboard, EventDefinition, Experiment, FeatureFlag, Insight, Survey
 from posthog.models.notebook.notebook import Notebook
+from rest_framework import serializers, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 LIMIT = 25
 

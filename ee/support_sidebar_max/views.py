@@ -3,16 +3,15 @@ ViewSet for Max Support Sidebar Chat Assistant.
 """
 
 import asyncio
-import logging
 import builtins
+import logging
 from collections.abc import MutableMapping
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from django.conf import settings
-
 import anthropic
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action

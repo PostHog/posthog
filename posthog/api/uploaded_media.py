@@ -1,22 +1,20 @@
 from io import BytesIO
 from typing import Optional
 
+import structlog
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
-
-import structlog
 from drf_spectacular.utils import extend_schema
 from PIL import Image
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import UploadedMedia
+from posthog.models.uploaded_media import ObjectStorageUnavailable
+from posthog.storage import object_storage
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, UnsupportedMediaType, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from statshog.defaults.django import statsd
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import UploadedMedia
-from posthog.models.uploaded_media import ObjectStorageUnavailable
-from posthog.storage import object_storage
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
 

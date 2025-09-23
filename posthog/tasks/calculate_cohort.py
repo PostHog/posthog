@@ -2,16 +2,13 @@ import time
 from datetime import timedelta
 from typing import Any, Optional
 
+import posthoganalytics
+import structlog
+from celery import chain, current_task, shared_task
+from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
 from django.utils import timezone
-
-import structlog
-import posthoganalytics
-from celery import chain, current_task, shared_task
-from dateutil.relativedelta import relativedelta
-from prometheus_client import Counter, Gauge
-
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
@@ -22,6 +19,7 @@ from posthog.models.cohort.util import get_dependent_cohorts, sort_cohorts_topol
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
+from prometheus_client import Counter, Gauge
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",

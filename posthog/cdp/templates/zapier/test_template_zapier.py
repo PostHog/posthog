@@ -1,5 +1,4 @@
 from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 

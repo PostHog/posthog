@@ -1,19 +1,17 @@
-import uuid
-import random
-import logging
 import datetime as dt
+import logging
+import random
+import uuid
 
 import pytest
-
 import pytest_asyncio
 from asgiref.sync import async_to_sync, sync_to_async
-from temporalio.client import Client as TemporalClient
-from temporalio.service import RPCError
-
 from posthog.models import Organization, Team
 from posthog.temporal.common.client import sync_connect
 from posthog.warehouse.data_load.service import get_sync_schedule
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+from temporalio.client import Client as TemporalClient
+from temporalio.service import RPCError
 
 pytestmark = [
     pytest.mark.django_db,

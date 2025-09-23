@@ -1,7 +1,7 @@
 from typing import Optional
 
-from posthog.test.base import BaseTest
-
+from posthog.hogql.constants import LimitContext
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
@@ -18,10 +18,7 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
-
-from posthog.hogql.constants import LimitContext
-
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.test.base import BaseTest
 
 
 class TestTrendsDashboardFilters(BaseTest):

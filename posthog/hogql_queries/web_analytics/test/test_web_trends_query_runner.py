@@ -1,9 +1,7 @@
+from posthog.hogql_queries.web_analytics.web_trends_query_runner import WebTrendsQueryRunner
+from posthog.schema import HogQLQueryModifiers, IntervalType, WebTrendsMetric, WebTrendsQuery
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
-
-from posthog.schema import HogQLQueryModifiers, IntervalType, WebTrendsMetric, WebTrendsQuery
-
-from posthog.hogql_queries.web_analytics.web_trends_query_runner import WebTrendsQueryRunner
 
 
 class TestWebTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):

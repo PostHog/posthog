@@ -1,6 +1,5 @@
 from django import forms
 from django.contrib import admin
-
 from posthog.models.batch_imports import BatchImport
 
 

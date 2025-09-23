@@ -3,6 +3,13 @@ from datetime import datetime, timedelta
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
+from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
+from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import User
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema import (
     DatabaseSchemaManagedViewTableKind,
     IntervalType,
@@ -14,18 +21,8 @@ from posthog.schema import (
     RevenueAnalyticsPropertyFilter,
     RevenueAnalyticsTopCustomersQuery,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
-
-from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import User
-from posthog.models.filters.mixins.utils import cached_property
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.types import ExternalDataSourceType
-
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsChargeView,

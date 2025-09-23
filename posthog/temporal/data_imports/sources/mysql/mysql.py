@@ -1,21 +1,17 @@
 from __future__ import annotations
 
-import re
-import math
 import collections
+import math
+import re
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
 from typing import Any
 
-from django.conf import settings
-
 import pyarrow as pa
 import pymysql
 import pymysql.converters
+from django.conf import settings
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from pymysql.cursors import Cursor, SSCursor
-from structlog.types import FilteringBoundLogger
-
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
@@ -29,6 +25,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+from pymysql.cursors import Cursor, SSCursor
+from structlog.types import FilteringBoundLogger
 
 
 def filter_mysql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:

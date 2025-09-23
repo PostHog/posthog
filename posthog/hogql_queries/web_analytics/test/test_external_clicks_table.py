@@ -1,14 +1,8 @@
 from typing import Optional, Union
 
 from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
-
+from posthog.hogql_queries.web_analytics.external_clicks import WebExternalClicksTableQueryRunner
+from posthog.models.utils import uuid7
 from posthog.schema import (
     DateRange,
     HogQLQueryModifiers,
@@ -17,9 +11,13 @@ from posthog.schema import (
     WebAnalyticsOrderByFields,
     WebExternalClicksTableQuery,
 )
-
-from posthog.hogql_queries.web_analytics.external_clicks import WebExternalClicksTableQueryRunner
-from posthog.models.utils import uuid7
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 
 
 @snapshot_clickhouse_queries

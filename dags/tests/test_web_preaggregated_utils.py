@@ -1,8 +1,7 @@
 import inspect
 
-from unittest.mock import Mock
-
 from dagster import DagsterInstance, DagsterRunStatus, RunsFilter, SkipReason, job, op, schedule
+from unittest.mock import Mock
 
 import dags.web_preaggregated as wp
 import dags.web_preaggregated_daily as wpd

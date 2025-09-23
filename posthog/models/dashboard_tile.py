@@ -2,7 +2,6 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q, QuerySet, UniqueConstraint
 from django.utils import timezone
-
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import generate_insight_filters_hash
 from posthog.models.utils import build_unique_relationship_check

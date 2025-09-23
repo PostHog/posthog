@@ -2,7 +2,6 @@ import re
 from typing import TYPE_CHECKING, Union
 
 from django.db.models import Q
-
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,

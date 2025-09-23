@@ -1,10 +1,10 @@
-import types
-import typing
 import builtins
-import operator
+import dataclasses
 import functools
 import importlib
-import dataclasses
+import operator
+import types
+import typing
 
 META_KEY = "_SOURCE_CONFIG_META"
 

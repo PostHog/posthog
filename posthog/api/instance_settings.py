@@ -1,8 +1,6 @@
 import re
 from typing import Any, Optional, Union
 
-from rest_framework import exceptions, mixins, permissions, serializers, viewsets
-
 from posthog.cloud_utils import is_cloud
 from posthog.models.instance_setting import (
     get_instance_setting as get_instance_setting_raw,
@@ -16,6 +14,7 @@ from posthog.settings import (
     SKIP_ASYNC_MIGRATIONS_SETUP,
 )
 from posthog.utils import str_to_bool
+from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
 
 def cast_str_to_desired_type(str_value: str, target_type: type) -> Any:

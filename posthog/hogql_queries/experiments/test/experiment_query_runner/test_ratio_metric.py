@@ -1,11 +1,11 @@
 from typing import cast
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
-
 from django.test import override_settings
-
+from freezegun import freeze_time
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from posthog.models.action.action import Action
 from posthog.schema import (
     ActionsNode,
     EventsNode,
@@ -16,10 +16,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     FunnelConversionWindowTimeUnit,
 )
-
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from posthog.models.action.action import Action
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
 

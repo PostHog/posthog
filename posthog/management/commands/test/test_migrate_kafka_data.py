@@ -1,12 +1,11 @@
 from uuid import uuid4
 
-from unittest import mock
-
 from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 from kafka.admin.new_topic import NewTopic
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
+from unittest import mock
 
 from bin.migrate_kafka_data import run as migrate_kafka_data
 

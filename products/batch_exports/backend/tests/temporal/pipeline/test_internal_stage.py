@@ -1,18 +1,13 @@
-import re
-import json
-import uuid
-import typing as t
 import datetime as dt
+import json
+import re
+import typing as t
+import uuid
 
 import pytest
-from unittest import mock
-from unittest.mock import patch
-
 from django.conf import settings
-
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel
 from posthog.temporal.common.clickhouse import ClickHouseClient
-
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     get_s3_staging_folder,
@@ -23,6 +18,8 @@ from products.batch_exports.backend.tests.temporal.destinations.test_s3_batch_ex
     create_test_client,
     delete_all_from_s3,
 )
+from unittest import mock
+from unittest.mock import patch
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

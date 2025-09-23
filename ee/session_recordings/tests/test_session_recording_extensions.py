@@ -1,12 +1,10 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
-from unittest.mock import MagicMock, patch
-
 from django.test import TestCase
 from django.utils import timezone
-
+from freezegun import freeze_time
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from unittest.mock import MagicMock, patch
 
 from ee.session_recordings.session_recording_extensions import persist_recording_v2
 

@@ -1,12 +1,10 @@
 import json
 
 import pytest
-from unittest.mock import Mock
-
 from django.core.cache import cache
-
 from posthog.storage import object_storage
 from posthog.storage.hypercache import DEFAULT_CACHE_MISS_TTL, DEFAULT_CACHE_TTL, HyperCache, HyperCacheStoreMissing
+from unittest.mock import Mock
 
 
 class HyperCacheTestBase:

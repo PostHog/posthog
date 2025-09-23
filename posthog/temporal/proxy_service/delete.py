@@ -1,17 +1,13 @@
-import json
-import uuid
-import typing as t
 import datetime as dt
+import json
+import typing as t
+import uuid
 from dataclasses import dataclass
-
-from django.db import connection
 
 import grpc.aio
 import temporalio.common
 from asgiref.sync import sync_to_async
-from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
-
+from django.db import connection
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
@@ -22,6 +18,8 @@ from posthog.temporal.proxy_service.common import (
     get_grpc_client,
 )
 from posthog.temporal.proxy_service.proto import DeleteRequest
+from structlog.contextvars import bind_contextvars
+from temporalio import activity, workflow
 
 LOGGER = get_logger(__name__)
 

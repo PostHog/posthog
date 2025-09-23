@@ -1,10 +1,7 @@
 from typing import Any
 
 from django.test.testcases import TestCase
-
 from parameterized import parameterized
-from pydantic import BaseModel
-
 from posthog.schema import (
     BaseMathType,
     BreakdownAttributionType,
@@ -21,8 +18,8 @@ from posthog.schema import (
     StepOrderValue,
     TrendsQuery,
 )
-
 from posthog.schema_helpers import to_dict
+from pydantic import BaseModel
 
 base_trends: dict[str, Any] = {"series": []}
 base_funnel: dict[str, Any] = {"series": []}

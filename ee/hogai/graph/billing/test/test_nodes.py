@@ -2,9 +2,6 @@ import datetime
 from typing import cast
 from uuid import uuid4
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
-
 from posthog.schema import (
     AssistantToolCallMessage,
     BillingSpendResponseBreakdownType,
@@ -20,6 +17,8 @@ from posthog.schema import (
     SpendHistoryItem,
     UsageHistoryItem,
 )
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.utils.types import AssistantState

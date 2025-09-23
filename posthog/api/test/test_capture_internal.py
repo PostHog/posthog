@@ -3,11 +3,6 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
-
-from prance import ResolvingParser
-
 from posthog.api.capture import CaptureInternalError, capture_batch_internal, capture_internal
 from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_URL,
@@ -15,6 +10,9 @@ from posthog.settings.ingestion import (
     NEW_ANALYTICS_CAPTURE_ENDPOINT,
     REPLAY_CAPTURE_ENDPOINT,
 )
+from posthog.test.base import BaseTest
+from prance import ResolvingParser
+from unittest.mock import MagicMock, patch
 
 parser = ResolvingParser(
     url=str(pathlib.Path(__file__).parent / "../../../openapi/capture.yaml"),

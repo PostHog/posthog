@@ -3,7 +3,13 @@ from typing import Any, Literal, Optional, Union, cast
 
 import structlog
 from opentelemetry import trace
-
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.models import Team
 from posthog.schema import (
     FilterLogicalOperator,
     HogQLQueryModifiers,
@@ -11,15 +17,6 @@ from posthog.schema import (
     RecordingOrder,
     RecordingsQuery,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
-
-from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery

@@ -1,33 +1,28 @@
+import functools
 import json
 import uuid
-import functools
 from concurrent.futures import ThreadPoolExecutor
 
-import pytest
-from unittest import mock
-
-from django.conf import settings
-from django.test import override_settings
-
 import aioboto3
+import pytest
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from django.conf import settings
+from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
-from posthog.schema import HogQLQueryResponse
-
-from posthog.hogql.query import execute_hogql_query
-
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.hogql.query import execute_hogql_query
+from posthog.schema import HogQLQueryResponse
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from posthog.warehouse.models.external_table_definitions import external_tables
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from unittest import mock
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()

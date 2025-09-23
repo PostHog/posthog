@@ -1,11 +1,10 @@
-import typing
+import collections.abc
 import datetime as dt
 import operator
-import collections.abc
-
-from django.conf import settings
+import typing
 
 import pyarrow as pa
+from django.conf import settings
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.v19.common import types as ga_common
@@ -14,7 +13,6 @@ from google.ads.googleads.v19.resources import types as ga_resources
 from google.ads.googleads.v19.services import types as ga_services
 from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
-
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse

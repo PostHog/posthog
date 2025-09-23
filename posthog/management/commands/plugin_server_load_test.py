@@ -1,17 +1,15 @@
-import sys
-import time
+import dataclasses
+import datetime as dt
 import logging
 import secrets
-import datetime as dt
-import dataclasses
+import sys
+import time
 from itertools import chain
 
+import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand
-
-import structlog
 from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
-
 from posthog.api.capture import capture_batch_internal
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION

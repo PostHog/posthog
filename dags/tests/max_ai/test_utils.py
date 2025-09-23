@@ -3,10 +3,8 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
-
-from django.conf import settings
-
 from dagster_aws.s3 import S3Resource
+from django.conf import settings
 from fastavro import reader
 from pydantic_avro import AvroBase
 

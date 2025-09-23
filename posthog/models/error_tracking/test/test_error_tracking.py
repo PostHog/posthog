@@ -1,18 +1,16 @@
 from datetime import datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import BaseTest
-from unittest.mock import patch
-
 from django.db.utils import IntegrityError
-
+from freezegun import freeze_time
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingSymbolSet,
 )
+from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 
 class TestErrorTracking(BaseTest):

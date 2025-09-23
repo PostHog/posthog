@@ -6,14 +6,6 @@ from zoneinfo import ZoneInfo
 from django.db.models import Case, F, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 from django.dispatch import receiver
-
-from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.request import Request
-from rest_framework.response import Response
-
-from posthog.schema import ExperimentEventExposureConfig
-
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -26,6 +18,11 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
+from posthog.schema import ExperimentEventExposureConfig
+from rest_framework import serializers, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer

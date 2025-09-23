@@ -1,9 +1,8 @@
 import re
 
-from django.conf import settings
-
 import dagster
 import dagster_slack
+from django.conf import settings
 
 from dags.common import JobOwners
 

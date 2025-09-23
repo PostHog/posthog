@@ -2,17 +2,14 @@ from datetime import datetime
 from typing import cast
 
 import pytest
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from unittest.mock import patch
-
 from django.utils import timezone
-
-from rest_framework import status
-
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from rest_framework import status
+from unittest.mock import patch
 
 
 class TestPreflight(APIBaseTest, QueryMatchingTest):

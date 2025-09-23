@@ -1,11 +1,9 @@
 from typing import Optional
 
 import pytest
-
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
 from langchain_core.messages import AIMessage as LangchainAIMessage
-
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

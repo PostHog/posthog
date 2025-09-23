@@ -4,9 +4,19 @@ from typing import Literal, Optional, cast
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
-
-from pydantic import BaseModel
-
+from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+from posthog.hogql import ast
+from posthog.hogql.base import AST
+from posthog.hogql.errors import NotImplementedError, QueryError
+from posthog.hogql.functions import find_hogql_aggregation
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
+from posthog.models.element import Element
+from posthog.models.event import Selector
+from posthog.models.property import PropertyGroup, ValueT
+from posthog.models.property.util import build_selector_regex
+from posthog.models.property_definition import PropertyType
 from posthog.schema import (
     CohortPropertyFilter,
     DataWarehousePersonPropertyFilter,
@@ -32,24 +42,10 @@ from posthog.schema import (
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.base import AST
-from posthog.hogql.errors import NotImplementedError, QueryError
-from posthog.hogql.functions import find_hogql_aggregation
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
-
-from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
-from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
-from posthog.models.element import Element
-from posthog.models.event import Selector
-from posthog.models.property import PropertyGroup, ValueT
-from posthog.models.property.util import build_selector_regex
-from posthog.models.property_definition import PropertyType
 from posthog.utils import get_from_dict_or_attr
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.warehouse.models.util import get_view_or_table_by_name
+from pydantic import BaseModel
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
 

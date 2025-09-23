@@ -1,16 +1,14 @@
 from __future__ import annotations
 
+import logging
 import math
 import time
-import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
-from django.core.management.base import BaseCommand
-
 import structlog
-
+from django.core.management.base import BaseCommand
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL

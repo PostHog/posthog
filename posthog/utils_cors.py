@@ -1,8 +1,7 @@
 from urllib.parse import urlparse
 
-from django.http import HttpRequest, HttpResponse
-
 import structlog
+from django.http import HttpRequest, HttpResponse
 
 logger = structlog.get_logger(__name__)
 

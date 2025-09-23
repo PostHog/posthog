@@ -1,11 +1,15 @@
 # ruff: noqa: T201 allow print statements
 
-import sys
 import html
+import sys
 import uuid
 from decimal import Decimal
 from typing import Any, Optional
 
+import lxml
+import requests
+import toronado
+from celery import shared_task
 from django.conf import settings
 from django.core import exceptions, mail
 from django.core.mail.backends.smtp import EmailBackend
@@ -13,12 +17,6 @@ from django.db import transaction
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
-
-import lxml
-import requests
-import toronado
-from celery import shared_task
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord

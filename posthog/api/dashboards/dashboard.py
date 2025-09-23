@@ -3,24 +3,16 @@ from collections.abc import AsyncGenerator
 from contextlib import nullcontext
 from typing import Any, Optional, cast
 
+import posthoganalytics
+import pydantic_core
+import structlog
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 from django.dispatch import receiver
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
-
-import structlog
-import pydantic_core
-import posthoganalytics
-from asgiref.sync import sync_to_async
 from opentelemetry import trace
-from rest_framework import exceptions, serializers, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission
-from rest_framework.request import Request
-from rest_framework.response import Response
-from rest_framework.serializers import BaseSerializer
-from rest_framework.utils.serializer_helpers import ReturnDict
-
 from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
@@ -48,6 +40,12 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
+from rest_framework import exceptions, serializers, viewsets
+from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
+from rest_framework.utils.serializer_helpers import ReturnDict
 
 from ee.hogai.utils.aio import async_to_sync
 

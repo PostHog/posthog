@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
+import logging
 import os
-import sys
-import time
 import socket
 import struct
-import logging
+import sys
 import threading
+import time
 
 import structlog
 from prometheus_client import CollectorRegistry, Gauge, multiprocess, start_http_server

@@ -1,9 +1,12 @@
 from datetime import UTC, datetime
 from typing import cast
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
-
+from posthog.caching.utils import ThresholdMode, staleness_threshold_map
+from posthog.hogql import ast
+from posthog.hogql.visitor import clear_locations
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.models.insight_variable import InsightVariable
+from posthog.models.utils import UUIDT
 from posthog.schema import (
     CachedHogQLQueryResponse,
     HogQLASTQuery,
@@ -12,14 +15,8 @@ from posthog.schema import (
     HogQLQuery,
     HogQLVariable,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.visitor import clear_locations
-
-from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.models.insight_variable import InsightVariable
-from posthog.models.utils import UUIDT
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 
 class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):

@@ -1,14 +1,12 @@
 # EE extended functions for SessionRecording model
 from datetime import timedelta
 
-from django.utils import timezone
-
 import structlog
-from prometheus_client import Counter, Histogram
-
+from django.utils import timezone
 from posthog import settings
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_v2_service import copy_to_lts
+from prometheus_client import Counter, Histogram
 
 logger = structlog.get_logger(__name__)
 

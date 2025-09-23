@@ -1,37 +1,25 @@
-import os
-import json
-import uuid
-import typing as t
 import asyncio
-import datetime as dt
-import operator
-import functools
 import contextlib
-
-import pytest
-from unittest import mock
-
-from django.conf import settings
-from django.test import override_settings
+import datetime as dt
+import functools
+import json
+import operator
+import os
+import typing as t
+import uuid
 
 import aioboto3
 import botocore.exceptions
+import pytest
+from django.conf import settings
+from django.test import override_settings
 from flaky import flaky
-from temporalio import activity
-from temporalio.client import WorkflowFailureError
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.testing._activity import ActivityEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from types_aiobotocore_s3.client import S3Client
-
 from posthog import constants
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema, S3BatchExportInputs
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 from posthog.temporal.tests.utils.s3 import read_parquet_from_s3, read_s3_data_as_json
-
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
@@ -54,6 +42,14 @@ from products.batch_exports.backend.tests.temporal.utils import (
     get_record_batch_from_queue,
     mocked_start_batch_export_run,
 )
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.testing._activity import ActivityEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from types_aiobotocore_s3.client import S3Client
+from unittest import mock
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

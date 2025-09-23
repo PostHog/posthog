@@ -1,6 +1,11 @@
 import json
 
 from freezegun import freeze_time
+from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
+from posthog.models import Action, Filter
+from posthog.models.filters.lifecycle_filter import LifecycleFilter
+from posthog.models.instance_setting import get_instance_setting
+from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -8,12 +13,6 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-
-from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
-from posthog.models import Action, Filter
-from posthog.models.filters.lifecycle_filter import LifecycleFilter
-from posthog.models.instance_setting import get_instance_setting
-from posthog.queries.trends.trends import Trends
 
 
 def create_action(**kwargs):

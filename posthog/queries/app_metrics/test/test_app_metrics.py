@@ -3,8 +3,6 @@ from datetime import datetime
 from typing import Optional
 
 from freezegun.api import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
-
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS
 from posthog.models.app_metrics.sql import INSERT_APP_METRICS_SQL
@@ -17,6 +15,7 @@ from posthog.queries.app_metrics.app_metrics import (
     TeamPluginsDeliveryRateQuery,
 )
 from posthog.queries.app_metrics.serializers import AppMetricsErrorsRequestSerializer, AppMetricsRequestSerializer
+from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.utils import cast_timestamp_or_now
 
 

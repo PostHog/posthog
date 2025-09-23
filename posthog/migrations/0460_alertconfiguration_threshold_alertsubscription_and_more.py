@@ -2,10 +2,9 @@
 
 import django.db.models.deletion
 import django.db.models.expressions
+import posthog.models.utils
 from django.conf import settings
 from django.db import migrations, models
-
-import posthog.models.utils
 
 
 class Migration(migrations.Migration):

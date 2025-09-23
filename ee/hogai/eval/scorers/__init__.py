@@ -5,7 +5,6 @@ from autoevals.llm import LLMClassifier
 from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
 from braintrust import Score
-
 from posthog.schema import AssistantMessage, AssistantToolCall, NodeKind
 
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyAssistantSupportedQuery

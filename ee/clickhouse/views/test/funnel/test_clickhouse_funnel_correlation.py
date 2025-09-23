@@ -2,16 +2,14 @@ import json
 from datetime import datetime
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import BaseTest, _create_event, _create_person
-from unittest.mock import ANY
-
 from django.core.cache import cache
-
+from freezegun import freeze_time
 from posthog.constants import FunnelCorrelationType
 from posthog.models.element import Element
 from posthog.models.team import Team
+from posthog.test.base import BaseTest, _create_event, _create_person
 from posthog.test.test_journeys import journeys_for
+from unittest.mock import ANY
 
 from ee.clickhouse.views.test.funnel.util import (
     EventPattern,

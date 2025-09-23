@@ -1,12 +1,16 @@
 from dataclasses import dataclass
 from typing import Optional, Union
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import MagicMock, patch
-
 from django.test import override_settings
-
+from freezegun import freeze_time
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models.action.action import Action
+from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
@@ -33,18 +37,10 @@ from posthog.schema import (
     StickinessQuery,
     StickinessQueryResponse,
 )
-
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
-from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models.action.action import Action
-from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyDefinition
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from unittest.mock import MagicMock, patch
 
 
 @dataclass

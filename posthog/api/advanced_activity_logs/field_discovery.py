@@ -1,10 +1,9 @@
-import threading
 import dataclasses
+import threading
 from typing import Any, TypedDict
 
 from django.db import connection
 from django.db.models import QuerySet
-
 from posthog.models.activity_logging.activity_log import ActivityLog, Change
 from posthog.models.utils import UUIDT
 

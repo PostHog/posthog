@@ -2,14 +2,12 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
-from posthog.test.base import BaseTest
-from unittest import mock
-
 from django.core.cache import cache
-
-from pydantic import BaseModel
-
+from freezegun import freeze_time
+from posthog.hogql.constants import LimitContext
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team import Team, WeekStartDay
 from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
@@ -26,15 +24,11 @@ from posthog.schema import (
     TestBasicQueryResponse as TheTestBasicQueryResponse,
     TestCachedBasicQueryResponse as TheTestCachedBasicQueryResponse,
 )
-
-from posthog.hogql.constants import LimitContext
-
-from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.team.team import Team, WeekStartDay
-
+from posthog.test.base import BaseTest
 from products.marketing_analytics.backend.hogql_queries.test.utils import MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
+from pydantic import BaseModel
+from unittest import mock
 
 
 class TheTestQuery(BaseModel):

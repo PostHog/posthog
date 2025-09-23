@@ -1,18 +1,15 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.utils import timezone
-
 import pytz
 import structlog
 from dateutil.relativedelta import MO, relativedelta
-
-from posthog.schema import AlertCalculationInterval, ChartDisplayType, NodeKind
-
+from django.utils import timezone
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
+from posthog.schema import AlertCalculationInterval, ChartDisplayType, NodeKind
 
 logger = structlog.get_logger(__name__)
 

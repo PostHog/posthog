@@ -1,16 +1,13 @@
 import uuid
 from typing import Any, Optional
 
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import ActionsNode, BreakdownType, DataWarehouseNode, EventsNode
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
 from posthog.queries.util import correct_result_for_sampling
+from posthog.schema import ActionsNode, BreakdownType, DataWarehouseNode, EventsNode
+from rest_framework.exceptions import ValidationError
 
 
 class FunnelUnordered(FunnelBase):

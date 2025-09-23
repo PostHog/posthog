@@ -1,11 +1,9 @@
 import json
 from functools import cached_property
 
+import structlog
 from django.conf import settings
 from django.utils.timezone import now
-
-import structlog
-
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,

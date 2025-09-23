@@ -1,10 +1,9 @@
+import logging
 import os
 import re
 import sys
-import logging
 
 from django.core.management.base import BaseCommand, CommandError
-
 from git import Repo
 
 logger = logging.getLogger(__name__)

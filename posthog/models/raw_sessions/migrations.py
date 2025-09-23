@@ -1,5 +1,4 @@
 from django.conf import settings
-
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE

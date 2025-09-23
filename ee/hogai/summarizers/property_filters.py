@@ -1,7 +1,5 @@
 from typing import Any, Literal, Union, cast
 
-from pydantic import BaseModel, ConfigDict
-
 from posthog.schema import (
     CohortPropertyFilter,
     DataWarehousePersonPropertyFilter,
@@ -18,8 +16,8 @@ from posthog.schema import (
     RecordingPropertyFilter,
     SessionPropertyFilter,
 )
-
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from pydantic import BaseModel, ConfigDict
 
 PropertyFilterUnion = Union[
     EventPropertyFilter,

@@ -4,10 +4,8 @@ from datetime import datetime
 
 from django.db import connection, migrations
 from django.db.models import Q
-
-from posthog.schema import InsightVizNode
-
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.schema import InsightVizNode
 
 logger = logging.getLogger(__name__)
 

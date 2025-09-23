@@ -2,16 +2,13 @@ import json
 from typing import cast
 
 import pytest
-from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, PropertyMock, patch
-
-from django.test import override_settings
-
 from anthropic.types import MessageParam
+from django.test import override_settings
 from google.genai.errors import APIError
 from parameterized import parameterized
-
+from posthog.test.base import BaseTest
 from products.llm_analytics.backend.providers.gemini import GeminiConfig, GeminiProvider
+from unittest.mock import MagicMock, PropertyMock, patch
 
 
 class TestGeminiConfig(BaseTest):

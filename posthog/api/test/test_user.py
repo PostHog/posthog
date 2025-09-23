@@ -1,29 +1,26 @@
-import uuid
 import datetime
+import uuid
 from typing import cast
 from urllib.parse import quote, unquote
-
-from freezegun.api import freeze_time
-from posthog.test.base import APIBaseTest
-from unittest import mock
-from unittest.mock import ANY, patch
 
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
 from django.utils import timezone
 from django.utils.text import slugify
-
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from rest_framework import status
-
+from freezegun.api import freeze_time
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from unittest import mock
+from unittest.mock import ANY, patch
 
 
 def create_user(email: str, password: str, organization: Organization):

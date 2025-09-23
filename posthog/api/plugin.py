@@ -1,7 +1,9 @@
-import re
 import json
+import re
 from typing import Any, Optional, cast
 
+import requests
+from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
@@ -9,17 +11,7 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.encoding import smart_str
 from django.utils.timezone import now
-
-import requests
-from dateutil.relativedelta import relativedelta
 from loginas.utils import is_impersonated_session
-from posthoganalytics import capture_exception
-from rest_framework import renderers, request, serializers, status, viewsets
-from rest_framework.decorators import renderer_classes
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
-from rest_framework.response import Response
-
 from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
@@ -46,6 +38,12 @@ from posthog.plugins.access import can_globally_manage_plugins, has_plugin_acces
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers
 from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
 from posthog.utils import format_query_params_absolute_url
+from posthoganalytics import capture_exception
+from rest_framework import renderers, request, serializers, status, viewsets
+from rest_framework.decorators import renderer_classes
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.response import Response
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"

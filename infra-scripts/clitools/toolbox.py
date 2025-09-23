@@ -3,9 +3,9 @@
 Toolbox command for connecting to PostHog toolbox pods in a Kubernetes environment.
 """
 
+import argparse
 import os
 import sys
-import argparse
 from datetime import datetime, timedelta
 
 # Add the current directory to the path to allow importing from the toolbox package

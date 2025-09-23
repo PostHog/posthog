@@ -1,17 +1,15 @@
-import os
-import uuid
-import shutil
 import datetime as dt
+import os
+import shutil
 import tempfile
+import uuid
 from typing import Any
 
-from django.db import close_old_connections
-
 import structlog
-from temporalio import activity
-
+from django.db import close_old_connections
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.utils import absolute_uri
+from temporalio import activity
 
 logger = structlog.get_logger(__name__)
 

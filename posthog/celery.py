@@ -1,8 +1,6 @@
 import os
 import time
 
-from django.dispatch import receiver
-
 import structlog
 from celery import Celery
 from celery.signals import (
@@ -14,11 +12,11 @@ from celery.signals import (
     task_success,
     worker_process_init,
 )
+from django.dispatch import receiver
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
-from prometheus_client import Counter, Histogram
-
 from posthog.cloud_utils import is_cloud
+from prometheus_client import Counter, Histogram
 
 logger = structlog.get_logger(__name__)
 
@@ -110,10 +108,9 @@ def on_worker_start(**kwargs) -> None:
 # Set up clickhouse query instrumentation
 @task_prerun.connect
 def prerun_signal_handler(task_id, task, **kwargs):
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client.connection import Workload, set_default_clickhouse_workload_type
     from posthog.clickhouse.query_tagging import tag_queries
+    from statshog.defaults.django import statsd
 
     statsd.incr("celery_tasks_metrics.pre_run", tags={"name": task.name})
     tag_queries(kind="celery", id=task.name)

@@ -1,11 +1,9 @@
 import pytest
-from unittest import mock
-
 from posthog.schema import SourceFieldInputConfig, SourceFieldOauthConfig
-
 from posthog.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
 from posthog.temporal.data_imports.sources.reddit_ads.source import RedditAdsSource
 from posthog.warehouse.types import ExternalDataSourceType
+from unittest import mock
 
 
 class TestRedditAdsSource:

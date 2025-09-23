@@ -2,17 +2,14 @@ import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
-from unittest.mock import Mock, patch
-
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from django.utils.timezone import now
-
-from dateutil.relativedelta import relativedelta
-from rest_framework import status
-
+from freezegun import freeze_time
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from rest_framework import status
+from unittest.mock import Mock, patch
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License

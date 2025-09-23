@@ -3,11 +3,9 @@ import logging
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
-
-from posthog.schema import MaxRecordingUniversalFilters
-
 from posthog.models import Team, User
+from posthog.schema import MaxRecordingUniversalFilters
+from pydantic import BaseModel, Field
 
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode

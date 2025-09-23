@@ -1,13 +1,9 @@
-import time
 import asyncio
 import datetime as dt
+import time
 
 import pytest
-from posthog.test.base import _create_event
-from unittest.mock import patch
-
 from django.test.client import Client as HttpClient
-
 from posthog.api.test.batch_exports.operations import (
     backfill_batch_export_ok,
     cancel_batch_export_backfill_ok,
@@ -15,6 +11,8 @@ from posthog.api.test.batch_exports.operations import (
     get_batch_export_backfill_ok,
     list_batch_export_backfills_ok,
 )
+from posthog.test.base import _create_event
+from unittest.mock import patch
 
 
 def wait_for_backfill_creation(client: HttpClient, team_id: int, batch_export_id: str):

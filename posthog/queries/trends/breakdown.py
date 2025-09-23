@@ -1,5 +1,5 @@
-import re
 import json
+import re
 import urllib.parse
 from collections.abc import Callable
 from datetime import datetime
@@ -7,9 +7,6 @@ from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.forms import ValidationError
-
-from posthog.schema import PersonsOnEventsMode
-
 from posthog.constants import (
     MONTHLY_ACTIVE,
     NON_TIME_SERIES_DISPLAY_TYPES,
@@ -74,6 +71,7 @@ from posthog.queries.util import (
     get_person_properties_mode,
     get_start_of_interval_sql,
 )
+from posthog.schema import PersonsOnEventsMode
 from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.utils import encode_get_request_params, generate_short_id
 

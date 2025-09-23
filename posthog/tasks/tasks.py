@@ -2,28 +2,25 @@ import time
 from typing import Optional
 from uuid import UUID
 
+import posthoganalytics
+import requests
+from celery import shared_task
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
-
-import requests
-import posthoganalytics
-from celery import shared_task
-from prometheus_client import Gauge
-from redis import Redis
-from structlog import get_logger
-
-from posthog.hogql.constants import LimitContext
-
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
+from prometheus_client import Gauge
+from redis import Redis
+from structlog import get_logger
 
 logger = get_logger(__name__)
 
@@ -199,10 +196,9 @@ HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"$heartbeat": "ingestion_api"}
 
 @shared_task(ignore_result=True)
 def ingestion_lag() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
     from posthog.models.team.team import Team
+    from statshog.defaults.django import statsd
 
     query = """
     SELECT event, date_diff('second', max(timestamp), now())
@@ -313,9 +309,8 @@ KNOWN_CELERY_TASK_IDENTIFIERS = {
 
 @shared_task(ignore_result=True)
 def clickhouse_row_count() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
+    from statshog.defaults.django import statsd
 
     with pushed_metrics_registry("celery_clickhouse_row_count") as registry:
         row_count_gauge = Gauge(
@@ -380,9 +375,8 @@ def clickhouse_errors_count() -> None:
 
 @shared_task(ignore_result=True)
 def clickhouse_part_count() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
+    from statshog.defaults.django import statsd
 
     QUERY = """
         SELECT table, count(1) freq
@@ -411,9 +405,8 @@ def clickhouse_part_count() -> None:
 
 @shared_task(ignore_result=True)
 def clickhouse_mutation_count() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.clickhouse.client import sync_execute
+    from statshog.defaults.django import statsd
 
     QUERY = """
         SELECT
@@ -838,9 +831,8 @@ def background_delete_model_task(
     """
     import logging
 
-    from django.apps import apps
-
     import structlog
+    from django.apps import apps
 
     logger = structlog.get_logger(__name__)
     logger.setLevel(logging.INFO)
@@ -929,7 +921,6 @@ def background_delete_model_task(
 def refresh_activity_log_fields_cache() -> None:
     """Refresh fields cache for large organizations every 12 hours"""
     from django.db.models import Count
-
     from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery, DetailFieldsResult
     from posthog.api.advanced_activity_logs.fields_cache import cache_fields
     from posthog.api.advanced_activity_logs.queries import SMALL_ORG_THRESHOLD

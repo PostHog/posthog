@@ -1,11 +1,10 @@
 import json
-import uuid
 import logging
-
-from django.conf import settings
+import uuid
 
 import boto3
 from botocore.exceptions import ClientError
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 

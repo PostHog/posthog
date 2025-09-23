@@ -1,10 +1,8 @@
 import json
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-
 from inline_snapshot import snapshot
-
 from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, MappingsSerializer
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 

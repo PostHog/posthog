@@ -1,5 +1,9 @@
 from typing import cast
 
+from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.schema import FunnelsQuery, FunnelTimeToConvertResults
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -9,12 +13,6 @@ from posthog.test.base import (
 )
 from unittest.case import skip
 from unittest.mock import Mock, patch
-
-from posthog.schema import FunnelsQuery, FunnelTimeToConvertResults
-
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"

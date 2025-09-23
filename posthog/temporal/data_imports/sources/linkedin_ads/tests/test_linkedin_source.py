@@ -1,7 +1,6 @@
-from unittest import mock
-
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedInAdsSource
+from unittest import mock
 
 
 class TestLinkedInAdsSource:

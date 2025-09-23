@@ -1,13 +1,11 @@
 from datetime import datetime
 
-from rest_framework.exceptions import ValidationError
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
 from posthog.utils import relative_date_parse
+from rest_framework.exceptions import ValidationError
 
 
 class FunnelTrendsActors(FunnelTrends):

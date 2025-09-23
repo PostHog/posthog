@@ -2,14 +2,12 @@ import json
 from datetime import datetime
 from html import escape
 
-from freezegun import freeze_time
-from unittest.mock import patch
-
 from django.test import TestCase
 from django.test.client import RequestFactory
-
+from freezegun import freeze_time
 from posthog.api.csp import parse_report_to, parse_report_uri, process_csp_report, sample_csp_report
 from posthog.sampling import sample_on_property
+from unittest.mock import patch
 
 
 class TestCSPModule(TestCase):

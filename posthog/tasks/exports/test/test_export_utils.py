@@ -1,10 +1,8 @@
 import pytest
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
-
-from requests import RequestException
-
 from posthog.tasks.exports import exporter_utils
+from posthog.test.base import APIBaseTest
+from requests import RequestException
+from unittest.mock import patch
 
 TEST_PREFIX = "Test-Exports"
 

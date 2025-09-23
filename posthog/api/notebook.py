@@ -1,21 +1,15 @@
 import hashlib
 from typing import Any, Optional
 
+import structlog
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.http import JsonResponse
 from django.utils.timezone import now
-
-import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
 from loginas.utils import is_impersonated_session
-from rest_framework import serializers, viewsets
-from rest_framework.request import Request
-from rest_framework.response import Response
-from rest_framework.serializers import BaseSerializer
-
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -29,6 +23,10 @@ from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
+from rest_framework import serializers, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 
 logger = structlog.get_logger(__name__)
 

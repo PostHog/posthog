@@ -1,6 +1,5 @@
 from django.http import HttpRequest, HttpResponse
 from django.test import TestCase
-
 from posthog.utils_cors import cors_response
 
 

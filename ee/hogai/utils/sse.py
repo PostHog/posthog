@@ -1,9 +1,8 @@
 import json
 from typing import cast
 
-from pydantic import BaseModel
-
 from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent
+from pydantic import BaseModel
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantOutput

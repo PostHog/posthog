@@ -1,17 +1,15 @@
 import base64
 from typing import cast
 
-from django.conf import settings
-
 import requests
 import structlog
+from django.conf import settings
+from posthog.models import User
+from posthog.utils import capture_exception
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-
-from posthog.models import User
-from posthog.utils import capture_exception
 
 logger = structlog.get_logger(__name__)
 

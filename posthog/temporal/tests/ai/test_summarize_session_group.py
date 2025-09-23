@@ -1,22 +1,14 @@
-import json
-import uuid
 import asyncio
 import dataclasses
+import json
+import uuid
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
 from openai.types.chat.chat_completion import ChatCompletion, ChatCompletionMessage, Choice
-from pytest_mock import MockerFixture
-from temporalio.client import WorkflowExecutionStatus
-from temporalio.exceptions import ApplicationError
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
 from posthog import constants
 from posthog.models import Team
 from posthog.models.user import User
@@ -52,6 +44,12 @@ from posthog.temporal.ai.session_summary.types.group import (
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext
+from pytest_mock import MockerFixture
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer

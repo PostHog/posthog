@@ -1,11 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from django.db import models
-
 import structlog
 import temporalio
-
+from django.db import models
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team

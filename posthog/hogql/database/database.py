@@ -4,26 +4,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, U
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
-
 from opentelemetry import trace
-from pydantic import BaseModel, ConfigDict
-
-from posthog.schema import (
-    DatabaseSchemaDataWarehouseTable,
-    DatabaseSchemaField,
-    DatabaseSchemaManagedViewTable,
-    DatabaseSchemaPostHogTable,
-    DatabaseSchemaSchema,
-    DatabaseSchemaSource,
-    DatabaseSchemaSystemTable,
-    DatabaseSchemaViewTable,
-    DatabaseSerializedFieldType,
-    HogQLQuery,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
-    SessionTableVersion,
-)
-
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -110,14 +92,27 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
-
-from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
+from posthog.schema import (
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaField,
+    DatabaseSchemaManagedViewTable,
+    DatabaseSchemaPostHogTable,
+    DatabaseSchemaSchema,
+    DatabaseSchemaSource,
+    DatabaseSchemaSystemTable,
+    DatabaseSchemaViewTable,
+    DatabaseSerializedFieldType,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+    SessionTableVersion,
+)
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
-
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
+from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -468,7 +463,6 @@ def create_hogql_database(
 ) -> Database:
     from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
     from posthog.hogql.query import create_default_modifiers_for_team
-
     from posthog.models import Team
     from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
 
@@ -971,7 +965,6 @@ def serialize_database(
     context: HogQLContext,
 ) -> dict[str, DatabaseSchemaTable]:
     from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
     from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
     tables: dict[str, DatabaseSchemaTable] = {}

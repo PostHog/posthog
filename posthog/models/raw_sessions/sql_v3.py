@@ -1,5 +1,4 @@
 from django.conf import settings
-
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
 """Raw sessions table v3

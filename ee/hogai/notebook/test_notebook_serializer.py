@@ -1,7 +1,6 @@
 from typing import cast
 
 from django.test import TestCase
-
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,

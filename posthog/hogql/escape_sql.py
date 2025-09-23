@@ -1,12 +1,11 @@
-import re
 import math
+import re
 from datetime import date, datetime
 from typing import Any, Literal, Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from posthog.hogql.errors import QueryError, ResolutionError
-
 from posthog.models.utils import UUIDT
 
 # Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.

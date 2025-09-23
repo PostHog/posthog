@@ -1,7 +1,5 @@
 import pytest
-
 from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.intercom.template_intercom import (
     template as template_intercom,

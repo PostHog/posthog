@@ -2,11 +2,10 @@ import json
 from datetime import timedelta
 
 import temporalio
-from temporalio import workflow
-from temporalio.common import RetryPolicy
-
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+from temporalio import workflow
+from temporalio.common import RetryPolicy
 
 from .github_activities import (
     cleanup_repo_activity,

@@ -1,13 +1,10 @@
 from typing import cast
 
-from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import AsyncMock, Mock, patch
-
 from langchain_core.runnables import RunnableConfig
-
 from posthog.schema import AssistantHogQLQuery, AssistantToolCall
-
+from posthog.test.base import NonAtomicBaseTest
 from products.data_warehouse.backend.max_tools import FinalAnswerArgs, HogQLGeneratorTool
+from unittest.mock import AsyncMock, Mock, patch
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.sql.mixins import SQLSchemaGeneratorOutput

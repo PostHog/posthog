@@ -1,8 +1,11 @@
 from typing import Any, cast
 
 import pytest
-from posthog.test.base import BaseTest
-
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
+    filter_to_query,
+    hidden_legend_keys_to_breakdowns,
+    hidden_legend_keys_to_indexes,
+)
 from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
@@ -53,12 +56,7 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
-
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
-    filter_to_query,
-    hidden_legend_keys_to_breakdowns,
-    hidden_legend_keys_to_indexes,
-)
+from posthog.test.base import BaseTest
 
 insight_0 = {
     "events": [{"id": "signed_up", "type": "events", "order": 0}],

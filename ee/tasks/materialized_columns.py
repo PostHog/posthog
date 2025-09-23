@@ -1,7 +1,6 @@
 from collections.abc import Iterator
 
 from celery.utils.log import get_task_logger
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
 from posthog.settings import CLICKHOUSE_DATABASE

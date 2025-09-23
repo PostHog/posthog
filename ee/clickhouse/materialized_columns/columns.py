@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import re
 import logging
+import re
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, Literal, TypeVar, cast
 
-from django.utils.timezone import now
-
 from clickhouse_driver import Client
-
+from django.utils.timezone import now
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser

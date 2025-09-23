@@ -1,18 +1,15 @@
 from typing import Any, cast
 from urllib.parse import urlparse
 
+import structlog
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
 from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
-
-import structlog
 from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
-from two_factor.urls import urlpatterns as tf_urls
-
 from posthog.api import (
     api_not_found,
     authentication,
@@ -41,8 +38,8 @@ from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
-
 from products.early_access_features.backend.api import early_access_features
+from two_factor.urls import urlpatterns as tf_urls
 
 from .utils import opt_slash_path, render_template
 from .views import (

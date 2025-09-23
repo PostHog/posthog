@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 import dagster
 import structlog
 from dagster import BackfillPolicy, DailyPartitionsDefinition
-
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster

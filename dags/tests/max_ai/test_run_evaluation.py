@@ -1,12 +1,10 @@
 from uuid import uuid4
 
+import dagster
 import pytest
+from posthog.models import Dataset, DatasetItem
 from posthog.test.base import setup_test_organization_team_and_user
 from unittest.mock import patch
-
-import dagster
-
-from posthog.models import Dataset, DatasetItem
 
 from dags.max_ai.run_evaluation import prepare_dataset
 

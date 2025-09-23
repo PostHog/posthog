@@ -1,7 +1,6 @@
 # BigQuery Marketing Source Adapter
 
 from posthog.hogql import ast
-
 from products.marketing_analytics.backend.hogql_queries.constants import (
     MARKETING_ANALYTICS_SCHEMA,
     UNKNOWN_CAMPAIGN,

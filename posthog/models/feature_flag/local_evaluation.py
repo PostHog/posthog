@@ -1,14 +1,12 @@
 from collections.abc import Generator
 from typing import Any, Union, cast
 
+import structlog
 from django.conf import settings
 from django.db import connections, transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
-
-import structlog
-
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType

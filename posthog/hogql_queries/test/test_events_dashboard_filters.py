@@ -1,10 +1,8 @@
 from typing import Optional
 
-from posthog.test.base import BaseTest
-
-from posthog.schema import DashboardFilter, EventPropertyFilter, EventsQuery
-
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.schema import DashboardFilter, EventPropertyFilter, EventsQuery
+from posthog.test.base import BaseTest
 
 
 class TestEventsDashboardFilters(BaseTest):

@@ -1,5 +1,4 @@
 from celery import shared_task
-
 from posthog.models.integration import GitHubIntegration, GoogleCloudIntegration
 from posthog.tasks.utils import CeleryQueue
 

@@ -1,13 +1,10 @@
 import json
-import tempfile
 import subprocess
+import tempfile
 
 import pytest
-
 from django.test import TestCase
-
 from inline_snapshot import snapshot
-
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction

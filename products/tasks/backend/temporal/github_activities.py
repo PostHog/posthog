@@ -2,18 +2,17 @@
 GitHub integration activities for issue tracker workflows.
 """
 
+import asyncio
 import os
 import shutil
-import asyncio
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from structlog.contextvars import bind_contextvars
-from temporalio import activity
-
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
+from structlog.contextvars import bind_contextvars
+from temporalio import activity
 
 from .inputs import CreatePRInputs, TaskProcessingInputs
 
@@ -31,7 +30,6 @@ async def get_github_integration_for_task(task_id: str, team_id: int) -> tuple[A
         Exception if no integration or repository is found
     """
     from django.apps import apps
-
     from posthog.models.integration import GitHubIntegration, Integration
 
     Task = apps.get_model("tasks", "Task")
@@ -743,7 +741,6 @@ async def get_github_integration_token(team_id: int, task_id: str) -> str:
     """Get GitHub access token from PostHog's GitHub integration."""
     try:
         from django.apps import apps
-
         from posthog.models.integration import GitHubIntegration, Integration
 
         Task = apps.get_model("tasks", "Task")

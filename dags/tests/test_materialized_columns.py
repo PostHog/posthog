@@ -1,17 +1,15 @@
-import time
 import contextlib
+import time
 from collections.abc import Iterator, Mapping
 from datetime import datetime
 from uuid import UUID
 
-import pytest
-from posthog.test.base import materialized
-
 import dagster
 import pydantic
+import pytest
 from clickhouse_driver import Client
-
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
+from posthog.test.base import materialized
 
 from dags.materialized_columns import (
     MaterializationConfig,

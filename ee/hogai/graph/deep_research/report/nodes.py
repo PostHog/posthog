@@ -3,8 +3,7 @@ from uuid import uuid4
 from langchain_core.messages import ToolMessage as LangchainToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel
-
+from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -15,8 +14,7 @@ from posthog.schema import (
     DeepResearchType,
     NotebookUpdateMessage,
 )
-
-from posthog.exceptions_capture import capture_exception
+from pydantic import BaseModel
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.report.prompts import DEEP_RESEARCH_REPORT_PROMPT, FINAL_REPORT_USER_PROMPT

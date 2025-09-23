@@ -7,7 +7,6 @@ from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.outputs import LLMResult
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_openai import ChatOpenAI
-
 from posthog.settings import CLOUD_DEPLOYMENT
 
 if TYPE_CHECKING:

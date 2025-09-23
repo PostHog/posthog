@@ -1,8 +1,6 @@
 from datetime import datetime
 from typing import Optional
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
-
 from posthog.constants import TRENDS_TABLE
 from posthog.models import Filter
 from posthog.queries.trends.breakdown import (
@@ -12,6 +10,7 @@ from posthog.queries.trends.breakdown import (
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from posthog.queries.trends.trends import Trends
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
 

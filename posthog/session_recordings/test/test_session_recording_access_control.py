@@ -1,14 +1,12 @@
 import pytest
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
-
-from rest_framework import status
-
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from unittest.mock import patch
 
 try:
     from ee.models.rbac.access_control import AccessControl

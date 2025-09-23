@@ -1,7 +1,5 @@
 import pytest
-
 from clickhouse_driver.errors import ServerException
-
 from posthog.errors import ch_error_type, wrap_query_error
 
 

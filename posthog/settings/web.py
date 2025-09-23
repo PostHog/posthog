@@ -4,7 +4,6 @@ from datetime import timedelta
 
 import structlog
 from corsheaders.defaults import default_headers
-
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool

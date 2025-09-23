@@ -1,8 +1,7 @@
 from typing import Any, Optional
 
-from rest_framework.request import Request
-
 from posthog.constants import INSIGHT_PATHS
+from rest_framework.request import Request
 
 from .base_filter import BaseFilter
 from .mixins.common import (

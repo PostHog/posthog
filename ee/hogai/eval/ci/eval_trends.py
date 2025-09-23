@@ -1,9 +1,7 @@
 from datetime import datetime
 
 import pytest
-
 from braintrust import EvalCase
-
 from posthog.schema import (
     AssistantEventMultipleBreakdownFilterType,
     AssistantGenericMultipleBreakdownFilter,

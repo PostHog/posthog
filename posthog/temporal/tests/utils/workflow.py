@@ -1,18 +1,17 @@
+import asyncio
+import dataclasses
+import datetime as dt
 import enum
 import json
-import time
-import asyncio
-import datetime as dt
 import threading
-import dataclasses
-
-from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+import time
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.shutdown import ShutdownMonitor
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
 
 class WaitMode(enum.StrEnum):

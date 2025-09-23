@@ -2,13 +2,10 @@ import json
 import random
 from datetime import timedelta
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from unittest import mock
-from unittest.mock import MagicMock, call, patch
-
 from django.utils import timezone
-
+from freezegun import freeze_time
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
+from posthog.redis import get_client
 from posthog.schema import (
     FilterLogicalOperator,
     PropertyOperator,
@@ -16,13 +13,13 @@ from posthog.schema import (
     RecordingPropertyFilter,
     RecordingsQuery,
 )
-
-from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
-from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from unittest import mock
+from unittest.mock import MagicMock, call, patch
 
 from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
     DEFAULT_RECORDING_FILTERS,

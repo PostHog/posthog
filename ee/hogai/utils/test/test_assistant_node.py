@@ -1,6 +1,5 @@
-from posthog.test.base import BaseTest
-
 from langchain_core.runnables import RunnableConfig
+from posthog.test.base import BaseTest
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState

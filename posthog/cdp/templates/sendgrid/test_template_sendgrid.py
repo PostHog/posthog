@@ -1,13 +1,11 @@
-from posthog.test.base import BaseTest
-
 from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.sendgrid.template_sendgrid import (
     TemplateSendGridMigrator,
     template as template_sendgrid,
 )
 from posthog.models import PluginConfig
+from posthog.test.base import BaseTest
 
 
 class TestTemplateSendgrid(BaseHogFunctionTemplateTest):

@@ -1,10 +1,9 @@
 import os
 from typing import Any
 
-from unittest.mock import MagicMock
-
 from posthog.email import EmailMessage
 from posthog.utils import get_absolute_path
+from unittest.mock import MagicMock
 
 
 def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__emails__/") -> list[Any]:

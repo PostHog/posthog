@@ -3,7 +3,6 @@ from typing import Optional
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
-
 from posthog.models.user import User
 
 

@@ -1,12 +1,11 @@
 from typing import Any
 
-from rest_framework import serializers, viewsets
-from rest_framework.permissions import IsAuthenticated
-
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import MessageTemplate
+from rest_framework import serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
 
 
 class EmailTemplateSerializer(serializers.Serializer):

@@ -1,7 +1,5 @@
-from django.core.cache import cache
-
 from celery import shared_task
-
+from django.core.cache import cache
 from posthog.demo.matrix import manager
 from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
 from posthog.models.team.team import Team

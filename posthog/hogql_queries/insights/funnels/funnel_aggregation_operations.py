@@ -1,7 +1,6 @@
 from typing import cast
 
 from posthog.hogql import ast
-
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.utils.aggregations import FirstTimeForUserEventsQueryAlternator
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange

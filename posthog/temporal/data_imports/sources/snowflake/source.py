@@ -1,7 +1,6 @@
 from typing import cast
 
-from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
-
+from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     Option,
@@ -10,8 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -23,6 +20,7 @@ from posthog.temporal.data_imports.sources.snowflake.snowflake import (
     snowflake_source,
 )
 from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
+from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 
 SnowflakeErrors = {
     "No active warehouse selected in the current session": "No warehouse found for selected role",

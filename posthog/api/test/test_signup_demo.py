@@ -1,12 +1,9 @@
 import pytest
-from posthog.test.base import APIBaseTest
-
 from django.contrib import auth
 from django.test import override_settings
-
-from rest_framework import status
-
 from posthog.models import Organization, User
+from posthog.test.base import APIBaseTest
+from rest_framework import status
 
 
 @override_settings(DEMO=True)

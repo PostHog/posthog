@@ -1,22 +1,15 @@
-import uuid
 import functools
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-import pytest
-from unittest import mock
-
-from django.conf import settings
-from django.test import override_settings
-
 import boto3
 import psycopg
+import pytest
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
+from django.conf import settings
+from django.test import override_settings
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.models import Team
 from posthog.temporal.data_imports.external_data_job import (
@@ -48,6 +41,10 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
 )
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource, get_latest_run_if_exists
 from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from unittest import mock
 
 BUCKET_NAME = "test-pipeline"
 SESSION = boto3.Session()

@@ -1,6 +1,5 @@
-from posthog.test.base import BaseTest
-
 from langchain_core.messages import AIMessage
+from posthog.test.base import BaseTest
 
 from ee.hogai.graph.memory.parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
 

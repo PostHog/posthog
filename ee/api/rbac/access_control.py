@@ -1,11 +1,5 @@
 from typing import TYPE_CHECKING, cast
 
-from rest_framework import exceptions, serializers, status
-from rest_framework.decorators import action
-from rest_framework.request import Request
-from rest_framework.response import Response
-from rest_framework.viewsets import GenericViewSet
-
 from posthog.api.documentation import extend_schema
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -18,6 +12,11 @@ from posthog.rbac.user_access_control import (
     ordered_access_levels,
 )
 from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from rest_framework import exceptions, serializers, status
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.viewsets import GenericViewSet
 
 from ee.models.rbac.access_control import AccessControl
 

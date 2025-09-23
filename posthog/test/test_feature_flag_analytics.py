@@ -1,18 +1,9 @@
-import uuid
-import datetime
 import concurrent.futures
+import datetime
+import uuid
 
 import pytest
 from freezegun import config, configure, freeze_time  # type: ignore
-from posthog.test.base import (
-    BaseTest,
-    QueryMatchingTest,
-    _create_event,
-    flush_persons_and_events,
-    snapshot_postgres_queries_context,
-)
-from unittest.mock import MagicMock, patch
-
 from posthog import redis
 from posthog.api.feature_flag import _create_usage_dashboard
 from posthog.constants import FlagRequestType
@@ -24,6 +15,14 @@ from posthog.models.feature_flag.flag_analytics import (
     increment_request_count,
 )
 from posthog.models.team.team import Team
+from posthog.test.base import (
+    BaseTest,
+    QueryMatchingTest,
+    _create_event,
+    flush_persons_and_events,
+    snapshot_postgres_queries_context,
+)
+from unittest.mock import MagicMock, patch
 
 
 class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):

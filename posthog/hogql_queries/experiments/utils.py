@@ -1,5 +1,6 @@
 from typing import TypeVar
 
+from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
@@ -13,9 +14,6 @@ from posthog.schema import (
     ExperimentVariantResultFrequentist,
     ExperimentVariantTrendsBaseStats,
 )
-
-from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
 from products.experiments.stats.shared.enums import DifferenceType

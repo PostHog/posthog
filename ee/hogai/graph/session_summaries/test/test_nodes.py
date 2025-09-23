@@ -3,23 +3,14 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from freezegun import freeze_time
-from posthog.test.base import (
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from django.utils import timezone
-
 from asgiref.sync import async_to_sync
+from django.utils import timezone
+from freezegun import freeze_time
 from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
-
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
+from posthog.models import SessionRecording
 from posthog.schema import (
     AssistantToolCallMessage,
     FilterLogicalOperator,
@@ -29,14 +20,19 @@ from posthog.schema import (
     MaxRecordingUniversalFilters,
     RecordingDurationFilter,
 )
-
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
 from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList

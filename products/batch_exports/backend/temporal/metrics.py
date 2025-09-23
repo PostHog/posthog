@@ -1,9 +1,10 @@
-import time
-import typing
 import asyncio
 import datetime as dt
+import time
+import typing
 
 import structlog
+from posthog.temporal.common.logger import get_write_only_logger
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
 from temporalio.worker import (
@@ -14,8 +15,6 @@ from temporalio.worker import (
     WorkflowInboundInterceptor,
     WorkflowInterceptorClassInput,
 )
-
-from posthog.temporal.common.logger import get_write_only_logger
 
 LOGGER = get_write_only_logger(__name__)
 

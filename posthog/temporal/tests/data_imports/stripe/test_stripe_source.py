@@ -2,11 +2,10 @@ import uuid
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from unittest import mock
-
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+from unittest import mock
 
 from .data import BALANCE_TRANSACTIONS
 

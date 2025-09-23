@@ -1,9 +1,7 @@
+from langchain_core.runnables import RunnableLambda
+from posthog.schema import AssistantHogQLQuery, HumanMessage, VisualizationMessage
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
-
-from langchain_core.runnables import RunnableLambda
-
-from posthog.schema import AssistantHogQLQuery, HumanMessage, VisualizationMessage
 
 from ee.hogai.graph.sql.nodes import SQLGeneratorNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState

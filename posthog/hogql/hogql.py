@@ -6,7 +6,6 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.errors import NotImplementedError, QueryError, SyntaxError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-
 from posthog.queries.util import alias_poe_mode_for_legacy
 
 

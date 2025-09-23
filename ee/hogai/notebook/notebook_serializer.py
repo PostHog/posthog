@@ -1,9 +1,7 @@
-import re
 import logging
+import re
 from typing import Optional
 from urllib.parse import unquote, urlparse
-
-from pydantic import BaseModel
 
 from posthog.schema import (
     AssistantFunnelsQuery,
@@ -13,6 +11,7 @@ from posthog.schema import (
     Mark,
     ProsemirrorJSONContent,
 )
+from pydantic import BaseModel
 
 from ee.hogai.utils.helpers import cast_assistant_query
 from ee.hogai.utils.types import InsightArtifact

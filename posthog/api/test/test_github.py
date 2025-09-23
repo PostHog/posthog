@@ -1,14 +1,11 @@
 import json
 
-from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
-
 from django.test import TestCase
-
-from rest_framework import status
-
 from posthog import redis
 from posthog.api.github import SignatureVerificationError, verify_github_signature
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from unittest.mock import MagicMock, patch
 
 
 class TestGitHubSignatureVerification(TestCase):

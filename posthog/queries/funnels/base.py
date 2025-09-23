@@ -1,13 +1,7 @@
-import uuid
 import urllib.parse
+import uuid
 from abc import ABC
 from typing import Any, Optional, Union, cast
-
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import PersonsOnEventsMode
-
-from posthog.hogql.database.database import create_hogql_database
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import (
@@ -19,6 +13,7 @@ from posthog.constants import (
     BreakdownAttributionType,
     FunnelOrderType,
 )
+from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Entity, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.property import PropertyName
@@ -36,7 +31,9 @@ from posthog.queries.breakdown_props import (
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.util import alias_poe_mode_for_legacy, correct_result_for_sampling, get_person_properties_mode
+from posthog.schema import PersonsOnEventsMode
 from posthog.utils import generate_short_id, relative_date_parse
+from rest_framework.exceptions import ValidationError
 
 
 class ClickhouseFunnelBase(ABC):

@@ -1,7 +1,6 @@
-from posthog.test.base import BaseTest
-
 from posthog.hogql import ast
 from posthog.hogql.hogqlx import convert_dict_to_hx, convert_tag_to_hx, convert_to_hx
+from posthog.test.base import BaseTest
 
 
 class TestHogQLX(BaseTest):

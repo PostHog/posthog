@@ -1,10 +1,9 @@
-import json
 import hashlib
+import json
 from typing import Any
 
 from django.db import models, transaction
 from django.forms.models import model_to_dict
-
 from posthog.models.element import Element
 from posthog.models.team import Team
 

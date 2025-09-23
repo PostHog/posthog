@@ -1,11 +1,9 @@
 from datetime import UTC, datetime
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
-
 from posthog.schema import DateRange
-
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsQueryDateRange
+from posthog.test.base import APIBaseTest
 
 
 @freeze_time("2021-01-01T13:46:23")

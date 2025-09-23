@@ -2,8 +2,6 @@ from datetime import datetime
 from typing import Any
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest
-
 from posthog.schema import (
     AssistantDateRange,
     AssistantFunnelsEventsNode,
@@ -18,6 +16,7 @@ from posthog.schema import (
     FunnelStepReference,
     FunnelVizType,
 )
+from posthog.test.base import BaseTest
 
 from ..format import (
     FunnelResultsFormatter,

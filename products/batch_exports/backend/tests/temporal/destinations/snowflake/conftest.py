@@ -4,12 +4,9 @@ from collections.abc import AsyncGenerator
 from uuid import uuid4
 
 import pytest
-
 import snowflake.connector
-
 from posthog.batch_exports.models import BatchExport
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
-
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import load_private_key
 
 

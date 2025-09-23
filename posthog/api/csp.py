@@ -2,16 +2,14 @@ import json
 from datetime import UTC, datetime
 from typing import Optional
 
+import structlog
 from django.http import HttpResponse
 from django.utils.html import escape
-
-import structlog
-from rest_framework import status
-
 from posthog.exceptions import generate_exception_response
 from posthog.models.utils import uuid7
 from posthog.sampling import sample_on_property
 from posthog.utils_cors import cors_response
+from rest_framework import status
 
 logger = structlog.get_logger(__name__)
 

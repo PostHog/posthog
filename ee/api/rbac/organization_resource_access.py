@@ -1,6 +1,5 @@
-from rest_framework import mixins, serializers, viewsets
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from rest_framework import mixins, serializers, viewsets
 
 from ee.api.rbac.role import RolePermissions
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess

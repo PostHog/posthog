@@ -6,12 +6,10 @@ from django.db.models import Q
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
-
-from rest_framework import exceptions, status
-
 from posthog.constants import AvailableFeature
 from posthog.models.utils import sane_repr
 from posthog.tasks.tasks import sync_all_organization_available_product_features
+from rest_framework import exceptions, status
 
 
 class LicenseError(exceptions.APIException):

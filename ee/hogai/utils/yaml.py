@@ -1,5 +1,5 @@
-import yaml
 import structlog
+import yaml
 from langchain.output_parsers import OutputFixingParser
 from langchain_core.exceptions import OutputParserException
 from langchain_core.output_parsers import BaseOutputParser

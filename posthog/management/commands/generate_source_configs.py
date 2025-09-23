@@ -1,11 +1,8 @@
-import os
 import logging
+import os
 from typing import Any, Optional
 
 from django.core.management.base import BaseCommand
-
-from structlog import get_logger
-
 from posthog.schema import (
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -17,9 +14,9 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.warehouse.types import ExternalDataSourceType
+from structlog import get_logger
 
 logger = get_logger(__name__)
 logger.setLevel(logging.INFO)

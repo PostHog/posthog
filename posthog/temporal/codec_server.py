@@ -1,17 +1,15 @@
-import os
 import hmac
+import os
 
+import structlog
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-
-import structlog
-from asgiref.sync import async_to_sync
 from google.protobuf import json_format
-from temporalio.api.common.v1 import Payloads
-
 from posthog.temporal.common.codec import EncryptionCodec
+from temporalio.api.common.v1 import Payloads
 
 logger = structlog.get_logger()
 

@@ -4,7 +4,6 @@ from django.db import models
 from django.db.models import QuerySet
 from django.db.models.indexes import Index
 from django.utils import timezone
-
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.utils import generate_short_id

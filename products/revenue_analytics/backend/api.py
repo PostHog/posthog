@@ -1,19 +1,15 @@
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.hogql import ast
+from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.query import execute_hogql_query
+from posthog.schema import DatabaseSchemaManagedViewTableKind
 from posthoganalytics import capture_exception
+from products.revenue_analytics.backend.views import KIND_TO_CLASS, RevenueAnalyticsBaseView
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
-
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
-from posthog.hogql import ast
-from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
-
-from products.revenue_analytics.backend.views import KIND_TO_CLASS, RevenueAnalyticsBaseView
 
 
 class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):

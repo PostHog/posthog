@@ -1,10 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from django.conf import settings
-
 import structlog
-
+from django.conf import settings
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.subscription import Subscription

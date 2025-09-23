@@ -1,3 +1,6 @@
+from posthog.hogql import ast
+from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
+from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
     CachedRevenueAnalyticsOverviewQueryResponse,
     ResolvedDateRangeResponse,
@@ -6,11 +9,6 @@ from posthog.schema import (
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsOverviewQueryResponse,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
-from posthog.hogql.query import execute_hogql_query
-
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner

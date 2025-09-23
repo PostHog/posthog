@@ -1,13 +1,12 @@
 import datetime
 from typing import Any
 
-import pytest
-from freezegun import freeze_time
-from unittest import mock
-
 import dagster
+import pytest
 import responses
 from dagster import build_op_context
+from freezegun import freeze_time
+from unittest import mock
 
 from dags.exchange_rate import (
     OPEN_EXCHANGE_RATES_API_BASE_URL,

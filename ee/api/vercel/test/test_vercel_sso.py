@@ -1,13 +1,11 @@
 from contextlib import contextmanager
 
 import pytest
-from unittest.mock import Mock, patch
-
-from rest_framework import status
-
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
+from rest_framework import status
+from unittest.mock import Mock, patch
 
 from ee.api.vercel.types import VercelUserClaims
 

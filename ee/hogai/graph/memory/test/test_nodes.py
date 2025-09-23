@@ -1,20 +1,17 @@
 from typing import cast
 
-from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
-
 from django.test import override_settings
 from django.utils import timezone
-
+from freezegun import freeze_time
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.runnables import RunnableLambda
 from langgraph.errors import NodeInterrupt
-
 from posthog.schema import AssistantMessage, EventTaxonomyItem, HumanMessage
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from ee.hogai.graph.memory import prompts
 from ee.hogai.graph.memory.nodes import (

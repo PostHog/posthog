@@ -1,13 +1,11 @@
-from posthog.test.base import BaseTest
-
 from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.rudderstack.template_rudderstack import (
     TemplateRudderstackMigrator,
     template as template_rudderstack,
 )
 from posthog.models import PluginConfig
+from posthog.test.base import BaseTest
 
 
 class TestTemplateRudderstack(BaseHogFunctionTemplateTest):

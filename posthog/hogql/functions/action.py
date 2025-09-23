@@ -12,7 +12,6 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext, 
         raise QueryError("action() can only be used in a query with a team_id", node=arg)
 
     from posthog.hogql.property import action_to_expr
-
     from posthog.models import Action
 
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):

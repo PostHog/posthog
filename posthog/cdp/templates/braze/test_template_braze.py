@@ -1,5 +1,4 @@
 from freezegun import freeze_time
-
 from posthog.cdp.templates.braze.template_braze import template as template_braze
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 

@@ -1,12 +1,14 @@
-import random
 import logging
+import random
 from contextlib import contextmanager
 from typing import Optional
 
+import django_redis.exceptions
+import kombu.connection
+import kombu.exceptions
+import psycopg2
 import pytest
-from unittest import mock
-from unittest.mock import patch
-
+import requests
 from django.core.cache import cache
 from django.db import (
     DEFAULT_DB_ALIAS,
@@ -15,16 +17,11 @@ from django.db import (
 )
 from django.http import HttpResponse
 from django.test import Client
-
-import psycopg2
-import requests
-import kombu.connection
-import kombu.exceptions
-import django_redis.exceptions
 from kafka.errors import KafkaError
-
 from posthog.health import logger
 from posthog.kafka_client.client import KafkaProducerForTests
+from unittest import mock
+from unittest.mock import patch
 
 
 @pytest.mark.django_db

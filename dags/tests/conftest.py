@@ -6,9 +6,8 @@ __all__ = ["django_db_setup"]
 from collections.abc import Iterator
 
 import pytest
-from posthog.test.base import reset_clickhouse_database
-
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.test.base import reset_clickhouse_database
 
 
 @pytest.fixture

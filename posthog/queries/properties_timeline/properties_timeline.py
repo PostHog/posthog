@@ -1,5 +1,5 @@
-import json
 import datetime
+import json
 from typing import Any, TypedDict, Union, cast
 
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter

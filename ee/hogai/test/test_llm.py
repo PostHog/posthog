@@ -1,10 +1,9 @@
 from datetime import datetime
 
-from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import patch
-
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.outputs import Generation, LLMResult
+from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import patch
 
 from ee.hogai.llm import MaxChatOpenAI
 

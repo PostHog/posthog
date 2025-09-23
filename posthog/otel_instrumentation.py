@@ -1,5 +1,5 @@
-import os
 import logging
+import os
 
 import structlog
 from opentelemetry import trace

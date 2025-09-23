@@ -1,7 +1,4 @@
-from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
-
 from posthog.hogql.hogql import HogQLContext
-
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import (
     get_dependent_cohorts,
@@ -9,6 +6,7 @@ from posthog.models.cohort.util import (
     simplified_cohort_filter_properties,
     sort_cohorts_topologically,
 )
+from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 
 MISSING_COHORT_ID = 12345
 

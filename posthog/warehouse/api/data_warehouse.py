@@ -1,17 +1,15 @@
-from django.db import connection
-from django.db.models import Sum
-
 import structlog
 from dateutil import parser
-from rest_framework import status, viewsets
-from rest_framework.decorators import action
-from rest_framework.request import Request
-from rest_framework.response import Response
-
+from django.db import connection
+from django.db.models import Sum
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from ee.billing.billing_manager import BillingManager
 

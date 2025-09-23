@@ -2,17 +2,15 @@ import json
 from math import floor
 
 from freezegun.api import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-from rest_framework import status
-
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.ingestion_warnings.sql import INSERT_INGESTION_WARNING
 from posthog.models.organization import Organization
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from posthog.utils import cast_timestamp_or_now
+from rest_framework import status
 
 
 def create_ingestion_warning(team_id: int, type: str, details: dict, timestamp: str, source=""):

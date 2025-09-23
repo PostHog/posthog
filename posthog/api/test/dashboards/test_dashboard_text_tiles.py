@@ -1,16 +1,13 @@
 import datetime
 from typing import Optional, Union
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, QueryMatchingTest
-from unittest import mock
-
 from django.test import override_settings
-
-from rest_framework import status
-
+from freezegun import freeze_time
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models import User
+from posthog.test.base import APIBaseTest, QueryMatchingTest
+from rest_framework import status
+from unittest import mock
 
 
 class TestDashboardTiles(APIBaseTest, QueryMatchingTest):

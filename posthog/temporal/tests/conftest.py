@@ -1,22 +1,19 @@
-import random
 import asyncio
-
-import pytest
-
-from django.conf import settings
+import random
 
 import psycopg
+import pytest
 import pytest_asyncio
 import temporalio.worker
 from asgiref.sync import sync_to_async
-from psycopg import sql
-from temporalio.testing import ActivityEnvironment
-
+from django.conf import settings
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
+from psycopg import sql
+from temporalio.testing import ActivityEnvironment
 
 
 @pytest.fixture

@@ -1,13 +1,11 @@
-import io
 import csv
-import json
 import datetime as dt
-
-import pytest
+import io
+import json
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-
+import pytest
 from products.batch_exports.backend.temporal.temporary_file import (
     BatchExportTemporaryFile,
     CSVBatchExportWriter,

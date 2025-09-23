@@ -1,9 +1,7 @@
+from langchain_core.runnables import RunnableLambda
+from posthog.schema import AssistantTrendsQuery, HumanMessage, VisualizationMessage
 from posthog.test.base import BaseTest
 from unittest.mock import patch
-
-from langchain_core.runnables import RunnableLambda
-
-from posthog.schema import AssistantTrendsQuery, HumanMessage, VisualizationMessage
 
 from ee.hogai.graph.trends.nodes import TrendsGeneratorNode, TrendsSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState

@@ -2,10 +2,8 @@ from datetime import datetime
 from functools import cached_property
 from typing import Union
 
-from django.conf import settings
-
 import structlog
-
+from django.conf import settings
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,

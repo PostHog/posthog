@@ -1,19 +1,17 @@
-import time
 import asyncio
 import logging
+import time
 from typing import Any
 
-from django.core.management.base import BaseCommand
-
 import structlog
-from temporalio.common import WorkflowIDReusePolicy
-
+from django.core.management.base import BaseCommand
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import MESSAGING_TASK_QUEUE
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import CoordinatorWorkflowInputs
+from temporalio.common import WorkflowIDReusePolicy
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

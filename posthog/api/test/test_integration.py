@@ -1,11 +1,10 @@
 import pytest
-from unittest.mock import MagicMock, patch
-
 from posthog.api.test.test_team import create_team
 from posthog.models.integration import PRIVATE_CHANNEL_WITHOUT_ACCESS, EmailIntegration, Integration, SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
+from unittest.mock import MagicMock, patch
 
 
 class TestSlackIntegration:

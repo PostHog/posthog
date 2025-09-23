@@ -1,7 +1,7 @@
-import os
-import re
 import csv
 import datetime
+import os
+import re
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree

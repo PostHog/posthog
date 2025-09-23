@@ -1,5 +1,4 @@
 import dagster
-
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 
 from dags.common import JobOwners

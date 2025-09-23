@@ -1,8 +1,7 @@
-from unittest import TestCase
-
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic
+from unittest import TestCase
 
 
 def create_test_result_dict(result):

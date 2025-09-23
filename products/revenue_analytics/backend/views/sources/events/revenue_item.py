@@ -5,7 +5,6 @@ from posthog.hogql.database.schema.exchange_rate import (
     currency_expression_for_events,
     revenue_comparison_and_value_exprs_for_events,
 )
-
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_event
 from products.revenue_analytics.backend.views.sources.helpers import (
     currency_aware_amount,

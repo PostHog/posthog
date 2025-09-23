@@ -1,13 +1,11 @@
-from posthog.test.base import BaseTest
-
 from inline_snapshot import snapshot
-
 from posthog.cdp.templates.avo.template_avo import (
     TemplateAvoMigrator,
     template as template_avo,
 )
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.models import PluginConfig
+from posthog.test.base import BaseTest
 
 
 class TestTemplateAvo(BaseHogFunctionTemplateTest):

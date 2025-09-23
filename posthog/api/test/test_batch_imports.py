@@ -1,8 +1,7 @@
 from datetime import datetime, timedelta
 
-from posthog.test.base import APIBaseTest, BaseTest
-
 from posthog.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
+from posthog.test.base import APIBaseTest, BaseTest
 
 
 class TestBatchImportModel(BaseTest):

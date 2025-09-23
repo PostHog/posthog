@@ -2,8 +2,6 @@ import json
 from uuid import uuid4
 
 import pytest
-from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
-
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
@@ -14,6 +12,7 @@ from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
 from posthog.models.person.util import create_person, create_person_distinct_id, delete_person
 from posthog.models.utils import UUIDT
+from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 
 pytestmark = pytest.mark.async_migrations
 

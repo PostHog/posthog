@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 from clickhouse_driver.errors import ServerException
-
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseQueryMemoryLimitExceeded,

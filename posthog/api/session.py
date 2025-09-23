@@ -1,10 +1,7 @@
 import json
 
-from rest_framework import request, response, viewsets
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import SessionTableVersion
-
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.hogql.database.schema.sessions_v1 import (
     get_lazy_session_table_properties_v1,
     get_lazy_session_table_values_v1,
@@ -14,11 +11,11 @@ from posthog.hogql.database.schema.sessions_v2 import (
     get_lazy_session_table_values_v2,
 )
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.schema import SessionTableVersion
 from posthog.utils import convert_property_value, flatten
+from rest_framework import request, response, viewsets
+from rest_framework.exceptions import ValidationError
 
 
 class SessionViewSet(

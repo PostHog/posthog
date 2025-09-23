@@ -1,17 +1,10 @@
 import time
 from typing import Optional, cast
 
+import posthoganalytics
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
-
-import posthoganalytics
-from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
-from rest_framework.request import Request
-from rest_framework.views import APIView
-from rest_framework.viewsets import ViewSet
-
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -26,6 +19,11 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org
+from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
+from rest_framework.request import Request
+from rest_framework.views import APIView
+from rest_framework.viewsets import ViewSet
 
 CREATE_ACTIONS = ["create", "update"]
 

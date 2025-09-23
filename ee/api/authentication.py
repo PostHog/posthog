@@ -1,14 +1,16 @@
 import re
 from typing import Any, Literal, Union, cast
 
+import jwt
+import posthoganalytics
+import structlog
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
 from django.urls.base import reverse
-
-import jwt
-import structlog
-import posthoganalytics
 from jwt.algorithms import RSAAlgorithm
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from rest_framework import authentication
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
@@ -26,10 +28,6 @@ from social_core.backends.saml import (
 from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.models import UserSocialAuth
 from social_django.utils import load_backend, load_strategy
-
-from posthog.constants import AvailableFeature
-from posthog.models.organization import OrganizationMembership
-from posthog.models.organization_domain import OrganizationDomain
 
 from ee import settings
 from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims

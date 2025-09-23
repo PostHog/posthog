@@ -1,6 +1,7 @@
 import json
 from typing import TYPE_CHECKING, Optional, cast
 
+import structlog
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.cache import cache
 from django.db import models, transaction
@@ -8,9 +9,6 @@ from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest
 from django.utils import timezone
-
-import structlog
-
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin

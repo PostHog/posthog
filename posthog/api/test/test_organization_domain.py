@@ -1,17 +1,14 @@
 import datetime
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import ANY, patch
-
-from django.utils import timezone
-
-import dns.rrset
 import dns.resolver
-from rest_framework import status
-
+import dns.rrset
+from django.utils import timezone
+from freezegun import freeze_time
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
+from posthog.test.base import APIBaseTest, BaseTest
+from rest_framework import status
+from unittest.mock import ANY, patch
 
 
 class FakeAnswer:

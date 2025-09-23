@@ -1,24 +1,17 @@
-import re
-import logging
 import functools
+import logging
+import re
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlsplit
 
+import jwt
 from django.apps import apps
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
-
-import jwt
-from prometheus_client import Counter
-from rest_framework import authentication
-from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.request import Request
-from zxcvbn import zxcvbn
-
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
@@ -26,6 +19,11 @@ from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from prometheus_client import Counter
+from rest_framework import authentication
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.request import Request
+from zxcvbn import zxcvbn
 
 if TYPE_CHECKING:
     from posthog.models.share_password import SharePassword

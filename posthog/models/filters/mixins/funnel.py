@@ -1,13 +1,11 @@
-import json
 import datetime
+import json
 from typing import TYPE_CHECKING, Literal, Optional, Union
 
 from posthog.models.property import Property
 
 if TYPE_CHECKING:
     from posthog.models.entity import Entity
-
-from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
     BIN_COUNT,
@@ -48,6 +46,7 @@ from posthog.constants import (
 from posthog.models.filters.mixins.base import BaseParamMixin, FunnelWindowIntervalType
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse, str_to_bool
+from rest_framework.exceptions import ValidationError
 
 
 class FunnelFromToStepsMixin(BaseParamMixin):

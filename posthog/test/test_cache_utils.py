@@ -2,10 +2,9 @@ from datetime import timedelta
 from time import sleep
 from typing import Optional
 
+from posthog.cache_utils import cache_for
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
-
-from posthog.cache_utils import cache_for
 
 mocked_dependency = Mock()
 mocked_dependency.return_value = 1

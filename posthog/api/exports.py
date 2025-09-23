@@ -2,18 +2,12 @@ import threading
 from datetime import timedelta
 from typing import Any
 
+import posthoganalytics
+import structlog
+from asgiref.sync import async_to_sync
 from django.http import HttpResponse
 from django.utils.timezone import now
-
-import structlog
-import posthoganalytics
-from asgiref.sync import async_to_sync
 from loginas.utils import is_impersonated_session
-from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.request import Request
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
@@ -26,6 +20,10 @@ from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.tasks import exporter
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
+from rest_framework import mixins, serializers, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
 

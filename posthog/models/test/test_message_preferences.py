@@ -1,14 +1,12 @@
 import uuid
 
-from posthog.test.base import BaseTest
-from unittest.mock import patch
-
+import posthog.plugins.plugin_server_api as plugin_server_api
 from django.db import IntegrityError
 from django.test import Client
-
-import posthog.plugins.plugin_server_api as plugin_server_api
 from posthog.models.message_category import MessageCategory
 from posthog.models.message_preferences import MessageRecipientPreference, PreferenceStatus
+from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 
 class TestMessagePreferences(BaseTest):

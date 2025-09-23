@@ -5,10 +5,9 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from dagster import build_op_context
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
-
-from dagster import build_op_context
 
 from dags.postgres_to_clickhouse_etl import (
     ETLState,

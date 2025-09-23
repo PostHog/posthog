@@ -1,16 +1,14 @@
 from datetime import datetime, timedelta
 
-from freezegun.api import freeze_time
-from posthog.test.base import also_test_with_materialized_columns, snapshot_clickhouse_queries
-
 from django.utils.timezone import now
-
+from freezegun.api import freeze_time
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import create_group
 from posthog.models.person import Person
 from posthog.queries.test.test_lifecycle import TestLifecycleBase
 from posthog.queries.trends.trends import Trends
+from posthog.test.base import also_test_with_materialized_columns, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 

@@ -1,11 +1,9 @@
 from typing import cast
 
-from posthog.test.base import BaseTest
-
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, StateGraph
-
 from posthog.schema import AssistantMessage
+from posthog.test.base import BaseTest
 
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, add_and_merge_messages
 

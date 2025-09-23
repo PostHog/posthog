@@ -1,5 +1,5 @@
-import os
 import datetime
+import os
 import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
@@ -11,10 +11,6 @@ from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
-
-from rest_framework.exceptions import ValidationError
-from semantic_version.base import SimpleSpec
-
 from posthog.cloud_utils import is_cloud
 from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization
@@ -30,6 +26,8 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
+from rest_framework.exceptions import ValidationError
+from semantic_version.base import SimpleSpec
 
 from .utils import UUIDTModel, sane_repr
 

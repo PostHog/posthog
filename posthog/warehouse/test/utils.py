@@ -2,9 +2,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Optional
 
-import s3fs
 import pandas as pd
-
+import s3fs
 from posthog.models.team import Team
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,

@@ -2,10 +2,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, cast
 
-from pydantic import BaseModel, ConfigDict
-
 from posthog.hogql.base import Expr
 from posthog.hogql.errors import NotImplementedError, ResolutionError
+from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from posthog.hogql.ast import LazyJoinType, SelectQuery

@@ -1,12 +1,10 @@
 import asyncio
 
-import pytest
-
 import aiohttp.client_exceptions
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
-
+import pytest
 from posthog.models.app_metrics2.sql import APP_METRICS2_DATA_TABLE_SQL, APP_METRICS2_MV_TABLE_SQL
 from posthog.temporal.common.clickhouse import ClickHouseClient
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 
 @retry(

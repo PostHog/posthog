@@ -1,11 +1,9 @@
 from pathlib import Path
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
-
-from posthog.schema import DataWarehouseNode, DateRange, PropertyMathType, TrendsQuery
-
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.schema import DataWarehouseNode, DateRange, PropertyMathType, TrendsQuery
+from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.trends.datawarehouse.timestamp_handling"

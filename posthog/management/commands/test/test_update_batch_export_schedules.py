@@ -1,21 +1,18 @@
-import logging
 import datetime as dt
+import logging
 
 import pytest
-
+from asgiref.sync import async_to_sync
 from django.core.management import call_command
 from django.core.management.base import CommandError
-
-from asgiref.sync import async_to_sync
-from temporalio.client import Client as TemporalClient
-from temporalio.service import RPCError
-
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.batch_exports.service import pause_batch_export, sync_batch_export
 from posthog.models import BatchExport, BatchExportDestination
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule, update_schedule
+from temporalio.client import Client as TemporalClient
+from temporalio.service import RPCError
 
 pytestmark = [
     pytest.mark.django_db,

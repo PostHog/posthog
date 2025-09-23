@@ -1,18 +1,15 @@
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
-
-from posthog.schema import DateRange, WebAnalyticsExternalSummaryQuery
-
 from posthog.hogql.database.schema.web_analytics_s3 import (
     _get_s3_credentials,
     create_s3_web_bounces_table,
     create_s3_web_stats_table,
 )
-
 from posthog.hogql_queries.web_analytics.external.summary_query_runner import (
     QueryResult,
     WebAnalyticsExternalSummaryQueryRunner,
 )
+from posthog.schema import DateRange, WebAnalyticsExternalSummaryQuery
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 
 class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):

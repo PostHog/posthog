@@ -4,7 +4,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.core import validators
 from django.db import models
 from django.utils.deconstruct import deconstructible
-
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
 

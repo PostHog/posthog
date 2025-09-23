@@ -1,5 +1,4 @@
 from inline_snapshot import snapshot
-
 from posthog.cdp.templates.brevo.template_brevo import template as template_brevo
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 

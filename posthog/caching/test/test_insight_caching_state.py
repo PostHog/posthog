@@ -2,12 +2,8 @@ from datetime import timedelta
 from typing import Any, Optional, Union, cast
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import BaseTest
-from unittest.mock import patch
-
 from django.utils.timezone import now
-
+from freezegun import freeze_time
 from posthog.caching.insight_caching_state import (
     LazyLoader,
     TargetCacheAge,
@@ -27,6 +23,8 @@ from posthog.models import (
     User,
 )
 from posthog.models.signals import mute_selected_signals
+from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 filter_dict = {
     "events": [{"id": "$pageview"}],

@@ -1,13 +1,11 @@
-import os
 import json
+import os
 import socket
 
+from celery import current_task
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import IntegrityError, OperationalError, transaction
 from django.utils import timezone
-
-from celery import current_task
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, ScheduledChange
 

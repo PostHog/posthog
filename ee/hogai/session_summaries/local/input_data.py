@@ -1,12 +1,11 @@
+import datetime
 import os
 import re
-import datetime
 from contextlib import contextmanager
 from typing import Any, Optional
 
 import pytz
 from clickhouse_driver import Client
-
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 

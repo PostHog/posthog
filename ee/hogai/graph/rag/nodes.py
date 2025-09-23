@@ -5,9 +5,6 @@ from typing import Literal
 import posthoganalytics
 from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
 from langchain_core.runnables import RunnableConfig
-
-from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
-
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.ai.vector_search_query_runner import (
@@ -16,6 +13,7 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
+from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client

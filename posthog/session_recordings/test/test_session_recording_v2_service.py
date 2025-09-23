@@ -1,10 +1,7 @@
 from datetime import datetime
 
-from freezegun import freeze_time
-from unittest.mock import Mock, patch
-
 from django.test import TestCase
-
+from freezegun import freeze_time
 from posthog.session_recordings.models.metadata import RecordingBlockListing
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_v2_service import (
@@ -16,6 +13,7 @@ from posthog.session_recordings.session_recording_v2_service import (
     load_blocks,
 )
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from unittest.mock import Mock, patch
 
 
 class TestSessionRecordingV2Service(TestCase):

@@ -1,8 +1,6 @@
 from datetime import datetime
 from typing import Any
 
-from posthog.test.base import APIBaseTest, also_test_with_person_on_events_v2, snapshot_clickhouse_queries
-
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
@@ -10,6 +8,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult, assert_funnel_results_equal
+from posthog.test.base import APIBaseTest, also_test_with_person_on_events_v2, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
 

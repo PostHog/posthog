@@ -1,8 +1,7 @@
 import json
 
-from unittest.mock import MagicMock, _patch, patch
-
 from rest_framework import status
+from unittest.mock import MagicMock, _patch, patch
 
 from ee.api.vercel.test.base import VercelTestBase
 

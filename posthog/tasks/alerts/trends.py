@@ -1,5 +1,9 @@
 from typing import NotRequired, Optional, TypedDict, cast
 
+from posthog.api.services.query import ExecutionMode
+from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.caching.fetch_from_cache import InsightResult
+from posthog.models import AlertConfiguration, Insight
 from posthog.schema import (
     AlertCondition,
     AlertConditionType,
@@ -10,11 +14,6 @@ from posthog.schema import (
     TrendsAlertConfig,
     TrendsQuery,
 )
-
-from posthog.api.services.query import ExecutionMode
-from posthog.caching.calculate_results import calculate_for_query_based_insight
-from posthog.caching.fetch_from_cache import InsightResult
-from posthog.models import AlertConfiguration, Insight
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES, AlertEvaluationResult
 
 

@@ -3,7 +3,6 @@ from datetime import timedelta
 from typing import Optional
 
 import structlog
-
 from posthog.clickhouse.client import sync_execute
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.settings import CLICKHOUSE_CLUSTER

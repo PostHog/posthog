@@ -1,21 +1,19 @@
 import json
 from pathlib import Path
 
+import structlog
 from django.db.models import Q
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
-
-import structlog
-from rest_framework import request, response, serializers, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission
-from rest_framework.request import Request
-
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.helpers.full_text_search import build_rank
 from posthog.models.dashboard_templates import DashboardTemplate
+from rest_framework import request, response, serializers, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.request import Request
 
 logger = structlog.get_logger(__name__)
 

@@ -10,7 +10,6 @@ from posthog.schema import (
     FunnelExclusionEventsNode,
     HogQLPropertyFilter,
 )
-
 from posthog.types import AnyPropertyFilter, EntityNode, ExclusionEntityNode
 
 

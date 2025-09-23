@@ -1,7 +1,7 @@
-import json
-import time
-import logging
 import http.client
+import json
+import logging
+import time
 
 from prometheus_client import CollectorRegistry, Gauge, generate_latest, multiprocess
 

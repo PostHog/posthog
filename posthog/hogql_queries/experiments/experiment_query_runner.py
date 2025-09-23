@@ -2,27 +2,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import structlog
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import (
-    CachedExperimentQueryResponse,
-    ExperimentDataWarehouseNode,
-    ExperimentMeanMetric,
-    ExperimentQuery,
-    ExperimentQueryResponse,
-    ExperimentRatioMetric,
-    ExperimentStatsBase,
-    IntervalType,
-    MultipleVariantHandling,
-)
-
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
     get_experiment_date_range,
@@ -48,6 +33,18 @@ from posthog.hogql_queries.experiments.utils import (
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
+from posthog.schema import (
+    CachedExperimentQueryResponse,
+    ExperimentDataWarehouseNode,
+    ExperimentMeanMetric,
+    ExperimentQuery,
+    ExperimentQueryResponse,
+    ExperimentRatioMetric,
+    ExperimentStatsBase,
+    IntervalType,
+    MultipleVariantHandling,
+)
+from rest_framework.exceptions import ValidationError
 
 logger = structlog.get_logger(__name__)
 

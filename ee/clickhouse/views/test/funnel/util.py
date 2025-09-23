@@ -2,7 +2,6 @@ import dataclasses
 from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.test.client import Client
-
 from posthog.constants import FunnelCorrelationType
 from posthog.models.property import GroupTypeIndex
 

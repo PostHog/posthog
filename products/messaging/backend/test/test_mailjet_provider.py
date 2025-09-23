@@ -1,12 +1,8 @@
-from unittest.mock import MagicMock, patch
-
 from django.test import TestCase, override_settings
-
-from rest_framework import exceptions
-
 from posthog.models import Organization, Team
-
 from products.messaging.backend.providers.mailjet import MailjetProvider
+from rest_framework import exceptions
+from unittest.mock import MagicMock, patch
 
 
 class TestMailjetProvider(TestCase):

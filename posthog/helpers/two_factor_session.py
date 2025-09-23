@@ -1,14 +1,12 @@
-import time
 import datetime
+import time
 
 from django.conf import settings
 from django.http import HttpRequest
-
 from loginas.utils import is_impersonated_session
+from posthog.settings.web import AUTHENTICATION_BACKENDS
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
-
-from posthog.settings.web import AUTHENTICATION_BACKENDS
 
 # Enforce Two-Factor Authentication only on sessions created after this date
 TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 9, day=22, hour=13)

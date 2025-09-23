@@ -4,18 +4,13 @@ from datetime import timedelta
 from typing import Optional, cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
-
-from django.conf import settings
-from django.test import override_settings
-from django.utils import timezone
-
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from rest_framework import status
-
+from django.conf import settings
+from django.test import override_settings
+from django.utils import timezone
+from freezegun import freeze_time
 from posthog.api.oauth import OAuthAuthorizationSerializer
 from posthog.models.oauth import (
     OAuthAccessToken,
@@ -25,6 +20,8 @@ from posthog.models.oauth import (
     OAuthRefreshToken,
 )
 from posthog.models.team.team import Team
+from posthog.test.base import APIBaseTest
+from rest_framework import status
 
 
 def generate_rsa_key() -> str:

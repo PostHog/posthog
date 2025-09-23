@@ -1,8 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from unittest.mock import patch
-
 from posthog.async_migrations.definition import AsyncMigrationOperationSQL
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
 from posthog.async_migrations.utils import (
@@ -15,6 +13,7 @@ from posthog.async_migrations.utils import (
 )
 from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigrationError, MigrationStatus
+from unittest.mock import patch
 
 pytestmark = pytest.mark.async_migrations
 

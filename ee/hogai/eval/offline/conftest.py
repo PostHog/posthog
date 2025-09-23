@@ -8,19 +8,17 @@ from typing import Annotated, Any
 from uuid import UUID
 
 import pytest
-
 from asgiref.sync import async_to_sync
 from autoevals import Score
 from autoevals.oai import LLMClient
 from dagster_pipes import PipesContext, open_dagster_pipes
 from openai import RateLimitError
+from posthog.models import Organization, User
+from posthog.ph_client import get_client
 from posthoganalytics import Posthog
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from posthoganalytics.ai.openai.openai_async import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation
-
-from posthog.models import Organization, User
-from posthog.ph_client import get_client
 
 # We want the PostHog set_up_evals fixture here
 from ee.hogai.eval.conftest import set_up_evals  # noqa: F401

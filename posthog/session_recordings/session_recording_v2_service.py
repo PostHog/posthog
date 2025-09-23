@@ -1,17 +1,15 @@
 import dataclasses
 from datetime import datetime
 
-from django.core.cache import cache
-
-import structlog
 import posthoganalytics
-from prometheus_client import Counter
-
+import structlog
+from django.core.cache import cache
 from posthog.session_recordings.models.metadata import RecordingBlockListing
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.storage import session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from prometheus_client import Counter
 
 logger = structlog.get_logger(__name__)
 

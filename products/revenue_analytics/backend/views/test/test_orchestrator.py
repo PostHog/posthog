@@ -1,13 +1,9 @@
-from posthog.test.base import BaseTest
-
-from posthog.schema import CurrencyCode
-
 from posthog.hogql.timings import HogQLTimings
-
+from posthog.schema import CurrencyCode
 from posthog.temporal.data_imports.sources.stripe.constants import INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME
+from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
-
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsChargeView,
     RevenueAnalyticsCustomerView,

@@ -2,19 +2,8 @@ from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Optional, cast
 
-from posthog.schema import (
-    Breakdown,
-    BreakdownType,
-    CachedRetentionQueryResponse,
-    EntityType,
-    HogQLQueryModifiers,
-    IntervalType,
-    RetentionEntity,
-    RetentionQuery,
-    RetentionQueryResponse,
-    RetentionType,
-)
-
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.base import Expr
@@ -29,9 +18,6 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import entity_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-
-from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
@@ -40,6 +26,18 @@ from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.queries.util import correct_result_for_sampling
+from posthog.schema import (
+    Breakdown,
+    BreakdownType,
+    CachedRetentionQueryResponse,
+    EntityType,
+    HogQLQueryModifiers,
+    IntervalType,
+    RetentionEntity,
+    RetentionQuery,
+    RetentionQueryResponse,
+    RetentionType,
+)
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7

@@ -1,8 +1,7 @@
 import numpy as np
-from scipy import stats
-
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.utils import get_mean, get_sample_size, get_variance
+from scipy import stats
 
 from ..shared.statistics import AnyStatistic, ProportionStatistic, StatisticError
 

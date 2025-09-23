@@ -1,14 +1,12 @@
-import json
 import datetime as dt
+import json
 
 from django.core.management.base import BaseCommand, CommandError
-
-from psycopg2.extensions import parse_dsn
-
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.batch_exports.service import backfill_export, sync_batch_export
 from posthog.models.plugin import PluginAttachment, PluginConfig
 from posthog.temporal.common.client import sync_connect
+from psycopg2.extensions import parse_dsn
 
 
 class Command(BaseCommand):

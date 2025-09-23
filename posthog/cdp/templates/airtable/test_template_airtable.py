@@ -1,5 +1,4 @@
 from inline_snapshot import snapshot
-
 from posthog.cdp.templates.airtable.template_airtable import template as template_airtable
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 

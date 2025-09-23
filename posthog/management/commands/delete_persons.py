@@ -1,9 +1,8 @@
 import logging
 
+import structlog
 from django.core.management.base import BaseCommand
 from django.db import connection, connections
-
-import structlog
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

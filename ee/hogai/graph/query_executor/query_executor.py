@@ -1,16 +1,24 @@
+import asyncio
 import json
 import time
-import asyncio
 from datetime import datetime
 from typing import Optional
 
-from django.conf import settings
-from django.core.serializers.json import DjangoJSONEncoder
-
 import structlog
 from asgiref.sync import async_to_sync
-from rest_framework.exceptions import APIException
-
+from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
+from posthog.api.services.query import process_query_dict
+from posthog.clickhouse.client.execute_async import get_query_status
+from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.errors import ExposedCHQueryError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+)
+from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
+from posthog.models.team.team import Team
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -21,20 +29,8 @@ from posthog.schema import (
     RetentionQuery,
     TrendsQuery,
 )
-
-from posthog.hogql.errors import (
-    ExposedHogQLError,
-    NotImplementedError as HogQLNotImplementedError,
-)
-
-from posthog.api.services.query import process_query_dict
-from posthog.clickhouse.client.execute_async import get_query_status
-from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
-from posthog.errors import ExposedCHQueryError
-from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
-from posthog.models.team.team import Team
-from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
+from rest_framework.exceptions import APIException
 
 from ee.hogai.graph.query_executor.format import (
     FunnelResultsFormatter,

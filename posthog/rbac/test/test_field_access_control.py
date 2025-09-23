@@ -1,11 +1,5 @@
 import pytest
-from posthog.test.base import BaseTest
-
 from django.db import models
-
-from rest_framework import serializers
-from rest_framework.exceptions import ValidationError
-
 from posthog.models.team import Team
 from posthog.rbac.decorators import field_access_control
 from posthog.rbac.user_access_control import (
@@ -13,6 +7,9 @@ from posthog.rbac.user_access_control import (
     UserAccessControlSerializerMixin,
     get_field_access_control_map,
 )
+from posthog.test.base import BaseTest
+from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
 
 
 class TestFieldAccessControlDecorator(BaseTest):

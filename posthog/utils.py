@@ -1,18 +1,18 @@
+import asyncio
+import base64
+import dataclasses
+import datetime
+import datetime as dt
+import gzip
+import hashlib
+import json
 import os
 import re
-import gzip
-import json
+import secrets
+import string
 import time
 import uuid
 import zlib
-import base64
-import string
-import asyncio
-import hashlib
-import secrets
-import datetime
-import datetime as dt
-import dataclasses
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from enum import Enum
@@ -22,6 +22,16 @@ from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
+import lzstring
+import orjson
+import posthoganalytics
+import pytz
+import structlog
+from asgiref.sync import async_to_sync
+from celery.result import AsyncResult
+from celery.schedules import crontab
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
@@ -32,22 +42,6 @@ from django.template.loader import get_template
 from django.urls import URLPattern, re_path
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
-
-import pytz
-import orjson
-import lzstring
-import structlog
-import posthoganalytics
-from asgiref.sync import async_to_sync
-from celery.result import AsyncResult
-from celery.schedules import crontab
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
-from rest_framework import serializers
-from rest_framework.request import Request
-from rest_framework.utils.encoders import JSONEncoder
-from user_agents import parse
-
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
@@ -55,10 +49,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from rest_framework import serializers
+from rest_framework.request import Request
+from rest_framework.utils.encoders import JSONEncoder
+from user_agents import parse
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-
     from posthog.models import Dashboard, DashboardTile, InsightVariable, Team, User
 
 DATERANGE_MAP = {
@@ -531,6 +528,7 @@ async def initialize_self_capture_api_token():
 
     User = apps.get_model("posthog", "User")
     Team = apps.get_model("posthog", "Team")
+
     try:
         user = (
             await User.objects.filter(last_login__isnull=False)
@@ -538,15 +536,16 @@ async def initialize_self_capture_api_token():
             .select_related("current_team")
             .afirst()
         )
-        # Get the current user's team (or first team in the instance) to set self capture configs
-        team = None
-        if user and getattr(user, "current_team", None):
-            team = user.current_team
-        else:
-            team = await Team.objects.only("api_token").afirst()
-        local_api_key = team.api_token if team else None
-    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
-        local_api_key = None
+    except ProgrammingError as e:
+        logger.warning(f"Failed to get user for self-capture, ignoring: {e}")
+        return
+    # Get the current user's team (or first team in the instance) to set self capture configs
+    team = None
+    if user and getattr(user, "current_team", None):
+        team = user.current_team
+    else:
+        team = await Team.objects.only("api_token").afirst()
+    local_api_key = team.api_token if team else None
 
     # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
     if local_api_key is not None:

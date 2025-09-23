@@ -1,13 +1,10 @@
 import logging
 
 import pytest
-
 from django.core.management import call_command
-
-from semantic_version.base import Version
-
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
 from posthog.constants import FROZEN_POSTHOG_VERSION
+from semantic_version.base import Version
 
 pytestmark = pytest.mark.django_db
 

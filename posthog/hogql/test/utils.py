@@ -1,15 +1,12 @@
-import re
-import json
 import dataclasses
+import json
+import re
 from typing import Any
 
-from posthog.test.base import clean_varying_query_parts
-
-from pydantic import BaseModel
-
-from posthog.schema import HogQLQueryModifiers
-
 from posthog.hogql.query import execute_hogql_query
+from posthog.schema import HogQLQueryModifiers
+from posthog.test.base import clean_varying_query_parts
+from pydantic import BaseModel
 
 
 def execute_hogql_query_with_timings(*args, **kwargs):

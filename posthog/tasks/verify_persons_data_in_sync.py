@@ -3,12 +3,10 @@ from collections import Counter, defaultdict
 from datetime import timedelta
 from typing import Any
 
-from django.db.models.query import Prefetch
-from django.utils.timezone import now
-
 import structlog
 from celery import shared_task
-
+from django.db.models.query import Prefetch
+from django.utils.timezone import now
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person
 

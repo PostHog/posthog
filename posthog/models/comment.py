@@ -1,7 +1,6 @@
 from typing import cast
 
 from django.db import models
-
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamMixin, UUIDTModel

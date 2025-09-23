@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 
 import json
-import time
 import subprocess
+import time
 
 import unittest
-from unittest.mock import MagicMock, patch
-
 from toolbox.kubernetes import get_available_contexts, get_current_context, select_context, switch_context
 from toolbox.pod import claim_pod, get_toolbox_pod
 from toolbox.user import get_current_user, parse_arn, sanitize_label
+from unittest.mock import MagicMock, patch
 
 
 class TestToolbox(unittest.TestCase):

@@ -1,10 +1,8 @@
 from django.db import IntegrityError
-
-from rest_framework import mixins, serializers
-from rest_framework.viewsets import GenericViewSet
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
+from rest_framework import mixins, serializers
+from rest_framework.viewsets import GenericViewSet
 
 from ee.models.assistant import CoreMemory
 

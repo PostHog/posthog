@@ -1,19 +1,12 @@
-import uuid
 import datetime as dt
+import uuid
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import MagicMock, patch
-
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
 from posthog import constants
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import afetch_batch_export_runs_in_range
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-
 from products.batch_exports.backend.temporal.monitoring import (
     BatchExportMonitoringInputs,
     BatchExportMonitoringWorkflow,
@@ -27,6 +20,10 @@ from products.batch_exports.backend.temporal.monitoring import (
     reconcile_event_counts,
     update_batch_export_runs,
 )
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from unittest.mock import MagicMock, patch
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

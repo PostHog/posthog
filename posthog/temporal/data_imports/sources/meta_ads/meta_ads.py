@@ -1,12 +1,11 @@
+import collections.abc
+import datetime as dt
 import json
 import typing
-import datetime as dt
-import collections.abc
 from dataclasses import dataclass
 
 import requests
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig

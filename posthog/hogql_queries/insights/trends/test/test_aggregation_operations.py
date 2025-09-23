@@ -2,7 +2,10 @@ from datetime import datetime
 from typing import Literal, Union
 
 import pytest
-
+from posthog.hogql import ast
+from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team import Team
 from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
@@ -12,12 +15,6 @@ from posthog.schema import (
     MathGroupTypeIndex,
     PropertyMathType,
 )
-
-from posthog.hogql import ast
-
-from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.team.team import Team
 
 
 @pytest.mark.parametrize(

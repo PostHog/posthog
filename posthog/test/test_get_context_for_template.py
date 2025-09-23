@@ -1,8 +1,7 @@
 from posthog.test.base import APIBaseTest
+from posthog.utils import get_context_for_template
 from unittest import mock
 from unittest.mock import MagicMock
-
-from posthog.utils import get_context_for_template
 
 
 class TestGetContextForTemplate(APIBaseTest):

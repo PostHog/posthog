@@ -4,12 +4,10 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-
-from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
-
 from posthog.models.team import Team
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.rbac.decorators import field_access_control
+from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 
 logger = logging.getLogger(__name__)
 

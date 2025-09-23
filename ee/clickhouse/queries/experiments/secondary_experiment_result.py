@@ -1,12 +1,11 @@
 from datetime import datetime
 from typing import Optional
 
-from rest_framework.exceptions import ValidationError
-
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
 from ee.clickhouse.queries.experiments.trend_experiment_result import (

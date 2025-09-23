@@ -5,13 +5,6 @@ from zoneinfo import ZoneInfo
 from django.db.models import QuerySet
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
-
-from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.response import Response
-
-from posthog.schema import AlertState
-
 from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -26,7 +19,11 @@ from posthog.models.alert import (
     are_alerts_supported_for_insight,
 )
 from posthog.models.signals import model_activity_signal
+from posthog.schema import AlertState
 from posthog.utils import relative_date_parse
+from rest_framework import serializers, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
 
 
 class ThresholdSerializer(serializers.ModelSerializer):

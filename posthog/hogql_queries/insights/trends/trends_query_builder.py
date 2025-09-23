@@ -1,22 +1,10 @@
 from typing import Optional, cast
 
-from posthog.schema import (
-    ActionsNode,
-    Breakdown as BreakdownSchema,
-    ChartDisplayType,
-    DataWarehouseNode,
-    DataWarehousePropertyFilter,
-    EventsNode,
-    HogQLQueryModifiers,
-    TrendsQuery,
-)
-
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
-
 from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.insights.trends.breakdown import (
@@ -30,6 +18,16 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
+from posthog.schema import (
+    ActionsNode,
+    Breakdown as BreakdownSchema,
+    ChartDisplayType,
+    DataWarehouseNode,
+    DataWarehousePropertyFilter,
+    EventsNode,
+    HogQLQueryModifiers,
+    TrendsQuery,
+)
 
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):

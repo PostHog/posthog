@@ -1,5 +1,4 @@
 from celery import shared_task
-
 from posthog.exceptions_capture import capture_exception
 
 

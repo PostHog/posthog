@@ -1,28 +1,19 @@
 import hashlib
 from typing import Any, Optional, Protocol, TypeVar
 
+import posthoganalytics
+import structlog
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.http import JsonResponse
-
-import structlog
-import posthoganalytics
 from loginas.utils import is_impersonated_session
-from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
-from rest_framework.response import Response
-
-from posthog.schema import PropertyGroupFilterValue
-
-from posthog.hogql import ast
-from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.property import property_to_expr
-
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.hogql import ast
+from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.property import property_to_expr
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.error_tracking import (
@@ -41,8 +32,13 @@ from posthog.models.error_tracking.hogvm_stl import RUST_HOGVM_STL
 from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT, uuid7
+from posthog.schema import PropertyGroupFilterValue
 from posthog.storage import object_storage
 from posthog.tasks.email import send_error_tracking_issue_assigned
+from rest_framework import request, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
+from rest_framework.response import Response
 
 from common.hogvm.python.operation import Operation
 

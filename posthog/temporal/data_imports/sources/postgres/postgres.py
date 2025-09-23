@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import math
 import collections
+import math
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
 from typing import Any, LiteralString, Optional, cast
@@ -9,10 +9,6 @@ from typing import Any, LiteralString, Optional, cast
 import psycopg
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from psycopg import sql
-from psycopg.adapt import Loader
-from structlog.types import FilteringBoundLogger
-
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
@@ -28,6 +24,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+from psycopg import sql
+from psycopg.adapt import Loader
+from structlog.types import FilteringBoundLogger
 
 
 def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:

@@ -8,7 +8,9 @@ from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
     merge_message_runs,
 )
-
+from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Team
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -27,10 +29,6 @@ from posthog.schema import (
     TrendsQuery,
     VisualizationMessage,
 )
-
-from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.types import AssistantMessageUnion

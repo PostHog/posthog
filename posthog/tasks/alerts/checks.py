@@ -4,22 +4,19 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
-from django.db import transaction
-from django.db.models import F, Q
-
 import structlog
 from celery import shared_task
 from celery.canvas import chain
 from dateutil.relativedelta import relativedelta
-
-from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
-
+from django.db import transaction
+from django.db.models import F, Q
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
 from posthog.ph_client import ph_scoped_capture
+from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.trends import check_trends_alert
 from posthog.tasks.alerts.utils import (

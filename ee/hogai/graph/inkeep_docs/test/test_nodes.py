@@ -1,17 +1,15 @@
 from typing import cast
 from uuid import uuid4
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
-
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     HumanMessage as LangchainHumanMessage,
     SystemMessage as LangchainSystemMessage,
 )
 from langchain_core.runnables import RunnableLambda
-
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, HumanMessage
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsNode
 from ee.hogai.graph.inkeep_docs.prompts import INKEEP_DATA_CONTINUATION_PHRASE

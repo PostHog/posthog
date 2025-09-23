@@ -1,5 +1,4 @@
 from django.db import models
-
 from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UpdatedMetaFields, UUIDTModel, sane_repr
 
 

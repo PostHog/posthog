@@ -1,9 +1,8 @@
 import json
 
 import pytest
-from unittest import mock
-
 from posthog.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient, LinkedinAdsPivot
+from unittest import mock
 
 
 class TestLinkedinAdsClient:

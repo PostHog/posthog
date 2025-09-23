@@ -2,13 +2,10 @@ from typing import Optional
 from uuid import uuid4
 
 import pytest
-
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase
-
-from posthog.schema import AssistantMessage, HumanMessage
-
 from posthog.models.user import User
+from posthog.schema import AssistantMessage, HumanMessage
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

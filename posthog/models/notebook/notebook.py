@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 from django.db import models
 from django.db.models import JSONField, QuerySet
 from django.utils import timezone
-
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDTModel

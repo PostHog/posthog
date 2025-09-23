@@ -1,5 +1,4 @@
 from django_admin_inline_paginator.admin import TabularInlinePaginated
-
 from posthog.models.organization import OrganizationMembership
 
 

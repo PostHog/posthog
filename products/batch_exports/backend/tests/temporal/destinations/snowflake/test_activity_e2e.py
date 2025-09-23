@@ -4,25 +4,20 @@ Test the Snowflake Insert Activity.
 Note: This module uses a real Snowflake connection.
 """
 
+import dataclasses
+import datetime as dt
 import os
 import uuid
-import datetime as dt
-import dataclasses
 
 import pytest
 import unittest.mock
-
 from django.test import override_settings
-
-from temporalio import activity
-
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
-
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeHeartbeatDetails,
     SnowflakeInsertInputs,
@@ -43,6 +38,7 @@ from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils 
     assert_clickhouse_records_in_snowflake,
 )
 from products.batch_exports.backend.tests.temporal.utils import FlakyClickHouseClient
+from temporalio import activity
 
 pytestmark = [
     pytest.mark.asyncio,

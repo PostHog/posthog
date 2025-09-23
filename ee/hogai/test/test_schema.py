@@ -1,8 +1,6 @@
-from posthog.test.base import BaseTest
-
-from pydantic import ValidationError
-
 from posthog.schema import AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery
+from posthog.test.base import BaseTest
+from pydantic import ValidationError
 
 
 class TestSchema(BaseTest):

@@ -1,8 +1,6 @@
-from posthog.test.base import BaseTest
-
-from posthog.schema import SharingConfigurationSettings
-
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.schema import SharingConfigurationSettings
+from posthog.test.base import BaseTest
 
 
 class TestSharingConfigurationSettings(BaseTest):

@@ -1,7 +1,7 @@
-import typing
-import datetime as dt
-import dataclasses
 import collections.abc
+import dataclasses
+import datetime as dt
+import typing
 
 from posthog.temporal.common.heartbeat import (
     EmptyHeartbeatError,

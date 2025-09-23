@@ -2,10 +2,6 @@ import uuid
 from typing import cast
 
 from django.utils import timezone
-
-from rest_framework import response, serializers, status, viewsets
-from rest_framework.permissions import BasePermission, IsAuthenticated
-
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import PersonalAPIKey, User
@@ -15,6 +11,8 @@ from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
+from rest_framework import response, serializers, status, viewsets
+from rest_framework.permissions import BasePermission, IsAuthenticated
 
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
 

@@ -5,21 +5,18 @@ from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
-from unittest import TestCase
-from unittest.mock import MagicMock, patch
-
-from django.utils.timezone import now
-
 import jwt
 from dateutil.relativedelta import relativedelta
-from requests import Response, get
-from rest_framework import status
-
+from django.utils.timezone import now
+from freezegun import freeze_time
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
+from requests import Response, get
+from rest_framework import status
+from unittest import TestCase
+from unittest.mock import MagicMock, patch
 
 from ee.api.billing import BillingUsageRequestSerializer
 from ee.api.test.base import APILicensedTest

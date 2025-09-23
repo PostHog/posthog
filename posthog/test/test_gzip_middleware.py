@@ -1,10 +1,8 @@
+from posthog.gzip_middleware import InvalidGZipAllowList
 from posthog.test.base import APIBaseTest
 from pytest import raises
-from unittest import skip
-
 from rest_framework import status
-
-from posthog.gzip_middleware import InvalidGZipAllowList
+from unittest import skip
 
 custom_headers = {"HTTP_ACCEPT_ENCODING": "gzip"}
 

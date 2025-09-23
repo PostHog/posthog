@@ -2,18 +2,15 @@ from typing import Optional, cast
 
 from asgiref.sync import async_to_sync
 from langchain_core.prompts import ChatPromptTemplate
-from posthoganalytics import capture_exception
-from pydantic import BaseModel, Field
-
-from posthog.schema import AssistantHogQLQuery
-
 from posthog.models import Team, User
-
+from posthog.schema import AssistantHogQLQuery
+from posthoganalytics import capture_exception
 from products.data_warehouse.backend.prompts import (
     HOGQL_GENERATOR_USER_PROMPT,
     SQL_ASSISTANT_ROOT_SYSTEM_PROMPT,
     TIME_PERIOD_PROMPT,
 )
+from pydantic import BaseModel, Field
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput

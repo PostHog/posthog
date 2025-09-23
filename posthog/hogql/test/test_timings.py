@@ -1,7 +1,6 @@
+from posthog.hogql.timings import HogQLTimings
 from posthog.test.base import BaseTest
 from unittest.mock import patch
-
-from posthog.hogql.timings import HogQLTimings
 
 EPSILON = 1e-10
 counter_values: list[float] = [0]

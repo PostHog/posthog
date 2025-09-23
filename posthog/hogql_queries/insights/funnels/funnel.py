@@ -1,11 +1,8 @@
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import BreakdownType
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
+from posthog.schema import BreakdownType
+from rest_framework.exceptions import ValidationError
 
 
 class Funnel(FunnelBase):

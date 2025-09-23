@@ -1,5 +1,4 @@
 from inline_snapshot import snapshot
-
 from posthog.cdp.templates.clearbit.template_clearbit import template as template_clearbit
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 

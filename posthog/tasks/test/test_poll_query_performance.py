@@ -1,11 +1,9 @@
-from unittest.mock import MagicMock, patch
-
-from django.test import SimpleTestCase
-
 import posthog.tasks.tasks
+from django.test import SimpleTestCase
 from posthog.redis import get_client
 from posthog.tasks.poll_query_performance import poll_query_performance, query_manager_from_initial_query_id
 from posthog.tasks.tasks import Polling
+from unittest.mock import MagicMock, patch
 
 
 class TestPollQueryPerformance(SimpleTestCase):

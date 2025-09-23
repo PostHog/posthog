@@ -1,11 +1,9 @@
 from typing import TYPE_CHECKING
 
+import structlog
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
-
-import structlog
-
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel

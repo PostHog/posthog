@@ -1,41 +1,22 @@
+import base64
 import gzip
 import json
-import base64
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseDestroyTablesMixin,
-    ClickhouseTestMixin,
-    QueryMatchingTest,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    run_clickhouse_statement_in_parallel,
-    snapshot_clickhouse_queries,
-)
-from unittest.mock import MagicMock, Mock, patch
-
-from django.test import TestCase
-from django.utils.timezone import now
-
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
-
-from posthog.schema import EventsQuery
-
-from posthog.hogql.query import execute_hogql_query
-
+from django.test import TestCase
+from django.utils.timezone import now
+from freezegun import freeze_time
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
@@ -46,6 +27,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.schema import EventsQuery
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
     OrgReport,
@@ -60,6 +42,18 @@ from posthog.tasks.usage_report import (
     get_instance_metadata,
     send_all_org_usage_reports,
 )
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseDestroyTablesMixin,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    run_clickhouse_statement_in_parallel,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
@@ -71,6 +65,7 @@ from posthog.warehouse.models import (
     ExternalDataSource,
 )
 from posthog.warehouse.types import ExternalDataSourceType
+from unittest.mock import MagicMock, Mock, patch
 
 from ee.api.test.base import LicensedTestMixin
 from ee.models.license import License

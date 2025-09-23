@@ -1,8 +1,8 @@
-import math
-import typing
-import contextlib
 import collections
 import collections.abc
+import contextlib
+import math
+import typing
 from datetime import date, datetime
 
 import pyarrow as pa
@@ -11,8 +11,6 @@ from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
 from google.oauth2 import service_account
-from structlog.types import FilteringBoundLogger
-
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
@@ -20,6 +18,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+from structlog.types import FilteringBoundLogger
 
 
 def get_schemas(

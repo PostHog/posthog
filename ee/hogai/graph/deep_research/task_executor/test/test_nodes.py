@@ -1,12 +1,8 @@
-import uuid
 import asyncio
-
-from unittest import TestCase
-from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
-
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
@@ -17,6 +13,8 @@ from posthog.schema import (
     TaskExecutionStatus,
     VisualizationMessage,
 )
+from unittest import TestCase
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
 from ee.hogai.graph.deep_research.types import DeepResearchState, DeepResearchTask, PartialDeepResearchState

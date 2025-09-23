@@ -4,7 +4,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
-
 from posthog.models.utils import UUIDTModel
 from posthog.redis import get_client
 from posthog.settings import PLUGINS_RELOAD_REDIS_URL

@@ -1,13 +1,12 @@
 import datetime as dt
 
 import pytest
-from unittest import mock
-
 from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import (
     RedditAdsPaginator,
     _get_incremental_date_range,
     get_resource,
 )
+from unittest import mock
 
 
 class TestRedditAdsHelperFunctions:

@@ -3,7 +3,14 @@ from functools import cached_property
 from typing import Literal, cast
 
 import structlog
-
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.models.team.team import DEFAULT_CURRENCY
 from posthog.schema import (
     CachedMarketingAnalyticsTableQueryResponse,
     ConversionGoalFilter1,
@@ -16,16 +23,6 @@ from posthog.schema import (
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models.team.team import DEFAULT_CURRENCY
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory

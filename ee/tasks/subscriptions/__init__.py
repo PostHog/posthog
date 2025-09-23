@@ -2,17 +2,16 @@ from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Optional
 
-import structlog
 import posthoganalytics
+import structlog
 from celery import shared_task
-from prometheus_client import Counter
-
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.tasks.utils import CeleryQueue
+from prometheus_client import Counter
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (

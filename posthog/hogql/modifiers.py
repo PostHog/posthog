@@ -1,8 +1,7 @@
 from typing import TYPE_CHECKING, Optional
 
 import posthoganalytics
-from pydantic import ValidationError
-
+from posthog.cloud_utils import is_cloud
 from posthog.schema import (
     BounceRatePageViewMode,
     CustomChannelRule,
@@ -14,8 +13,7 @@ from posthog.schema import (
     SessionsV2JoinMode,
     SessionTableVersion,
 )
-
-from posthog.cloud_utils import is_cloud
+from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from posthog.models import Team, User

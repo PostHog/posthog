@@ -4,7 +4,6 @@ from typing import ClassVar
 import dagster
 import pydantic
 from clickhouse_driver import Client
-
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET

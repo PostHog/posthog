@@ -2,10 +2,8 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from django.core.management.base import BaseCommand
-
 import structlog
-
+from django.core.management.base import BaseCommand
 from posthog.models.organization import Organization
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration

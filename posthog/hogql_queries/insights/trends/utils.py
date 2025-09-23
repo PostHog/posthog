@@ -1,5 +1,6 @@
 from typing import Optional, Union
 
+from posthog.constants import UNIQUE_GROUPS
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -8,8 +9,6 @@ from posthog.schema import (
     EventsNode,
     MultipleBreakdownType,
 )
-
-from posthog.constants import UNIQUE_GROUPS
 
 
 def series_event_name(series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:

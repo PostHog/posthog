@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db.models import Q
-
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception

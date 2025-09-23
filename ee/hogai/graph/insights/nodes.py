@@ -1,25 +1,22 @@
+import inspect
 import re
 import time
-import inspect
 import warnings
 from datetime import timedelta
 from functools import wraps
 from typing import Literal, Optional, TypedDict
 from uuid import uuid4
 
+import structlog
 from django.db.models import Max
 from django.utils import timezone
-
-import structlog
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
-
-from posthog.schema import AssistantToolCallMessage, VisualizationMessage
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
+from posthog.schema import AssistantToolCallMessage, VisualizationMessage
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes

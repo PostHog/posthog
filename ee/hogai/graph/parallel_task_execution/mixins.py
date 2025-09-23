@@ -5,7 +5,9 @@ from typing import Any, cast
 import structlog
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-
+from posthog.exceptions_capture import capture_exception
+from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
@@ -14,10 +16,6 @@ from posthog.schema import (
     TaskExecutionStatus,
     VisualizationMessage,
 )
-
-from posthog.exceptions_capture import capture_exception
-from posthog.models.team.team import Team
-from posthog.models.user import User
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode
 from ee.hogai.graph.parallel_task_execution.prompts import AGENT_TASK_PROMPT_TEMPLATE

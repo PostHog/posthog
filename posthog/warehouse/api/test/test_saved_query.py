@@ -1,12 +1,11 @@
 import uuid
 from datetime import timedelta
 
+from posthog.models import ActivityLog
 from posthog.test.base import APIBaseTest
+from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
 from unittest import mock
 from unittest.mock import patch
-
-from posthog.models import ActivityLog
-from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
 
 
 class TestSavedQuery(APIBaseTest):

@@ -1,16 +1,15 @@
-import re
-import json
 import asyncio
+import json
+import re
 import subprocess
 from collections import OrderedDict
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from django.core.management.base import BaseCommand
-
 import aiohttp
 import structlog
+from django.core.management.base import BaseCommand
 
 OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
 

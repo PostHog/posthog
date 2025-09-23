@@ -5,11 +5,6 @@ from typing import Any, Optional, cast
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
-
-from rest_framework import filters, pagination, serializers, status, viewsets
-from rest_framework.request import Request
-from rest_framework.response import Response
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -17,6 +12,9 @@ from posthog.models.file_system.file_system import FileSystem, join_path, split_
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
+from rest_framework import filters, pagination, serializers, status, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 HOG_FUNCTION_TYPES = ["broadcast", "campaign", "destination", "site_app", "source", "transformation"]
 

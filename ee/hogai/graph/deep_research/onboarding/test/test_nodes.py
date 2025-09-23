@@ -1,16 +1,13 @@
 from uuid import UUID, uuid4
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
 from asgiref.sync import async_to_sync
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
-
-from posthog.schema import AssistantMessage, DeepResearchNotebook, DeepResearchType, HumanMessage
-
 from posthog.models import Team, User
+from posthog.schema import AssistantMessage, DeepResearchNotebook, DeepResearchType, HumanMessage
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState

@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 import dagster
-
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.models.property_definition import PropertyDefinition
 

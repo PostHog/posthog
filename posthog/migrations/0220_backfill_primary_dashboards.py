@@ -1,6 +1,5 @@
-from django.db import connection, migrations
-
 import structlog
+from django.db import connection, migrations
 
 
 def backfill_primary_dashboards(apps, _):

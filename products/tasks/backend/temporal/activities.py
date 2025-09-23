@@ -2,11 +2,10 @@ import os
 import typing
 
 import temporalio
-from structlog.contextvars import bind_contextvars
-from temporalio import activity
-
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
+from structlog.contextvars import bind_contextvars
+from temporalio import activity
 
 from .github_activities import get_github_integration_token
 

@@ -1,11 +1,10 @@
-import re
 import json
+import re
 from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
-
+from posthog.cdp.validation import compile_hog
 from posthog.hogql.ai import (
     DESTINATION_LIMITATIONS_MESSAGE,
     EVENT_PROPERTY_TAXONOMY_MESSAGE,
@@ -20,14 +19,12 @@ from posthog.hogql.ai import (
     PERSON_TAXONOMY_MESSAGE,
     TRANSFORMATION_LIMITATIONS_MESSAGE,
 )
-
-from posthog.cdp.validation import compile_hog
-
 from products.cdp.backend.prompts import (
     HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
 )
+from pydantic import BaseModel, Field
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.tool import MaxTool

@@ -1,8 +1,7 @@
-from rest_framework import status
-
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess

@@ -1,14 +1,12 @@
-import uuid
 import asyncio
+import uuid
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
+from posthog.schema import ReasoningMessage, TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
+from pydantic import ConfigDict
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
-
-from langchain_core.runnables import RunnableConfig
-from pydantic import ConfigDict
-
-from posthog.schema import ReasoningMessage, TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
 
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple

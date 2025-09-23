@@ -1,7 +1,7 @@
-import re
 import json
-import time
+import re
 import socket
+import time
 import urllib.parse
 from enum import Enum, auto
 from functools import wraps
@@ -10,23 +10,10 @@ from typing import Any, Optional, Union
 from urllib.parse import urlparse
 from uuid import UUID
 
+import structlog
 from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
 from django.http import HttpRequest
-
-import structlog
-from posthoganalytics import capture_exception
-from prometheus_client import Counter
-from requests.adapters import HTTPAdapter
-from rest_framework import request, serializers, status
-from rest_framework.decorators import action as drf_action
-from rest_framework.exceptions import ValidationError
-from rest_framework.fields import Field
-from statshog.defaults.django import statsd
-from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
-
-from posthog.schema import QueryTiming
-
 from posthog.api.documentation import extend_schema
 from posthog.exceptions import (
     RequestParsingError,
@@ -37,8 +24,18 @@ from posthog.models import Entity
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.schema import QueryTiming
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
+from posthoganalytics import capture_exception
+from prometheus_client import Counter
+from requests.adapters import HTTPAdapter
+from rest_framework import request, serializers, status
+from rest_framework.decorators import action as drf_action
+from rest_framework.exceptions import ValidationError
+from rest_framework.fields import Field
+from statshog.defaults.django import statsd
+from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
 
 logger = structlog.get_logger(__name__)
 

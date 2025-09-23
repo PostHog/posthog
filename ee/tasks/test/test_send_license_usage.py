@@ -1,8 +1,7 @@
 from freezegun import freeze_time
+from posthog.models.team import Team
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import ANY, Mock, patch
-
-from posthog.models.team import Team
 
 from ee.api.test.base import LicensedTestMixin
 from ee.models.license import License

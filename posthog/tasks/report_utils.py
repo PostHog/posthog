@@ -2,18 +2,16 @@ import dataclasses
 from datetime import datetime
 from typing import Any, Optional, Union, cast
 
-from django.conf import settings
-
 import structlog
 from dateutil import parser
-from posthoganalytics.client import Client
-
+from django.conf import settings
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import get_machine_id
+from posthoganalytics.client import Client
 
 logger = structlog.get_logger(__name__)
 

@@ -6,8 +6,6 @@ from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
-from pydantic import BaseModel, Field
-
 from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsQuery,
@@ -32,6 +30,7 @@ from posthog.schema import (
     TrendsQuery,
     VisualizationMessage,
 )
+from pydantic import BaseModel, Field
 
 from ee.models import Conversation
 

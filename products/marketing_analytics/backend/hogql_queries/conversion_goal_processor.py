@@ -2,6 +2,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Union
 
+from posthog.hogql import ast
+from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.models import Action, Team
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -10,11 +13,6 @@ from posthog.schema import (
     MarketingAnalyticsHelperForColumnNames,
     PropertyMathType,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr, property_to_expr
-
-from posthog.models import Action, Team
 
 from .adapters.base import MarketingSourceAdapter
 from .constants import (

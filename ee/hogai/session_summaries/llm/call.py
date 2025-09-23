@@ -1,18 +1,16 @@
 import os
 
-from django.conf import settings
-
-import structlog
 import posthoganalytics
+import structlog
+from django.conf import settings
 from openai import AsyncStream
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
+from posthog.cloud_utils import is_cloud
+from posthog.utils import get_instance_region
 from posthoganalytics.ai.openai import AsyncOpenAI, OpenAI
 from posthoganalytics.client import Client
 from rest_framework import exceptions
-
-from posthog.cloud_utils import is_cloud
-from posthog.utils import get_instance_region
 
 from ee.hogai.session_summaries.constants import (
     BASE_LLM_CALL_TIMEOUT_S,

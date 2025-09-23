@@ -2,15 +2,13 @@
 
 import uuid
 
-import django.db.models.deletion
 import django.contrib.postgres.fields
+import django.db.models.deletion
+import oauth2_provider.generators
+import oauth2_provider.models
+import posthog.models.utils
 from django.conf import settings
 from django.db import migrations, models
-
-import oauth2_provider.models
-import oauth2_provider.generators
-
-import posthog.models.utils
 
 
 class Migration(migrations.Migration):

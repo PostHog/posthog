@@ -1,15 +1,12 @@
 from typing import Optional
 
 from freezegun.api import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
-
+from posthog.clickhouse.client import sync_execute
+from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql_queries.web_analytics.web_goals import WebGoalsQueryRunner
+from posthog.models import Action, Cohort, Element, Person
+from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+from posthog.models.utils import uuid7
 from posthog.schema import (
     CompareFilter,
     DateRange,
@@ -18,14 +15,14 @@ from posthog.schema import (
     SessionTableVersion,
     WebGoalsQuery,
 )
-
-from posthog.hogql.test.utils import pretty_print_in_tests
-
-from posthog.clickhouse.client import sync_execute
-from posthog.hogql_queries.web_analytics.web_goals import WebGoalsQueryRunner
-from posthog.models import Action, Cohort, Element, Person
-from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
-from posthog.models.utils import uuid7
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 
 
 @snapshot_clickhouse_queries

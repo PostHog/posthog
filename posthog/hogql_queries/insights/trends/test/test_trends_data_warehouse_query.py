@@ -1,11 +1,15 @@
 from datetime import datetime
 from pathlib import Path
 
-from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
-
 from django.test import override_settings
-
+from freezegun import freeze_time
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import clean_entity_properties
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
@@ -19,15 +23,7 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
-
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
-
-from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import clean_entity_properties
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 

@@ -9,8 +9,10 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field, ValidationError, create_model
-
+from posthog.hogql.ai import SCHEMA_MESSAGE
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantRetentionQuery,
@@ -18,12 +20,7 @@ from posthog.schema import (
     AssistantTrendsQuery,
     VisualizationMessage,
 )
-
-from posthog.hogql.ai import SCHEMA_MESSAGE
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database, serialize_database
-
-from posthog.models.group_type_mapping import GroupTypeMapping
+from pydantic import Field, ValidationError, create_model
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.mixins import TaxonomyReasoningNodeMixin

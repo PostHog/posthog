@@ -1,12 +1,9 @@
 import pytest
+from langchain_core.runnables import RunnableConfig
+from posthog.models import Dashboard, Insight, Team, User
+from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, TaskExecutionItem, TaskExecutionStatus
 from unittest import TestCase
 from unittest.mock import AsyncMock, MagicMock, patch
-
-from langchain_core.runnables import RunnableConfig
-
-from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, TaskExecutionItem, TaskExecutionStatus
-
-from posthog.models import Dashboard, Insight, Team, User
 
 from ee.hogai.graph.dashboards.nodes import DashboardCreationExecutorNode, DashboardCreationNode, QueryMetadata
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url

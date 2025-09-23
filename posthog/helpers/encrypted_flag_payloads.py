@@ -1,5 +1,4 @@
 from django.conf import settings
-
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.temporal.common.codec import EncryptionCodec
 

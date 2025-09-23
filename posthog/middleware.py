@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
 
+import structlog
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.cache import cache
@@ -17,14 +18,8 @@ from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-
-import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
-from rest_framework import status
-from social_core.exceptions import AuthFailed
-from statshog.defaults.django import statsd
-
 from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
@@ -39,6 +34,9 @@ from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
+from rest_framework import status
+from social_core.exceptions import AuthFailed
+from statshog.defaults.django import statsd
 
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response

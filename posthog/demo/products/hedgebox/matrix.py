@@ -3,7 +3,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 from django.db import IntegrityError
-
+from posthog.constants import PAGEVIEW_EVENT
+from posthog.demo.matrix.matrix import Cluster, Matrix
+from posthog.demo.matrix.randomization import Industry
+from posthog.models import Action, Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -40,11 +43,6 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
-
-from posthog.constants import PAGEVIEW_EVENT
-from posthog.demo.matrix.matrix import Cluster, Matrix
-from posthog.demo.matrix.randomization import Industry
-from posthog.models import Action, Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (

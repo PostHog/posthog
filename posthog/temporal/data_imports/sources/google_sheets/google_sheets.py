@@ -1,14 +1,12 @@
-import time
 import random
+import time
 from typing import Any, Optional
-
-from django.conf import settings
 
 import gspread
 from cachetools import Cache, TTLCache, cached
+from django.conf import settings
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from google.oauth2 import service_account
-
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig

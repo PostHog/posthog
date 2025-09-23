@@ -1,14 +1,10 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
 from django.test import override_settings
-
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     AIMessage,
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.prompts import AIMessagePromptTemplate, HumanMessagePromptTemplate
-
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
@@ -17,7 +13,7 @@ from posthog.schema import (
     HumanMessage,
     VisualizationMessage,
 )
-
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode

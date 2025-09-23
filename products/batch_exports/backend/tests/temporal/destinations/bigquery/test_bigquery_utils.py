@@ -2,11 +2,9 @@
 
 import datetime as dt
 
-import pytest
-
 import pyarrow as pa
+import pytest
 from google.cloud import bigquery
-
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     get_bigquery_fields_from_record_schema,
 )

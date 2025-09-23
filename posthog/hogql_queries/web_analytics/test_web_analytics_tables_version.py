@@ -1,5 +1,6 @@
-from posthog.test.base import APIBaseTest
-
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.web_trends_query_runner import WebTrendsQueryRunner
 from posthog.schema import (
     DateRange,
     IntervalType,
@@ -9,10 +10,7 @@ from posthog.schema import (
     WebTrendsMetric,
     WebTrendsQuery,
 )
-
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.hogql_queries.web_analytics.web_trends_query_runner import WebTrendsQueryRunner
+from posthog.test.base import APIBaseTest
 
 
 class TestWebAnalyticsTablesVersion(APIBaseTest):

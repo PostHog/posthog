@@ -1,5 +1,9 @@
 from typing import TypeAlias, Union
 
+from posthog.models.filters.filter import Filter
+from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
@@ -35,11 +39,6 @@ from posthog.schema import (
     StickinessQuery,
     TrendsQuery,
 )
-
-from posthog.models.filters.filter import Filter
-from posthog.models.filters.path_filter import PathFilter
-from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 
 FilterType: TypeAlias = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
 """Legacy insight filters."""

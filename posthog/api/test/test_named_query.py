@@ -1,13 +1,11 @@
 from typing import Any
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-from rest_framework import status
-
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.named_query import NamedQuery
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from rest_framework import status
 
 
 class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):

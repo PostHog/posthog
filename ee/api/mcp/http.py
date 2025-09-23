@@ -1,7 +1,6 @@
 from mcp_server.views import MCPServerStreamableHttpView
-from rest_framework.permissions import IsAuthenticated
-
 from posthog.auth import PersonalAPIKeyAuthentication
+from rest_framework.permissions import IsAuthenticated
 
 from .base import mcp
 

@@ -4,25 +4,17 @@ Test the Snowflake Export Workflow.
 Note: This module uses a real Snowflake connection.
 """
 
-import typing as t
 import asyncio
 import datetime as dt
+import typing as t
 from uuid import uuid4
 
 import pytest
-
 from django.test import override_settings
-
-from temporalio.client import WorkflowFailureError
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
 from posthog import constants
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
-
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
@@ -37,6 +29,10 @@ from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils 
     TEST_TIME,
     assert_clickhouse_records_in_snowflake,
 )
+from temporalio.client import WorkflowFailureError
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 pytestmark = [
     pytest.mark.asyncio,

@@ -3,13 +3,6 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.db.models.query import QuerySet
-
-from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.viewsets import GenericViewSet
-from rest_framework_extensions.routers import ExtendedDefaultRouter
-from rest_framework_extensions.settings import extensions_api_settings
-
 from posthog.api.utils import get_token
 from posthog.auth import (
     JwtAuthentication,
@@ -33,6 +26,11 @@ from posthog.permissions import (
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
+from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.viewsets import GenericViewSet
+from rest_framework_extensions.routers import ExtendedDefaultRouter
+from rest_framework_extensions.settings import extensions_api_settings
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet

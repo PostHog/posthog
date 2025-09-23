@@ -2,7 +2,6 @@ import os
 from abc import ABC, abstractmethod
 
 import dagster
-
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.web_preaggregated.team_selection import (

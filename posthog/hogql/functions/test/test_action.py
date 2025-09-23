@@ -1,11 +1,9 @@
 import pytest
-from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
-
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
-
 from posthog.models import Action
 from posthog.models.utils import UUIDT
+from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
 
 
 def _create_action(**kwargs):

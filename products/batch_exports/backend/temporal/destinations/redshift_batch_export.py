@@ -1,24 +1,17 @@
-import json
-import typing
-import datetime as dt
 import contextlib
 import dataclasses
-
-from django.conf import settings
+import datetime as dt
+import json
+import typing
 
 import psycopg
 import pyarrow as pa
-from psycopg import sql
-from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-
+from django.conf import settings
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportModel, RedshiftBatchExportInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     OverBillingLimitError,
@@ -54,6 +47,10 @@ from products.batch_exports.backend.temporal.utils import (
     handle_non_retryable_errors,
     set_status_to_running_task,
 )
+from psycopg import sql
+from structlog.contextvars import bind_contextvars
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_produce_only_logger()

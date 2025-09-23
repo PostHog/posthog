@@ -1,10 +1,8 @@
 from typing import Optional
 
+import structlog
 from django.conf import settings
 from django.db import models
-
-import structlog
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User

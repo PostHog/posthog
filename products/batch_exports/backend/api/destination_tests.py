@@ -1,9 +1,9 @@
 # TODO: move this module out of temporal folder
 import abc
-import enum
 import asyncio
-import dataclasses
 import collections.abc
+import dataclasses
+import enum
 
 from asgiref.sync import async_to_sync
 
@@ -387,7 +387,6 @@ class BigQueryDatasetTestStep(DestinationTestStep):
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         from google.cloud.exceptions import NotFound
-
         from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryClient
 
         # This method should be called by `run()` which ensures this test step is configured
@@ -466,7 +465,6 @@ class BigQueryTableTestStep(DestinationTestStep):
         from google.api_core.exceptions import BadRequest
         from google.cloud import bigquery
         from google.cloud.exceptions import NotFound
-
         from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryClient
 
         # This method should be called by `run()` which ensures this test step is configured

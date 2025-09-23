@@ -1,8 +1,6 @@
-from unittest.mock import MagicMock, patch
-
 from posthog.schema import NodeKind
-
 from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, _discover_migrations
+from unittest.mock import MagicMock, patch
 
 
 def test_discover_migrations():

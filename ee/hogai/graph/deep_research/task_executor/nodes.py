@@ -2,7 +2,6 @@ import uuid
 
 import structlog
 from langchain_core.runnables import RunnableConfig
-
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, TaskExecutionItem, TaskExecutionMessage
 
 from ee.hogai.graph.deep_research.task_executor.prompts import EXECUTE_TASKS_TOOL_RESULT

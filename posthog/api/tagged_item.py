@@ -3,10 +3,6 @@ from typing import Optional
 
 from django.db.models import Prefetch, Q, QuerySet
 from django.dispatch import receiver
-
-from rest_framework import response, serializers, status, viewsets
-from rest_framework.viewsets import GenericViewSet
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem, User
@@ -14,6 +10,8 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
 from posthog.models.signals import model_activity_signal
 from posthog.models.tag import tagify
+from rest_framework import response, serializers, status, viewsets
+from rest_framework.viewsets import GenericViewSet
 
 
 class TaggedItemSerializerMixin(serializers.Serializer):

@@ -1,5 +1,5 @@
-import math
 import datetime as dt
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -7,7 +7,6 @@ from urllib.parse import urlencode, urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 import pytz
-
 from posthog.demo.matrix.models import EVENT_AUTOCAPTURE, Effect, SimPerson, SimSessionIntent
 
 from .taxonomy import (

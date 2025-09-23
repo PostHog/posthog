@@ -1,14 +1,12 @@
 import enum
 from typing import TYPE_CHECKING, Optional
 
+import structlog
 from django.conf import settings
 from django.db import models
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
-
-import structlog
-
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin

@@ -1,6 +1,6 @@
+import collections
 import os
 import tempfile
-import collections
 from collections.abc import Iterator
 from typing import Any, Optional
 
@@ -8,14 +8,13 @@ import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from snowflake.connector.cursor import SnowflakeCursor
-from structlog.types import FilteringBoundLogger
-
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 from posthog.warehouse.types import IncrementalFieldType
+from snowflake.connector.cursor import SnowflakeCursor
+from structlog.types import FilteringBoundLogger
 
 
 def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:

@@ -2,10 +2,6 @@ import uuid
 from time import time_ns
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
-
-from posthog.schema import FilterLogicalOperator, HogQLQueryModifiers, SessionTableVersion
-
 from posthog.hogql import ast
 from posthog.hogql.database.schema.sessions_v3 import (
     get_lazy_session_table_properties_v3,
@@ -13,9 +9,10 @@ from posthog.hogql.database.schema.sessions_v3 import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-
 from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
+from posthog.schema import FilterLogicalOperator, HogQLQueryModifiers, SessionTableVersion
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
 class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):

@@ -1,16 +1,14 @@
 from __future__ import annotations
 
+import collections
 import math
 import typing
-import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
 from typing import Any
 
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from structlog.types import FilteringBoundLogger
-
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
@@ -24,6 +22,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+from structlog.types import FilteringBoundLogger
 
 if typing.TYPE_CHECKING:
     from pymssql import Cursor

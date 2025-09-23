@@ -1,22 +1,19 @@
 from datetime import datetime
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import Mock, patch
-
 from langchain_core.agents import AgentAction
 from parameterized import parameterized
-from pydantic import BaseModel
-
+from posthog.models import Action
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.schema import (
     ActorsPropertyTaxonomyResponse,
     CachedActorsPropertyTaxonomyQueryResponse,
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyItem,
 )
-
-from posthog.models import Action
-from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from pydantic import BaseModel
+from unittest.mock import Mock, patch
 
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
 

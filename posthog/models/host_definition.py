@@ -1,6 +1,5 @@
 from django.db import models
 from django.utils import timezone
-
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 
 

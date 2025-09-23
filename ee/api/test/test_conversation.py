@@ -1,15 +1,12 @@
-import uuid
 import datetime
-
-from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+import uuid
 
 from django.http import HttpResponse
 from django.test import override_settings
 from django.utils import timezone
-
-from rest_framework import status
-
+from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.schema import (
     AssistantEventType,
     AssistantMessage,
@@ -21,10 +18,9 @@ from posthog.schema import (
     MaxBillingContextTrial,
     MaxProductInfo,
 )
-
-from posthog.models.team.team import Team
-from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from unittest.mock import AsyncMock, patch
 
 from ee.api.conversation import ConversationViewSet
 from ee.models.assistant import Conversation

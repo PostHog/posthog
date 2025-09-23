@@ -2,12 +2,17 @@ from datetime import UTC, datetime
 from typing import cast
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
-
 from django.test import override_settings
-
+from freezegun import freeze_time
+from posthog.clickhouse.client import sync_execute
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.visitor import clear_locations
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models.utils import UUIDT
 from posthog.schema import (
     ActorsQuery,
     BaseMathType,
@@ -30,18 +35,9 @@ from posthog.schema import (
     PropertyOperator,
     TrendsQuery,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.visitor import clear_locations
-
-from posthog.clickhouse.client import sync_execute
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.models.utils import UUIDT
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from unittest.mock import patch
 
 
 class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):

@@ -1,9 +1,7 @@
 from typing import Optional, cast
 
 from django.conf import settings
-
-from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, QueryIndexUsage
-
+from posthog.clickhouse.explain import execute_explain_get_index_use
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
@@ -15,10 +13,9 @@ from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
-
-from posthog.clickhouse.explain import execute_explain_get_index_use
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
+from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, QueryIndexUsage
 
 
 def get_hogql_metadata(

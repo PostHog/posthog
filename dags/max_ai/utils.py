@@ -1,5 +1,5 @@
-import json
 import hashlib
+import json
 import urllib.parse
 from collections.abc import Sequence
 from contextlib import contextmanager
@@ -8,10 +8,9 @@ from tempfile import TemporaryFile
 from typing import Any
 from uuid import UUID
 
-from django.conf import settings
-
 import botocore
 from dagster_aws.s3 import S3Resource
+from django.conf import settings
 from fastavro import parse_schema, writer
 from pydantic_avro import AvroBase
 from tenacity import retry, stop_after_attempt, wait_exponential

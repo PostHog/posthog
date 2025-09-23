@@ -1,12 +1,11 @@
 import json
-import uuid
 import logging
+import uuid
 from collections.abc import Generator
-
-from django.conf import settings
 
 import posthoganalytics
 from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledParam
+from django.conf import settings
 from posthoganalytics.ai.anthropic import Anthropic
 
 logger = logging.getLogger(__name__)

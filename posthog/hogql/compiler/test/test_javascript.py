@@ -1,8 +1,7 @@
-from posthog.test.base import BaseTest
-
 from posthog.hogql import ast
 from posthog.hogql.compiler.javascript import JavaScriptCompiler, Local, _sanitize_identifier, to_js_expr, to_js_program
 from posthog.hogql.errors import QueryError
+from posthog.test.base import BaseTest
 
 
 class TestSanitizeIdentifier(BaseTest):

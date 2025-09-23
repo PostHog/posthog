@@ -2,15 +2,10 @@ import warnings
 from typing import Any, cast
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
-
 from django.test import override_settings
-
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
-
 from posthog.schema import (
     AssistantHogQLQuery,
     AssistantMessage,
@@ -24,6 +19,8 @@ from posthog.schema import (
     PlanningStepStatus,
     TaskExecutionStatus,
 )
+from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.planner.prompts import (

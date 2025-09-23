@@ -1,16 +1,13 @@
-import random
-import typing
 import asyncio
 import datetime as dt
+import random
+import typing
 from collections.abc import Collection
 
-import pytest
-
 import pyarrow as pa
-
+import pytest
 from posthog.batch_exports.service import BackfillDetails
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-
 from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,

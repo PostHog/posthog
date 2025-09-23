@@ -2,9 +2,7 @@ import os
 import uuid
 
 import pytest
-
 import snowflake.connector
-
 from products.batch_exports.backend.api.destination_tests import (
     SnowflakeDatabaseTestStep,
     SnowflakeEstablishConnectionTestStep,

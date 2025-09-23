@@ -1,9 +1,4 @@
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
-
 from parameterized import parameterized
-
-from posthog.schema import DateRange, HogQLQueryModifiers, WebStatsBreakdown, WebStatsTableQuery
-
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.hogql_queries.web_analytics.test.test_web_stats_table import FloatAwareTestCase
@@ -18,6 +13,8 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_HOURLY_SQL,
     WEB_STATS_INSERT_SQL,
 )
+from posthog.schema import DateRange, HogQLQueryModifiers, WebStatsBreakdown, WebStatsTableQuery
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 
 @snapshot_clickhouse_queries

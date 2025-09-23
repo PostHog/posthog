@@ -1,14 +1,13 @@
-import typing
 import dataclasses
+import typing
 from io import StringIO
 from typing import IO, Literal
 
 from cryptography.hazmat.primitives import serialization as crypto_serialization
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
 from paramiko import DSSKey, ECDSAKey, Ed25519Key, PKey, RSAKey
-from sshtunnel import SSHTunnelForwarder
-
 from posthog.temporal.data_imports.sources.common import config
+from sshtunnel import SSHTunnelForwarder
 
 
 # Taken from https://stackoverflow.com/questions/60660919/paramiko-ssh-client-is-unable-to-unpack-ed25519-key

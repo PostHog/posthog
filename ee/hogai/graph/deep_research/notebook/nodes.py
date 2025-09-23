@@ -1,6 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-
 from posthog.schema import DeepResearchNotebook, DeepResearchType, HumanMessage
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode

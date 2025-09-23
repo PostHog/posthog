@@ -1,4 +1,10 @@
 import unittest
+from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.action import Action
+from posthog.models.element import Element
+from posthog.models.filters import Filter
+from posthog.models.group.util import create_group
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -9,17 +15,9 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-
-from rest_framework.exceptions import ValidationError
-
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.action import Action
-from posthog.models.element import Element
-from posthog.models.filters import Filter
-from posthog.models.group.util import create_group
-from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors

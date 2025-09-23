@@ -2,7 +2,6 @@ from datetime import date
 from typing import Any
 
 from django.db.models import ForeignKey
-
 from posthog.models import FeatureFlag, Survey
 
 

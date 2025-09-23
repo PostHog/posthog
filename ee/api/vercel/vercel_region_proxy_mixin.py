@@ -1,19 +1,17 @@
-import re
 import json
+import re
 from typing import Any, Optional
 from urllib.parse import urlparse, urlunparse
 
+import requests
+import structlog
 from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
-
-import requests
-import structlog
+from posthog.models.organization_integration import OrganizationIntegration
 from rest_framework import exceptions
 from rest_framework.request import Request
 from rest_framework.response import Response
-
-from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import VercelAuthentication
 

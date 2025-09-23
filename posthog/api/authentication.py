@@ -1,5 +1,5 @@
-import time
 import datetime
+import time
 from typing import Any, Optional, cast
 from uuid import uuid4
 
@@ -20,21 +20,9 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
-
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
-from prometheus_client import Counter
-from rest_framework import mixins, permissions, serializers, status, viewsets
-from rest_framework.exceptions import APIException
-from rest_framework.request import Request
-from rest_framework.response import Response
-from social_django.strategy import DjangoStrategy
-from social_django.views import auth
-from two_factor.utils import default_device
-from two_factor.views.core import REMEMBER_COOKIE_PREFIX
-from two_factor.views.utils import get_remember_device_cookie, validate_remember_device_cookie
-
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.email import is_email_available
@@ -50,6 +38,16 @@ from posthog.tasks.email import (
     send_two_factor_auth_backup_code_used_email,
 )
 from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
+from prometheus_client import Counter
+from rest_framework import mixins, permissions, serializers, status, viewsets
+from rest_framework.exceptions import APIException
+from rest_framework.request import Request
+from rest_framework.response import Response
+from social_django.strategy import DjangoStrategy
+from social_django.views import auth
+from two_factor.utils import default_device
+from two_factor.views.core import REMEMBER_COOKIE_PREFIX
+from two_factor.views.utils import get_remember_device_cookie, validate_remember_device_cookie
 
 USER_AUTH_METHOD_MISMATCH = Counter(
     "user_auth_method_mismatches_sso_enforcement",

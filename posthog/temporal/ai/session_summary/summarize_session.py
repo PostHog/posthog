@@ -1,21 +1,15 @@
+import asyncio
+import dataclasses
 import json
 import time
 import uuid
-import asyncio
-import dataclasses
 from collections.abc import Generator
 from datetime import timedelta
 from typing import Any, cast
 
-from django.conf import settings
-
 import structlog
 import temporalio
-from redis import Redis
-from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ApplicationError
-
+from django.conf import settings
 from posthog import constants
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -32,6 +26,10 @@ from posthog.temporal.ai.session_summary.state import (
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
+from redis import Redis
+from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ApplicationError
 
 from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, SESSION_SUMMARIES_SYNC_MODEL

@@ -1,15 +1,13 @@
 from datetime import datetime
 
 from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
-
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.models import Action, Cohort
+from posthog.models.group.util import create_group
+from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team import WeekStartDay
+from posthog.models.utils import UUIDT
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
@@ -24,15 +22,14 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
 )
-
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.models import Action, Cohort
-from posthog.models.group.util import create_group
-from posthog.models.instance_setting import get_instance_setting
-from posthog.models.team import WeekStartDay
-from posthog.models.utils import UUIDT
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 

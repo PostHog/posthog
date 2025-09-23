@@ -1,11 +1,9 @@
-import os
 import logging
+import os
 from collections.abc import Mapping
 from contextlib import contextmanager
 from enum import StrEnum
 from functools import cache
-
-from django.conf import settings
 
 from clickhouse_connect import get_client
 from clickhouse_connect.driver import (
@@ -14,7 +12,7 @@ from clickhouse_connect.driver import (
 )
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
-
+from django.conf import settings
 from posthog.settings import data_stores
 from posthog.utils import patchable
 

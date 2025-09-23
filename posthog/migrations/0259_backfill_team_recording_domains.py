@@ -1,8 +1,7 @@
 from urllib.parse import urlparse
 
-from django.db import migrations
-
 import structlog
+from django.db import migrations
 
 
 # Populates the recording_domains field from domains of the app_urls

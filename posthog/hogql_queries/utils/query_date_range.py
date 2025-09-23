@@ -4,13 +4,10 @@ from typing import Literal, Optional, cast
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
-
-from posthog.schema import DateRange, IntervalType
-
 from posthog.hogql.parser import ast
-
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
+from posthog.schema import DateRange, IntervalType
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
 IntervalLiteral = Literal["minute", "hour", "day", "week", "month"]

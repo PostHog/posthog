@@ -2,14 +2,12 @@ from datetime import UTC
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
-
-from rest_framework import status
-from rest_framework.test import APIRequestFactory
-
 from posthog.models import Dashboard, Experiment, FeatureFlag, Insight, Notebook, Project, Team, User
 from posthog.models.file_system.file_system import FileSystem
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from rest_framework.test import APIRequestFactory
+from unittest.mock import patch
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -891,9 +889,8 @@ class TestFileSystemAPI(APIBaseTest):
         `created_at` and `created_by` into both the FileSystem columns and the
         `meta` dict.
         """
-        from freezegun import freeze_time
-
         from django.utils import timezone
+        from freezegun import freeze_time
 
         # Create a FeatureFlag at a known moment in time
         with freeze_time("2023-02-10 15:00:00"):

@@ -1,9 +1,7 @@
-import pytest
-from unittest import mock
-
 import gspread
-
+import pytest
 from posthog.temporal.data_imports.sources.google_sheets.google_sheets import _get_worksheet
+from unittest import mock
 
 
 def test_get_worksheet_backoff():

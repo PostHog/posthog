@@ -1,11 +1,8 @@
 from datetime import UTC, datetime
 from typing import Optional
 
-from django.db import models
-
 from celery import shared_task
-from rest_framework import serializers
-
+from django.db import models
 from posthog.models.dashboard import Dashboard
 from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.experiment import Experiment
@@ -17,6 +14,7 @@ from posthog.models.user import User
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
+from rest_framework import serializers
 
 """
 How to use this model:

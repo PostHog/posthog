@@ -1,11 +1,13 @@
+import pydantic
 from django.db.models.functions import Lower
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
-
-import pydantic
-from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
-
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
+from posthog.models.signals import model_activity_signal
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentFunnelsQuery,
@@ -14,13 +16,8 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentTrendsQuery,
 )
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
-from posthog.models.signals import model_activity_signal
+from rest_framework import serializers, viewsets
+from rest_framework.exceptions import ValidationError
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):

@@ -1,10 +1,9 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
-
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
+from unittest.mock import patch
 
 
 class TestDataWarehouseAPI(APIBaseTest):

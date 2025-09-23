@@ -1,18 +1,12 @@
-import time
 import datetime
+import time
 
 import pytest
-from unittest.mock import Mock, patch
-
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
-
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.test import APIClient, APIRequestFactory
-
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -27,6 +21,9 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.models import Organization, User
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.test import APIClient, APIRequestFactory
+from unittest.mock import Mock, patch
 
 
 class TestTwoFactorSessionUtils(TestCase):

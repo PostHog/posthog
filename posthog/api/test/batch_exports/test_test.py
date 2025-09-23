@@ -1,26 +1,22 @@
+import functools
 import os
 import uuid
-import functools
-
-import pytest
-import unittest.mock
-
-from django.conf import settings
-from django.test.client import Client as HttpClient
 
 import aioboto3
+import pytest
 import pytest_asyncio
-from rest_framework import status
-
+import unittest.mock
+from django.conf import settings
+from django.test.client import Client as HttpClient
 from posthog.api.test.batch_exports.operations import create_batch_export_ok
 from posthog.models import BatchExportDestination
-
 from products.batch_exports.backend.api.destination_tests import (
     BigQueryProjectTestStep,
     DestinationTestStepResult,
     SnowflakeEstablishConnectionTestStep,
     Status,
 )
+from rest_framework import status
 
 pytestmark = [
     pytest.mark.django_db,

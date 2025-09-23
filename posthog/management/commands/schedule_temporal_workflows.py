@@ -1,7 +1,5 @@
-from django.core.management.base import BaseCommand
-
 import structlog
-
+from django.core.management.base import BaseCommand
 from posthog.temporal.schedule import init_schedules
 
 logger = structlog.get_logger(__name__)

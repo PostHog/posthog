@@ -2,23 +2,29 @@ import uuid
 from datetime import datetime
 from typing import Any, cast
 
-from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    create_person_id_override_by_distinct_id,
-    snapshot_clickhouse_queries,
-)
-from unittest.mock import Mock, patch
-
 from django.test import override_settings
-
-from rest_framework.exceptions import ValidationError
-
+from freezegun import freeze_time
+from posthog.api.instance_settings import get_instance_setting
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.funnels import Funnel
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
+    assert_funnel_results_equal,
+    funnel_breakdown_group_test_factory,
+    funnel_breakdown_test_factory,
+)
+from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.models import Action, Element, Team
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
     ActorsQuery,
@@ -40,31 +46,20 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyOperator,
 )
-
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.api.instance_settings import get_instance_setting
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.funnels import Funnel
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-    assert_funnel_results_equal,
-    funnel_breakdown_group_test_factory,
-    funnel_breakdown_test_factory,
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    create_person_id_override_by_distinct_id,
+    snapshot_clickhouse_queries,
 )
-from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action, Element, Team
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyDefinition
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from rest_framework.exceptions import ValidationError
+from unittest.mock import Mock, patch
 
 
 class PseudoFunnelActors:

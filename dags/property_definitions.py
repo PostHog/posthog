@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 import dagster
 import pydantic
-
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.models.property_definition import PropertyDefinition
 

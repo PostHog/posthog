@@ -1,16 +1,10 @@
 from typing import Any, Union
 
+import posthoganalytics
 from django.conf import settings
 from django.db import connection
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
-
-import posthoganalytics
-from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.request import Request
-from rest_framework.response import Response
-
 from posthog.api.utils import action
 from posthog.async_migrations.status import async_migrations_ok
 from posthog.cloud_utils import is_cloud
@@ -27,6 +21,10 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
+from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 
 class InstanceStatusViewSet(viewsets.ViewSet):

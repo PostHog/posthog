@@ -2,8 +2,6 @@ from datetime import UTC, date, datetime
 from typing import Optional
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest
-
 from posthog.hogql.ast import DateType, FloatType, IntegerType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
@@ -18,6 +16,7 @@ from posthog.hogql.functions.mapping import (
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.test.base import BaseTest
 
 
 class TestMappings(BaseTest):

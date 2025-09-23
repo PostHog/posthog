@@ -1,38 +1,33 @@
+import asyncio
+import collections.abc
+import dataclasses
+import datetime as dt
+import enum
+import itertools
+import json
 import os
 import re
-import enum
-import json
-import uuid
 import typing
-import asyncio
-import datetime as dt
-import itertools
-import dataclasses
-import collections.abc
+import uuid
 
-from django.conf import settings
-
-import pyarrow as pa
-import deltalake
 import asyncstdlib
+import deltalake
+import pyarrow as pa
 import pyarrow.compute as pc
-import temporalio.common
 import temporalio.activity
-import temporalio.workflow
+import temporalio.common
 import temporalio.exceptions
+import temporalio.workflow
 from deltalake import DeltaTable
-from structlog.contextvars import bind_contextvars
-from structlog.types import FilteringBoundLogger
-
+from django.conf import settings
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
@@ -48,6 +43,8 @@ from posthog.warehouse.data_load.create_table import create_table_from_saved_que
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable, get_s3_client
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.s3 import ensure_bucket_exists
+from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
 
 LOGGER = get_logger(__name__)
 

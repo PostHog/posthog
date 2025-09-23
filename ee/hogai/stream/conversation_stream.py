@@ -4,17 +4,15 @@ from typing import Any
 from uuid import uuid4
 
 import structlog
-from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
-from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-
-from posthog.schema import AssistantEventType, FailureMessage
-
 from posthog.constants import MAX_AI_TASK_QUEUE
+from posthog.schema import AssistantEventType, FailureMessage
 from posthog.temporal.ai.conversation import (
     AssistantConversationRunnerWorkflow,
     AssistantConversationRunnerWorkflowInputs,
 )
 from posthog.temporal.common.client import async_connect
+from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from ee.hogai.stream.redis_stream import (
     ConversationEvent,

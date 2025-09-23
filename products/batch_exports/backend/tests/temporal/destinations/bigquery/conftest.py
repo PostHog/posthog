@@ -1,13 +1,11 @@
-import os
 import json
-import uuid
+import os
 import typing
+import uuid
 import warnings
 
 import pytest
-
 from google.cloud import bigquery
-
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryHeartbeatDetails
 
 

@@ -1,13 +1,11 @@
 from urllib.parse import urlparse
 
-from django.http import HttpResponse, HttpResponseRedirect
-
 import structlog
+from django.http import HttpResponse, HttpResponseRedirect
+from posthog.utils_cors import KNOWN_ORIGINS
 from rest_framework import decorators, exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
-
-from posthog.utils_cors import KNOWN_ORIGINS
 
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.vercel.integration import SSOParams, VercelIntegration

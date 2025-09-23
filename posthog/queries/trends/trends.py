@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo
 
 import posthoganalytics
 from dateutil import parser
-
 from posthog.clickhouse.query_tagging import QueryTags, get_query_tags, update_tags
 from posthog.constants import (
     INSIGHT_LIFECYCLE,

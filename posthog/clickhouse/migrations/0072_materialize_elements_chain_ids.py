@@ -1,5 +1,4 @@
 from infi.clickhouse_orm import migrations
-
 from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.settings import CLICKHOUSE_CLUSTER
 

@@ -1,8 +1,7 @@
-from rest_framework import serializers, viewsets
-
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import MessageCategory
+from rest_framework import serializers, viewsets
 
 
 class MessageCategorySerializer(serializers.ModelSerializer):

@@ -1,7 +1,6 @@
 from typing import Optional
 
 from django.utils import timezone
-
 from posthog.models.event.sql import SELECT_PROP_VALUES_SQL_WITH_FILTER
 from posthog.models.person.sql import SELECT_PERSON_PROP_VALUES_SQL, SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER
 from posthog.models.property.util import get_property_string_expr

@@ -2,17 +2,15 @@ import base64
 from typing import Any, cast
 from uuid import UUID
 
-from django.conf import settings
-
 import boto3
 import dagster
 from dagster._core.definitions.metadata import RawMetadataMapping
 from dagster_docker import PipesDockerClient
 from dagster_slack import SlackResource
+from django.conf import settings
+from posthog.models import Dataset, DatasetItem
 from pydantic import BaseModel, Field, ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
-
-from posthog.models import Dataset, DatasetItem
 
 from dags.common import JobOwners
 from dags.max_ai.snapshot_team_data import (

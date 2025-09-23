@@ -2,11 +2,10 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-
 from posthog.models import FeatureFlag, ScheduledChange
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
@@ -461,9 +460,8 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
     def test_max_retries_exceeded(self) -> None:
         """Test that changes exceeding max retries preserve actual error info"""
-        from unittest.mock import patch
-
         from posthog.tasks.process_scheduled_changes import MAX_RETRY_ATTEMPTS
+        from unittest.mock import patch
 
         feature_flag = FeatureFlag.objects.create(
             name="Test Flag",

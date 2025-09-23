@@ -1,11 +1,8 @@
-from unittest.mock import patch
-
 from django.test.testcases import TestCase
-
-from semantic_version.base import SimpleSpec, Version
-
 from posthog import version_requirement
 from posthog.version_requirement import ServiceVersionRequirement
+from semantic_version.base import SimpleSpec, Version
+from unittest.mock import patch
 
 
 class TestServiceVersionRequirement(TestCase):

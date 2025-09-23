@@ -3,6 +3,7 @@
 import math
 from typing import Optional, Union
 
+from posthog.hogql import ast
 from posthog.schema import (
     InfinityValue,
     MarketingAnalyticsBaseColumns,
@@ -11,8 +12,6 @@ from posthog.schema import (
     MarketingAnalyticsItem,
     WebAnalyticsItemKind,
 )
-
-from posthog.hogql import ast
 
 # Magic values
 DEFAULT_LIMIT = 100

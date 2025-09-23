@@ -1,8 +1,8 @@
-import signal
 import asyncio
 import datetime as dt
-import functools
 import faulthandler
+import functools
+import signal
 
 import structlog
 from temporalio import workflow
@@ -81,7 +81,6 @@ from posthog.temporal.usage_reports import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
 )
-
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,

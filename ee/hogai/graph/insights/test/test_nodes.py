@@ -1,11 +1,8 @@
 import asyncio
 from datetime import timedelta
 
-from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
-
 from django.utils import timezone
-
+from posthog.models import Insight, InsightViewed
 from posthog.schema import (
     AssistantToolCallMessage,
     DataTableNode,
@@ -20,8 +17,8 @@ from posthog.schema import (
     TrendsQuery,
     VisualizationMessage,
 )
-
-from posthog.models import Insight, InsightViewed
+from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ee.hogai.graph.insights.nodes import InsightDict, InsightSearchNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState

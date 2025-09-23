@@ -4,7 +4,6 @@
 
 def register_all_admin():
     from django.contrib import admin
-
     from posthog.admin.admins import (
         AsyncDeletionAdmin,
         BatchImportAdmin,

@@ -1,12 +1,9 @@
-import os
 import json
-
-import pytest
-
-from django.test import override_settings
+import os
 
 import pyarrow as pa
-
+import pytest
+from django.test import override_settings
 from posthog.models import Team
 from posthog.models.organization import Organization
 from posthog.temporal.data_imports.sources.google_ads.google_ads import (

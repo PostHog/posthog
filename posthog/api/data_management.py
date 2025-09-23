@@ -1,9 +1,8 @@
-from rest_framework import request, viewsets
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import load_all_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
+from rest_framework import request, viewsets
 
 
 class DataManagementViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

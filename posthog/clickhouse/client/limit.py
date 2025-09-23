@@ -1,6 +1,6 @@
+import dataclasses
 import time
 import uuid
-import dataclasses
 from collections.abc import Callable
 from contextlib import contextmanager
 from functools import wraps
@@ -8,13 +8,12 @@ from time import sleep
 from typing import Optional
 
 from celery import current_task
-from prometheus_client import Counter
-
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
 from posthog.constants import AvailableFeature
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
+from prometheus_client import Counter
 
 # Default concurrency limits
 DEFAULT_APP_ORG_CONCURRENT_QUERIES = 20

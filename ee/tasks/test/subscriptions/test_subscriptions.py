@@ -2,14 +2,13 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, call, patch
-
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, call, patch
 
 from ee.tasks.subscriptions import (
     deliver_subscription_report,

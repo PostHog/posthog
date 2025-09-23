@@ -1,33 +1,16 @@
+import dataclasses
 import json
 import uuid
-import dataclasses
 from datetime import datetime
 from typing import Optional, Union
 from urllib.parse import parse_qsl, urlparse
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    also_test_with_different_timezones,
-    also_test_with_materialized_columns,
-    also_test_with_person_on_events_v2,
-    create_person_id_override_by_distinct_id,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
-from unittest.mock import ANY, patch
-
 from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
-
-from rest_framework.exceptions import ValidationError
-
+from freezegun import freeze_time
 from posthog.constants import (
     ENTITY_ID,
     ENTITY_TYPE,
@@ -43,9 +26,23 @@ from posthog.models.person.util import create_person_distinct_id
 from posthog.models.utils import uuid7
 from posthog.queries.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.queries.trends.trends import Trends
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_different_timezones,
+    also_test_with_materialized_columns,
+    also_test_with_person_on_events_v2,
+    create_person_id_override_by_distinct_id,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import generate_cache_key
+from rest_framework.exceptions import ValidationError
+from unittest.mock import ANY, patch
 
 
 def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:

@@ -1,11 +1,9 @@
 import json
 from io import BytesIO
 
-from posthog.test.base import BaseTest
-
 import fastavro
-
 from posthog.models import DataWarehouseTable
+from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseCredential
 
 from ee.hogai.eval.schema import DataWarehouseTableSnapshot

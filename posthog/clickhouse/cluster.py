@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import abc
-import time
-import logging
 import itertools
+import logging
+import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
@@ -14,7 +14,6 @@ from typing import Any, Generic, Literal, NamedTuple, Optional, TypeVar
 import dagster
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
-
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS

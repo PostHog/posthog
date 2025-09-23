@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.test.base import BaseTest
-from unittest.mock import Mock
-
 from parameterized import parameterized
-from pydantic import ValidationError
-
 from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
@@ -15,6 +10,9 @@ from posthog.schema import (
     PlanningStepStatus,
     TaskExecutionStatus,
 )
+from posthog.test.base import BaseTest
+from pydantic import ValidationError
+from unittest.mock import Mock
 
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,

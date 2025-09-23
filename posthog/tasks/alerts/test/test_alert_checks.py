@@ -1,18 +1,16 @@
 from typing import Optional
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
-from unittest.mock import MagicMock, patch
-
-from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilter, TrendsFormulaNode, TrendsQuery
-
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
+from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilter, TrendsFormulaNode, TrendsQuery
 from posthog.tasks.alerts.checks import check_alert
 from posthog.tasks.alerts.utils import send_notifications_for_breaches
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
+from unittest.mock import MagicMock, patch
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")

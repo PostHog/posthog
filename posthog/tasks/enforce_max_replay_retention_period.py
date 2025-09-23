@@ -1,7 +1,6 @@
 import logging
 
 from celery import shared_task
-
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.ph_client import get_client

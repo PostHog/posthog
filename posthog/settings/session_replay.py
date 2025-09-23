@@ -1,5 +1,4 @@
 from django.conf import settings
-
 from posthog.settings import get_from_env, get_list
 from posthog.utils import str_to_bool
 

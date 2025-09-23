@@ -2,8 +2,7 @@ from collections.abc import AsyncGenerator
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
-
+from posthog.models import Team, User
 from posthog.schema import (
     AssistantMessage,
     HumanMessage,
@@ -12,8 +11,7 @@ from posthog.schema import (
     TaskExecutionMessage,
     VisualizationMessage,
 )
-
-from posthog.models import Team, User
+from pydantic import BaseModel
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.graph import DeepResearchAssistantGraph

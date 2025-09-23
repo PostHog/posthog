@@ -1,8 +1,7 @@
 from typing import cast
 
 import pytest
-from posthog.test.base import ClickhouseTestMixin
-
+from posthog.management.commands.generate_source_configs import SourceConfigGenerator
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     Option,
@@ -16,9 +15,8 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-
-from posthog.management.commands.generate_source_configs import SourceConfigGenerator
 from posthog.temporal.data_imports.sources.common.base import FieldType
+from posthog.test.base import ClickhouseTestMixin
 from posthog.warehouse.types import ExternalDataSourceType
 
 

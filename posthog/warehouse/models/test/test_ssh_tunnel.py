@@ -1,5 +1,4 @@
 import pytest
-
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
 

@@ -1,11 +1,10 @@
 import re
 from typing import Any
 
+from posthog.models.organization_integration import OrganizationIntegration
 from rest_framework import decorators, exceptions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-
-from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.utils import expect_vercel_user_claim

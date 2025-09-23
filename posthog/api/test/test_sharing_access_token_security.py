@@ -4,11 +4,10 @@ Security tests for sharing access tokens - ensuring they cannot be abused to acc
 
 import json
 
-from posthog.test.base import APIBaseTest
-
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.test.base import APIBaseTest
 
 
 class SharingAccessTokenSecurityTest(APIBaseTest):

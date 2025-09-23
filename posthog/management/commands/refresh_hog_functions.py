@@ -1,10 +1,8 @@
 import time
 
+import structlog
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
-
-import structlog
-
 from posthog.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)

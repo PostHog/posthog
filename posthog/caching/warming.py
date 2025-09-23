@@ -3,27 +3,24 @@ from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
-from django.db.models import Q
-
-import structlog
 import posthoganalytics
+import structlog
 from celery import shared_task
 from celery.canvas import chain
-from prometheus_client import Counter, Gauge
-
-from posthog.hogql.constants import LimitContext
-
+from django.db.models import Q
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import DashboardTile, Insight, Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.utils import CeleryQueue
+from prometheus_client import Counter, Gauge
 
 logger = structlog.get_logger(__name__)
 

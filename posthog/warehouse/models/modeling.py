@@ -1,19 +1,17 @@
+import collections.abc
+import dataclasses
 import enum
 import uuid
-import dataclasses
-import collections.abc
 
 from django.contrib.postgres import indexes as pg_indexes
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import connection, models, transaction
-
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import extract_select_queries
-
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, uuid7

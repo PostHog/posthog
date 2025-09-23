@@ -1,14 +1,12 @@
 from django.db.models import Q
-
-from rest_framework import serializers, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission
-from rest_framework.response import Response
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models import DataColorTheme
+from rest_framework import serializers, viewsets
+from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.response import Response
 
 
 class GlobalThemePermission(BasePermission):

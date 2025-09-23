@@ -5,7 +5,6 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     web_preaggregated_base_aggregation_fields,
     web_preaggregated_base_fields,
 )
-
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_ACCESS_KEY_ID,

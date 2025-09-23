@@ -1,7 +1,6 @@
 from typing import Any
 
 from django.db.models import Q, QuerySet
-
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 

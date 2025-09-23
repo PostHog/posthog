@@ -2,9 +2,7 @@ from datetime import datetime
 from textwrap import dedent
 
 import pytest
-
 from braintrust import EvalCase
-
 from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsExclusionEventsNode,

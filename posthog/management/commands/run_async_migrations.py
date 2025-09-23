@@ -1,12 +1,9 @@
 import logging
 from collections.abc import Sequence
 
+import structlog
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.base import BaseCommand
-
-import structlog
-from semantic_version.base import Version
-
 from posthog.async_migrations.runner import complete_migration, is_migration_dependency_fulfilled, start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, setup_async_migrations, setup_model
 from posthog.constants import FROZEN_POSTHOG_VERSION
@@ -18,6 +15,7 @@ from posthog.models.async_migration import (
     is_async_migration_complete,
 )
 from posthog.models.instance_setting import get_instance_setting
+from semantic_version.base import Version
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

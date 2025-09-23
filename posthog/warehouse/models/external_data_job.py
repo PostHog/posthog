@@ -3,7 +3,6 @@ from uuid import UUID
 from django.conf import settings
 from django.db import models
 from django.db.models import Prefetch
-
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async

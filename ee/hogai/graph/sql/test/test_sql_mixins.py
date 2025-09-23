@@ -1,6 +1,5 @@
-from posthog.test.base import NonAtomicBaseTest
-
 from posthog.schema import AssistantHogQLQuery
+from posthog.test.base import NonAtomicBaseTest
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput

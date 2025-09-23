@@ -2,14 +2,12 @@ import json
 from typing import Any, Literal
 
 import pytest
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
-from rest_framework import status
-from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
-
 from posthog.models import Organization, Team
 from posthog.models.organization_integration import OrganizationIntegration
+from rest_framework import status
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
+from unittest.mock import MagicMock, patch
 
 from ee.api.vercel.test.base import VercelTestBase
 from ee.api.vercel.types import VercelSystemClaims, VercelUser, VercelUserClaims

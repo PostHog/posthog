@@ -1,18 +1,16 @@
 from time import perf_counter
 from typing import Optional
 
-from django.db import transaction
-
-import structlog
 import posthoganalytics
+import structlog
 from celery import current_task, shared_task
-from prometheus_client import Counter, Histogram
-
+from django.db import transaction
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import groups
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
+from prometheus_client import Counter, Histogram
 
 logger = structlog.get_logger(__name__)
 

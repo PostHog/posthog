@@ -1,10 +1,8 @@
 import pytest
-from unittest.mock import MagicMock, patch
-
 from braintrust import EvalCase
 from langchain_core.runnables import RunnableConfig
-
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
+from unittest.mock import MagicMock, patch
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph

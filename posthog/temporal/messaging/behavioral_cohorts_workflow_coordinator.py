@@ -1,19 +1,18 @@
-import math
-import datetime as dt
 import dataclasses
+import datetime as dt
+import math
 from typing import Any, Optional
 
-import temporalio.common
 import temporalio.activity
+import temporalio.common
 import temporalio.workflow
-from structlog.contextvars import bind_contextvars
-
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import MESSAGING_TASK_QUEUE
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+from structlog.contextvars import bind_contextvars
 
 LOGGER = get_logger(__name__)
 

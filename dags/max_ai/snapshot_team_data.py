@@ -4,8 +4,13 @@ from typing import TypeVar, cast
 
 import dagster
 from dagster_aws.s3.resources import S3Resource
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
-
+from posthog.errors import InternalCHQueryError
+from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
+from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import GroupTypeMapping, Team
+from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsPropertyTaxonomyResponse,
@@ -16,14 +21,7 @@ from posthog.schema import (
     TeamTaxonomyItem,
     TeamTaxonomyQuery,
 )
-
-from posthog.errors import InternalCHQueryError
-from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
-from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
-from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import GroupTypeMapping, Team
-from posthog.models.property_definition import PropertyDefinition
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from dags.common import JobOwners
 from dags.max_ai.utils import check_dump_exists, compose_clickhouse_dump_path, compose_postgres_dump_path, dump_model

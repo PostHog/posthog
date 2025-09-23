@@ -1,17 +1,10 @@
+import asyncio
+import dataclasses
+import datetime as dt
 import json
 import typing
-import asyncio
-import datetime as dt
-import dataclasses
 
 from django.db import close_old_connections
-
-from structlog.contextvars import bind_contextvars
-from structlog.types import FilteringBoundLogger
-from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
-
 from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import DEBUG, TEST
@@ -21,6 +14,11 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 LOGGER = get_logger(__name__)
 

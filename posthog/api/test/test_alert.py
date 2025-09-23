@@ -2,16 +2,13 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
-from posthog.test.base import APIBaseTest, QueryMatchingTest
-from unittest import mock
-
-from rest_framework import status
-
-from posthog.schema import AlertState, InsightThresholdType
-
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
 from posthog.models.team import Team
+from posthog.schema import AlertState, InsightThresholdType
+from posthog.test.base import APIBaseTest, QueryMatchingTest
+from rest_framework import status
+from unittest import mock
 
 
 class TestAlert(APIBaseTest, QueryMatchingTest):

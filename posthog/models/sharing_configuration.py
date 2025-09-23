@@ -5,12 +5,10 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from posthog.models.share_password import SharePassword
 
+import structlog
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
-
-import structlog
-
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.insight import Insight
 

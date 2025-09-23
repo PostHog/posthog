@@ -1,5 +1,5 @@
-import os
 import json
+import os
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE

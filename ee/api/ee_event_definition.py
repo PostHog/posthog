@@ -1,16 +1,14 @@
 from typing import cast
 
-from django.utils import timezone
-
 import posthoganalytics
+from django.utils import timezone
 from loginas.utils import is_impersonated_session
-from rest_framework import serializers
-
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+from rest_framework import serializers
 
 from ee.models.event_definition import EnterpriseEventDefinition
 

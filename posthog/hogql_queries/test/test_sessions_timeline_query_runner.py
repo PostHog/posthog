@@ -1,12 +1,10 @@
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
-from unittest.mock import patch
-
-from posthog.schema import EventType, SessionsTimelineQuery, TimelineEntry
-
 from posthog.hogql_queries.sessions_timeline_query_runner import SessionsTimelineQueryRunner
+from posthog.schema import EventType, SessionsTimelineQuery, TimelineEntry
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
+from unittest.mock import patch
 
 
 class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):

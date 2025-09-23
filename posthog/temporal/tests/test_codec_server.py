@@ -1,14 +1,11 @@
 import os
 
-from unittest.mock import patch
-
 from django.conf import settings
 from django.test import Client, TestCase
-
 from google.protobuf import json_format
-from temporalio.api.common.v1 import Payload, Payloads
-
 from posthog.temporal.common.codec import EncryptionCodec
+from temporalio.api.common.v1 import Payload, Payloads
+from unittest.mock import patch
 
 
 class CodecServerTestCase(TestCase):

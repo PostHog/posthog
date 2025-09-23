@@ -1,15 +1,12 @@
-from posthog.test.base import APIBaseTest
-
 from flaky import flaky
-
-from posthog.schema import ExperimentSignificanceCode, ExperimentVariantFunnelsBaseStats
-
 from posthog.hogql_queries.experiments import MIN_PROBABILITY_FOR_SIGNIFICANCE
 from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
     are_results_significant_v2,
     calculate_credible_intervals_v2,
     calculate_probabilities_v2,
 )
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantFunnelsBaseStats
+from posthog.test.base import APIBaseTest
 
 
 def create_variant(

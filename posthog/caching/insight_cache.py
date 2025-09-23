@@ -2,14 +2,11 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
+import structlog
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.utils.timezone import now
-
-import structlog
-from prometheus_client import Counter, Gauge
-
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.exceptions_capture import capture_exception
@@ -18,6 +15,7 @@ from posthog.models import Dashboard, Insight, InsightCachingState
 from posthog.models.instance_setting import get_instance_setting
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.tasks import update_cache_task
+from prometheus_client import Counter, Gauge
 
 logger = structlog.get_logger(__name__)
 

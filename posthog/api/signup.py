@@ -2,6 +2,8 @@ import json
 from typing import Any, Optional, Union, cast
 from urllib.parse import urlencode
 
+import posthoganalytics
+import structlog
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
@@ -9,14 +11,6 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect
 from django.urls.base import reverse
-
-import structlog
-import posthoganalytics
-from rest_framework import exceptions, generics, permissions, response, serializers
-from rest_framework.request import Request
-from social_core.pipeline.partial import partial
-from social_django.strategy import DjangoStrategy
-
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.api.shared import UserBasicSerializer
 from posthog.demo.matrix import MatrixManager
@@ -29,6 +23,10 @@ from posthog.models import InviteExpiredException, Organization, OrganizationDom
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupIPThrottle
 from posthog.utils import get_can_create_org, is_relative_url
+from rest_framework import exceptions, generics, permissions, response, serializers
+from rest_framework.request import Request
+from social_core.pipeline.partial import partial
+from social_django.strategy import DjangoStrategy
 
 logger = structlog.get_logger(__name__)
 

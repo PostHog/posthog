@@ -5,16 +5,6 @@ from datetime import datetime
 from string import ascii_lowercase
 from typing import Any, Literal, Optional, Union, cast
 
-from posthog.test.base import (
-    APIBaseTest,
-    also_test_with_materialized_columns,
-    also_test_with_person_on_events_v2,
-    snapshot_clickhouse_queries,
-)
-from unittest import skip
-
-from posthog.schema import BaseMathType, FunnelsQuery
-
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -25,8 +15,16 @@ from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
+from posthog.schema import BaseMathType, FunnelsQuery
+from posthog.test.base import (
+    APIBaseTest,
+    also_test_with_materialized_columns,
+    also_test_with_person_on_events_v2,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from unittest import skip
 
 
 @dataclass(frozen=True)

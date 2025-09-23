@@ -1,7 +1,5 @@
 import pytest
-
 from braintrust import EvalCase
-
 from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilter, AssistantRetentionQuery, NodeKind
 
 from ee.hogai.graph.retention.toolkit import RETENTION_SCHEMA

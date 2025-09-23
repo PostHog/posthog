@@ -3,7 +3,6 @@ from datetime import UTC, datetime, timedelta
 
 import dagster
 from dagster import Field
-
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole

@@ -1,16 +1,13 @@
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional
 
+import structlog
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import QuerySet
 from django.utils import timezone
-
-import structlog
 from django_deprecate_fields import deprecate_field
-from rest_framework.exceptions import ValidationError
-
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
@@ -19,6 +16,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.filters.utils import get_filter
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
+from rest_framework.exceptions import ValidationError
 
 logger = structlog.get_logger(__name__)
 

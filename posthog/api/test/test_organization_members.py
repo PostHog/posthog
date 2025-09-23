@@ -1,12 +1,10 @@
 from datetime import timedelta
 
-from posthog.test.base import APIBaseTest, QueryMatchingTest
-from unittest.mock import ANY, call, patch
-
-from rest_framework import status
-
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
+from posthog.test.base import APIBaseTest, QueryMatchingTest
+from rest_framework import status
+from unittest.mock import ANY, call, patch
 
 
 class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
@@ -103,7 +101,6 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
         # Create a personal API key with scoped organizations
         from django.utils import timezone
-
         from posthog.models.personal_api_key import PersonalAPIKey
         from posthog.models.team.team import Team
 

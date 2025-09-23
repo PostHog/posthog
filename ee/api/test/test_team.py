@@ -2,17 +2,6 @@ import uuid
 from typing import Optional
 
 from freezegun import freeze_time
-from posthog.test.base import FuzzyInt
-from unittest.mock import patch
-
-from rest_framework.status import (
-    HTTP_200_OK,
-    HTTP_204_NO_CONTENT,
-    HTTP_400_BAD_REQUEST,
-    HTTP_403_FORBIDDEN,
-    HTTP_404_NOT_FOUND,
-)
-
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient
 from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
@@ -20,6 +9,15 @@ from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.team.team_caching import get_team_in_cache
 from posthog.models.user import User
+from posthog.test.base import FuzzyInt
+from rest_framework.status import (
+    HTTP_200_OK,
+    HTTP_204_NO_CONTENT,
+    HTTP_400_BAD_REQUEST,
+    HTTP_403_FORBIDDEN,
+    HTTP_404_NOT_FOUND,
+)
+from unittest.mock import patch
 
 from ee.api.test.base import APILicensedTest
 from ee.models.explicit_team_membership import ExplicitTeamMembership

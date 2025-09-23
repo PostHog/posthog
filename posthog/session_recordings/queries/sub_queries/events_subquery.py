@@ -3,7 +3,11 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import posthoganalytics
-
+from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query, tracer
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
+from posthog.models import Entity, EventProperty, Team
 from posthog.schema import (
     ActionsNode,
     DataWarehouseNode,
@@ -12,13 +16,6 @@ from posthog.schema import (
     HogQLQueryModifiers,
     RecordingsQuery,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query, tracer
-
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
-from posthog.models import Entity, EventProperty, Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,

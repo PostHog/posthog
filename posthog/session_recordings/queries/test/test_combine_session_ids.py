@@ -1,5 +1,4 @@
 from parameterized import parameterized
-
 from posthog.session_recordings.queries.combine_session_ids_for_filtering import combine_session_id_filters
 
 

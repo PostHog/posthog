@@ -1,11 +1,9 @@
 import re
 
 from django.http import Http404, HttpResponse, JsonResponse
-
+from posthog.models.remote_config import RemoteConfig
 from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
-
-from posthog.models.remote_config import RemoteConfig
 
 
 def add_vary_headers(response):

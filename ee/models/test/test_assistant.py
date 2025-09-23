@@ -1,9 +1,8 @@
 from datetime import timedelta
 
+from django.utils import timezone
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
-
-from django.utils import timezone
 
 from ee.models.assistant import CoreMemory
 

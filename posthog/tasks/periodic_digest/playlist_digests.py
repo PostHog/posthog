@@ -1,11 +1,10 @@
-import json
 import dataclasses
+import json
 from datetime import datetime, timedelta
 from typing import Literal
 
 from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import Now
-
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist

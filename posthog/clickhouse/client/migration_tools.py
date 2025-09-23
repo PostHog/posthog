@@ -2,7 +2,6 @@ import logging
 from functools import cache
 
 from infi.clickhouse_orm import migrations
-
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import Query, get_cluster
 from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER, CLICKHOUSE_MIGRATIONS_HOST

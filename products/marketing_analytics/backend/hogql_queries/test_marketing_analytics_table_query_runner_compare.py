@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Any, Union
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import Mock
-
+from posthog.hogql.errors import QueryError
+from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.models import Action
+from posthog.models.team.team import Team
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter2,
@@ -16,19 +17,14 @@ from posthog.schema import (
     NodeKind,
     SourceMap,
 )
-
-from posthog.hogql.errors import QueryError
-from posthog.hogql.test.utils import pretty_print_in_tests
-
-from posthog.models import Action
-from posthog.models.team.team import Team
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
+from unittest.mock import Mock
 
 TEST_DATE_FROM = "2024-11-01"
 TEST_DATE_TO = "2024-12-31"

@@ -1,5 +1,4 @@
 from django.db.models.query import QuerySet
-
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.test.activity_log_utils import ActivityLogTestHelper

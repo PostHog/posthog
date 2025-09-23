@@ -5,11 +5,7 @@ from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404
-
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, request, response, serializers, viewsets
-from rest_framework.permissions import BasePermission, IsAuthenticated
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
@@ -52,6 +48,8 @@ from posthog.session_recordings.data_retention import (
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
+from rest_framework import exceptions, request, response, serializers, viewsets
+from rest_framework.permissions import BasePermission, IsAuthenticated
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:

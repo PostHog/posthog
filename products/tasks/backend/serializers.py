@@ -1,6 +1,5 @@
-from rest_framework import serializers
-
 from posthog.models.integration import Integration
+from rest_framework import serializers
 
 from .models import Task, TaskWorkflow, WorkflowStage
 

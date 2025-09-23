@@ -1,6 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-
 from posthog.schema import AssistantFunnelsQuery
 
 from ee.hogai.utils.types import AssistantState, PartialAssistantState

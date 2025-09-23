@@ -1,10 +1,8 @@
 import pytest
-from unittest.mock import MagicMock
-
 from posthog.schema import NodeKind
-
 from posthog.schema_migrations import MIGRATIONS
 from posthog.schema_migrations.validate import validate_migrations
+from unittest.mock import MagicMock
 
 
 def test_linear():

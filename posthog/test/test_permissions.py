@@ -1,14 +1,12 @@
-from posthog.test.base import BaseTest
-from unittest.mock import Mock
-
 from parameterized import parameterized
-from rest_framework.test import APIRequestFactory
-
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.test.base import BaseTest
+from rest_framework.test import APIRequestFactory
+from unittest.mock import Mock
 
 try:
     from ee.models.rbac.access_control import AccessControl

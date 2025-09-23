@@ -1,12 +1,10 @@
-import uuid
 import decimal
+import uuid
 from ipaddress import IPv4Address, IPv6Address
 
-import pytest
-
 import pyarrow as pa
+import pytest
 from dateutil import parser
-
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _get_max_decimal_type,
     normalize_table_column_names,

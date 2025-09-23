@@ -1,11 +1,9 @@
 import json
 
-from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
-
 from django.test.client import Client
-
+from posthog.test.base import BaseTest
 from rest_framework import status
+from unittest.mock import MagicMock, patch
 
 
 class TestCspReport(BaseTest):

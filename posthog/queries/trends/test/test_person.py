@@ -1,6 +1,13 @@
 from uuid import UUID
 
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from freezegun.api import freeze_time
+from posthog.models.entity import Entity
+from posthog.models.filters import Filter
+from posthog.models.group.util import create_group
+from posthog.queries.trends.trends_actors import TrendsActors
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -8,16 +15,6 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-
-from django.utils import timezone
-
-from dateutil.relativedelta import relativedelta
-
-from posthog.models.entity import Entity
-from posthog.models.filters import Filter
-from posthog.models.group.util import create_group
-from posthog.queries.trends.trends_actors import TrendsActors
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 

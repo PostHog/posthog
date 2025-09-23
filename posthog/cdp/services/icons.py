@@ -1,10 +1,9 @@
 from base64 import b64encode
 
+import requests
 from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpResponse
-
-import requests
 from rest_framework.exceptions import NotFound
 
 

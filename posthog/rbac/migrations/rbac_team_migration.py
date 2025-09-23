@@ -1,7 +1,5 @@
-from django.db import transaction
-
 import structlog
-
+from django.db import transaction
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
 

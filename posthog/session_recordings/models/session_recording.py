@@ -2,7 +2,6 @@ from typing import Any, Literal, Optional, Union
 
 from django.conf import settings
 from django.db import models
-
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.signals import mutable_receiver

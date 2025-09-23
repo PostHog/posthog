@@ -1,9 +1,5 @@
 from typing import Literal
 
-from prometheus_client import Histogram
-from rest_framework import request, response, serializers, viewsets
-from rest_framework.exceptions import ValidationError
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.auth import TemporaryTokenAuthentication
@@ -14,6 +10,9 @@ from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
+from prometheus_client import Histogram
+from rest_framework import request, response, serializers, viewsets
+from rest_framework.exceptions import ValidationError
 
 ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "element_stats_time_seconds",

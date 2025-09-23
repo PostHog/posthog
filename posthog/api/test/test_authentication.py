@@ -3,28 +3,16 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, patch
-
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
 from django.test import RequestFactory
 from django.utils import timezone
-
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
-from rest_framework import status
-from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.parsers import JSONParser
-from rest_framework.request import Request
-from rest_framework.test import APIRequestFactory
-from social_django.models import UserSocialAuth
-from two_factor.utils import totp_digits
-
+from freezegun import freeze_time
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
 from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.models import User
@@ -34,6 +22,15 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
+from social_django.models import UserSocialAuth
+from two_factor.utils import totp_digits
+from unittest.mock import ANY, patch
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 

@@ -1,13 +1,12 @@
-import os
 import json
+import os
 
 import pytest
-from unittest.mock import Mock, patch
-
 from posthog.models import ExportedAsset
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.tasks.exports import csv_exporter
+from unittest.mock import Mock, patch
 
 TEST_BUCKET = "Test-Exports"
 

@@ -1,19 +1,13 @@
-import json
 import dataclasses
+import json
 from functools import cached_property
 from typing import Any, Optional, Union, cast
 
+import posthoganalytics
 from django.db.models import Model, QuerySet
 from django.dispatch import receiver
 from django.shortcuts import get_object_or_404
-
-import posthoganalytics
 from drf_spectacular.utils import extend_schema
-from rest_framework import exceptions, permissions, serializers, viewsets
-from rest_framework.decorators import action
-from rest_framework.request import Request
-from rest_framework.response import Response
-
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
@@ -43,6 +37,10 @@ from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_fla
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
+from rest_framework import exceptions, permissions, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):

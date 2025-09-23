@@ -3,20 +3,17 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import uuid4
 
-from freezegun.api import freeze_time
-from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, patch
-
-from django.utils import timezone
-
 import dateutil.parser
+from django.utils import timezone
+from freezegun.api import freeze_time
 from parameterized import parameterized
-from rest_framework import status
-
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models import Action, ActivityLog, EventDefinition, Organization, Team
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from unittest.mock import ANY, patch
 
 
 @freeze_time("2020-01-02")

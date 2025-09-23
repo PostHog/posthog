@@ -1,20 +1,17 @@
-from django.db.models import Q, QuerySet
-
-import structlog
 import django_filters
+import structlog
+from django.db.models import Q, QuerySet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
-from rest_framework import serializers
-from rest_framework.viewsets import ModelViewSet
-
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-
 from products.llm_analytics.backend.models import Dataset
 from products.llm_analytics.backend.models.datasets import DatasetItem
+from rest_framework import serializers
+from rest_framework.viewsets import ModelViewSet
 
 logger = structlog.get_logger(__name__)
 

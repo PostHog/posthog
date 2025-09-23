@@ -5,18 +5,16 @@ import operator
 from typing import Annotated, Any, Optional, TypedDict
 from uuid import uuid4
 
-from posthog.test.base import NonAtomicBaseTest
-
+from asgiref.sync import async_to_sync
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
-
-from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata, create_checkpoint, empty_checkpoint
 from langgraph.checkpoint.base.id import uuid6
 from langgraph.errors import NodeInterrupt
 from langgraph.graph import END, START
 from langgraph.graph.state import CompiledStateGraph, StateGraph
+from posthog.test.base import NonAtomicBaseTest
 from pydantic import BaseModel, Field
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

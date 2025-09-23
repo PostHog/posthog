@@ -2,11 +2,9 @@ from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
-from django.conf import settings
-
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
-
+from django.conf import settings
 from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, KAFKA_LOG_ENTRIES

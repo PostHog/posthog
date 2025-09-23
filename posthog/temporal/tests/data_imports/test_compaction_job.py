@@ -1,28 +1,25 @@
-import uuid
 import functools
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-import pytest
-from unittest import mock
-
-from django.conf import settings
-from django.test import override_settings
-
-import pandas as pd
 import aioboto3
+import pandas as pd
+import pytest
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from deltalake import write_deltalake
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
+from django.conf import settings
+from django.test import override_settings
 from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
 from posthog.models.team.team import Team
 from posthog.temporal.data_imports.deltalake_compaction_job import DeltalakeCompactionJobWorkflowInputs
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.settings import ACTIVITIES, DeltalakeCompactionJobWorkflow
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from unittest import mock
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()

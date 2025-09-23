@@ -1,16 +1,14 @@
 import logging
 
-import pytest
-
 import psycopg
+import pytest
 import pytest_asyncio
 from asgiref.sync import async_to_sync
+from posthog.temporal.common.client import sync_connect
+from posthog.warehouse.models import ExternalDataSchema
 from psycopg import sql
 from temporalio.client import Client as TemporalClient
 from temporalio.service import RPCError
-
-from posthog.temporal.common.client import sync_connect
-from posthog.warehouse.models import ExternalDataSchema
 
 
 @pytest_asyncio.fixture

@@ -1,7 +1,5 @@
 import pytest
-
 from parameterized import parameterized
-
 from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
 
 

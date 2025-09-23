@@ -2,10 +2,9 @@ import os
 import tempfile
 
 import pytest
+from posthog.tasks.exports import video_exporter
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
-
-from posthog.tasks.exports import video_exporter
 
 
 class TestVideoExporter(APIBaseTest):

@@ -1,8 +1,6 @@
+import structlog
 from django.db import models
 from django.db.models import QuerySet
-
-import structlog
-
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.team import Team

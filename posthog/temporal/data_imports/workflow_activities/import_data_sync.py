@@ -1,14 +1,9 @@
-import uuid
 import dataclasses
+import uuid
 from typing import Any, Optional
 
 from django.db import close_old_connections
 from django.db.models import Prefetch
-
-from structlog.contextvars import bind_contextvars
-from structlog.typing import FilteringBoundLogger
-from temporalio import activity
-
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
@@ -21,6 +16,9 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from posthog.warehouse.types import ExternalDataSourceType
+from structlog.contextvars import bind_contextvars
+from structlog.typing import FilteringBoundLogger
+from temporalio import activity
 
 LOGGER = get_logger(__name__)
 

@@ -3,9 +3,6 @@ import json
 from dataclasses import dataclass
 
 from django.db import IntegrityError, transaction
-
-from posthoganalytics import Posthog
-
 from posthog.event_usage import groups
 from posthog.models import (
     Action,
@@ -28,6 +25,7 @@ from posthog.models import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.ph_client import get_client
+from posthoganalytics import Posthog
 
 
 @dataclass

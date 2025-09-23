@@ -1,11 +1,10 @@
-import os
 import datetime
+import os
 from typing import Any
 
 import dagster
 import requests
 from clickhouse_driver import Client
-
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DATA_BACKFILL_SQL, EXCHANGE_RATE_DICTIONARY_NAME

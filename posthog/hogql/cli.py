@@ -1,5 +1,5 @@
-import sys
 import json
+import sys
 
 from posthog.hogql.compiler.bytecode import create_bytecode, parse_program
 from posthog.hogql.compiler.javascript import to_js_program

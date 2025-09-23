@@ -1,5 +1,4 @@
 from django.test import TestCase
-
 from posthog.sampling import clamp_to_range, sample_on_property, simple_hash
 
 

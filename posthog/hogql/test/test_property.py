@@ -1,10 +1,6 @@
 from typing import Any, Literal, Optional, Union, cast
 
-from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
-
-from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
-
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
@@ -17,12 +13,13 @@ from posthog.hogql.property import (
     tag_name_to_expr,
 )
 from posthog.hogql.visitor import clear_locations
-
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
+from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
+from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+from unittest.mock import MagicMock, patch
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})

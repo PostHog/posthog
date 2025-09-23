@@ -1,6 +1,6 @@
-import uuid
-import typing
 import dataclasses
+import typing
+import uuid
 from typing import Optional
 
 

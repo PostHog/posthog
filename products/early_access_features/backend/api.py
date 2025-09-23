@@ -1,14 +1,9 @@
 from typing import Any
 
+import structlog
 from django.http import JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
-
-import structlog
-from rest_framework import serializers, status, viewsets
-from rest_framework.request import Request
-from rest_framework.response import Response
-
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -20,6 +15,9 @@ from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
 from posthog.utils_cors import cors_response
+from rest_framework import serializers, status, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from .models import EarlyAccessFeature
 

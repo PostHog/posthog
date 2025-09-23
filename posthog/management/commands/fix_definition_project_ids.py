@@ -1,7 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.db import IntegrityError, models
 from django.db.models import Count
-
 from posthog.models import EventDefinition, GroupTypeMapping, PropertyDefinition
 from posthog.storage.environments_rollback_storage import get_all_rollback_organization_ids
 

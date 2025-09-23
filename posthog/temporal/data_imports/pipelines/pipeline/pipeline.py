@@ -3,14 +3,11 @@ import sys
 import time
 from typing import Any, Literal
 
-from django.db.models import F
-
-import pyarrow as pa
 import deltalake as deltalake
-import pyarrow.compute as pc
 import posthoganalytics
-from structlog.types import FilteringBoundLogger
-
+import pyarrow as pa
+import pyarrow.compute as pc
+from django.db.models import F
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
@@ -38,6 +35,7 @@ from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 from posthog.warehouse.models.external_data_schema import process_incremental_value
 from posthog.warehouse.types import ExternalDataSourceType
+from structlog.types import FilteringBoundLogger
 
 
 class PipelineNonDLT:

@@ -1,18 +1,16 @@
-import json
 import asyncio
+import json
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Optional
 from uuid import UUID
 
 import structlog
+from posthog.models import Team, User
+from posthog.schema import HumanMessage, MaxBillingContext
+from posthog.temporal.common.base import PostHogWorkflow
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-
-from posthog.schema import HumanMessage, MaxBillingContext
-
-from posthog.models import Team, User
-from posthog.temporal.common.base import PostHogWorkflow
 
 from ee.hogai.assistant import Assistant
 from ee.hogai.stream.redis_stream import (

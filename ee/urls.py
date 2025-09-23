@@ -6,10 +6,8 @@ from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-define
 from django.urls import include, re_path
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
-
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
-
 from posthog.utils import opt_slash_path
 from posthog.views import api_key_search_view, redis_values_view
 

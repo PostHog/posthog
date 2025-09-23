@@ -1,9 +1,6 @@
 import uuid
 
 import pytest
-
-from pydantic import ValidationError
-
 from posthog.clickhouse.query_tagging import (
     Product,
     QueryTags,
@@ -16,6 +13,7 @@ from posthog.clickhouse.query_tagging import (
     tag_queries,
     tags_context,
 )
+from pydantic import ValidationError
 
 
 def test_create_base_tags():

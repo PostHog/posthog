@@ -1,7 +1,5 @@
 from typing import cast
 
-from posthog.test.base import BaseTest
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -9,6 +7,7 @@ from posthog.hogql.database.schema.event_sessions import CleanTableNameFromChain
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
+from posthog.test.base import BaseTest
 
 
 class TestWhereClauseExtractor(BaseTest):

@@ -2,11 +2,9 @@ from collections.abc import Callable, Coroutine, Hashable
 from typing import Any, Generic, Literal, Optional, Protocol, cast, runtime_checkable
 
 from langgraph.graph.state import CompiledStateGraph, StateGraph
-
-from posthog.schema import ReasoningMessage
-
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.schema import ReasoningMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.billing.nodes import BillingNode

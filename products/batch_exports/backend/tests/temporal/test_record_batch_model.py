@@ -1,7 +1,5 @@
 import pytest
-
 from posthog.hogql.hogql import ast
-
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]

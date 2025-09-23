@@ -1,5 +1,4 @@
 from django.db import close_old_connections
-
 from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.join import DataWarehouseJoin

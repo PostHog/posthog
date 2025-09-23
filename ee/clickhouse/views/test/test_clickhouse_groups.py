@@ -1,29 +1,25 @@
 import json
 from uuid import UUID
 
-from freezegun.api import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
-from unittest import mock
-from unittest.mock import patch
-
 from django.db import IntegrityError
-
 from flaky import flaky
+from freezegun.api import freeze_time
 from orjson import orjson
-from rest_framework import status
-
+from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-
-from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import GroupTypeMapping, GroupUsageMetric, Notebook, Person
 from posthog.models.group.util import create_group
 from posthog.models.notebook import ResourceNotebook
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from rest_framework import status
+from unittest import mock
+from unittest.mock import patch
 
 PATH = "ee.clickhouse.views.groups"
 

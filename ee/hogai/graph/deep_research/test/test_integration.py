@@ -1,14 +1,11 @@
 from typing import Any, cast
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest
-from unittest.mock import Mock, patch
-
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from parameterized import parameterized
-
+from posthog.models.notebook import Notebook
 from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
@@ -22,8 +19,8 @@ from posthog.schema import (
     TaskExecutionStatus,
     VisualizationItem,
 )
-
-from posthog.models.notebook import Notebook
+from posthog.test.base import APIBaseTest
+from unittest.mock import Mock, patch
 
 from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
 from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode

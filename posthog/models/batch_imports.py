@@ -2,7 +2,6 @@ from enum import Enum
 from typing import Self
 
 from django.db import models
-
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team

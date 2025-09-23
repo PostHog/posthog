@@ -1,9 +1,7 @@
-import typing
 import datetime as dt
+import typing
 
 import pytest
-from unittest import mock
-
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
     LinkedinAdsSchema,
@@ -15,6 +13,7 @@ from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
     linkedin_ads_source,
 )
 from posthog.warehouse.types import IncrementalFieldType
+from unittest import mock
 
 
 class TestLinkedinAdsHelperFunctions:

@@ -6,12 +6,10 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
-
-from rest_framework import serializers
-
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from rest_framework import serializers
 
 if TYPE_CHECKING:
     from posthog.models.file_system.file_system import FileSystem

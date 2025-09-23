@@ -5,22 +5,13 @@ from itertools import cycle
 from typing import Annotated, Any
 
 import pytest
-from unittest.mock import patch
-
-from django.conf import settings
-from django.utils import timezone
-
 import pytest_asyncio
 from azure.ai.inference.aio import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingItem, EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
-from pydantic import BaseModel, PlainValidator
-from temporalio import activity
-from temporalio.client import WorkflowFailureError
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
+from django.conf import settings
+from django.utils import timezone
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Action
 from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
@@ -40,6 +31,12 @@ from posthog.temporal.ai.sync_vectors import (
     sync_action_vectors,
 )
 from posthog.temporal.common.clickhouse import get_client
+from pydantic import BaseModel, PlainValidator
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from unittest.mock import patch
 
 
 @pytest.fixture(autouse=True)

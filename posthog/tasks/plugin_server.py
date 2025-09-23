@@ -1,10 +1,9 @@
 from typing import Optional
 
 from celery import shared_task
-from structlog import get_logger
-
 from posthog.tasks.email import send_fatal_plugin_error
 from posthog.tasks.utils import CeleryQueue
+from structlog import get_logger
 
 logger = get_logger(__name__)
 

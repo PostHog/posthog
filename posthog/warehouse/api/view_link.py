@@ -1,14 +1,12 @@
 from typing import Optional
 
-from rest_framework import filters, response, serializers, viewsets
-
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.ast import Call, Field
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.parser import parse_expr
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
 from posthog.warehouse.models import DataWarehouseJoin
+from rest_framework import filters, response, serializers, viewsets
 
 
 class ViewLinkSerializer(serializers.ModelSerializer):

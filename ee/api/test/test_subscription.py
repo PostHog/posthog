@@ -1,13 +1,11 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from rest_framework import status
-
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.subscription import Subscription
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import DeliverSubscriptionReportActivityInputs
+from rest_framework import status
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ee.api.test.base import APILicensedTest
 

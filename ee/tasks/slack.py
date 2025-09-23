@@ -2,10 +2,8 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-from django.conf import settings
-
 import structlog
-
+from django.conf import settings
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.sharing_configuration import SharingConfiguration

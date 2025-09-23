@@ -2,6 +2,18 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Optional, cast
 
+from posthog import settings as app_settings
+from posthog.caching.utils import ThresholdMode, staleness_threshold_map
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.filters import replace_filters
+from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import find_placeholders, replace_placeholders
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.utils import deserialize_hx_ast
+from posthog.hogql.variables import replace_variables
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.schema import (
     CachedHogQLQueryResponse,
     DashboardFilter,
@@ -11,20 +23,6 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryResponse,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.filters import replace_filters
-from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.utils import deserialize_hx_ast
-from posthog.hogql.variables import replace_variables
-
-from posthog import settings as app_settings
-from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):

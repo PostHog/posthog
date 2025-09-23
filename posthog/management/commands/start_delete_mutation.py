@@ -1,9 +1,7 @@
 import logging
 
-from django.core.management.base import BaseCommand
-
 import structlog
-
+from django.core.management.base import BaseCommand
 from posthog.tasks.tasks import clickhouse_clear_removed_data
 
 logger = structlog.get_logger(__name__)

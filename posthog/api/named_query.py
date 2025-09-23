@@ -3,18 +3,7 @@ from typing import Union, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
-
 from django_filters.rest_framework import DjangoFilterBackend
-from pydantic import BaseModel
-from rest_framework import status, viewsets
-from rest_framework.exceptions import Throttled, ValidationError
-from rest_framework.request import Request
-from rest_framework.response import Response
-
-from posthog.schema import HogQLQuery, NamedQueryRequest, NamedQueryRunRequest, QueryRequest
-
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import _process_query_request
@@ -26,12 +15,19 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
 from posthog.models.named_query import NamedQuery
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
+from posthog.schema import HogQLQuery, NamedQueryRequest, NamedQueryRunRequest, QueryRequest
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
+from pydantic import BaseModel
+from rest_framework import status, viewsets
+from rest_framework.exceptions import Throttled, ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from common.hogvm.python.utils import HogVMException
 

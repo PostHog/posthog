@@ -1,5 +1,5 @@
-import sys
 import json
+import sys
 from datetime import timedelta
 
 from .execute import execute_bytecode

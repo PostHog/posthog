@@ -1,12 +1,10 @@
 import time
 from datetime import timedelta
 
+import dagster
 from django.conf import settings
 from django.db.models import Model, Q, QuerySet
 from django.utils import timezone
-
-import dagster
-
 from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 from dags.common import JobOwners

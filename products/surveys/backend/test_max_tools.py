@@ -4,21 +4,16 @@ Simple async test for the survey creation MaxTool.
 
 import os
 
-import pytest
-from posthog.test.base import BaseTest
-from unittest.mock import patch
-
 import django.utils.timezone
-
 import orjson
+import pytest
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
-
-from posthog.schema import SurveyCreationSchema, SurveyQuestionSchema, SurveyQuestionType, SurveyType
-
 from posthog.models import FeatureFlag, Survey
-
+from posthog.schema import SurveyCreationSchema, SurveyQuestionSchema, SurveyQuestionType, SurveyType
+from posthog.test.base import BaseTest
 from products.surveys.backend.max_tools import SurveyAnalysisOutput, ThemeWithExamples
+from unittest.mock import patch
 
 from .max_tools import CreateSurveyTool, SurveyAnalysisTool, SurveyLoopNode, SurveyToolkit
 

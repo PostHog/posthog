@@ -1,10 +1,5 @@
 from typing import Any
 
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from unittest.mock import ANY
-
-from rest_framework import status
-
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag
@@ -14,8 +9,10 @@ from posthog.models.experiment import Experiment
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
-
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from products.early_access_features.backend.models import EarlyAccessFeature
+from rest_framework import status
+from unittest.mock import ANY
 
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 

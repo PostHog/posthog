@@ -1,7 +1,5 @@
 import pytest
-
 from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.klaviyo.template_klaviyo import (
     template_event as klaviyo_event,

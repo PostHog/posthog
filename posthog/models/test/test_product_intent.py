@@ -2,9 +2,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest
-from unittest.mock import patch
-
 from posthog.models.dashboard import Dashboard
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
@@ -12,7 +9,9 @@ from posthog.models.insight import Insight
 from posthog.models.product_intent.product_intent import ProductIntent, calculate_product_activation
 from posthog.models.surveys.survey import Survey
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.test.base import BaseTest
 from posthog.utils import get_instance_realm
+from unittest.mock import patch
 
 
 class TestProductIntent(BaseTest):

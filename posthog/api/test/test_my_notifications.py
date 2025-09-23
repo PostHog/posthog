@@ -3,11 +3,9 @@ from typing import Any, Optional
 
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
-from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
-
-from rest_framework import status
-
 from posthog.models import NotificationViewed, User
+from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
+from rest_framework import status
 
 
 def _feature_flag_json_payload(key: str) -> dict:

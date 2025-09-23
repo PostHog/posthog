@@ -1,5 +1,4 @@
 from parameterized import parameterized
-
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     ATTRIBUTION_FIELDS,

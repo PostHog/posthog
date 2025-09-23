@@ -3,10 +3,8 @@ import logging
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-
 from posthog.temporal.common.client import connect
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
 
 class Command(BaseCommand):

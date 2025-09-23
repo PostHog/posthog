@@ -1,5 +1,4 @@
 from django.conf import settings
-
 from posthog.session_recordings.sql.session_replay_event_sql import SESSION_REPLAY_EVENTS_DATA_TABLE
 
 

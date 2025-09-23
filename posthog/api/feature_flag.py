@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import re
 import json
-import time
 import logging
+import re
+import time
 from datetime import datetime
 from typing import Any, Optional, cast
 
@@ -11,16 +11,8 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, deletion
 from django.dispatch import receiver
-
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from rest_framework import exceptions, request, serializers, status, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission
-from rest_framework.request import Request
-from rest_framework.response import Response
-
-from posthog.schema import PropertyOperator
-
 from posthog.api.cohort import CohortSerializer
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.documentation import extend_schema
@@ -71,7 +63,12 @@ from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.schema import PropertyOperator
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
+from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 

@@ -1,23 +1,19 @@
-import uuid
 import asyncio
 import datetime as dt
-
-import pytest
-from unittest import mock
-
-from django.conf import settings
+import uuid
 
 import psycopg
+import pytest
 import temporalio.client
-from structlog.testing import capture_logs
-from temporalio.common import RetryPolicy
-
+from django.conf import settings
 from posthog.batch_exports.service import BatchExportModel
 from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
-
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import PostgresBatchExportInputs
 from products.batch_exports.backend.temporal.metrics import SLAWaiter
+from structlog.testing import capture_logs
+from temporalio.common import RetryPolicy
+from unittest import mock
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

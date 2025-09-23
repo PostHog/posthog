@@ -1,5 +1,4 @@
 import structlog
-
 from posthog.schema_migrations import MIGRATIONS
 
 logger = structlog.get_logger(__name__)

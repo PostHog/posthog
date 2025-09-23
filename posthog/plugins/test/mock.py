@@ -1,5 +1,5 @@
-import json
 import base64
+import json
 from typing import cast
 
 # This method will be used by the mock to replace requests.get

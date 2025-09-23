@@ -1,9 +1,7 @@
 import re
 
 import pytest
-
 from braintrust import EvalCase
-
 from posthog.schema import HumanMessage, VisualizationMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

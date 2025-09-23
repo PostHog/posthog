@@ -1,5 +1,4 @@
 import posthoganalytics
-
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -13,7 +12,6 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
-
 from posthog.models.organization import Organization
 
 

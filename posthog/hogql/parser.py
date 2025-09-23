@@ -11,8 +11,6 @@ from hogql_parser import (
     parse_select as _parse_select_cpp,
 )
 from opentelemetry import trace
-from prometheus_client import Histogram
-
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST
@@ -23,6 +21,7 @@ from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string_literal_ctx, parse_string_literal_text, parse_string_text_ctx
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
+from prometheus_client import Histogram
 
 tracer = trace.get_tracer(__name__)
 

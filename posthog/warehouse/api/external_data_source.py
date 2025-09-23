@@ -1,23 +1,16 @@
-import uuid
 import dataclasses
+import uuid
 from typing import Any
-
-from django.db.models import Prefetch, Q
-from django.dispatch import receiver
 
 import structlog
 import temporalio
 from dateutil import parser
-from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.request import Request
-from rest_framework.response import Response
-
-from posthog.hogql.database.database import create_hogql_database
-
+from django.db.models import Prefetch, Q
+from django.dispatch import receiver
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql.database.database import create_hogql_database
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.external_data_utils import (
     get_external_data_source_created_by_info,
@@ -38,6 +31,10 @@ from posthog.warehouse.data_load.service import (
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from posthog.warehouse.types import ExternalDataSourceType
+from rest_framework import filters, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 logger = structlog.get_logger(__name__)
 

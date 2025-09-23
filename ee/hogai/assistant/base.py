@@ -4,17 +4,17 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal, Optional, cast, get_args
 from uuid import UUID, uuid4
 
-import structlog
 import posthoganalytics
+import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from langgraph.types import StreamMode
-from posthoganalytics.ai.langchain.callbacks import CallbackHandler
-from pydantic import BaseModel
-
+from posthog import event_usage
+from posthog.event_usage import report_user_action
+from posthog.models import Team, User
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -25,11 +25,9 @@ from posthog.schema import (
     MaxBillingContext,
     ReasoningMessage,
 )
-
-from posthog import event_usage
-from posthog.event_usage import report_user_action
-from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+from pydantic import BaseModel
 
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.graph import AssistantCompiledStateGraph

@@ -1,5 +1,4 @@
 import pytest
-
 from posthog.helpers.batch_iterators import ArrayBatchIterator, FunctionBatchIterator
 
 

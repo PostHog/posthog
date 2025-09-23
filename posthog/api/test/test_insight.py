@@ -3,53 +3,15 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    FuzzyInt,
-    QueryMatchingTest,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-    snapshot_postgres_queries,
-)
-from unittest import mock
-from unittest.case import skip
-from unittest.mock import ANY, patch
-
 from django.test import override_settings
 from django.utils import timezone
-
+from freezegun import freeze_time
 from parameterized import parameterized
-from rest_framework import status
-
-from posthog.schema import (
-    DataTableNode,
-    DataVisualizationNode,
-    DateRange,
-    EventPropertyFilter,
-    EventsNode,
-    EventsQuery,
-    FilterLogicalOperator,
-    HogQLFilters,
-    HogQLQuery,
-    InsightNodeKind,
-    InsightVizNode,
-    NodeKind,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
-    TrendsQuery,
-)
-
-from posthog.hogql.query import execute_hogql_query
-
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
     Cohort,
@@ -68,7 +30,40 @@ from posthog.models import (
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.project import Project
+from posthog.schema import (
+    DataTableNode,
+    DataVisualizationNode,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    EventsQuery,
+    FilterLogicalOperator,
+    HogQLFilters,
+    HogQLQuery,
+    InsightNodeKind,
+    InsightVizNode,
+    NodeKind,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    TrendsQuery,
+)
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    FuzzyInt,
+    QueryMatchingTest,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+    snapshot_postgres_queries,
+)
 from posthog.test.db_context_capturing import capture_db_queries
+from rest_framework import status
+from unittest import mock
+from unittest.case import skip
+from unittest.mock import ANY, patch
 
 from ee.models.rbac.access_control import AccessControl
 

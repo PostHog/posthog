@@ -1,8 +1,6 @@
-from posthog.test.base import APIBaseTest
-
-from rest_framework import status
-
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.test.base import APIBaseTest
+from rest_framework import status
 
 
 class TestFileSystemShortcutAPI(APIBaseTest):

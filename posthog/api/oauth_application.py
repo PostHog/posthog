@@ -1,6 +1,5 @@
-from rest_framework import mixins, serializers, viewsets
-
 from posthog.models.oauth import OAuthApplication
+from rest_framework import mixins, serializers, viewsets
 
 
 class OAuthApplicationPublicMetadataSerializer(serializers.ModelSerializer):

@@ -1,16 +1,14 @@
 import json
 from uuid import uuid4
 
-from unittest.mock import MagicMock, _patch, patch
-
 from parameterized import parameterized
-from rest_framework import status
-
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
+from rest_framework import status
+from unittest.mock import MagicMock, _patch, patch
 
 from ee.api.vercel.test.base import VercelTestBase
 

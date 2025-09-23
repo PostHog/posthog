@@ -5,12 +5,6 @@ from time import sleep
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
-from unittest import TestCase
-from unittest.mock import patch
-
-from tenacity import retry, stop_after_attempt, wait_exponential
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
 from posthog.conftest import create_clickhouse_tables
@@ -18,6 +12,10 @@ from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import CLICKHOUSE_DATABASE
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
+from tenacity import retry, stop_after_attempt, wait_exponential
+from unittest import TestCase
+from unittest.mock import patch
 
 from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumn,

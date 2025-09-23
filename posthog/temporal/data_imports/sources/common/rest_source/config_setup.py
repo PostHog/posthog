@@ -1,5 +1,5 @@
-import string
 import graphlib  # type: ignore[import,unused-ignore]
+import string
 import warnings
 from collections.abc import Callable
 from copy import copy

@@ -1,13 +1,11 @@
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
-from django.http import HttpRequest, JsonResponse
-
 import requests
+from django.http import HttpRequest, JsonResponse
+from posthog.models.instance_setting import get_instance_settings
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import ValidationError
-
-from posthog.models.instance_setting import get_instance_settings
 
 
 def get_sentry_stats(start_time: str, end_time: str) -> tuple[dict, int]:

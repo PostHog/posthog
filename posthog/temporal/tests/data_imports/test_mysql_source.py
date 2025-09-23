@@ -22,19 +22,17 @@ OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
 
 """
 
-import os
-import math
-import uuid
-import random
 import datetime as dt
+import math
 import operator
-
-import pytest
+import os
+import random
+import uuid
 
 import pymysql
+import pytest
 import structlog
 from asgiref.sync import sync_to_async
-
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (

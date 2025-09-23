@@ -4,15 +4,12 @@ from typing import Any, Optional, get_args, get_origin
 from uuid import UUID
 
 from django.utils import timezone
-
 from langchain_core.runnables import RunnableConfig
-
-from posthog.schema import ReasoningMessage
-
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.user import User
+from posthog.schema import ReasoningMessage
 
 from ee.hogai.utils.types.base import BaseState, BaseStateWithIntermediateSteps
 from ee.models import Conversation, CoreMemory

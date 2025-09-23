@@ -1,15 +1,13 @@
-import json
 import importlib
+import json
 from datetime import timedelta
 
 import pytest
-from freezegun.api import freeze_time
-
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase
 from django.utils import timezone
-
+from freezegun.api import freeze_time
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 from posthog.models.plugin import Plugin, PluginConfig, PluginStorage

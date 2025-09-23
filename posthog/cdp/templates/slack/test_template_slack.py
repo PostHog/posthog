@@ -1,5 +1,4 @@
 import pytest
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 

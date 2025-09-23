@@ -2,7 +2,6 @@ import uuid
 from typing import Optional
 
 import structlog
-
 from posthog.email import EmailMessage
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, get_unsubscribe_token

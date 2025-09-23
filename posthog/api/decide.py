@@ -1,16 +1,11 @@
 from random import random
 from typing import Any, Optional, Union
 
+import structlog
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-
-import structlog
 from opentelemetry import trace
-from prometheus_client import Counter
-from rest_framework import status
-from statshog.defaults.django import statsd
-
 from posthog.api.error_tracking import get_suppression_rules
 from posthog.api.survey import get_surveys_count, get_surveys_opt_in
 from posthog.api.utils import get_project_id, get_token, on_permitted_recording_domain
@@ -35,6 +30,9 @@ from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
 from posthog.utils_cors import cors_response
+from prometheus_client import Counter
+from rest_framework import status
+from statshog.defaults.django import statsd
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)

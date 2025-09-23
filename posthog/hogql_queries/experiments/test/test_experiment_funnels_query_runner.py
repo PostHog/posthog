@@ -2,7 +2,22 @@ import json
 from datetime import datetime, timedelta
 from typing import cast
 
+from django.utils import timezone
+from flaky import flaky
 from freezegun import freeze_time
+from parameterized import parameterized
+from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.hogql_queries.experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
+from posthog.models.experiment import Experiment, ExperimentHoldout
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.schema import (
+    BreakdownAttributionType,
+    EventsNode,
+    ExperimentFunnelsQuery,
+    ExperimentSignificanceCode,
+    FunnelsQuery,
+    PersonsOnEventsMode,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -12,27 +27,8 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-
-from django.utils import timezone
-
-from flaky import flaky
-from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import (
-    BreakdownAttributionType,
-    EventsNode,
-    ExperimentFunnelsQuery,
-    ExperimentSignificanceCode,
-    FunnelsQuery,
-    PersonsOnEventsMode,
-)
-
-from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.hogql_queries.experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
-from posthog.models.experiment import Experiment, ExperimentHoldout
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.test.test_journeys import journeys_for
+from rest_framework.exceptions import ValidationError
 
 
 class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):

@@ -1,7 +1,6 @@
-from unittest.mock import Mock, patch
-
 from django.test import TestCase
-
+from posthog.hogql_queries.query_metadata import QueryEventsExtractor
+from posthog.models import Action
 from posthog.schema import (
     ActionsNode,
     ActorsQuery,
@@ -31,9 +30,7 @@ from posthog.schema import (
     StickinessQuery,
     TrendsQuery,
 )
-
-from posthog.hogql_queries.query_metadata import QueryEventsExtractor
-from posthog.models import Action
+from unittest.mock import Mock, patch
 
 
 class TestQueryEventsExtractor(TestCase):

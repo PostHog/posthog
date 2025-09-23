@@ -1,7 +1,6 @@
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-
 from posthog.schema import HumanMessage
 
 from ee.hogai.graph.base import AssistantNode

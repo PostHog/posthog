@@ -1,14 +1,10 @@
-import json
 import asyncio
+import json
 from math import ceil
 from typing import cast
 
 import structlog
 import temporalio
-from redis import asyncio as aioredis
-from temporalio.client import WorkflowHandle
-from temporalio.exceptions import ApplicationError
-
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.state import (
@@ -24,6 +20,9 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryPatternsExtractionChunksInputs,
 )
 from posthog.temporal.common.client import async_connect
+from redis import asyncio as aioredis
+from temporalio.client import WorkflowHandle
+from temporalio.exceptions import ApplicationError
 
 from ee.hogai.session_summaries.constants import (
     FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO,

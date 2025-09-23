@@ -3,15 +3,13 @@ from urllib.parse import urlparse
 
 from django.core.exceptions import ValidationError
 from django.http import Http404
-
-from rest_framework import exceptions, mixins, serializers, status, viewsets
-from rest_framework.response import Response
-
 from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.user import User
+from rest_framework import exceptions, mixins, serializers, status, viewsets
+from rest_framework.response import Response
 
 from ee.models.hook import HOOK_EVENTS, Hook
 

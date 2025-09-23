@@ -1,19 +1,16 @@
 import random
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, patch
-
 from django.core import mail
-
-from rest_framework import status
-
+from freezegun import freeze_time
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from unittest.mock import ANY, patch
 
 from ee.models import Role, RoleMembership
 from ee.models.explicit_team_membership import ExplicitTeamMembership

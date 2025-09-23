@@ -8,14 +8,11 @@ from collections.abc import Callable
 from typing import Any, TypeVar, cast
 
 import structlog
-from rest_framework.exceptions import ValidationError
-
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
-
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
-
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 from products.experiments.stats.shared.statistics import StatisticError
+from rest_framework.exceptions import ValidationError
 
 logger = structlog.get_logger(__name__)
 

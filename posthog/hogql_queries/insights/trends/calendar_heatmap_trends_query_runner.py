@@ -1,6 +1,5 @@
-from posthog.schema import CalendarHeatmapQuery, ResolvedDateRangeResponse, TrendsQueryResponse
-
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.schema import CalendarHeatmapQuery, ResolvedDateRangeResponse, TrendsQueryResponse
 
 
 class CalendarHeatmapTrendsQueryRunner(TrendsQueryRunner):

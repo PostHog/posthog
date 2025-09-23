@@ -1,9 +1,5 @@
-from posthog.test.base import APIBaseTest
-from unittest.mock import mock_open, patch
-
 from boto3 import resource
 from botocore.client import Config
-
 from posthog.models import ExportedAsset, Insight
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -14,6 +10,8 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import image_exporter
+from posthog.test.base import APIBaseTest
+from unittest.mock import mock_open, patch
 
 TEST_PREFIX = "Test-Exports"
 

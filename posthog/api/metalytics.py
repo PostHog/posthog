@@ -1,14 +1,13 @@
 from typing import Any
 
-from rest_framework import request, response, serializers, viewsets
-from rest_framework.serializers import BaseSerializer
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.plugin import PluginConfig
 from posthog.utils import cast_timestamp_or_now
+from rest_framework import request, response, serializers, viewsets
+from rest_framework.serializers import BaseSerializer
 
 
 class MetalyticsCreateRequestSerializer(serializers.Serializer):

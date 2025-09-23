@@ -5,11 +5,9 @@ from time import sleep
 from typing import Any
 from uuid import uuid4
 
+import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand
-
-import structlog
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.event.sql import EVENTS_DATA_TABLE

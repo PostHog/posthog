@@ -1,14 +1,12 @@
-import re
 import copy
 import datetime
+import re
 from collections import defaultdict
 from typing import Optional, Union
 
+from dateutil.relativedelta import relativedelta
 from django.db import models
 from django.utils import timezone
-
-from dateutil.relativedelta import relativedelta
-
 from posthog.models.team import Team
 
 SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"

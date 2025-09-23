@@ -2,12 +2,6 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from django.db.models import Count
-
-from rest_framework import request, serializers, viewsets
-from rest_framework.response import Response
-from rest_framework.settings import api_settings
-from rest_framework_csv import renderers as csvrenderers
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import TemporaryTokenAuthentication
@@ -15,6 +9,10 @@ from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
 from posthog.models import Action
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
+from rest_framework import request, serializers, viewsets
+from rest_framework.response import Response
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers
 
 from .forbid_destroy_model import ForbidDestroyModel
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin

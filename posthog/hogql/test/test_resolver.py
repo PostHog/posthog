@@ -3,11 +3,8 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import BaseTest
-
 from django.test import override_settings
-
+from freezegun import freeze_time
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
@@ -28,6 +25,7 @@ from posthog.hogql.printer import print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
+from posthog.test.base import BaseTest
 
 
 class TestResolver(BaseTest):

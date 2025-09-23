@@ -1,11 +1,9 @@
-from django.utils import timezone
-
 import structlog
 from celery import shared_task
-from prometheus_client import Counter
-
+from django.utils import timezone
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.tasks.utils import CeleryQueue
+from prometheus_client import Counter
 
 from ee.session_recordings.session_recording_extensions import (
     MAXIMUM_AGE_FOR_RECORDING_V2,

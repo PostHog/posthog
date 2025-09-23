@@ -2,9 +2,8 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 
-from django.conf import settings
-
 import jwt
+from django.conf import settings
 
 
 class PosthogJwtAudience(Enum):

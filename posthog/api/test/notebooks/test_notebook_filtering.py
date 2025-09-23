@@ -1,12 +1,10 @@
 from typing import Any
 
-from posthog.test.base import APIBaseTest, QueryMatchingTest
-
 from parameterized import parameterized
-from rest_framework import status
-
 from posthog.models import User
 from posthog.models.notebook.notebook import Notebook
+from posthog.test.base import APIBaseTest, QueryMatchingTest
+from rest_framework import status
 
 PLAYLIST_CONTENT = lambda: {
     "type": "ph-recording-playlist",

@@ -1,10 +1,9 @@
-import json
 import dataclasses
+import json
 from copy import deepcopy
 
-from posthog.hogql.escape_sql import escape_hogql_string
-
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
+from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.models.integration import GoogleCloudIntegration
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(

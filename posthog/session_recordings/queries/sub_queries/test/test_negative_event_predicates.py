@@ -1,10 +1,9 @@
 from typing import cast
 
 import pytest
-from unittest.mock import MagicMock
-
 from parameterized import parameterized
-
+from posthog.hogql import ast
+from posthog.models import Team
 from posthog.schema import (
     ActionsNode,
     DataWarehouseNode,
@@ -13,11 +12,8 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
 )
-
-from posthog.hogql import ast
-
-from posthog.models import Team
 from posthog.session_recordings.queries.sub_queries.events_subquery import negative_event_predicates
+from unittest.mock import MagicMock
 
 
 class TestNegativeEventPredicates:

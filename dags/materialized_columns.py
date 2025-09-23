@@ -8,7 +8,6 @@ import dagster
 import pydantic
 from clickhouse_driver import Client
 from dateutil.relativedelta import relativedelta
-
 from posthog import settings
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, HostInfo
 

@@ -1,15 +1,13 @@
 import datetime as dt
 
 from freezegun.api import freeze_time
-from unittest import mock
-from unittest.mock import ANY, call, patch
-
-from rest_framework import status
-
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.tasks import sync_all_organization_available_product_features
+from rest_framework import status
+from unittest import mock
+from unittest.mock import ANY, call, patch
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License

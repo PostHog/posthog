@@ -2,10 +2,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from rest_framework import exceptions
-
 from posthog.models import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from rest_framework import exceptions
 
 from ee.hogai.session_summaries.session.output_data import IntermediateSessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import (

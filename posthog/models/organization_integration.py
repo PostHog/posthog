@@ -1,5 +1,4 @@
 from django.db import models
-
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.organization import Organization
 from posthog.models.utils import UUIDModel

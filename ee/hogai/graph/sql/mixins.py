@@ -2,9 +2,6 @@ import asyncio
 from typing import cast
 
 from langchain_core.prompts import ChatPromptTemplate
-
-from posthog.schema import AssistantHogQLQuery
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, create_hogql_database
@@ -16,7 +13,7 @@ from posthog.hogql.errors import (
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
-
+from posthog.schema import AssistantHogQLQuery
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.mixins import AssistantContextMixin

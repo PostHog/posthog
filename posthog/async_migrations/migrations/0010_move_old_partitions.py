@@ -2,7 +2,6 @@ from datetime import datetime
 from functools import cached_property
 
 import structlog
-
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud

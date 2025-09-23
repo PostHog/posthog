@@ -1,16 +1,10 @@
-import uuid
 import contextlib
+import uuid
 from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from posthog.test.base import BaseTest
-from unittest import mock
-
 from django.test import override_settings
-
-from structlog.types import FilteringBoundLogger
-
 from posthog.models import Team
 from posthog.tasks.usage_report import ExternalDataJob
 from posthog.temporal.data_imports.row_tracking import (
@@ -19,7 +13,10 @@ from posthog.temporal.data_imports.row_tracking import (
     setup_row_tracking,
     will_hit_billing_limit,
 )
+from posthog.test.base import BaseTest
 from posthog.warehouse.models import ExternalDataSource
+from structlog.types import FilteringBoundLogger
+from unittest import mock
 
 
 class TestRowTracking(BaseTest):

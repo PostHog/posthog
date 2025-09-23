@@ -1,12 +1,6 @@
-from django.conf import settings
-
 import posthoganalytics
+from django.conf import settings
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
-from rest_framework import viewsets
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.request import Request
-from rest_framework.response import Response
-
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -14,6 +8,10 @@ from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.client.limit import get_web_analytics_api_rate_limiter
 from posthog.models.user import User
 from posthog.rate_limit import WebAnalyticsAPIBurstThrottle, WebAnalyticsAPISustainedThrottle
+from rest_framework import viewsets
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from .data import WebAnalyticsDataFactory
 from .query_adapter import ExternalWebAnalyticsQueryAdapter

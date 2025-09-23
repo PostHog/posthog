@@ -1,12 +1,11 @@
 from collections import namedtuple
 
 import pytest
-from unittest import mock
-
 from _pytest.terminal import TerminalReporter
 
 # We want the PostHog django_db_setup fixture here
 from posthog.conftest import django_db_setup  # noqa: F401
+from unittest import mock
 
 
 def pytest_addoption(parser):

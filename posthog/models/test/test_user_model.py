@@ -1,8 +1,7 @@
-from posthog.test.base import BaseTest
-
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.test.base import BaseTest
 
 from ee.models.rbac.access_control import AccessControl
 

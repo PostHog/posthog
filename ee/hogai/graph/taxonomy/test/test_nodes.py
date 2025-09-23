@@ -1,10 +1,9 @@
-from posthog.test.base import BaseTest
-from unittest.mock import Mock, patch
-
 from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
+from posthog.test.base import BaseTest
 from pydantic import ValidationError
+from unittest.mock import Mock, patch
 
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit

@@ -1,5 +1,4 @@
 from dlt.sources import DltSource
-
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import _get_column_hints, _get_primary_keys
 

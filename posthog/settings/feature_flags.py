@@ -1,5 +1,5 @@
-import os
 import json
+import os
 from contextlib import suppress
 
 from posthog.settings.utils import get_list

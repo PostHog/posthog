@@ -1,18 +1,17 @@
+import base64
 import gzip
 import json
-import base64
 from collections import defaultdict
 from collections.abc import Callable, Generator
 from datetime import UTC, datetime
 from typing import Any
 
 from dateutil.parser import parse
-from prometheus_client import Counter
-
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.session_recordings.models.metadata import SessionRecordingEventSummary
 from posthog.utils import flatten
+from prometheus_client import Counter
 
 FULL_SNAPSHOT = 2
 ARBITRARY_LOOP_LIMIT = 10

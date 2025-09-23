@@ -1,9 +1,7 @@
 from django.conf import settings
-
 from pdpyras import EventsAPISession
-from structlog import get_logger
-
 from posthog.utils import get_instance_region
+from structlog import get_logger
 
 logger = get_logger(__name__)
 routing_key = settings.PAGERDUTY_API_KEY

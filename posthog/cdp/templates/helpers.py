@@ -1,18 +1,16 @@
-import json
 import functools
+import json
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
-from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import MagicMock
-
 import STPyV8
-
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 from posthog.cdp.validation import compile_hog
 from posthog.models import HogFunction
 from posthog.models.utils import uuid7
+from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import MagicMock
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import now

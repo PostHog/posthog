@@ -1,8 +1,6 @@
 import pytest
-
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase
-
 from posthog.schema import AssistantMessage, HumanMessage
 
 from ee.hogai.graph import AssistantGraph

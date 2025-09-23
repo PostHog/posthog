@@ -3,10 +3,8 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
-from django.utils import timezone
-
 import posthoganalytics
-
+from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
 

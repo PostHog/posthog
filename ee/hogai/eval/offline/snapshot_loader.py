@@ -1,20 +1,18 @@
-import os
 import asyncio
+import os
 from collections.abc import Generator
 from io import BytesIO
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
-from unittest.mock import patch
-
-import backoff
 import aioboto3
+import backoff
 from asgiref.sync import sync_to_async
 from dagster_pipes import PipesContext
 from fastavro import reader
-from pydantic_avro import AvroBase
-
 from posthog.models import GroupTypeMapping, Organization, Project, PropertyDefinition, Team, User
 from posthog.warehouse.models.table import DataWarehouseTable
+from pydantic_avro import AvroBase
+from unittest.mock import patch
 
 from ee.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,

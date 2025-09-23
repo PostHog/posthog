@@ -1,6 +1,5 @@
-from posthog.test.base import BaseTest
-
 from posthog.schema import AssistantMessage, AssistantToolCallMessage
+from posthog.test.base import BaseTest
 
 from ee.hogai.utils.helpers import should_output_assistant_message
 

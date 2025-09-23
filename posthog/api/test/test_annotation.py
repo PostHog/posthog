@@ -2,15 +2,12 @@ from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries_context
-from unittest.mock import MagicMock, patch
-
 from django.utils.timezone import now
-
 from parameterized import parameterized
-from rest_framework import status
-
 from posthog.models import Annotation, Organization, Team, User
+from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries_context
+from rest_framework import status
+from unittest.mock import MagicMock, patch
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):

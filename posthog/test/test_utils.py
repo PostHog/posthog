@@ -1,23 +1,18 @@
-import json
 import base64
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import BaseTest
-from unittest.mock import call, patch
-
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
 from django.test import TestCase
 from django.test.client import RequestFactory
-
-from rest_framework.request import Request
-
+from freezegun import freeze_time
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.models import EventDefinition, GroupTypeMapping
 from posthog.settings.utils import get_from_env
+from posthog.test.base import BaseTest
 from posthog.utils import (
     PotentialSecurityProblemException,
     absolute_uri,
@@ -32,6 +27,8 @@ from posthog.utils import (
     refresh_requested_by_client,
     relative_date_parse,
 )
+from rest_framework.request import Request
+from unittest.mock import call, patch
 
 
 class TestAbsoluteUrls(TestCase):

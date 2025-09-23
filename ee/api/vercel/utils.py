@@ -1,8 +1,7 @@
 from typing import Any
 
-from django.core.cache import cache
-
 import structlog
+from django.core.cache import cache
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from social_core.utils import requests

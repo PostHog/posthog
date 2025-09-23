@@ -2,16 +2,14 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+import posthoganalytics
+from celery import shared_task
 from django.conf import settings
 from django.db.models import Count, F, Q
 from django.utils import timezone
-
-import posthoganalytics
-from celery import shared_task
-from prometheus_client import Counter, Gauge, Histogram
-from pydantic import ValidationError
-from structlog import get_logger
-
+from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
+from posthog.redis import get_client
 from posthog.schema import (
     FilterLogicalOperator,
     PropertyFilterType,
@@ -19,14 +17,13 @@ from posthog.schema import (
     RecordingPropertyFilter,
     RecordingsQuery,
 )
-
-from posthog.clickhouse.query_tagging import Product, tag_queries
-from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
-from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_api import filter_from_params_to_query, list_recordings_from_query
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.tasks.utils import CeleryQueue
+from prometheus_client import Counter, Gauge, Histogram
+from pydantic import ValidationError
+from structlog import get_logger
 
 logger = get_logger(__name__)
 

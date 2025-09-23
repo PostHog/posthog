@@ -1,10 +1,6 @@
+import structlog
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-
-import structlog
-from requests import HTTPError
-from rest_framework import status
-
 from posthog.api.capture import capture_batch_internal, capture_internal
 from posthog.api.csp import process_csp_report
 from posthog.api.utils import get_token
@@ -12,6 +8,8 @@ from posthog.exceptions import generate_exception_response
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
 from posthog.utils_cors import cors_response
+from requests import HTTPError
+from rest_framework import status
 
 logger = structlog.get_logger(__name__)
 

@@ -1,6 +1,5 @@
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
-
 from posthog.models.team.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel
 

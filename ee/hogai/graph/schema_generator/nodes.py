@@ -12,10 +12,8 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
-
-from posthog.schema import FailureMessage, VisualizationMessage
-
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.schema import FailureMessage, VisualizationMessage
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI

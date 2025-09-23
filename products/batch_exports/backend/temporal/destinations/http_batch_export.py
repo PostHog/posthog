@@ -1,22 +1,16 @@
+import asyncio
+import dataclasses
+import datetime as dt
 import io
 import json
-import asyncio
-import datetime as dt
-import dataclasses
-
-from django.conf import settings
 
 import aiohttp
-from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-
+from django.conf import settings
 from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, HttpBatchExportInputs
 from posthog.models import BatchExportRun
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     StartBatchExportRunInputs,
@@ -29,6 +23,9 @@ from products.batch_exports.backend.temporal.metrics import get_bytes_exported_m
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, json_dumps_bytes
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
+from structlog.contextvars import bind_contextvars
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
 NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError",)
 LOGGER = get_logger(__name__)

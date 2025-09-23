@@ -1,9 +1,7 @@
 import json
 
 import pytest
-
 from braintrust import EvalCase
-
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

@@ -5,15 +5,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 
-from django.conf import settings
-from django.db.models import Q
-from django.utils import timezone
-
 import dagster
 import pydantic
 from clickhouse_driver.client import Client
+from django.conf import settings
+from django.db.models import Q
+from django.utils import timezone
 from more_itertools import chunked
-
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,

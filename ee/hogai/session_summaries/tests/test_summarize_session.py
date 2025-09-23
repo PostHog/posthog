@@ -3,12 +3,10 @@ from datetime import datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
-
-from temporalio.client import WorkflowExecutionStatus
-
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
+from temporalio.client import WorkflowExecutionStatus
+from unittest.mock import MagicMock, patch
 
 from ee.hogai.session_summaries.session.input_data import EXTRA_SUMMARY_EVENT_FIELDS, get_session_events
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData

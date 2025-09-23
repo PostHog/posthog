@@ -3,6 +3,7 @@ from datetime import timedelta
 from functools import partial, wraps
 from typing import Union
 
+import structlog
 from django.apps import apps
 from django.conf import settings
 from django.contrib.admin.sites import site as admin_site
@@ -17,9 +18,6 @@ from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
-
-import structlog
-
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception

@@ -1,8 +1,6 @@
 from typing import cast
 
-from psycopg import OperationalError
-from sshtunnel import BaseSSHTunnelForwarderError
-
+from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
@@ -10,8 +8,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
@@ -25,6 +21,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     postgres_source,
 )
 from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
+from psycopg import OperationalError
+from sshtunnel import BaseSSHTunnelForwarderError
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",

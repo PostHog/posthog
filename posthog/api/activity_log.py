@@ -1,13 +1,11 @@
 from typing import Optional
 
 from django.db.models import QuerySet
-
-from rest_framework import mixins, serializers, viewsets
-from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import ActivityLog, NotificationViewed
+from rest_framework import mixins, serializers, viewsets
+from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
 
 
 class ActivityLogSerializer(serializers.ModelSerializer):

@@ -2,11 +2,9 @@ from typing import Any
 
 from django.db.models import QuerySet
 from django.db.models.functions import Lower
-
-from rest_framework import serializers, viewsets
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.file_system.persisted_folder import PersistedFolder
+from rest_framework import serializers, viewsets
 
 
 class PersistedFolderSerializer(serializers.ModelSerializer):

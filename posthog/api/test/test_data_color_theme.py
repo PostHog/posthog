@@ -1,11 +1,9 @@
-from posthog.test.base import APIBaseTest
-
-from rest_framework import status
-
 from posthog.api.data_color_theme import DataColorTheme
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.test.base import APIBaseTest
+from rest_framework import status
 
 
 class TestDataColorTheme(APIBaseTest):

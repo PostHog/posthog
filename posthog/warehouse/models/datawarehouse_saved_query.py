@@ -7,18 +7,14 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
-
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-
-from posthog.schema import HogQLQueryModifiers
-
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
+from posthog.schema import HogQLQueryModifiers
 from posthog.sync import database_sync_to_async
 from posthog.warehouse.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -163,7 +159,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         from posthog.hogql.parser import parse_select
         from posthog.hogql.query import create_default_modifiers_for_team
         from posthog.hogql.resolver import resolve_types
-
         from posthog.models.property.util import S3TableVisitor
 
         context = HogQLContext(

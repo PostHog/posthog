@@ -2,29 +2,14 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
-from freezegun.api import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    FuzzyInt,
-    QueryMatchingTest,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-    snapshot_postgres_queries_context,
-)
-from unittest.mock import call, patch
-
 from django.core.cache import cache
 from django.db import connection
 from django.db.utils import OperationalError
 from django.test import TransactionTestCase
 from django.test.client import RequestFactory
 from django.utils.timezone import now
-
+from freezegun.api import freeze_time
 from parameterized import parameterized
-from rest_framework import status
-
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer
@@ -45,10 +30,21 @@ from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    FuzzyInt,
+    QueryMatchingTest,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+    snapshot_postgres_queries_context,
+)
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-
 from products.early_access_features.backend.models import EarlyAccessFeature
+from rest_framework import status
+from unittest.mock import call, patch
 
 
 class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):

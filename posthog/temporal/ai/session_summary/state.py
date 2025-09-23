@@ -1,12 +1,11 @@
 import gzip
-import json
 import hashlib
+import json
 from enum import Enum
 from typing import TypeVar
 
-from redis import asyncio as aioredis
-
 from posthog.redis import get_async_client
+from redis import asyncio as aioredis
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from ee.models.session_summaries import ExtraSummaryContext, SingleSessionSummary

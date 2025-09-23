@@ -8,8 +8,7 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field
-
+from posthog.models.notebook import Notebook
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
@@ -22,8 +21,7 @@ from posthog.schema import (
     ReasoningMessage,
     VisualizationItem,
 )
-
-from posthog.models.notebook import Notebook
+from pydantic import Field
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.planner.prompts import (

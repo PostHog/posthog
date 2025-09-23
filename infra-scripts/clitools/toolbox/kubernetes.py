@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Kubernetes context management functions."""
 
-import sys
 import subprocess
+import sys
 
 
 def get_available_contexts() -> list:

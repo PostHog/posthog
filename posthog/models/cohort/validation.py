@@ -1,10 +1,9 @@
 from typing import Any, Optional
 
 import structlog
+from posthog.models.cohort.cohort import CohortType
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
-
-from posthog.models.cohort.cohort import CohortType
 
 logger = structlog.get_logger(__name__)
 

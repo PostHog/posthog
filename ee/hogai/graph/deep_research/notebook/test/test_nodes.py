@@ -1,12 +1,10 @@
 from typing import cast
 
-from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
-
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
-
 from posthog.schema import DeepResearchType, HumanMessage, NotebookUpdateMessage, ProsemirrorJSONContent
+from posthog.test.base import APIBaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
 from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState

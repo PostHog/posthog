@@ -1,16 +1,13 @@
+import dataclasses
 import json
 import logging
-import dataclasses
 from datetime import timedelta
 from typing import Optional
-
-from django.conf import settings
 
 import structlog
 from asgiref.sync import sync_to_async
 from dateutil import parser
-from temporalio import activity, common, workflow
-
+from django.conf import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.tasks.usage_report import (
@@ -31,6 +28,7 @@ from posthog.tasks.usage_report import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import get_instance_region, get_previous_day
+from temporalio import activity, common, workflow
 
 logger = structlog.get_logger()
 logging.basicConfig(level=logging.INFO)

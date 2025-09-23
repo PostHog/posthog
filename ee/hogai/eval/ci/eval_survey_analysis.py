@@ -1,13 +1,10 @@
-import uuid
 import datetime
+import uuid
 
 import pytest
-
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
-
 from posthog.models import Survey
-
 from products.surveys.backend.max_tools import SurveyAnalysisTool
 
 from ..base import MaxPublicEval

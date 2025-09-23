@@ -1,6 +1,3 @@
-from rest_framework import mixins, status, viewsets
-from rest_framework.response import Response
-
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import CanEditFeatureFlag, FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -9,6 +6,8 @@ from posthog.api.utils import action
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
+from rest_framework import mixins, status, viewsets
+from rest_framework.response import Response
 
 
 class OrganizationFeatureFlagView(

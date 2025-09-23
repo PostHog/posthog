@@ -1,8 +1,7 @@
 from typing import Any
 
-from posthog.test.base import NonAtomicTestMigrations
-
 from parameterized import parameterized
+from posthog.test.base import NonAtomicTestMigrations
 
 
 class RemoveNullValuesFromTeamArraysMigrationTest(NonAtomicTestMigrations):

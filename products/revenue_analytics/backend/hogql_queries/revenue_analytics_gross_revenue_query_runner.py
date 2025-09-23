@@ -1,5 +1,8 @@
 from decimal import Decimal
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.schema import (
     CachedRevenueAnalyticsGrossRevenueQueryResponse,
     HogQLQueryResponse,
@@ -7,12 +10,6 @@ from posthog.schema import (
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsGrossRevenueQueryResponse,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date
-
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner

@@ -1,8 +1,6 @@
 import json
 from typing import Optional
 
-from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
-
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Element, Organization, Person, Team
@@ -17,6 +15,7 @@ from posthog.models.filters.test.test_filter import (
 )
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.util import PersonPropertiesMode
+from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 from posthog.test.test_journeys import journeys_for
 
 

@@ -1,6 +1,5 @@
-from posthog.test.base import BaseTest
-
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
+from posthog.test.base import BaseTest
 from posthog.utils import relative_date_parse
 
 

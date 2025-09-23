@@ -1,7 +1,6 @@
 from typing import Optional
 
 from django.db import models
-
 from posthog.models.utils import UUIDTModel
 
 ALL_MESSAGE_PREFERENCE_CATEGORY_ID = "$all"

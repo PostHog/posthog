@@ -8,32 +8,29 @@ Endpoints:
 """
 
 import json
-import uuid
 import logging
+import uuid
 from collections.abc import Callable, Generator
 from typing import Any, TypedDict, TypeGuard
 
-from django.http import StreamingHttpResponse
-
 import posthoganalytics
 from anthropic.types import MessageParam
-from rest_framework import serializers, viewsets
-from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.request import Request
-from rest_framework.response import Response
-
+from django.http import StreamingHttpResponse
 from posthog.auth import SessionAuthentication
 from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
-
 from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
 from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
 from products.llm_analytics.backend.providers.gemini import GeminiConfig, GeminiProvider
 from products.llm_analytics.backend.providers.inkeep import InkeepConfig, InkeepProvider
 from products.llm_analytics.backend.providers.openai import OpenAIConfig, OpenAIProvider
+from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 

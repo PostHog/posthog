@@ -4,10 +4,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-
-from posthog.schema import NodeKind, SourceMap
-
 from posthog.models.team import Team
+from posthog.schema import NodeKind, SourceMap
 
 # Based on team_revenue_analytics_config.py
 

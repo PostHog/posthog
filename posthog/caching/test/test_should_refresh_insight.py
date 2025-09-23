@@ -2,20 +2,17 @@ from datetime import datetime, timedelta
 from time import sleep
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_insight
-from unittest.mock import patch
-
 from django.http import HttpRequest
-
-from rest_framework.request import Request
-
+from freezegun import freeze_time
 from posthog.caching.insight_caching_state import InsightCachingState
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     CLICKHOUSE_MAX_EXECUTION_TIME,
     should_refresh_insight,
 )
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_insight
+from rest_framework.request import Request
+from unittest.mock import patch
 
 
 class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):

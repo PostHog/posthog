@@ -1,15 +1,5 @@
 from datetime import datetime
 
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
-
-from rest_framework.exceptions import ValidationError
-
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.filters import Filter
@@ -21,7 +11,15 @@ from posthog.queries.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_journeys import journeys_for
+from rest_framework.exceptions import ValidationError
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 

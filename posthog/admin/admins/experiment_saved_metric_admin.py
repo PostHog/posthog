@@ -3,7 +3,6 @@ from django.db import transaction
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
-
 from posthog.models import ExperimentSavedMetric
 from posthog.models.utils import convert_legacy_metric
 

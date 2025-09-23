@@ -2,20 +2,8 @@ import json
 from typing import Any, cast
 
 import pytest
-from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
-from unittest.mock import patch
-
 from django.test import override_settings
-
 from parameterized import parameterized
-
-from posthog.schema import (
-    DatabaseSchemaDataWarehouseTable,
-    DataWarehouseEventsModifier,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
-)
-
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
@@ -34,15 +22,22 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
-
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.schema import (
+    DatabaseSchemaDataWarehouseTable,
+    DataWarehouseEventsModifier,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+)
+from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.warehouse.types import ExternalDataSourceType
+from unittest.mock import patch
 
 
 class TestDatabase(BaseTest, QueryMatchingTest):

@@ -3,10 +3,6 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 import structlog
-from prometheus_client import Counter
-from requests import Response, Session
-from requests.adapters import HTTPAdapter, Retry
-
 from posthog.logging.timing import timed
 from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_MAX_WORKERS,
@@ -15,6 +11,9 @@ from posthog.settings.ingestion import (
     NEW_ANALYTICS_CAPTURE_ENDPOINT,
     REPLAY_CAPTURE_ENDPOINT,
 )
+from prometheus_client import Counter
+from requests import Response, Session
+from requests.adapters import HTTPAdapter, Retry
 
 logger = structlog.get_logger(__name__)
 

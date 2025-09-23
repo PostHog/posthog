@@ -1,5 +1,4 @@
 from django.test import TestCase
-
 from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer, EmailValidationHelper
 from posthog.models.user import User
 

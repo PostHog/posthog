@@ -2,7 +2,9 @@ import re
 from typing import NamedTuple
 
 import structlog
-
+from posthog.hogql import ast
+from posthog.hogql.property import action_to_expr
+from posthog.models import Action, Team
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
@@ -15,11 +17,6 @@ from posthog.schema import (
     PropertyOperator,
     QueryTiming,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr
-
-from posthog.models import Action, Team
 from posthog.types import AnyPropertyFilter
 
 logger = structlog.get_logger(__name__)

@@ -2,28 +2,7 @@ import re
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
-
 from drf_spectacular.utils import OpenApiResponse
-from pydantic import BaseModel
-from rest_framework import status, viewsets
-from rest_framework.exceptions import NotAuthenticated, Throttled, ValidationError
-from rest_framework.request import Request
-from rest_framework.response import Response
-
-from posthog.schema import (
-    HogQLQuery,
-    HogQLQueryModifiers,
-    QueryRequest,
-    QueryResponseAlternative,
-    QueryStatusResponse,
-    QueryUpgradeRequest,
-    QueryUpgradeResponse,
-)
-
-from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-
 from posthog import settings
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -37,6 +16,9 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
@@ -52,7 +34,21 @@ from posthog.rate_limit import (
     HogQLQueryThrottle,
 )
 from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.schema import (
+    HogQLQuery,
+    HogQLQueryModifiers,
+    QueryRequest,
+    QueryResponseAlternative,
+    QueryStatusResponse,
+    QueryUpgradeRequest,
+    QueryUpgradeResponse,
+)
 from posthog.schema_migrations.upgrade import upgrade
+from pydantic import BaseModel
+from rest_framework import status, viewsets
+from rest_framework.exceptions import NotAuthenticated, Throttled, ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from common.hogvm.python.utils import HogVMException
 

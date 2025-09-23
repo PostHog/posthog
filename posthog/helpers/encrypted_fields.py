@@ -1,17 +1,16 @@
 # Forked from https://github.com/jazzband/django-fernet-encrypted-fields to add a few extra things that are useful for us and
 # keep consistency as we also decrypt outside of django
 
-import json
 import base64
-
-from django.conf import settings
-from django.db import models
-from django.utils.functional import cached_property
+import json
 
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from django.conf import settings
+from django.db import models
+from django.utils.functional import cached_property
 
 
 class EncryptedFieldMixin:

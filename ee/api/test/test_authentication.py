@@ -1,24 +1,21 @@
+import datetime
 import os
 import uuid
-import datetime
 from typing import cast
 
 import pytest
-from freezegun.api import freeze_time
-from unittest.mock import patch
-
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.test import override_settings
 from django.utils import timezone
-
-from rest_framework import status
-from social_core.exceptions import AuthFailed, AuthMissingParameter
-from social_django.models import UserSocialAuth
-
+from freezegun.api import freeze_time
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
+from rest_framework import status
+from social_core.exceptions import AuthFailed, AuthMissingParameter
+from social_django.models import UserSocialAuth
+from unittest.mock import patch
 
 from ee.api.authentication import CustomGoogleOAuth2
 from ee.api.test.base import APILicensedTest

@@ -1,10 +1,7 @@
-from posthog.test.base import APIBaseTest
-
 from dateutil import parser
-
-from posthog.schema import DateRange, IntervalType
-
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.schema import DateRange, IntervalType
+from posthog.test.base import APIBaseTest
 
 
 class TestQueryCompareToDateRange(APIBaseTest):

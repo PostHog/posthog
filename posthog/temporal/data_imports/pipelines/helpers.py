@@ -2,7 +2,6 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from django.db.models import F
-
 from posthog.sync import database_sync_to_async
 from posthog.warehouse.types import IncrementalFieldType
 

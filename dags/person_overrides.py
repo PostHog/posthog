@@ -1,13 +1,12 @@
+import datetime
 import time
 import uuid
-import datetime
 from dataclasses import dataclass
 from functools import partial
 
 import dagster
 import pydantic
 from clickhouse_driver import Client
-
 from posthog import settings
 from posthog.clickhouse.cluster import (
     AlterTableMutationRunner,

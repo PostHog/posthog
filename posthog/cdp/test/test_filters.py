@@ -1,13 +1,10 @@
 import json
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-
 from inline_snapshot import snapshot
-
-from posthog.hogql.compiler.bytecode import create_bytecode
-
 from posthog.cdp.filters import compile_filters_bytecode, hog_function_filters_to_expr
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.models.action.action import Action
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION

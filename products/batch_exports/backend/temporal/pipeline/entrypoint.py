@@ -1,16 +1,11 @@
-import datetime as dt
 import collections.abc
+import datetime as dt
 
 from django.conf import settings
-
-from temporalio import exceptions, workflow
-from temporalio.common import RetryPolicy
-
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportInsertInputs
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import FinishBatchExportRunInputs, finish_batch_export_run
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
@@ -18,6 +13,8 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from temporalio import exceptions, workflow
+from temporalio.common import RetryPolicy
 
 LOGGER = get_write_only_logger(__name__)
 

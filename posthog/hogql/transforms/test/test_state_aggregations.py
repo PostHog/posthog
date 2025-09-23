@@ -2,8 +2,7 @@ from datetime import datetime
 from typing import Any
 
 import pytest
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
@@ -14,8 +13,7 @@ from posthog.hogql.transforms.state_aggregations import (
     transform_query_to_state_aggregations,
     wrap_state_query_in_merge_query,
 )
-
-from posthog.clickhouse.client.execute import sync_execute
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 
 class TestStateTransforms(BaseTest):

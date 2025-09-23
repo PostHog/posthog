@@ -1,8 +1,8 @@
 import abc
-import typing
 import asyncio
-import dataclasses
 import collections.abc
+import dataclasses
+import typing
 
 from structlog import get_logger
 from temporalio import activity

@@ -2,15 +2,12 @@
 Tests for signal handlers in posthog/models/remote_config.py.
 """
 
-from unittest.mock import MagicMock, patch
-
 from django.test import TestCase
-
 from parameterized import parameterized
-
 from posthog.models.organization import OrganizationMembership
 from posthog.models.remote_config import organization_membership_deleted, user_saved
 from posthog.models.user import User
+from unittest.mock import MagicMock, patch
 
 
 class TestUserSavedSignalHandler(TestCase):

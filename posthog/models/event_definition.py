@@ -1,7 +1,6 @@
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils import timezone
-
 from posthog.models.team import Team
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 

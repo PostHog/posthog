@@ -1,14 +1,13 @@
 import os
+import shutil
+import subprocess
+import tempfile
 import time
 import uuid
-import shutil
-import tempfile
-import subprocess
 from typing import Optional
 
-import structlog
 import posthoganalytics
-
+import structlog
 from posthog.exceptions_capture import capture_exception
 
 from playwright.sync_api import (

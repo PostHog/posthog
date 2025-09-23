@@ -1,10 +1,9 @@
 import asyncio
 from typing import Optional
 
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-
 from posthog.constants import TASKS_TASK_QUEUE
 from posthog.temporal.common.client import async_connect
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from .inputs import TaskProcessingInputs
 
@@ -15,9 +14,9 @@ async def _execute_task_processing_workflow(task_id: str, team_id: int, user_id:
     inputs = TaskProcessingInputs(task_id=task_id, team_id=team_id, user_id=user_id)
 
     # Create unique workflow ID based on task and timestamp
+    import logging
     import time
     import uuid
-    import logging
 
     # Use high-resolution timestamp + random suffix to avoid collisions when re-triggering within the same second
     workflow_id = f"task-processing-{task_id}-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
@@ -59,7 +58,6 @@ def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Option
             try:
                 # Check feature flag in the thread where we can make sync Django calls
                 import posthoganalytics
-
                 from posthog.models.team.team import Team
                 from posthog.models.user import User
 

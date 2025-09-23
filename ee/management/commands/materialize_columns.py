@@ -1,8 +1,7 @@
-import logging
 import argparse
+import logging
 
 from django.core.management.base import BaseCommand
-
 from posthog.settings import (
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,

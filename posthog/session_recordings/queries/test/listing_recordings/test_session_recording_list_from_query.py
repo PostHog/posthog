@@ -2,22 +2,10 @@ from datetime import datetime
 from typing import Literal
 from uuid import uuid4
 
-from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
-from unittest.mock import ANY
-
-from django.utils.timezone import now
-
 from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
+from freezegun import freeze_time
 from parameterized import parameterized, parameterized_class
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
@@ -38,7 +26,16 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from unittest.mock import ANY
 
 from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
 

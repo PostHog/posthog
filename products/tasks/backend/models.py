@@ -3,9 +3,7 @@ from typing import Optional
 
 from django.db import models
 from django.utils import timezone
-
 from django_deprecate_fields import deprecate_field
-
 from products.tasks.backend.agents import get_agent_by_id
 
 

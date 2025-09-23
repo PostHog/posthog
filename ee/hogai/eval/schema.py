@@ -4,13 +4,10 @@ from collections.abc import Generator, Sequence
 from typing import Any, Generic, Self, TypeVar
 
 from django.db.models import Model
-
+from posthog.models import DataWarehouseTable, GroupTypeMapping, PropertyDefinition, Team
+from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
 from pydantic import BaseModel, Field
 from pydantic_avro import AvroBase
-
-from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
-
-from posthog.models import DataWarehouseTable, GroupTypeMapping, PropertyDefinition, Team
 
 T = TypeVar("T", bound=Model)
 

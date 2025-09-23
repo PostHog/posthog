@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, Optional
 from uuid import uuid4
 
 from django.utils import timezone
-
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest

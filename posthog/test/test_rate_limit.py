@@ -1,19 +1,13 @@
-import json
 import base64
+import json
 from datetime import timedelta
 from urllib.parse import quote
-
-from freezegun.api import freeze_time
-from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, Mock, call, patch
 
 from django.core.cache import cache
 from django.test.client import Client
 from django.utils.timezone import now
-
+from freezegun.api import freeze_time
 from parameterized import parameterized
-from rest_framework import status
-
 from posthog import models, rate_limit
 from posthog.api.feature_flag import LocalEvaluationThrottle, RemoteConfigThrottle
 from posthog.api.test.test_team import create_team
@@ -23,6 +17,9 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, HogQLQueryThrottle, get_route_from_path
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from unittest.mock import ANY, Mock, call, patch
 
 
 class TestUserAPI(APIBaseTest):

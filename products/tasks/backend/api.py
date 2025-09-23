@@ -2,14 +2,12 @@ import logging
 from typing import cast
 
 from django.utils import timezone
-
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
 from .agents import get_all_agents
 from .models import Task, TaskProgress, TaskWorkflow, WorkflowStage

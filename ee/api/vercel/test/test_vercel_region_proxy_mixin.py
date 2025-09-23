@@ -2,14 +2,12 @@ import json
 from contextlib import contextmanager
 
 import pytest
-from unittest.mock import MagicMock, Mock, _patch, patch
-
+import requests
 from django.http import HttpResponse
 from django.test import RequestFactory
-
-import requests
 from rest_framework import exceptions, viewsets
 from rest_framework.response import Response
+from unittest.mock import MagicMock, Mock, _patch, patch
 
 from ee.api.vercel.test.base import VercelTestBase
 from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin

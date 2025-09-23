@@ -2,21 +2,9 @@ import asyncio
 from dataclasses import asdict
 from datetime import timedelta
 
-from django.conf import settings
-
 import structlog
 from asgiref.sync import async_to_sync
-from temporalio.client import (
-    Client,
-    Schedule,
-    ScheduleActionStartWorkflow,
-    ScheduleAlreadyRunningError,
-    ScheduleCalendarSpec,
-    ScheduleIntervalSpec,
-    ScheduleRange,
-    ScheduleSpec,
-)
-
+from django.conf import settings
 from posthog.constants import BILLING_TASK_QUEUE, GENERAL_PURPOSE_TASK_QUEUE, MAX_AI_TASK_QUEUE
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
@@ -27,6 +15,16 @@ from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQ
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
+from temporalio.client import (
+    Client,
+    Schedule,
+    ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
+    ScheduleCalendarSpec,
+    ScheduleIntervalSpec,
+    ScheduleRange,
+    ScheduleSpec,
+)
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 

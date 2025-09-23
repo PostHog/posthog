@@ -1,10 +1,6 @@
 from typing import cast
 
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
-from unittest.mock import patch
-
-from rest_framework.exceptions import ValidationError
-
+from posthog.api.services.query import process_query_dict
 from posthog.schema import (
     AssistantFunnelsFilter,
     AssistantFunnelsQuery,
@@ -21,8 +17,9 @@ from posthog.schema import (
     QueryStatus,
     VisualizationMessage,
 )
-
-from posthog.api.services.query import process_query_dict
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
+from rest_framework.exceptions import ValidationError
+from unittest.mock import patch
 
 from ee.hogai.graph.query_executor.nodes import QueryExecutorNode
 from ee.hogai.graph.query_executor.prompts import (

@@ -1,13 +1,11 @@
-import os
 import asyncio
+import os
 from collections.abc import Sequence
 from functools import partial
 
 import pytest
-
 from braintrust import EvalAsync, EvalCase, Metadata, init_logger
 from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
-
 from posthog.models.utils import uuid7
 
 from ee.hogai.eval.schema import DatasetInput

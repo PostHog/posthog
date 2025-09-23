@@ -1,11 +1,7 @@
 import os
 
-import pytest
-from posthog.test.base import APIBaseTest
-from unittest.mock import Mock, patch
-
 import dagster
-
+import pytest
 from posthog.models.team.team import Team
 from posthog.models.web_preaggregated.team_selection import DEFAULT_ENABLED_TEAM_IDS
 from posthog.models.web_preaggregated.team_selection_strategies import (
@@ -13,6 +9,8 @@ from posthog.models.web_preaggregated.team_selection_strategies import (
     HighPageviewsStrategy,
     ProjectSettingsStrategy,
 )
+from posthog.test.base import APIBaseTest
+from unittest.mock import Mock, patch
 
 from dags.web_preaggregated_team_selection import (
     get_team_ids_from_sources,

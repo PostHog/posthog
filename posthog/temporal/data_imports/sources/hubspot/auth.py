@@ -1,6 +1,5 @@
-from django.conf import settings
-
 import requests
+from django.conf import settings
 
 
 def hubspot_refresh_access_token(refresh_token: str) -> str:

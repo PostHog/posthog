@@ -1,18 +1,15 @@
+import importlib
 import json
 import pkgutil
-import importlib
 from typing import Any, Literal
 
+import products
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
-
-from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
-
 from posthog.models import Team, User
-
-import products
+from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
+from pydantic import BaseModel, Field
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState

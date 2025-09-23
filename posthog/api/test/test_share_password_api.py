@@ -1,13 +1,11 @@
 import json
 
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
-
-from rest_framework import status
-
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, SharePassword, SharingConfiguration
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from unittest.mock import patch
 
 
 class TestSharePasswordAPI(APIBaseTest):

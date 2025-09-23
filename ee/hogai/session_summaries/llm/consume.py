@@ -1,5 +1,5 @@
-import os
 import json
+import os
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
@@ -8,9 +8,8 @@ import openai
 import structlog
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
-from prometheus_client import Histogram
-
 from posthog.temporal.ai.session_summary.state import generate_state_id_from_session_ids
+from prometheus_client import Histogram
 
 from ee.hogai.session_summaries import ExceptionToRetry, SummaryValidationError
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL

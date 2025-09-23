@@ -1,15 +1,14 @@
+import dataclasses
 import json
 import logging
-import dataclasses
 from datetime import timedelta
 
 import structlog
 from asgiref.sync import sync_to_async
-from temporalio import activity, common, workflow
-
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+from temporalio import activity, common, workflow
 
 logger = structlog.get_logger()
 logging.basicConfig(level=logging.INFO)

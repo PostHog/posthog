@@ -1,7 +1,5 @@
 from typing import Any
 
-from posthog.schema import PersonsOnEventsMode
-
 from posthog.constants import MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.entity.util import get_entity_filtering_params
@@ -12,6 +10,7 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS, get_active_user_params
 from posthog.queries.util import get_person_properties_mode
+from posthog.schema import PersonsOnEventsMode
 
 
 class TrendsEventQueryBase(EventQuery):

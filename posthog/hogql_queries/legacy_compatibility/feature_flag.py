@@ -1,9 +1,8 @@
 from typing import Literal
 
 import posthoganalytics
-from rest_framework.request import Request
-
 from posthog.models import Team
+from rest_framework.request import Request
 
 
 def hogql_insights_replace_filters(team: Team) -> bool:

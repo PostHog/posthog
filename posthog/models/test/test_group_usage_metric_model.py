@@ -1,6 +1,5 @@
-from posthog.test.base import BaseTest
-
 from posthog.models import GroupUsageMetric
+from posthog.test.base import BaseTest
 
 
 class GroupUsageMetricTestCase(BaseTest):

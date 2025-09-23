@@ -1,6 +1,6 @@
-import sys
-import inspect
 import dataclasses
+import inspect
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum

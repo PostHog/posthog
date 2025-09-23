@@ -2,19 +2,12 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from unittest import mock
-from unittest.mock import MagicMock, patch
-
-from django.db import transaction
-from django.test import override_settings
-
 from boto3 import resource
 from botocore.config import Config
+from django.db import transaction
+from django.test import override_settings
+from freezegun import freeze_time
 from parameterized import parameterized
-from rest_framework import status
-
 from posthog import redis
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.file_system.file_system import FileSystem
@@ -32,6 +25,10 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from rest_framework import status
+from unittest import mock
+from unittest.mock import MagicMock, patch
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 

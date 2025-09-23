@@ -1,8 +1,6 @@
 from langchain_core.runnables import RunnableConfig
-
-from posthog.schema import AssistantHogQLQuery
-
 from posthog.hogql.context import HogQLContext
+from posthog.schema import AssistantHogQLQuery
 
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName

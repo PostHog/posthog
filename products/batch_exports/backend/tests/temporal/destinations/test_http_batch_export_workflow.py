@@ -1,26 +1,17 @@
-import json
 import asyncio
 import datetime as dt
+import json
 from random import randint
 from uuid import uuid4
 
 import pytest
 import unittest.mock
-
+from aioresponses import aioresponses
 from django.conf import settings
 from django.test import override_settings
-
-from aioresponses import aioresponses
-from temporalio import activity
-from temporalio.client import WorkflowFailureError
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-
 from products.batch_exports.backend.temporal.batch_exports import (
     BackfillDetails,
     finish_batch_export_run,
@@ -37,6 +28,11 @@ from products.batch_exports.backend.temporal.destinations.http_batch_export impo
     insert_into_http_activity,
 )
 from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 pytestmark = [
     pytest.mark.asyncio,

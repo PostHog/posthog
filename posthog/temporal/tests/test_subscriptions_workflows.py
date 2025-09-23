@@ -4,16 +4,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
-from unittest.mock import MagicMock, call, patch
-
-from django.conf import settings
-
 from asgiref.sync import sync_to_async
-from temporalio.client import Client
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
+from django.conf import settings
+from freezegun import freeze_time
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
@@ -27,6 +20,10 @@ from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
     deliver_subscription_report_activity,
     fetch_due_subscriptions_activity,
 )
+from temporalio.client import Client
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from unittest.mock import MagicMock, call, patch
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 

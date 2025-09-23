@@ -7,20 +7,14 @@ from collections.abc import Callable, Iterable
 from typing import Any, Literal, Optional, Union, cast
 
 from django.db.models import QuerySet
-
-from rest_framework import exceptions
-
-from posthog.schema import PropertyOperator
-
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
+from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
-
-from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
-from posthog.constants import PropertyOperatorType
 from posthog.models.action.action import Action
 from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.cohort import Cohort
@@ -45,9 +39,11 @@ from posthog.models.property import (
 from posthog.models.property.property import ValueT
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
+from posthog.schema import PropertyOperator
 from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.types import ErrorTrackingIssueFilter
 from posthog.utils import is_json, is_valid_regex
+from rest_framework import exceptions
 
 StringMatching = Literal["selector", "tag_name", "href", "text"]
 

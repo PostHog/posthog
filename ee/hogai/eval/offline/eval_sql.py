@@ -2,17 +2,13 @@ import asyncio
 from typing import TypedDict, cast
 
 import pytest
-
 from braintrust import EvalCase, Score
-from pydantic import BaseModel, Field
-
-from posthog.schema import AssistantHogQLQuery, HumanMessage, VisualizationMessage
-
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-
 from posthog.models import Team
+from posthog.schema import AssistantHogQLQuery, HumanMessage, VisualizationMessage
 from posthog.sync import database_sync_to_async
+from pydantic import BaseModel, Field
 
 from ee.hogai.eval.base import MaxPrivateEval
 from ee.hogai.eval.offline.conftest import EvaluationContext, capture_score, get_eval_context

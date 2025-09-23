@@ -4,7 +4,6 @@ from uuid import uuid4
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-
 from posthog.schema import AssistantMessage, HumanMessage
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode

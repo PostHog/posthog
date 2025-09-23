@@ -2,16 +2,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
+from posthog.api.utils import action
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.models.team.team import Team
+from posthog.utils import relative_date_parse_with_delta_mapping
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
-
-from posthog.api.utils import action
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.team.team import Team
-from posthog.utils import relative_date_parse_with_delta_mapping
 
 
 @dataclass

@@ -1,6 +1,9 @@
-from rest_framework import decorators, exceptions, viewsets
-from rest_framework_extensions.routers import NestedRegistryItem
-
+import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+import products.early_access_features.backend.api as early_access_feature
+import products.links.backend.api as link
+import products.logs.backend.api as logs
+import products.revenue_analytics.backend.api as revenue_analytics
+import products.tasks.backend.api as tasks
 from posthog.api import data_color_theme, hog_flow, metalytics, my_notifications, named_query, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
@@ -21,16 +24,11 @@ from posthog.warehouse.api import (
     view_link,
 )
 from posthog.warehouse.api.lineage import LineageViewSet
-
-import products.logs.backend.api as logs
-import products.links.backend.api as link
-import products.tasks.backend.api as tasks
-import products.revenue_analytics.backend.api as revenue_analytics
-import products.early_access_features.backend.api as early_access_feature
-import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, LLMProxyViewSet
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
+from rest_framework import decorators, exceptions, viewsets
+from rest_framework_extensions.routers import NestedRegistryItem
 
 from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
 

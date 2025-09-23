@@ -3,10 +3,8 @@ from functools import cached_property
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from django.utils import timezone
-
 from dateutil.relativedelta import relativedelta
-
+from django.utils import timezone
 from posthog.models.filters import AnyFilter
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.interval import IntervalMixin

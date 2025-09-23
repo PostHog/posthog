@@ -4,13 +4,11 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from django.db.models import Q, QuerySet
-from django.utils import timezone
-
 import structlog
 from celery import shared_task
 from dateutil import parser
-
+from django.db.models import Q, QuerySet
+from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition

@@ -1,7 +1,16 @@
-import json
 import datetime as dt
+import json
 from zoneinfo import ZoneInfo
 
+from posthog.clickhouse.client.connection import Workload
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.property import property_to_expr
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     CachedLogsQueryResponse,
     HogQLFilters,
@@ -12,17 +21,6 @@ from posthog.schema import (
     PropertyGroupsMode,
     PropertyOperator,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import property_to_expr
-
-from posthog.clickhouse.client.connection import Workload
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 
 class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):

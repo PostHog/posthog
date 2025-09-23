@@ -1,8 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
-
 from django.core.management import call_command
-
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.management.commands.sync_hog_function_templates import (
     TEST_INCLUDE_NODEJS_TEMPLATE_IDS,
@@ -10,6 +7,7 @@ from posthog.management.commands.sync_hog_function_templates import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
 )
 from posthog.models.hog_function_template import HogFunctionTemplate
+from unittest.mock import MagicMock, patch
 
 pytestmark = pytest.mark.django_db
 

@@ -2,13 +2,11 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
-
 from django.core.cache import cache
 from django.test import TestCase
-
 from posthog.models import Survey
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 
 class TestExternalSurveys(APIBaseTest):

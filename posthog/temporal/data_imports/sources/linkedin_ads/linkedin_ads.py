@@ -1,10 +1,9 @@
-import typing
-import datetime as dt
 import collections.abc
+import datetime as dt
+import typing
 from dataclasses import dataclass
 
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value, initial_datetime
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse

@@ -1,11 +1,10 @@
-from unittest import TestCase
-
 from posthog.models.surveys.util import (
     _build_coalesce_query,
     _build_id_based_key,
     _build_index_based_key,
     get_survey_response_clickhouse_query,
 )
+from unittest import TestCase
 
 
 class TestSurveyResponseFunctions(TestCase):

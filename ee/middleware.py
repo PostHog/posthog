@@ -4,14 +4,12 @@ from collections.abc import Callable
 from typing import cast
 from urllib.parse import urlencode
 
-from django.conf import settings
-from django.http import HttpRequest, HttpResponse
-from django.shortcuts import redirect
-
 import jwt
 import requests
 import structlog
-
+from django.conf import settings
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import redirect
 from posthog.models import User
 from posthog.utils import get_ip_address, get_short_user_agent
 

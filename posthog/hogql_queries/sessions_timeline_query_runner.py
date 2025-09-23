@@ -1,6 +1,12 @@
 import json
 from typing import cast
 
+from posthog.api.element import ElementSerializer
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.models.element.element import chain_to_elements
 from posthog.schema import (
     CachedSessionsTimelineQueryResponse,
     EventType,
@@ -8,14 +14,6 @@ from posthog.schema import (
     SessionsTimelineQueryResponse,
     TimelineEntry,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.api.element import ElementSerializer
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models.element.element import chain_to_elements
 from posthog.utils import relative_date_parse
 
 

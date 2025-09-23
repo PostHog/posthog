@@ -1,15 +1,9 @@
 import json
 from typing import Any, Optional
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from unittest.mock import ANY, MagicMock, patch
-
 from django.db import connection
-
+from freezegun import freeze_time
 from inline_snapshot import snapshot
-from rest_framework import status
-
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -18,6 +12,9 @@ from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from rest_framework import status
+from unittest.mock import ANY, MagicMock, patch
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 

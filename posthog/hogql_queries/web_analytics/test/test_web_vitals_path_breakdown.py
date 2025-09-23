@@ -1,12 +1,5 @@
 from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
-
+from posthog.hogql_queries.web_analytics.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -17,8 +10,13 @@ from posthog.schema import (
     WebVitalsPathBreakdownResult,
     WebVitalsPathBreakdownResultItem,
 )
-
-from posthog.hogql_queries.web_analytics.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 
 
 @snapshot_clickhouse_queries

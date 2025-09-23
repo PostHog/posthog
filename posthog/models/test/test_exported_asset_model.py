@@ -1,9 +1,8 @@
 from datetime import datetime, timedelta
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
-
 from posthog.models.exported_asset import ExportedAsset
+from posthog.test.base import APIBaseTest
 
 
 class TestExportedAssetModel(APIBaseTest):

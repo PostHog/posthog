@@ -1,14 +1,11 @@
 from datetime import timedelta
 
+import dagster
 import unittest.mock
-from freezegun import freeze_time
-
 from django.db.models import Q
 from django.test import TestCase, override_settings
 from django.utils import timezone
-
-import dagster
-
+from freezegun import freeze_time
 from posthog.models import Organization, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 

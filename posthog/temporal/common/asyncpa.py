@@ -2,7 +2,6 @@ import asyncio
 import collections.abc
 
 import pyarrow as pa
-
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()

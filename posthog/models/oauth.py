@@ -5,7 +5,6 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
-
 from oauth2_provider.models import (
     AbstractAccessToken,
     AbstractApplication,
@@ -13,7 +12,6 @@ from oauth2_provider.models import (
     AbstractIDToken,
     AbstractRefreshToken,
 )
-
 from posthog.models.utils import UUIDT
 
 

@@ -3,11 +3,6 @@ from collections import Counter
 from typing import Any, Literal, Optional
 
 from django.conf import settings
-
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import RevenueCurrencyPropertyConfig
-
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
 from posthog.models.action import Action
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
@@ -15,6 +10,8 @@ from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
 from posthog.models.utils import sane_repr
+from posthog.schema import RevenueCurrencyPropertyConfig
+from rest_framework.exceptions import ValidationError
 
 MathType = Literal[
     "total",

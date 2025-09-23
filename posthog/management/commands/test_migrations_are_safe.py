@@ -2,8 +2,8 @@
 
 import os
 import re
-import sys
 import select
+import sys
 from typing import Optional
 
 from django.core.management import call_command

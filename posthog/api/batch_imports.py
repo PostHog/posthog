@@ -1,18 +1,12 @@
-import uuid
 import dataclasses
+import uuid
 from datetime import timedelta
 from enum import Enum
 
+import posthoganalytics
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
-
-import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters, serializers, status, viewsets
-from rest_framework.decorators import action
-from rest_framework.request import Request
-from rest_framework.response import Response
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
@@ -25,6 +19,10 @@ from posthog.models.activity_logging.model_activity import get_current_user, get
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.signals import model_activity_signal
 from posthog.models.user import User
+from rest_framework import filters, serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 
 class BatchImportKafkaTopic(str, Enum):

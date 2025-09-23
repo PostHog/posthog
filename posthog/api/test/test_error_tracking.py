@@ -1,16 +1,10 @@
 import os
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, patch
-
-from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
-
 from boto3 import resource
 from botocore.config import Config
-from rest_framework import status
-
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
+from freezegun import freeze_time
 from posthog.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -25,6 +19,9 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from unittest.mock import ANY, patch
 
 from ee.models.rbac.role import Role
 

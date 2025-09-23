@@ -5,13 +5,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
-from django.conf import settings
-
 import dagster
 import pydantic
 from clickhouse_driver import Client
 from dagster_aws.s3 import S3Resource
-
+from django.conf import settings
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 

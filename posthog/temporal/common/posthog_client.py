@@ -1,6 +1,7 @@
 from dataclasses import is_dataclass
 from typing import Any, Literal, Optional
 
+from posthog.temporal.common.logger import get_write_only_logger
 from posthoganalytics import api_key, capture_exception
 from temporalio import activity, workflow
 from temporalio.worker import (
@@ -11,8 +12,6 @@ from temporalio.worker import (
     WorkflowInboundInterceptor,
     WorkflowInterceptorClassInput,
 )
-
-from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
 

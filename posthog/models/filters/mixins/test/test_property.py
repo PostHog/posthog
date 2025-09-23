@@ -1,11 +1,9 @@
 import json
 
 import pytest
-
-from rest_framework.exceptions import ValidationError
-
 from posthog.models import Filter
 from posthog.models.property import Property, PropertyGroup
+from rest_framework.exceptions import ValidationError
 
 
 def test_property_group_multi_level_parsing():

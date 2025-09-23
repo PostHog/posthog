@@ -2,7 +2,6 @@ from collections.abc import Callable
 from typing import Optional
 
 import structlog
-
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate

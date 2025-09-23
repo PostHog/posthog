@@ -1,14 +1,11 @@
-from unittest import mock
-
 from django.core.cache import cache
 from django.test import TestCase
-
-from posthog.schema import PersonsOnEventsMode
-
 from posthog.models import Dashboard, DashboardTile, Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
+from posthog.schema import PersonsOnEventsMode
+from unittest import mock
 
 from .base import BaseTest
 

@@ -1,16 +1,14 @@
 from typing import Optional
 
+from celery import shared_task
 from django.core.management import call_command
 from django.utils import timezone
-
-from celery import shared_task
-from structlog import get_logger
-
 from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.action.action import Action
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
+from structlog import get_logger
 
 logger = get_logger(__name__)
 

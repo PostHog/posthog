@@ -1,11 +1,9 @@
 import pytest
-from posthog.test.base import APIBaseTest
-
 from django.db import connection
-
 from posthog.helpers.full_text_search import process_query
 from posthog.models import Dashboard, FeatureFlag, Insight, Notebook, Team
 from posthog.models.event_definition import EventDefinition
+from posthog.test.base import APIBaseTest
 
 
 class TestSearch(APIBaseTest):

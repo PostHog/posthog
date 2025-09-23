@@ -1,20 +1,18 @@
-import re
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
-from django.utils.timezone import now
-
 from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, viewsets
-from rest_framework.request import Request
-from rest_framework.response import Response
-
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from rest_framework import exceptions, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 
 class DebugCHQueries(viewsets.ViewSet):

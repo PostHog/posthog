@@ -1,5 +1,4 @@
 from django.db import models
-
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDTModel

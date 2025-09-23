@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """User identification and pod claiming functions."""
 
-import re
-import sys
 import json
+import re
 import subprocess
+import sys
 
 
 def get_current_user() -> dict:

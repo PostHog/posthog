@@ -3,7 +3,6 @@ from typing import Any
 
 from django.db import transaction
 from django.db.models import Q
-
 from posthog.api.hog_function import HogFunctionSerializer
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunction

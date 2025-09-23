@@ -1,12 +1,9 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-from django.utils.timezone import now
-
 from dateutil.relativedelta import relativedelta
-
+from django.utils.timezone import now
 from posthog.models import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):

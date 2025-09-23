@@ -1,10 +1,9 @@
 import json
 
-from posthog.test.base import APIBaseTest
-
 from posthog.models import PersonalAPIKey
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.test.base import APIBaseTest
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
 

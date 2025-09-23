@@ -1,9 +1,7 @@
 import logging
 
-from django.core.management.base import BaseCommand
-
 import structlog
-
+from django.core.management.base import BaseCommand
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.kafka_client.client import KafkaProducer
 from posthog.models import ErrorTrackingIssueFingerprintV2

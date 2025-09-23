@@ -3,7 +3,6 @@ import logging
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-
 from posthog.rbac.decorators import field_access_control
 from posthog.warehouse.types import ExternalDataSourceType
 

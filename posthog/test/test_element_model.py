@@ -1,6 +1,5 @@
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-
 from posthog.models.element import Element, chain_to_elements, elements_to_string
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 class TestElement(ClickhouseTestMixin, BaseTest):

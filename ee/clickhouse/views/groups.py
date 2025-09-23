@@ -1,21 +1,15 @@
 from collections import defaultdict
 from typing import Optional, cast
 
+import posthoganalytics
+import structlog
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-
-import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from loginas.utils import is_impersonated_session
-from requests import HTTPError
-from rest_framework import mixins, request, response, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.pagination import CursorPagination
-
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -38,6 +32,10 @@ from posthog.models.notebook.util import (
     create_text_content,
 )
 from posthog.models.user import User
+from requests import HTTPError
+from rest_framework import mixins, request, response, serializers, status, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.pagination import CursorPagination
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException

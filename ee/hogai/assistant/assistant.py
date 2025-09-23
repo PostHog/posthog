@@ -1,9 +1,8 @@
 from typing import Any, Optional
 from uuid import UUID
 
-from posthog.schema import HumanMessage, MaxBillingContext
-
 from posthog.models import Team, User
+from posthog.schema import HumanMessage, MaxBillingContext
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.assistant.deep_research_assistant import DeepResearchAssistant

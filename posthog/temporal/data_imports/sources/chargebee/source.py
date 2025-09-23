@@ -7,7 +7,6 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.chargebee.chargebee import (
     chargebee_source,

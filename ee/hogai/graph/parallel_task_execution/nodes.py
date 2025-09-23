@@ -1,15 +1,13 @@
-import uuid
 import asyncio
+import uuid
 from collections.abc import AsyncIterator, Callable, Coroutine
 from typing import Any, Generic, TypeVar, cast
 
 import structlog
 from langchain_core.runnables import RunnableConfig
-
-from posthog.schema import TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.schema import TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
 
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult

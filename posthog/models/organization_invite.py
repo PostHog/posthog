@@ -1,12 +1,9 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
+import structlog
 from django.db import models
 from django.utils import timezone
-
-import structlog
-from rest_framework import exceptions
-
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
@@ -15,6 +12,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.utils import absolute_uri
+from rest_framework import exceptions
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.rbac.access_control import AccessControl

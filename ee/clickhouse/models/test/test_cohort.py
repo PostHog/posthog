@@ -3,28 +3,11 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from freezegun import freeze_time
-from posthog.test.base import (
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    snapshot_clickhouse_insert_cohortpeople_queries,
-    snapshot_clickhouse_queries,
-)
-
 from django.utils import timezone
-
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import PersonsOnEventsMode
-
+from freezegun import freeze_time
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
 from posthog.hogql.hogql import HogQLContext
-
-from posthog.clickhouse.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
@@ -37,6 +20,18 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
+from posthog.schema import PersonsOnEventsMode
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    snapshot_clickhouse_insert_cohortpeople_queries,
+    snapshot_clickhouse_queries,
+)
+from rest_framework.exceptions import ValidationError
 
 
 def _create_action(**kwargs):

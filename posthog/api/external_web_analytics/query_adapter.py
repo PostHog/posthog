@@ -3,8 +3,15 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
 
-from rest_framework.utils.urls import remove_query_param, replace_query_param
-
+from posthog.api.external_web_analytics.serializers import (
+    EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE,
+    EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT,
+    WebAnalyticsBreakdownRequestSerializer,
+    WebAnalyticsOverviewRequestSerializer,
+)
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.models import Team
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -16,16 +23,7 @@ from posthog.schema import (
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
 )
-
-from posthog.api.external_web_analytics.serializers import (
-    EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE,
-    EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT,
-    WebAnalyticsBreakdownRequestSerializer,
-    WebAnalyticsOverviewRequestSerializer,
-)
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.models import Team
+from rest_framework.utils.urls import remove_query_param, replace_query_param
 
 
 @dataclass

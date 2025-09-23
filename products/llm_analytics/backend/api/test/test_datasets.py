@@ -1,12 +1,9 @@
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest
-
-from rest_framework import status
-
 from posthog.models import Organization, Project, Team, User
-
+from posthog.test.base import APIBaseTest
 from products.llm_analytics.backend.models.datasets import Dataset, DatasetItem
+from rest_framework import status
 
 
 def _setup_team():

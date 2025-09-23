@@ -1,12 +1,10 @@
 import uuid
 from datetime import timedelta
 
-from freezegun import freeze_time
-
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
-
+from freezegun import freeze_time
 from posthog.models import Organization, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 

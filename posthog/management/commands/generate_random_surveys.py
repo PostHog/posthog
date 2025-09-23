@@ -2,7 +2,6 @@ import random
 from typing import Any, Literal, TypedDict
 
 from django.core.management.base import BaseCommand
-
 from posthog.models import Survey, Team, User
 
 

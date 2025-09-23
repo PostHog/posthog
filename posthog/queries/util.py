@@ -5,15 +5,12 @@ from typing import Any, Optional, Union, overload
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
-
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import PersonsOnEventsMode
-
 from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema import PersonsOnEventsMode
+from rest_framework.exceptions import ValidationError
 
 
 class PersonPropertiesMode(Enum):

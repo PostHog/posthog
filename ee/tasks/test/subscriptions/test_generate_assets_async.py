@@ -1,8 +1,6 @@
 import pytest
-
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset

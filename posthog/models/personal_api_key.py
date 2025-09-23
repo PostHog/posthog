@@ -5,7 +5,6 @@ from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
-
 from django_deprecate_fields import deprecate_field
 
 from .utils import generate_random_token

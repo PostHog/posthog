@@ -3,7 +3,6 @@ from collections.abc import Callable, Iterable
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
-
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
 
 from ee.clickhouse.materialized_columns.columns import drop_column, update_column_is_disabled

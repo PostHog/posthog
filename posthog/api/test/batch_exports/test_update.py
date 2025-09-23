@@ -1,15 +1,11 @@
+import datetime as dt
 import json
 import typing as t
-import datetime as dt
 
 import pytest
-
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.test.client import Client as HttpClient
-
-from asgiref.sync import async_to_sync
-from rest_framework import status
-
 from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,
@@ -20,6 +16,7 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.batch_exports.service import sync_batch_export
 from posthog.models import BatchExport, BatchExportDestination
 from posthog.temporal.common.codec import EncryptionCodec
+from rest_framework import status
 
 pytestmark = [
     pytest.mark.django_db,

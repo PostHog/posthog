@@ -1,11 +1,10 @@
+import hashlib
 import hmac
 import json
 import time
-import hashlib
 from typing import Any
 
 import pytest
-
 from posthog.models.instance_setting import set_instance_setting
 
 from ee.api.test.base import APILicensedTest

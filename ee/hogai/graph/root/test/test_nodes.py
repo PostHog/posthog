@@ -1,9 +1,6 @@
 import datetime
 from typing import cast
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import AsyncMock, MagicMock, patch
-
 from langchain_core.messages import (
     AIMessage,
     AIMessage as LangchainAIMessage,
@@ -14,7 +11,7 @@ from langchain_core.messages import (
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
-
+from posthog.models.organization import OrganizationMembership
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
@@ -40,8 +37,8 @@ from posthog.schema import (
     RetentionQuery,
     TrendsQuery,
 )
-
-from posthog.models.organization import OrganizationMembership
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
 from ee.hogai.graph.root.prompts import (

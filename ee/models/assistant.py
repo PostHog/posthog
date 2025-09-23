@@ -2,7 +2,6 @@ from datetime import timedelta
 
 from django.db import models
 from django.utils import timezone
-
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDTModel

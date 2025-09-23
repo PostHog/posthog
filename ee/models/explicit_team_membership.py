@@ -1,5 +1,4 @@
 from django.db import models
-
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import UUIDTModel, sane_repr
 

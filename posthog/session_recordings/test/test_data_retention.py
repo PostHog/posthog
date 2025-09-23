@@ -1,5 +1,4 @@
 import pytest
-
 from posthog.models.organization import ProductFeature
 from posthog.session_recordings.data_retention import (
     parse_feature_to_entitlement,

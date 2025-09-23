@@ -1,11 +1,7 @@
 import datetime as dt
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
-from unittest.mock import MagicMock, patch
-
 from django.utils import timezone
-
+from freezegun import freeze_time
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
@@ -31,6 +27,8 @@ from posthog.tasks.email import (
     send_password_reset,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
+from unittest.mock import MagicMock, patch
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:

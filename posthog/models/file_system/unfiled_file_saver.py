@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import Optional
 
 from django.utils import timezone
-
 from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
@@ -19,7 +18,6 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
-
 from products.early_access_features.backend.models import EarlyAccessFeature
 
 MIXIN_MODELS = {

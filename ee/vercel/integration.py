@@ -1,11 +1,12 @@
 import copy
-import hmac
 import hashlib
+import hmac
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any, Literal, Union
 from urllib.parse import quote, urlencode
 
+import structlog
 from django.conf import settings
 from django.contrib.auth import login
 from django.core.cache import cache
@@ -14,10 +15,6 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.text import slugify
-
-import structlog
-from rest_framework import exceptions
-
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.experiment import Experiment
@@ -29,6 +26,7 @@ from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import absolute_uri
+from rest_framework import exceptions
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims

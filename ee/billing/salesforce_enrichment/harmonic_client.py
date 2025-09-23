@@ -1,10 +1,8 @@
 import asyncio
 from typing import Any, Optional
 
-from django.conf import settings
-
 import aiohttp
-
+from django.conf import settings
 from posthog.exceptions_capture import capture_exception
 
 from .constants import (

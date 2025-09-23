@@ -1,12 +1,10 @@
 """Test that bulk deletion operations can be disabled via environment variable."""
 
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
-
-from rest_framework import status
-
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.project import Project
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from unittest.mock import patch
 
 
 class TestBulkDeletionDisabled(APIBaseTest):

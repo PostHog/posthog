@@ -1,10 +1,8 @@
-from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
-from unittest.mock import patch
-
 from django.core.cache import cache
-
 from inline_snapshot import snapshot
+from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 from rest_framework import status
+from unittest.mock import patch
 
 # The remote config stuff plus plugin and hog function queries
 CONFIG_REFRESH_QUERY_COUNT = 5

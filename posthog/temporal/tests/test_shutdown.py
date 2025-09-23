@@ -1,16 +1,14 @@
-import uuid
 import asyncio
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-
 import pytest_asyncio
+from posthog.temporal.tests.utils.workflow import Waiter, WaitInputs, WaitMode, WaitWorkflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
-from posthog.temporal.tests.utils.workflow import Waiter, WaitInputs, WaitMode, WaitWorkflow
 
 
 @pytest.mark.asyncio

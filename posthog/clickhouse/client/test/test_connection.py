@@ -1,5 +1,4 @@
 import pytest
-
 from posthog.clickhouse.client.connection import Workload, get_pool, make_ch_pool, set_default_clickhouse_workload_type
 
 

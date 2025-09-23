@@ -1,5 +1,18 @@
 from typing import Literal, Optional, Union, cast
 
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import (
+    get_property_key,
+    get_property_operator,
+    get_property_type,
+    get_property_value,
+    property_to_expr,
+)
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
 from posthog.schema import (
     CachedWebStatsTableQueryResponse,
     EventPropertyFilter,
@@ -11,21 +24,6 @@ from posthog.schema import (
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import (
-    get_property_key,
-    get_property_operator,
-    get_property_type,
-    get_property_value,
-    property_to_expr,
-)
-
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
 

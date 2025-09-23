@@ -1,16 +1,13 @@
-import re
-import hashlib
 import datetime
+import hashlib
+import re
 from collections.abc import Callable
 from typing import Any, Optional, TypeVar, Union, cast
 from zoneinfo import ZoneInfo
 
-from django.db.models import Exists, OuterRef, Q, Value
-
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
-from rest_framework.exceptions import ValidationError
-
+from django.db.models import Exists, OuterRef, Q, Value
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort, CohortOrEmpty, CohortPeople
 from posthog.models.filters.filter import Filter
@@ -20,6 +17,7 @@ from posthog.models.property.property import OperatorType, ValueT
 from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates, is_valid_regex
+from rest_framework.exceptions import ValidationError
 
 FilterType = TypeVar("FilterType", Filter, PathFilter)
 

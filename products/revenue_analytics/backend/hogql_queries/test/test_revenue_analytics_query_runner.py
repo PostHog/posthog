@@ -1,14 +1,11 @@
 from datetime import datetime, timedelta
 
-from posthog.test.base import APIBaseTest
-
-from posthog.schema import IntervalType, RevenueAnalyticsGrossRevenueQuery
-
 from posthog.constants import AvailableFeature
 from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.schema import IntervalType, RevenueAnalyticsGrossRevenueQuery
+from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
-
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
 try:

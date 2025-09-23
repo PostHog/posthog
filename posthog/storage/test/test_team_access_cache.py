@@ -2,13 +2,9 @@
 Tests for team access token cache functionality.
 """
 
-from unittest.mock import MagicMock, patch
-
 from django.core.cache import cache
 from django.test import TestCase
-
 from parameterized import parameterized
-
 from posthog.models.personal_api_key import hash_key_value
 from posthog.storage.team_access_cache import (
     TeamAccessTokenCache,
@@ -19,6 +15,7 @@ from posthog.storage.team_access_cache import (
     team_access_tokens_hypercache,
     warm_team_token_cache,
 )
+from unittest.mock import MagicMock, patch
 
 
 class TestTeamAccessTokenCache(TestCase):
@@ -1015,9 +1012,8 @@ class TestUpdateUserAuthenticationCache(TestCase):
         assert original_secure in cached_data_team2["hashed_tokens"], "Original token should be in team2 cache"
 
         # Roll the key using the serializer's roll method (same as API endpoint)
-        from unittest.mock import MagicMock
-
         from posthog.api.personal_api_key import PersonalAPIKeySerializer
+        from unittest.mock import MagicMock
 
         # Create a mock request context for the serializer
         mock_request = MagicMock()
@@ -1195,7 +1191,6 @@ class TestUpdateUserAuthenticationCache(TestCase):
         """Test that updating only last_used_at field doesn't trigger cache warming."""
 
         from django.utils import timezone
-
         from posthog.models.organization import Organization, OrganizationMembership
         from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
         from posthog.models.team.team import Team
@@ -1558,9 +1553,8 @@ class TestSignalHandlerCacheWarming(TestCase):
         org_to_delete.delete()
 
         # Since we're in a test transaction, manually trigger cache invalidation for each team
-        from unittest.mock import MagicMock
-
         from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache_on_delete
+        from unittest.mock import MagicMock
 
         for i, api_token in enumerate(deleted_team_api_tokens):
             mock_team = MagicMock()
@@ -1641,9 +1635,8 @@ class TestSignalHandlerCacheWarming(TestCase):
         team3_to_delete.delete()
 
         # Since we're in a test transaction, manually trigger the cache invalidation
-        from unittest.mock import MagicMock
-
         from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache_on_delete
+        from unittest.mock import MagicMock
 
         mock_deleted_team = MagicMock()
         mock_deleted_team.api_token = deleted_team_api_token

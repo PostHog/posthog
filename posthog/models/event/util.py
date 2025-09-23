@@ -4,11 +4,8 @@ from datetime import UTC, datetime
 from typing import Any, Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
-from django.utils import timezone
-
 from dateutil.parser import isoparse
-from rest_framework import serializers
-
+from django.utils import timezone
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
@@ -18,6 +15,7 @@ from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.settings import TEST
+from rest_framework import serializers
 
 ZERO_DATE = datetime(1970, 1, 1)
 

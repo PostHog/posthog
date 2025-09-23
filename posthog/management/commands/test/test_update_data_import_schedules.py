@@ -1,14 +1,9 @@
-import logging
 import datetime as dt
+import logging
 
 import pytest
-
-from django.core.management import CommandError, call_command
-
 from asgiref.sync import async_to_sync
-from temporalio.client import Client as TemporalClient
-from temporalio.service import RPCError
-
+from django.core.management import CommandError, call_command
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.management.commands.update_data_import_schedules import _get_external_data_schemas
@@ -17,6 +12,8 @@ from posthog.temporal.common.schedule import describe_schedule, update_schedule
 from posthog.warehouse.data_load.service import sync_external_data_job_workflow
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+from temporalio.client import Client as TemporalClient
+from temporalio.service import RPCError
 
 pytestmark = [pytest.mark.django_db]
 

@@ -1,7 +1,6 @@
 import os
 
 import structlog
-
 from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
 

@@ -1,9 +1,8 @@
 import json
 
 import pytest
-from unittest.mock import MagicMock, patch
-
 import requests
+from unittest.mock import MagicMock, patch
 
 from ee.vercel.client import ExperimentationResult, VercelAPIClient
 

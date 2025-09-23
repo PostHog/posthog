@@ -1,8 +1,6 @@
 from django.db import IntegrityError
-
-from rest_framework import status
-
 from posthog.models.organization import Organization, OrganizationMembership
+from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess

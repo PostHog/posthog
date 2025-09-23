@@ -21,7 +21,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
     from posthog.models.insight_caching_state import InsightCachingState
     from posthog.models.person import Person, PersonDistinctId
-
     from products.early_access_features.backend.models import EarlyAccessFeature
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))

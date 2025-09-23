@@ -1,9 +1,7 @@
 from functools import cached_property
 
-from django.conf import settings
-
 import structlog
-
+from django.conf import settings
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AnalyticsDBMS

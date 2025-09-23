@@ -3,7 +3,21 @@ from math import ceil
 from typing import Any, Optional, cast
 
 from django.utils.timezone import now
-
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.models import Team
+from posthog.models.action.action import Action
+from posthog.models.cohort.util import get_count_operator, get_count_operator_ast
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ActionsNode,
     CachedStickinessQueryResponse,
@@ -14,23 +28,6 @@ from posthog.schema import (
     StickinessQuery,
     StickinessQueryResponse,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
-
-from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models import Team
-from posthog.models.action.action import Action
-from posthog.models.cohort.util import get_count_operator, get_count_operator_ast
-from posthog.models.filters.mixins.utils import cached_property
 
 
 class SeriesWithExtras:

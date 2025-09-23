@@ -2,10 +2,8 @@ import json
 import logging
 from uuid import UUID
 
-from django.core.management.base import BaseCommand
-
 import structlog
-
+from django.core.management.base import BaseCommand
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import KafkaProducer
 from posthog.models.group.group import Group

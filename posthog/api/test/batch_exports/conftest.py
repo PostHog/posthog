@@ -1,15 +1,13 @@
 import logging
 
 import pytest
-
 from asgiref.sync import async_to_sync
-from temporalio.client import Client as TemporalClient
-from temporalio.service import RPCError
-
 from posthog.api.test.batch_exports.fixtures import create_organization, create_team, create_user
 from posthog.api.test.batch_exports.operations import start_test_worker
 from posthog.batch_exports.models import BatchExport
 from posthog.temporal.common.client import sync_connect
+from temporalio.client import Client as TemporalClient
+from temporalio.service import RPCError
 
 
 @async_to_sync

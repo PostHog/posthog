@@ -3,17 +3,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, Union
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, create_person_id_override_by_distinct_id, snapshot_clickhouse_queries
-
+from dateutil.relativedelta import relativedelta
 from django.test import override_settings
 from django.test.client import Client
-
-from dateutil.relativedelta import relativedelta
-
+from freezegun import freeze_time
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models.team import Team
+from posthog.test.base import APIBaseTest, create_person_id_override_by_distinct_id, snapshot_clickhouse_queries
 from posthog.utils import encode_get_request_params
 
 

@@ -1,12 +1,7 @@
-import json
 import datetime as dt
+import json
 
 from freezegun.api import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest import mock
-
-from rest_framework import status
-
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.api.test.batch_exports.operations import create_batch_export_ok
 from posthog.batch_exports.models import BatchExportRun
@@ -16,6 +11,9 @@ from posthog.models.plugin import Plugin, PluginConfig
 from posthog.models.utils import UUIDT
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
 from posthog.temporal.common.client import sync_connect
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from rest_framework import status
+from unittest import mock
 
 SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
 

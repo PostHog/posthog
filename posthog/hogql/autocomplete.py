@@ -5,15 +5,7 @@ from typing import Optional, cast
 
 from django.db import models
 from django.db.models.functions.comparison import Coalesce
-
-from posthog.schema import (
-    AutocompleteCompletionItem,
-    AutocompleteCompletionItemKind,
-    HogLanguage,
-    HogQLAutocomplete,
-    HogQLAutocompleteResponse,
-)
-
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.context import HogQLContext
@@ -40,12 +32,17 @@ from posthog.hogql.resolver import resolve_types, resolve_types_from_table
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
-
-from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
+from posthog.schema import (
+    AutocompleteCompletionItem,
+    AutocompleteCompletionItemKind,
+    HogLanguage,
+    HogQLAutocomplete,
+    HogQLAutocompleteResponse,
+)
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL

@@ -1,7 +1,6 @@
 from typing import Optional
 
 from django.conf import settings
-
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.escape_sql import escape_hogql_identifier

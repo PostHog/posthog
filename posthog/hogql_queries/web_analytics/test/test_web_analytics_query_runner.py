@@ -1,14 +1,9 @@
 from typing import Union
 
 from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
-
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import _sample_rate_from_count
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -19,10 +14,13 @@ from posthog.schema import (
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
-
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import _sample_rate_from_count
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 
 
 @snapshot_clickhouse_queries

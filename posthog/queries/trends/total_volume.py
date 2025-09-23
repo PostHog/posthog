@@ -3,8 +3,6 @@ from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any, Union
 
-from posthog.schema import PersonsOnEventsMode
-
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
     MONTHLY_ACTIVE,
@@ -42,6 +40,7 @@ from posthog.queries.trends.util import (
     process_math,
 )
 from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_start_of_interval_sql
+from posthog.schema import PersonsOnEventsMode
 from posthog.utils import encode_get_request_params, generate_short_id
 
 

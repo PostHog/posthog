@@ -1,8 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.test.runner import DiscoverRunner as TestRunner
-
 from infi.clickhouse_orm import Database
-
 from posthog.clickhouse.schema import (
     CREATE_DATA_QUERIES,
     CREATE_DICTIONARY_QUERIES,

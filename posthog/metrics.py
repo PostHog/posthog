@@ -1,12 +1,10 @@
 # Shared metrics and labels for prometheus metrics
 from contextlib import contextmanager
 
-from django.conf import settings
-
 import structlog
-from prometheus_client import CollectorRegistry, Counter, push_to_gateway
-
+from django.conf import settings
 from posthog.exceptions_capture import capture_exception
+from prometheus_client import CollectorRegistry, Counter, push_to_gateway
 
 logger = structlog.get_logger(__name__)
 

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, Optional
 from django.conf import settings
 from django.db.utils import ProgrammingError
 from django.utils import timezone
-
 from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:

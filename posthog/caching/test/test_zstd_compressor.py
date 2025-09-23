@@ -1,7 +1,5 @@
 from django.test import TestCase
-
 from parameterized import parameterized
-
 from posthog.caching.zstd_compressor import ZstdCompressor
 
 

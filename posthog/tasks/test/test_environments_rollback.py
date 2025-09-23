@@ -1,7 +1,4 @@
-from unittest.mock import MagicMock, patch
-
 from django.test import TransactionTestCase
-
 from posthog.models import (
     Annotation,
     Dashboard,
@@ -17,6 +14,7 @@ from posthog.models import (
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.environments_rollback import environments_rollback_migration
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from unittest.mock import MagicMock, patch
 
 
 class TestEnvironmentsRollbackTask(TransactionTestCase):

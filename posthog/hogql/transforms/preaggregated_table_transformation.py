@@ -21,7 +21,6 @@ from datetime import datetime
 from typing import Optional, TypeVar, cast
 
 import pytz
-
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.base import AST
@@ -34,7 +33,6 @@ from posthog.hogql.helpers.timestamp_visitor import (
     is_start_of_hour_constant,
 )
 from posthog.hogql.visitor import CloningVisitor
-
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,

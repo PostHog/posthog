@@ -8,16 +8,7 @@ from django.db.models import Q
 from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
-
 from loginas.utils import is_impersonated_session
-from rest_framework import mixins, response, serializers, status, viewsets
-from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS
-from rest_framework.request import Request
-
-from posthog.schema import SharingConfigurationSettings
-
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
@@ -37,10 +28,16 @@ from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_co
 from posthog.models.insight import Insight
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+from posthog.schema import SharingConfigurationSettings
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
+from rest_framework import mixins, response, serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.permissions import SAFE_METHODS
+from rest_framework.request import Request
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -178,7 +175,6 @@ def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
     This provides the same structure as window.POSTHOG_APP_CONTEXT.
     """
     from django.conf import settings
-
     from posthog.utils import get_git_commit_short
 
     return {

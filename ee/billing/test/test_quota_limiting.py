@@ -2,18 +2,15 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from freezegun import freeze_time
-from posthog.test.base import BaseTest, _create_event
-from unittest.mock import patch
-
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from django.utils.timezone import now
-
-from dateutil.relativedelta import relativedelta
-
+from freezegun import freeze_time
 from posthog.api.test.test_team import create_team
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.test.base import BaseTest, _create_event
+from unittest.mock import patch
 
 from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,

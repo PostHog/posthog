@@ -1,28 +1,25 @@
 import uuid
 from datetime import timedelta
 
-import pytest
-from posthog.test.base import APIBaseTest
-from unittest import mock
-
-from django.conf import settings
-from django.test.client import Client as HttpClient
-
 import psycopg
+import pytest
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from temporalio.service import RPCError
-
+from django.conf import settings
+from django.test.client import Client as HttpClient
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
+from posthog.test.base import APIBaseTest
 from posthog.warehouse.api.test.utils import create_external_data_source_ok
 from posthog.warehouse.models import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
+from temporalio.service import RPCError
+from unittest import mock
 
 pytestmark = [
     pytest.mark.django_db,

@@ -1,15 +1,13 @@
-import uuid
-import typing
 import threading
+import typing
+import uuid
 from contextlib import contextmanager
 from functools import partial
-
-from django.db import transaction
 
 from celery import chain
 from celery.canvas import Signature
 from celery.result import EagerResult
-
+from django.db import transaction
 from posthog.schema import QueryStatus
 
 if typing.TYPE_CHECKING:

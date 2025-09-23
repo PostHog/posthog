@@ -1,9 +1,8 @@
 from abc import ABC
 from typing import ClassVar, Optional
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from posthog.hogql.database.models import SavedQuery
+from posthog.schema import DatabaseSchemaManagedViewTableKind
 
 
 class RevenueAnalyticsBaseView(SavedQuery, ABC):

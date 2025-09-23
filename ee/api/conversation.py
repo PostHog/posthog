@@ -1,28 +1,25 @@
 from collections.abc import AsyncGenerator
 from typing import cast
 
-from django.conf import settings
-from django.http import StreamingHttpResponse
-
 import pydantic
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
+from django.conf import settings
+from django.http import StreamingHttpResponse
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions import Conflict
+from posthog.exceptions_capture import capture_exception
+from posthog.models.user import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.schema import HumanMessage, MaxBillingContext
+from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflowInputs
+from posthog.utils import get_instance_region
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
-
-from posthog.schema import HumanMessage, MaxBillingContext
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions import Conflict
-from posthog.exceptions_capture import capture_exception
-from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflowInputs
-from posthog.utils import get_instance_region
 
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.stream.conversation_stream import ConversationStreamManager

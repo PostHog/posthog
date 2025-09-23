@@ -2,16 +2,9 @@ import json
 import uuid
 from typing import Any
 
-from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
-from unittest.mock import MagicMock, patch
-
+from clickhouse_driver.errors import ServerException
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase
-
-from clickhouse_driver.errors import ServerException
-
-from posthog.schema import ClickhouseQueryProgress, QueryStatus
-
 from posthog.clickhouse.client import (
     execute_async as client,
     sync_execute,
@@ -24,6 +17,9 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_client
+from posthog.schema import ClickhouseQueryProgress, QueryStatus
+from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
+from unittest.mock import MagicMock, patch
 
 
 def build_query(sql):

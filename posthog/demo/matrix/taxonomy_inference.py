@@ -1,5 +1,5 @@
-import json
 import datetime
+import json
 from typing import Optional
 
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition

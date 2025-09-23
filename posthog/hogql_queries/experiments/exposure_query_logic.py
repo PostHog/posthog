@@ -7,16 +7,14 @@ including multiple variant handling and exposure filtering logic.
 
 from typing import Optional, Union
 
-from posthog.schema import ExperimentExposureCriteria, MultipleVariantHandling
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
-
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from posthog.models.team.team import Team
+from posthog.schema import ExperimentExposureCriteria, MultipleVariantHandling
 
 
 def get_multiple_variant_handling_from_experiment(

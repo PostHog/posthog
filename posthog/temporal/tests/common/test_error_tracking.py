@@ -1,20 +1,18 @@
 """Test that we capture exceptions in activities and workflows to PostHog."""
 
-import uuid
 import datetime as dt
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from unittest.mock import patch
-
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from unittest.mock import patch
 
 
 @dataclass

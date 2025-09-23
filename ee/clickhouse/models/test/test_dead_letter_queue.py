@@ -2,10 +2,7 @@ import json
 from datetime import datetime
 from uuid import uuid4
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-
 from kafka import KafkaProducer
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE,
@@ -15,6 +12,7 @@ from posthog.clickhouse.dead_letter_queue import (
 )
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import KAFKA_HOSTS
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes_from_kafka
 

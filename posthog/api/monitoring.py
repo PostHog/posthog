@@ -2,9 +2,8 @@ from collections.abc import Callable
 from enum import StrEnum
 from functools import wraps
 
-from prometheus_client import Counter
-
 from posthog.clickhouse.query_tagging import tag_queries
+from prometheus_client import Counter
 
 
 class Feature(StrEnum):

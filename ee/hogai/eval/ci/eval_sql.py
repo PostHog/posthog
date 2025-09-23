@@ -1,12 +1,9 @@
 import pytest
-
 from asgiref.sync import sync_to_async
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
-
-from posthog.schema import AssistantHogQLQuery, NodeKind
-
 from posthog.models import Team
+from posthog.schema import AssistantHogQLQuery, NodeKind
 
 from ee.hogai.eval.scorers.sql import evaluate_sql_query
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA

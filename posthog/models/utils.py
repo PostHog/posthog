@@ -1,9 +1,9 @@
-import re
-import json
-import uuid
-import string
-import secrets
 import datetime
+import json
+import re
+import secrets
+import string
+import uuid
 from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
@@ -19,10 +19,8 @@ from django.db.backends.utils import CursorWrapper
 from django.db.models import Q, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
-
-from posthog.hogql import ast
-
 from posthog.constants import MAX_SLUG_LENGTH
+from posthog.hogql import ast
 
 if TYPE_CHECKING:
     from random import Random
@@ -430,7 +428,6 @@ def validate_rate_limit(value):
 class RootTeamQuerySet(models.QuerySet):
     def filter(self, *args, **kwargs):
         from django.db.models import Q, Subquery
-
         from posthog.models.team import Team
 
         # TODO: Handle team as a an object as well

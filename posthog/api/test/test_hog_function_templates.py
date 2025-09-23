@@ -1,14 +1,12 @@
-import os
 import json
-
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-
-from rest_framework import status
+import os
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import HogFunction
 from posthog.models.hog_function_template import HogFunctionTemplate
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from rest_framework import status
 
 MOCK_NODE_TEMPLATES = json.loads(
     open(os.path.join(os.path.dirname(__file__), "__data__/hog_function_templates.json")).read()

@@ -1,18 +1,15 @@
 from typing import Literal, cast
 from uuid import uuid4
 
-from django.db import transaction
-
 import structlog
+from django.db import transaction
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
-
-from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, TaskExecutionItem, TaskExecutionStatus
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, TaskExecutionItem, TaskExecutionStatus
 from posthog.sync import database_sync_to_async
+from pydantic import BaseModel
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.parallel_task_execution.mixins import (

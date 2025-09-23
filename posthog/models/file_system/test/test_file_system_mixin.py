@@ -1,5 +1,4 @@
 from django.test import TestCase
-
 from posthog.models import Dashboard, Experiment, FeatureFlag, FileSystem, Insight, Notebook, Organization, Team, User
 
 

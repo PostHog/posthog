@@ -1,14 +1,11 @@
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import FunnelTimeToConvertResults
-
+from posthog.constants import FUNNEL_TO_STEP
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-
-from posthog.constants import FUNNEL_TO_STEP
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
+from posthog.schema import FunnelTimeToConvertResults
+from rest_framework.exceptions import ValidationError
 
 
 class FunnelTimeToConvert(FunnelBase):

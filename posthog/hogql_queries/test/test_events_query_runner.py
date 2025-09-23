@@ -2,6 +2,19 @@ from datetime import datetime
 from typing import Any, cast
 
 from freezegun import freeze_time
+from posthog.hogql import ast
+from posthog.hogql.ast import CompareOperationOp
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.models import Element, Person, Team
+from posthog.models.organization import Organization
+from posthog.schema import (
+    CachedEventsQueryResponse,
+    EventMetadataPropertyFilter,
+    EventPropertyFilter,
+    EventsQuery,
+    HogQLQueryModifiers,
+    PropertyOperator,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -11,22 +24,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-
-from posthog.schema import (
-    CachedEventsQueryResponse,
-    EventMetadataPropertyFilter,
-    EventPropertyFilter,
-    EventsQuery,
-    HogQLQueryModifiers,
-    PropertyOperator,
-)
-
-from posthog.hogql import ast
-from posthog.hogql.ast import CompareOperationOp
-
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Element, Person, Team
-from posthog.models.organization import Organization
 
 
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):

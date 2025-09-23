@@ -1,6 +1,15 @@
 import json
 from typing import Union, cast
 
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
+from posthog.hogql_queries.insights.trends.utils import get_properties_chain
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
     Breakdown as BreakdownSchema,
@@ -13,17 +22,6 @@ from posthog.schema import (
     MultipleBreakdownType,
     TrendsQuery,
 )
-
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.timings import HogQLTimings
-
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import get_properties_chain
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.team.team import Team
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"

@@ -1,12 +1,10 @@
 import datetime
 import xml.etree.ElementTree as ET
 
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.schema import CachedTeamTaxonomyQueryResponse, MaxEventContext, TeamTaxonomyItem, TeamTaxonomyQuery
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
-
-from posthog.schema import CachedTeamTaxonomyQueryResponse, MaxEventContext, TeamTaxonomyItem, TeamTaxonomyQuery
-
-from posthog.hogql_queries.query_runner import ExecutionMode
 
 from ee.hogai.utils.helpers import format_events_xml
 

@@ -1,5 +1,5 @@
-import re
 import functools
+import re
 from typing import Literal
 
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector

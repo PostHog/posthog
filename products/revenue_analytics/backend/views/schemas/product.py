@@ -1,6 +1,5 @@
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from posthog.hogql.database.models import StringDatabaseField
+from posthog.schema import DatabaseSchemaManagedViewTableKind
 
 from ._definitions import FieldsDict, Schema
 

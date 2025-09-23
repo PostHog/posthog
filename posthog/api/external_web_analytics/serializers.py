@@ -1,8 +1,7 @@
-from rest_framework import serializers
-
 from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import (
     WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS,
 )
+from rest_framework import serializers
 
 EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT = 100
 EXTERNAL_WEB_ANALYTICS_PAGINATION_MAX_LIMIT = 1000

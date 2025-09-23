@@ -6,7 +6,6 @@ import fnmatch
 from typing import Any, Optional
 
 from django.apps import apps
-
 from posthog.models.integration import GitHubIntegration, Integration
 
 

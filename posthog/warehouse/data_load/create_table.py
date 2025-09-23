@@ -1,11 +1,8 @@
 import uuid
 
-from django.conf import settings
-
 from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import ServerException
-from structlog.contextvars import bind_contextvars
-
+from django.conf import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models import (
@@ -21,6 +18,7 @@ from posthog.warehouse.models import (
     asave_saved_query,
 )
 from posthog.warehouse.s3 import get_size_of_folder
+from structlog.contextvars import bind_contextvars
 
 LOGGER = get_logger(__name__)
 

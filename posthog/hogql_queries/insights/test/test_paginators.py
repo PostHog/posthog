@@ -1,10 +1,5 @@
 from typing import cast
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import MagicMock, patch
-
-from posthog.schema import ActorsQuery, PersonPropertyFilter, PropertyOperator
-
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
@@ -13,10 +8,12 @@ from posthog.hogql.constants import (
     get_max_limit_for_context,
 )
 from posthog.hogql.parser import parse_select
-
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models.utils import UUIDT
+from posthog.schema import ActorsQuery, PersonPropertyFilter, PropertyOperator
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import MagicMock, patch
 
 
 class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):

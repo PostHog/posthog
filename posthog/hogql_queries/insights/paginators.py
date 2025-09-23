@@ -1,7 +1,5 @@
 from typing import Any, Optional, Union, cast
 
-from posthog.schema import HogQLQueryResponse
-
 from posthog.hogql import ast
 from posthog.hogql.constants import (
     DEFAULT_RETURNED_ROWS,
@@ -10,6 +8,7 @@ from posthog.hogql.constants import (
     get_max_limit_for_context,
 )
 from posthog.hogql.query import execute_hogql_query
+from posthog.schema import HogQLQueryResponse
 
 
 class HogQLHasMorePaginator:

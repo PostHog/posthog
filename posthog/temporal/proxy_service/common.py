@@ -1,21 +1,19 @@
-import uuid
 import typing as t
+import uuid
 from dataclasses import dataclass
-
-from django.conf import settings
-from django.db import connection
 
 import grpc.aio
 import posthoganalytics
 from asgiref.sync import sync_to_async
-from structlog.contextvars import bind_contextvars
-from temporalio import activity
-
+from django.conf import settings
+from django.db import connection
 from posthog.event_usage import groups
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
+from structlog.contextvars import bind_contextvars
+from temporalio import activity
 
 LOGGER = get_logger(__name__)
 

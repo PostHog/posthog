@@ -1,13 +1,11 @@
 import logging
 from datetime import timedelta
 
+import structlog
+from dateutil.parser import isoparse
 from django.core.management.base import BaseCommand
 from django.db.models import F
 from django.utils.timezone import now
-
-import structlog
-from dateutil.parser import isoparse
-
 from posthog.kafka_client.client import KafkaProducer
 from posthog.models.person.person import Person
 from posthog.models.person.util import create_person

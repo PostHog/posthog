@@ -1,8 +1,7 @@
-import os
 import argparse
+import os
 
 import django
-
 import IPython
 
 

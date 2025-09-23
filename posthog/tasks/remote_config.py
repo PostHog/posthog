@@ -1,6 +1,5 @@
 import structlog
 from celery import shared_task
-
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team import Team
 from posthog.tasks.utils import CeleryQueue

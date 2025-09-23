@@ -2,12 +2,10 @@ import logging
 from datetime import datetime
 
 from django.core.management.base import BaseCommand
-
-from posthog.schema import ExperimentFunnelsQuery, ExperimentTrendsQuery
-
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Experiment
+from posthog.schema import ExperimentFunnelsQuery, ExperimentTrendsQuery
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

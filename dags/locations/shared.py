@@ -1,6 +1,5 @@
-from django.conf import settings
-
 import dagster
+from django.conf import settings
 
 from dags import slack_alerts
 from dags.common import job_status_metrics_sensors

@@ -1,12 +1,10 @@
 from typing import cast
 
 import pytest
-from unittest.mock import Mock
-
 from django.contrib.gis.geoip2 import GeoIP2, GeoIP2Exception
 from django.test import TestCase
-
 from posthog.geoip import geoip, get_geoip_properties
+from unittest.mock import Mock
 
 australia_ip = "13.106.122.3"
 uk_ip = "31.28.64.3"

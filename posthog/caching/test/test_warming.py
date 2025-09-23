@@ -1,10 +1,9 @@
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
-
 from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task
 from posthog.models import Dashboard, DashboardTile, Insight, InsightViewed
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 
 class TestWarming(APIBaseTest):

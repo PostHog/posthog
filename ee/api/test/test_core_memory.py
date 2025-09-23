@@ -1,12 +1,9 @@
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest
-
 from django.db import transaction
-
-from rest_framework import status
-
 from posthog.models.team.team import Team
+from posthog.test.base import APIBaseTest
+from rest_framework import status
 
 from ee.models.assistant import CoreMemory
 

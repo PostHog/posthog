@@ -1,5 +1,10 @@
 from typing import Optional, Union
 
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.query_context import QueryContext
+from posthog.models.property.util import box_value
+from posthog.models.team.team import Team
 from posthog.schema import (
     BreakdownAttributionType,
     BreakdownFilter,
@@ -11,13 +16,6 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
 )
-
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.timings import HogQLTimings
-
-from posthog.hogql_queries.insights.query_context import QueryContext
-from posthog.models.property.util import box_value
-from posthog.models.team.team import Team
 
 
 class FunnelQueryContext(QueryContext):

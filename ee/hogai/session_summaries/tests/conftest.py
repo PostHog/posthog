@@ -3,13 +3,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
-
 from openai.types.chat.chat_completion import ChatCompletion, ChatCompletionMessage, Choice
-
-from posthog.schema import CachedSessionBatchEventsQueryResponse, SessionBatchEventsQueryResponse, SessionEventsItem
-
 from posthog.models import Team, User
+from posthog.schema import CachedSessionBatchEventsQueryResponse, SessionBatchEventsQueryResponse, SessionEventsItem
+from unittest.mock import MagicMock
 
 from ee.hogai.session_summaries.session.input_data import COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData

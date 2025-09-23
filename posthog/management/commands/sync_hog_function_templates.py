@@ -1,11 +1,9 @@
-import time
 import dataclasses
-
-from django.conf import settings
-from django.core.management.base import BaseCommand
+import time
 
 import structlog
-
+from django.conf import settings
+from django.core.management.base import BaseCommand
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.hog_function_template import HogFunctionTemplate

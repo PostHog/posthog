@@ -1,18 +1,6 @@
 from datetime import datetime, timedelta
 from typing import cast
 
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
-
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import FunnelsQuery, IntervalType
-
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -28,7 +16,16 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models.action import Action
 from posthog.models.filters import Filter
 from posthog.models.property_definition import PropertyDefinition
+from posthog.schema import FunnelsQuery, IntervalType
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_journeys import journeys_for
+from rest_framework.exceptions import ValidationError
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 

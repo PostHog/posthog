@@ -1,20 +1,14 @@
 import json
 from typing import Any, Optional, cast
 
+import posthoganalytics
+import structlog
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
-
-import structlog
-import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
-from rest_framework import request, response, serializers, viewsets
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import RecordingsQuery
-
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -28,6 +22,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.redis import get_client
+from posthog.schema import RecordingsQuery
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
     current_user_viewed,
@@ -36,6 +31,8 @@ from posthog.session_recordings.session_recording_api import (
     query_as_params_to_dict,
 )
 from posthog.utils import relative_date_parse
+from rest_framework import request, response, serializers, viewsets
+from rest_framework.exceptions import ValidationError
 
 logger = structlog.get_logger(__name__)
 

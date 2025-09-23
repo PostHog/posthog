@@ -1,9 +1,7 @@
 import datetime as dt
 
 import pytest
-
 from django.test.client import Client as HttpClient
-
 from posthog.api.test.batch_exports.fixtures import create_backfill, create_batch_export, create_destination
 from posthog.api.test.batch_exports.operations import list_batch_export_backfills_ok
 from posthog.batch_exports.models import BatchExportBackfill

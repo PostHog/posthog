@@ -3,13 +3,11 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Optional
 
+import posthoganalytics
+import structlog
 from django.conf import settings
 from django.db import transaction
 from django.utils.timezone import now
-
-import structlog
-import posthoganalytics
-
 from posthog.async_migrations.definition import AsyncMigrationOperation
 from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app

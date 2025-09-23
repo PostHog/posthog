@@ -3,7 +3,13 @@ from datetime import datetime
 from urllib.parse import unquote, urlencode
 from zoneinfo import ZoneInfo
 
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from freezegun import freeze_time
+from posthog.models import Action, Element, Organization, Person, User
+from posthog.models.cohort import Cohort
+from posthog.models.event.query_event_list import insight_query_with_columns
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -14,18 +20,9 @@ from posthog.test.base import (
     override_settings,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
-
-from django.utils import timezone
-
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
-from rest_framework import status
-
-from posthog.models import Action, Element, Organization, Person, User
-from posthog.models.cohort import Cohort
-from posthog.models.event.query_event_list import insight_query_with_columns
 from posthog.test.test_journeys import journeys_for
+from rest_framework import status
+from unittest.mock import patch
 
 
 class TestEvents(ClickhouseTestMixin, APIBaseTest):

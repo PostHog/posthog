@@ -2,7 +2,6 @@ import os
 
 import dagster
 from clickhouse_driver import Client
-
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.team.team import Team
 from posthog.models.web_preaggregated.team_selection import (

@@ -1,12 +1,6 @@
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin, _create_event
-
 from django.db.utils import IntegrityError
-
 from parameterized import parameterized
-
-from posthog.schema import BounceRatePageViewMode, HogQLQueryModifiers, SessionTableVersion
-
 from posthog.hogql import ast
 from posthog.hogql.database.schema.sessions_v1 import (
     get_lazy_session_table_properties_v1,
@@ -14,11 +8,12 @@ from posthog.hogql.database.schema.sessions_v1 import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-
 from posthog.models import Organization, Team
 from posthog.models.property_definition import PropertyType
 from posthog.models.sessions.sql import ALLOWED_TEAM_IDS
 from posthog.models.utils import uuid7
+from posthog.schema import BounceRatePageViewMode, HogQLQueryModifiers, SessionTableVersion
+from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin, _create_event
 
 
 class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseTest):

@@ -5,7 +5,6 @@ from django.db.models import CharField, Exists, F, Model, OuterRef, Q, QuerySet
 from django.db.models.functions import Cast
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
-
 from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:

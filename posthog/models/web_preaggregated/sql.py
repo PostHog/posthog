@@ -1,11 +1,9 @@
 import uuid
 
 from django.conf import settings
-
-from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
-
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
+from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
 
 

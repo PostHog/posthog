@@ -3,13 +3,9 @@
 from typing import Optional
 
 import structlog
-
-from posthog.schema import SourceMap
-
 from posthog.hogql.database.database import create_hogql_database
-
+from posthog.schema import SourceMap
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
-
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter

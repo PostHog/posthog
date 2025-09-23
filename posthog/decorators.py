@@ -5,16 +5,14 @@ from typing import Any, TypeVar, Union, cast
 
 from django.urls import resolve
 from django.utils.timezone import now
-
-from rest_framework.request import Request
-from statshog.defaults.django import statsd
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.caching.utils import is_stale_filter
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.models.filters.utils import get_filter
 from posthog.utils import refresh_requested_by_client
+from rest_framework.request import Request
+from statshog.defaults.django import statsd
 
 from .utils import generate_cache_key, get_safe_cache
 

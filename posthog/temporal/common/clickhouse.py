@@ -1,26 +1,24 @@
-import re
-import ssl
+import asyncio
+import collections.abc
+import contextlib
+import datetime as dt
 import enum
 import json
-import uuid
+import re
+import ssl
 import typing
-import asyncio
-import datetime as dt
-import contextlib
-import collections.abc
+import uuid
 from urllib.parse import urljoin
 
-from django.conf import settings
-
 import aiohttp
+import posthog.temporal.common.asyncpa as asyncpa
 import pyarrow as pa
 import requests
-from structlog import get_logger
-from temporalio import activity
-
-import posthog.temporal.common.asyncpa as asyncpa
+from django.conf import settings
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
+from structlog import get_logger
+from temporalio import activity
 
 LOGGER = get_logger(__name__)
 

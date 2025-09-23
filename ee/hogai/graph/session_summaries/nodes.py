@@ -1,6 +1,6 @@
+import asyncio
 import json
 import time
-import asyncio
 from typing import Any, cast
 from uuid import uuid4
 
@@ -9,16 +9,14 @@ from langchain_core.agents import AgentAction
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-
+from posthog.models.notebook.notebook import Notebook
+from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.schema import (
     AssistantToolCallMessage,
     MaxRecordingUniversalFilters,
     NotebookUpdateMessage,
     RecordingsQuery,
 )
-
-from posthog.models.notebook.notebook import Notebook
-from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session

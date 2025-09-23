@@ -5,13 +5,10 @@ from dataclasses import dataclass, field
 from typing import Any, Generic, Optional, TypeVar
 
 import structlog
-
-from posthog.schema import MarketingAnalyticsColumnsSchemaNames, SourceMap
-
 from posthog.hogql import ast
-
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
+from posthog.schema import MarketingAnalyticsColumnsSchemaNames, SourceMap
 from posthog.warehouse.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)

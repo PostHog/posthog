@@ -1,27 +1,16 @@
-import json
-import math
-import uuid
-import random
-import typing as t
 import datetime as dt
 import ipaddress
+import json
+import math
+import random
+import typing as t
+import uuid
 from dataclasses import asdict, dataclass
 
+import dns.resolver
 import grpc.aio
 import requests
-import dns.resolver
 import temporalio.common
-from structlog import get_logger
-from temporalio import activity, workflow
-from temporalio.client import (
-    Schedule,
-    ScheduleActionStartWorkflow,
-    ScheduleAlreadyRunningError,
-    ScheduleIntervalSpec,
-    ScheduleSpec,
-)
-from temporalio.exceptions import ActivityError, ApplicationError, RetryState
-
 from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
@@ -38,6 +27,16 @@ from posthog.temporal.proxy_service.common import (
 )
 from posthog.temporal.proxy_service.monitor import MonitorManagedProxyInputs
 from posthog.temporal.proxy_service.proto import CertificateState_READY, CreateRequest, StatusRequest
+from structlog import get_logger
+from temporalio import activity, workflow
+from temporalio.client import (
+    Schedule,
+    ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
+    ScheduleIntervalSpec,
+    ScheduleSpec,
+)
+from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
 LOGGER = get_logger(__name__)
 

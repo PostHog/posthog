@@ -1,10 +1,9 @@
 from typing import Any
 
-from rest_framework import serializers, viewsets
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import ScheduledChange
+from rest_framework import serializers, viewsets
 
 
 class ScheduledChangeSerializer(serializers.ModelSerializer):

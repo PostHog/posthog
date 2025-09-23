@@ -2,17 +2,10 @@ import dataclasses
 from typing import ClassVar, Optional, Union, cast
 
 from opentelemetry import trace
-
-from posthog.schema import (
-    HogLanguage,
-    HogQLFilters,
-    HogQLMetadata,
-    HogQLMetadataResponse,
-    HogQLQueryModifiers,
-    HogQLQueryResponse,
-    HogQLVariable,
-)
-
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
 from posthog.hogql.errors import ExposedHogQLError
@@ -27,12 +20,16 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
-
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import ExposedCHQueryError
 from posthog.models.team import Team
+from posthog.schema import (
+    HogLanguage,
+    HogQLFilters,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogQLQueryModifiers,
+    HogQLQueryResponse,
+    HogQLVariable,
+)
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 tracer = trace.get_tracer(__name__)

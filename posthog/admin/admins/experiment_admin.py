@@ -6,7 +6,6 @@ from django.forms import ModelForm
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
-
 from posthog.models import (
     Cohort,
     Experiment,

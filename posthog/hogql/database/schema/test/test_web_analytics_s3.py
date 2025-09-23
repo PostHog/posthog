@@ -1,16 +1,13 @@
-from posthog.test.base import BaseTest
-from unittest.mock import patch
-
 from django.test import override_settings
-
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args, get_s3_url
-
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
     OBJECT_STORAGE_REGION,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 
 class TestWebAnalyticsS3(BaseTest):

@@ -3,9 +3,8 @@ from datetime import datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
-
 from posthog.session_recordings.models.metadata import RecordingMetadata
+from unittest.mock import MagicMock, patch
 
 from ee.hogai.session_summaries.session.input_data import (
     COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT,

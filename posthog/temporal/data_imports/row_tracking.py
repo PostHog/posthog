@@ -1,18 +1,16 @@
 import uuid
 from contextlib import contextmanager
 
+from dateutil import parser
 from django.conf import settings
 from django.db.models import Sum
-
-from dateutil import parser
-from structlog.types import FilteringBoundLogger
-
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team
 from posthog.redis import get_client
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.models import ExternalDataJob
+from structlog.types import FilteringBoundLogger
 
 
 def _get_hash_key(team_id: int) -> str:

@@ -3,11 +3,10 @@ from time import sleep
 from typing import Optional
 
 import structlog
-from prometheus_client import Counter, Histogram
-
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
+from prometheus_client import Counter, Histogram
 
 logger = structlog.get_logger(__name__)
 

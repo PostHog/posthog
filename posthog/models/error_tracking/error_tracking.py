@@ -3,10 +3,7 @@ from uuid import UUID
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
-
 from django_deprecate_fields import deprecate_field
-from rest_framework.exceptions import ValidationError
-
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
 from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
@@ -16,6 +13,7 @@ from posthog.models.user import User
 from posthog.models.user_group import UserGroup
 from posthog.models.utils import UUIDTModel
 from posthog.storage import object_storage
+from rest_framework.exceptions import ValidationError
 
 from ee.models.rbac.role import Role
 

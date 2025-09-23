@@ -1,9 +1,8 @@
 from typing import Any
 
-from posthog.test.base import BaseTest
-
 from posthog.api.advanced_activity_logs.fields_cache import _get_cache_key, get_client
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.test.base import BaseTest
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 

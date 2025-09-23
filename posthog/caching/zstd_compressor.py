@@ -1,7 +1,6 @@
-from django.conf import settings
-
-import zstd
 import structlog
+import zstd
+from django.conf import settings
 from django_redis.compressors.base import BaseCompressor
 from prometheus_client import Counter
 

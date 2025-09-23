@@ -1,11 +1,9 @@
-from django.db.models import Count, QuerySet
-
 import structlog
-from rest_framework import mixins, permissions, serializers, viewsets
-from rest_framework.request import Request
-
+from django.db.models import Count, QuerySet
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions import HogFunction
+from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework.request import Request
 
 logger = structlog.get_logger(__name__)
 

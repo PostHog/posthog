@@ -1,6 +1,5 @@
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
-
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 

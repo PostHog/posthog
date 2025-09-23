@@ -1,17 +1,14 @@
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import FunnelConversionWindowTimeUnit, FunnelsFilter, FunnelVizType, StepOrderValue
-
+from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-
-from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql_queries.legacy_compatibility.feature_flag import (
     insight_funnels_use_udf,
     insight_funnels_use_udf_time_to_convert,
     insight_funnels_use_udf_trends,
 )
 from posthog.models import Team
+from posthog.schema import FunnelConversionWindowTimeUnit, FunnelsFilter, FunnelVizType, StepOrderValue
+from rest_framework.exceptions import ValidationError
 
 
 def use_udf(funnelsFilter: FunnelsFilter, team: Team):

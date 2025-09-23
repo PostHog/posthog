@@ -1,26 +1,17 @@
-import re
-import json
-import uuid
 import asyncio
-import datetime as dt
-import operator
-import dataclasses
 import collections.abc
-
-import pytest
-import unittest.mock
-
-from django.conf import settings
-from django.test import override_settings
+import dataclasses
+import datetime as dt
+import json
+import operator
+import re
+import uuid
 
 import psycopg
-from psycopg import sql
-from temporalio import activity
-from temporalio.client import WorkflowFailureError
-from temporalio.common import RetryPolicy
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
+import pytest
+import unittest.mock
+from django.conf import settings
+from django.test import override_settings
 from posthog import constants
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -30,7 +21,6 @@ from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
-
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
     PostgresBatchExportInputs,
@@ -49,6 +39,12 @@ from products.batch_exports.backend.tests.temporal.utils import (
     mocked_start_batch_export_run,
     remove_duplicates_from_records,
 )
+from psycopg import sql
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 pytestmark = [
     pytest.mark.asyncio,

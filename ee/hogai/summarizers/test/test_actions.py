@@ -1,9 +1,8 @@
 import json
 from textwrap import dedent
 
-from posthog.test.base import BaseTest
-
 from posthog.models import Action
+from posthog.test.base import BaseTest
 
 from ee.hogai.summarizers.actions import ActionSummarizer
 

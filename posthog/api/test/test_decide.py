@@ -1,26 +1,19 @@
-import json
-import time
 import base64
+import json
 import random
+import time
 from typing import Optional
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
-from unittest.mock import patch
-
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection, connections
 from django.http import HttpRequest
 from django.test import TestCase, TransactionTestCase
 from django.test.client import Client
-
+from freezegun import freeze_time
 from inline_snapshot import snapshot
 from parameterized import parameterized
-from rest_framework import status
-from rest_framework.test import APIClient
-
 from posthog import redis
 from posthog.api.decide import get_decide, label_for_team_id_to_track
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
@@ -46,7 +39,11 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from rest_framework import status
+from rest_framework.test import APIClient
+from unittest.mock import patch
 
 
 def make_session_recording_decide_response(overrides: Optional[dict] = None) -> dict:

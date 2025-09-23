@@ -1,5 +1,4 @@
 from freezegun import freeze_time
-
 from posthog.cdp.templates.aws_kinesis.template_aws_kinesis import template as template_aws_kinesis
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 

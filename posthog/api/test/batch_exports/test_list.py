@@ -1,7 +1,5 @@
 import pytest
-
 from django.test.client import Client as HttpClient
-
 from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,

@@ -2,15 +2,13 @@ import dataclasses
 
 from django.conf import settings
 from django.db import close_old_connections
-
-from structlog.contextvars import bind_contextvars
-from temporalio import activity
-
 from posthog.models import DataWarehouseTable
 from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.s3 import get_size_of_folder
+from structlog.contextvars import bind_contextvars
+from temporalio import activity
 
 LOGGER = get_logger(__name__)
 

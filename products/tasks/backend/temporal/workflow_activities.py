@@ -5,7 +5,6 @@ Workflow-agnostic activities for the configurable task system.
 from typing import Any, Optional
 
 import temporalio
-
 from posthog.temporal.common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -21,7 +20,6 @@ async def check_temporal_workflow_permissions_activity(params: dict[str, Any]) -
 
         import posthoganalytics
         from asgiref.sync import sync_to_async
-
         from posthog.models.team.team import Team
         from posthog.models.user import User
 
@@ -69,10 +67,8 @@ async def get_workflow_configuration_activity(params: dict[str, Any]) -> dict[st
         task_id = params["task_id"]
         team_id = params["team_id"]
 
-        from django.db import transaction
-
         from asgiref.sync import sync_to_async
-
+        from django.db import transaction
         from products.tasks.backend.models import Task
 
         @sync_to_async
@@ -128,10 +124,8 @@ async def get_agent_triggered_transition_activity(params: dict[str, Any]) -> Opt
         task_id = params["task_id"]
         team_id = params["team_id"]
 
-        from django.db import transaction
-
         from asgiref.sync import sync_to_async
-
+        from django.db import transaction
         from products.tasks.backend.models import Task
 
         @sync_to_async
@@ -171,10 +165,8 @@ async def move_task_to_stage_activity(params: dict[str, Any]) -> dict[str, Any]:
         task_id = params["task_id"]
         team_id = params["team_id"]
 
-        from django.db import transaction
-
         from asgiref.sync import sync_to_async
-
+        from django.db import transaction
         from products.tasks.backend.models import Task
 
         @sync_to_async
@@ -241,10 +233,8 @@ async def should_trigger_agent_workflow_activity(params: dict[str, Any]) -> dict
         task_id = params["task_id"]
         team_id = params["team_id"]
 
-        from django.db import transaction
-
         from asgiref.sync import sync_to_async
-
+        from django.db import transaction
         from products.tasks.backend.models import Task
 
         @sync_to_async
@@ -314,7 +304,6 @@ async def execute_agent_for_transition_activity(params: dict[str, Any]) -> dict[
 
         import posthoganalytics
         from asgiref.sync import sync_to_async
-
         from posthog.models.team.team import Team
         from posthog.models.user import User
 

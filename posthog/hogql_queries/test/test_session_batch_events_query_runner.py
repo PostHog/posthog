@@ -3,8 +3,12 @@ from typing import Any
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-
+from posthog.hogql_queries.ai.session_batch_events_query_runner import (
+    SessionBatchEventsQueryRunner,
+    create_session_batch_events_query,
+)
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.schema import (
     CachedEventsQueryResponse,
     CachedSessionBatchEventsQueryResponse,
@@ -12,13 +16,7 @@ from posthog.schema import (
     SessionBatchEventsQuery,
     SessionBatchEventsQueryResponse,
 )
-
-from posthog.hogql_queries.ai.session_batch_events_query_runner import (
-    SessionBatchEventsQueryRunner,
-    create_session_batch_events_query,
-)
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 
 class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):

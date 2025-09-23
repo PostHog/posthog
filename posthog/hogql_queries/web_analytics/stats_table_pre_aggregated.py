@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING, Literal, Optional, cast
 
-from posthog.schema import WebAnalyticsOrderByDirection, WebAnalyticsOrderByFields, WebStatsBreakdown
-
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import (
     ChannelTypeExprs,
@@ -9,9 +7,9 @@ from posthog.hogql.database.schema.channel_type import (
     wrap_with_null_if_empty,
 )
 from posthog.hogql.parser import parse_expr, parse_select
-
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
+from posthog.schema import WebAnalyticsOrderByDirection, WebAnalyticsOrderByFields, WebStatsBreakdown
 
 if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner

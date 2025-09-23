@@ -1,10 +1,9 @@
-import json
 import datetime
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import structlog
-
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.sync import database_sync_to_async
 

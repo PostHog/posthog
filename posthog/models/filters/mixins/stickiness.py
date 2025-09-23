@@ -2,13 +2,12 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Union
 
-from rest_framework.exceptions import ValidationError
-
 from posthog.constants import DATE_FROM, DATE_TO, STICKINESS_DAYS
 from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin
 from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse
+from rest_framework.exceptions import ValidationError
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

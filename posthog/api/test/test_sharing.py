@@ -1,16 +1,10 @@
 from datetime import timedelta
 from functools import wraps
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, Mock, patch
-
 from django.utils import timezone
 from django.utils.timezone import now
-
+from freezegun import freeze_time
 from parameterized import parameterized
-from rest_framework import status
-
 from posthog.api.sharing import _log_share_password_attempt, shared_url_as_png
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, ExportedAsset
@@ -20,6 +14,9 @@ from posthog.models.insight import Insight
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.test.base import APIBaseTest
+from rest_framework import status
+from unittest.mock import MagicMock, Mock, patch
 
 
 def mock_exporter_template(test_func):

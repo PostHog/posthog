@@ -3,7 +3,16 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+from django.test import TestCase, override_settings
+from django.utils import timezone
 from freezegun import freeze_time
+from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, INSIGHT_FUNNELS
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
+from posthog.models.group.util import create_group
+from posthog.models.instance_setting import override_instance_config
+from posthog.schema import CachedPathsQueryResponse, PathsLink
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -13,20 +22,8 @@ from posthog.test.base import (
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import MagicMock, Mock, patch
-
-from django.test import TestCase, override_settings
-from django.utils import timezone
-
-from posthog.schema import CachedPathsQueryResponse, PathsLink
-
-from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, INSIGHT_FUNNELS
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
-from posthog.models.group.util import create_group
-from posthog.models.instance_setting import override_instance_config
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from unittest.mock import MagicMock, Mock, patch
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 

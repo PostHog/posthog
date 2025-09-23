@@ -3,10 +3,8 @@ from uuid import uuid4
 
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
-
-from posthog.schema import AssistantToolCallMessage, MaxBillingContext, SpendHistoryItem, UsageHistoryItem
-
 from posthog.clickhouse.client import sync_execute
+from posthog.schema import AssistantToolCallMessage, MaxBillingContext, SpendHistoryItem, UsageHistoryItem
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.billing.prompts import BILLING_CONTEXT_PROMPT

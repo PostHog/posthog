@@ -1,12 +1,10 @@
 from datetime import datetime
 
-from posthog.test.base import BaseTest
-from unittest.mock import patch
-
 from inline_snapshot import snapshot
-
 from posthog.cdp.templates.google_cloud_storage.template_google_cloud_storage import TemplateGoogleCloudStorageMigrator
 from posthog.models import Integration, Plugin, PluginAttachment, PluginConfig
+from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 
 class TestTemplateMigration(BaseTest):

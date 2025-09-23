@@ -2,7 +2,6 @@ import re
 from typing import get_args
 
 from django.core.exceptions import ImproperlyConfigured
-
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -10,12 +9,11 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_serializer,  # noqa: F401
 )  # # noqa: F401 for easy import
-from rest_framework import fields, serializers
-from rest_framework.exceptions import PermissionDenied
-
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
+from rest_framework import fields, serializers
+from rest_framework.exceptions import PermissionDenied
 
 
 @extend_schema_field(OpenApiTypes.STR)

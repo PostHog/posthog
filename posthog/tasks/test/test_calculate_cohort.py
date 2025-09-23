@@ -1,13 +1,8 @@
 from collections.abc import Callable
 
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
-
-from django.utils import timezone
-
 from dateutil.relativedelta import relativedelta
-
+from django.utils import timezone
+from freezegun import freeze_time
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import (
@@ -22,6 +17,8 @@ from posthog.tasks.calculate_cohort import (
     reset_stuck_cohorts,
     update_cohort_metrics,
 )
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 MISSING_COHORT_ID = 12345
 
@@ -823,9 +820,8 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
         def test_insert_cohort_from_query_count_updated_on_exception(self) -> None:
             """Test that insert_cohort_from_query updates count even when processing fails"""
-            from unittest.mock import patch
-
             from posthog.tasks.calculate_cohort import insert_cohort_from_query
+            from unittest.mock import patch
 
             # Create a static cohort
             cohort = Cohort.objects.create(

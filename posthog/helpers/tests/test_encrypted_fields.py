@@ -1,8 +1,7 @@
 from freezegun import freeze_time
+from posthog.helpers.encrypted_fields import EncryptedFieldMixin
 from posthog.test.base import BaseTest
 from unittest.mock import patch
-
-from posthog.helpers.encrypted_fields import EncryptedFieldMixin
 
 
 class TestEncryptedFields(BaseTest):

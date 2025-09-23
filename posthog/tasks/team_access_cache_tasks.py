@@ -7,11 +7,9 @@ caches, ensuring that the cached authentication system has fresh data.
 
 import logging
 
-from django.conf import settings
-
 from celery import shared_task
 from celery.app.task import Task
-
+from django.conf import settings
 from posthog.storage.team_access_cache import get_teams_needing_cache_refresh_paginated, warm_team_token_cache
 
 logger = logging.getLogger(__name__)

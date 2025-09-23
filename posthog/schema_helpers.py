@@ -1,7 +1,6 @@
 from typing import Literal, get_origin
 
-from pydantic import BaseModel, ValidationError
-
+from posthog.hogql_queries.insights.utils.utils import series_should_be_set_to_dau
 from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
@@ -12,9 +11,8 @@ from posthog.schema import (
     StickinessQuery,
     TrendsQuery,
 )
-
-from posthog.hogql_queries.insights.utils.utils import series_should_be_set_to_dau
 from posthog.types import InsightQueryNode
+from pydantic import BaseModel, ValidationError
 
 
 def strip_version_recursive(d):

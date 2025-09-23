@@ -1,10 +1,9 @@
 import json
 from datetime import datetime
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
-
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.group.util import create_group
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 

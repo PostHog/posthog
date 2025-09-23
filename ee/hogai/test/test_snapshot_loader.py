@@ -4,11 +4,9 @@ import json
 from io import BytesIO
 from typing import Any
 
-from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
-
 from asgiref.sync import async_to_sync
-
+from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models import GroupTypeMapping, Organization, PropertyDefinition, Team
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsPropertyTaxonomyResponse,
@@ -17,10 +15,9 @@ from posthog.schema import (
     TeamTaxonomyItem,
     TeamTaxonomyQuery,
 )
-
-from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import GroupTypeMapping, Organization, PropertyDefinition, Team
+from posthog.test.base import BaseTest
 from posthog.warehouse.models.table import DataWarehouseTable
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ee.hogai.eval.offline.query_patches import (
     ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE,

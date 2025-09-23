@@ -1,9 +1,8 @@
 import json
 from typing import Any, Optional, Union
 
-from rest_framework.request import Request
-
 from posthog.constants import INSIGHT_RETENTION
+from rest_framework.request import Request
 
 from .base_filter import BaseFilter
 from .mixins.common import (
