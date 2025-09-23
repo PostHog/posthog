@@ -136,7 +136,7 @@ class SessionSummaryVideoValidator:
                     field_path = f"key_actions.{ki}.events.{ei}.{field}"
                     fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
                         path=field_path,
-                        current_value=event[field],
+                        current_value=event.get(field),
                         new_value=None,
                     )
                 # Related segment outcome
@@ -144,13 +144,13 @@ class SessionSummaryVideoValidator:
                     field_path = f"segment_outcomes.{segment_index}.{field}"
                     fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
                         path=field_path,
-                        current_value=self.summary.data["segment_outcomes"][segment_index][field],
+                        current_value=self.summary.data["segment_outcomes"][segment_index].get(field),
                         new_value=None,
                     )
                 field_path = f"segments.{segment_index}.name"
                 fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
                     path=field_path,
-                    current_value=self.summary.data["segments"][segment_index]["name"],
+                    current_value=self.summary.data["segments"][segment_index].get("name"),
                     new_value=None,
                 )
                 # Session outcome
@@ -158,7 +158,7 @@ class SessionSummaryVideoValidator:
                     field_path = f"session_outcome.{field}"
                     fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
                         path=field_path,
-                        current_value=self.summary.data["session_outcome"][field],
+                        current_value=self.summary.data["session_outcome"].get(field),
                         new_value=None,
                     )
                 # Generate prompt
