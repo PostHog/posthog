@@ -41,7 +41,6 @@ async def validate_llm_single_session_summary_with_videos_activity(
             f"User not found in the database for user {inputs.user_id} when validating session summary with videos",
             non_retryable=True,
         )
-    summary_row = cast(SingleSessionSummary, summary_row)
     # TODO: Remove after tests
     with open(f"summary_{inputs.session_id}.json", "w") as f:
         json.dump(summary_row.summary, f, indent=4, sort_keys=True)
@@ -66,4 +65,5 @@ async def validate_llm_single_session_summary_with_videos_activity(
     # Store the updated summary in the database
     summary_row.summary = updated_summary.data
     summary_row.run_metadata = asdict(updated_run_metadata)
+    # The assumption is that the summary generated once and then reused, so no need for versioning/updated at
     await summary_row.asave(update_fields=["summary", "run_metadata"])
