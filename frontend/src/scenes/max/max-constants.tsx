@@ -145,6 +145,11 @@ export const TOOL_DEFINITIONS: Omit<
         description: 'Create email templates from scratch or using a URL for inspiration',
         product: Scene.Messaging,
     },
+    create_campaign: {
+        name: 'Create campaigns',
+        description: 'Create campaigns and automation workflows from natural language requirements',
+        product: Scene.Messaging,
+    },
 }
 
 export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [

@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconDrag } from '@posthog/icons'
+import { IconDrag, IconMagicWand } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
 import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatusTag'
+import MaxTool from 'scenes/max/MaxTool'
 
 import { HogFunctionTemplateType } from '~/types'
 
+import { campaignLogic } from '../../campaignLogic'
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { HogFlowAction } from '../types'
@@ -258,8 +260,40 @@ function HogFunctionTemplatesChooser(): JSX.Element {
 }
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
+    const { campaign } = useValues(campaignLogic)
+    const { setCampaignInfo } = useActions(campaignLogic)
+    
     return (
         <div className="flex overflow-y-auto flex-col gap-px p-2">
+            <MaxTool
+                identifier="create_campaign"
+                context={{
+                    current_campaign: campaign
+                }}
+                callback={(toolOutput: any) => {
+                    try {
+                        const campaignConfig = JSON.parse(toolOutput)
+                        setCampaignInfo(campaignConfig)
+                    } catch (e) {
+                        console.error('Failed to parse campaign configuration:', e)
+                    }
+                }}
+                suggestions={[
+                    'Create a welcome email campaign for new users',
+                    'Set up a multi-step onboarding flow',
+                    'Build a re-engagement campaign for inactive users',
+                ]}
+            >
+                <LemonButton 
+                    fullWidth 
+                    icon={<IconMagicWand />} 
+                    type="secondary"
+                    className="mb-2"
+                >
+                    Create campaign with AI
+                </LemonButton>
+            </MaxTool>
+            
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 Actions <LemonDivider className="flex-1" />
             </span>
