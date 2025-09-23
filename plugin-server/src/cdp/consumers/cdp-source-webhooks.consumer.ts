@@ -121,6 +121,12 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             }
         }
 
+        const query: Record<string, string> = {}
+        for (const [key, value] of Object.entries(req.query)) {
+            const firstValue = Array.isArray(value) ? value.join(',') : value
+            query[key] = String(firstValue)
+        }
+
         return {
             source: {
                 name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
@@ -144,6 +150,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 headers,
                 ip,
                 body,
+                query,
                 stringBody: req.rawBody ?? '',
             },
         }
