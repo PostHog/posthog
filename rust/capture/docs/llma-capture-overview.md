@@ -363,9 +363,15 @@ The authentication process for LLM analytics events follows these steps:
 
 ### Data Deletion
 
-Two approaches for handling data deletion requests:
+Three approaches for handling data deletion requests:
 
-1. **S3 Delete by Prefix**
+1. **S3 Expiry (Passive)**
+   - Rely on S3 lifecycle policies to automatically delete expired blobs
+   - No immediate action required for deletion requests
+   - Simple implementation but data remains accessible until expiry
+   - Suitable for compliance requirements with defined retention periods
+
+2. **S3 Delete by Prefix**
    - Use S3's delete by prefix functionality to remove all objects for a team
    - Simple to implement but requires listing and deleting potentially many objects
    - Example: Delete all data for team 123:
@@ -374,7 +380,7 @@ Two approaches for handling data deletion requests:
      ```
      Or using S3 API to delete objects with prefix `llma/123/`
 
-2. **Per-Team Encryption**
+3. **Per-Team Encryption**
    - Encrypt blobs with per-team encryption keys
    - Data deletion achieved by deleting the team's encryption key
    - More complex but provides immediate cryptographic deletion
