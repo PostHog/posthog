@@ -83,7 +83,7 @@ impl Client for PgPool {
             None => DATABASE_TIMEOUT_MILLISECS,
         };
 
-        let fut = timeout(Duration::from_secs(timeout_ms), query_results).await?;
+        let fut = timeout(Duration::from_millis(timeout_ms), query_results).await?;
 
         Ok(fut?)
     }
