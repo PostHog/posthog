@@ -36,6 +36,7 @@ import {
     createApplyDropRestrictionsStep,
     createApplyForceOverflowRestrictionsStep,
     createApplyPersonProcessingRestrictionsStep,
+    createDropExceptionEventsStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
     createResolveTeamStep,
@@ -236,6 +237,7 @@ export class IngestionConsumer {
                 })
             )
             .pipe(createParseKafkaMessageStep())
+            .pipe(createDropExceptionEventsStep())
             .pipeAsync(createResolveTeamStep(this.hub))
             .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
             .pipeAsync(createValidateEventUuidStep(this.hub))

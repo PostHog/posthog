@@ -2,6 +2,7 @@ export { createApplyCookielessProcessingStep } from './apply-cookieless-processi
 export { createApplyDropRestrictionsStep } from './apply-drop-events-restrictions'
 export { createApplyForceOverflowRestrictionsStep } from './apply-force-overflow-restrictions'
 export { createApplyPersonProcessingRestrictionsStep } from './apply-person-processing-restrictions'
+export { createDropExceptionEventsStep } from './drop-exception-events'
 export { createParseHeadersStep } from './parse-headers'
 export { createParseKafkaMessageStep } from './parse-kafka-message'
 export { createResolveTeamStep } from './resolve-team'

@@ -2,7 +2,6 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { PipelineResult, dlq, drop, isOkResult, ok } from '../../../ingestion/pipelines/results'
-import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { EventHeaders, Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
@@ -84,24 +83,6 @@ export class EventPipelineRunner {
         this.headers = headers
     }
 
-    isEventDisallowed(event: PipelineEvent): boolean {
-        // During incidents we can use the the env DROP_EVENTS_BY_TOKEN_DISTINCT_ID
-        // to drop events here before processing them which would allow us to catch up
-        const key = event.token || event.team_id?.toString()
-        if (!key) {
-            return false // for safety don't drop events here, they are later dropped in teamDataPopulation
-        }
-
-        if (event.event === '$exception') {
-            // Exception events were fully moved to rust processing on its own topic. As a defensive measure,
-            // we'll drop them here
-            return true
-        }
-
-        const dropIds = this.hub.eventsToDropByToken?.get(key)
-        return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
-    }
-
     validateEvent(event: PluginEvent): true | { warning: string; data: any } {
         if (event.event === '$groupidentify') {
             const groupKey = event.properties?.$group_key
@@ -156,18 +137,6 @@ export class EventPipelineRunner {
         this.originalEvent = event
 
         try {
-            if (this.isEventDisallowed(event)) {
-                // TODO: move metrics to the result handler
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'disallowed',
-                    })
-                    .inc()
-                // TODO: restore register last step
-                return drop('Event disallowed by configuration')
-            }
-
             const pluginEvent: PluginEvent = {
                 ...event,
                 team_id: team.id,
