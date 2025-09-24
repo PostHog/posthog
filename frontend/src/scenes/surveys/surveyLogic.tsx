@@ -713,13 +713,7 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         duplicatedToProjectSurvey: {
             duplicateToProject: async ({ sourceSurvey, targetTeamId }) => {
-                // For cross-project duplication, we can't easily check target project surveys,
-                // so we use a timestamp to ensure uniqueness
-                const timestamp = dayjs().format('YYYY-MM-DD HH:mm:ss')
-                const payload = {
-                    ...duplicateExistingSurvey(sourceSurvey, []),
-                    name: `${sourceSurvey.name} (copy ${timestamp})`,
-                }
+                const payload = duplicateExistingSurvey(sourceSurvey)
                 const createdSurvey = await api.surveys.create(sanitizeSurvey(payload), targetTeamId)
 
                 lemonToast.success('Survey duplicated to another project.', {
