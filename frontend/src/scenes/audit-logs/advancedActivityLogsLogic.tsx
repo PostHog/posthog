@@ -295,6 +295,8 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             actions.loadAdvancedActivityLogs({})
         },
         clearAllFilters: () => {
+            actions.setActiveFilters([])
+            actions.setShowMoreFilters(false)
             actions.loadAdvancedActivityLogs({})
         },
 
@@ -469,6 +471,14 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
 
     urlToAction(({ actions }) => ({
         '/advanced-activity-logs': (_, searchParams) => {
+            const hasUrlParams = Object.keys(searchParams).length > 0
+
+            // If just visiting the page, we want to clear all filters in case the page was previously mounted with filters
+            if (!hasUrlParams) {
+                actions.clearAllFilters()
+                return
+            }
+
             const urlFilters: Partial<AdvancedActivityLogFilters> = {}
 
             if (searchParams.start_date) {
@@ -515,9 +525,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 urlFilters.page = parseInt(searchParams.page, 10)
             }
 
-            if (Object.keys(urlFilters).length > 0) {
-                actions.setFilters(urlFilters)
-            }
+            actions.setFilters(urlFilters)
         },
     })),
 
