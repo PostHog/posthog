@@ -45,7 +45,7 @@ import {
     PreprocessedEventWithStores,
     createEventPipelineRunnerV1Step,
 } from './event-processing/event-pipeline-runner-v1-step'
-import { createBatch, createNewBatchPipeline, createNewPipeline } from './pipelines/helpers'
+import { createBatch, createNewBatchPipeline, createNewPipeline, createRetryingPipeline } from './pipelines/helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './pipelines/result-handling-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
@@ -225,7 +225,6 @@ export class IngestionConsumer {
             promiseScheduler: this.promiseScheduler,
         }
 
-        // Create preprocessing pipeline
         const preprocessingPipeline = createNewPipeline()
             .pipe(createParseHeadersStep())
             .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
@@ -241,13 +240,11 @@ export class IngestionConsumer {
             .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
             .pipeAsync(createValidateEventUuidStep(this.hub))
 
-        // Create the batch processing pipeline with fluent API
         const batchPipeline = createNewBatchPipeline()
             .pipeConcurrently(preprocessingPipeline)
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(this.hub))
 
-        // Wrap it in the result handling pipeline
         this.batchPreprocessingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
     }
 
@@ -258,15 +255,19 @@ export class IngestionConsumer {
             promiseScheduler: this.promiseScheduler,
         }
 
-        // Create the event processing pipeline using fluent API
         const eventPipelineStep = createEventPipelineRunnerV1Step(this.hub, this.hogTransformer)
 
-        const eventProcessingPipeline = createNewPipeline<PreprocessedEventWithStores>().pipeAsync(eventPipelineStep)
+        const eventProcessingPipeline = createRetryingPipeline(
+            createNewPipeline<PreprocessedEventWithStores>().pipeAsync(eventPipelineStep),
+            {
+                tries: 3,
+                sleepMs: 100,
+            }
+        )
 
         const mainEventBatchPipeline =
             createNewBatchPipeline<PreprocessedEventWithStores>().pipeSequentially(eventProcessingPipeline)
 
-        // Wrap in result handling pipeline
         this.mainEventPipeline = ResultHandlingPipeline.of(mainEventBatchPipeline, pipelineConfig)
     }
 

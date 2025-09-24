@@ -39,7 +39,9 @@ export class BaseBatchPipeline<TInput, TIntermediate, TOutput> implements BatchP
         const stepName = this.currentStep.name || 'anonymousBatchStep'
         let stepResults: PipelineResult<TOutput>[] = []
         if (successfulValues.length > 0) {
-            stepResults = await instrumentFn(stepName, () => this.currentStep(successfulValues))
+            stepResults = await instrumentFn({ key: stepName, sendException: false }, () =>
+                this.currentStep(successfulValues)
+            )
         }
         let stepIndex = 0
 

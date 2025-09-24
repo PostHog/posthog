@@ -4,32 +4,29 @@ import { PipelineResult, isOkResult } from './results'
 import { AsyncProcessingStep, SyncProcessingStep } from './steps'
 
 export class StepPipeline<TInput, TIntermediate, TOutput> implements Pipeline<TInput, TOutput> {
+    private currentStep: (value: TIntermediate) => Promise<PipelineResult<TOutput>>
+
     constructor(
-        private currentStep: (value: TIntermediate) => Promise<PipelineResult<TOutput>>,
+        currentStep: (value: TIntermediate) => Promise<PipelineResult<TOutput>>,
         private previousPipeline: Pipeline<TInput, TIntermediate>
-    ) {}
+    ) {
+        this.currentStep = (wrappedStep) =>
+            instrumentFn({ key: currentStep.name || 'anonymousStep', sendException: false }, () =>
+                currentStep(wrappedStep)
+            )
+    }
 
     pipe<U>(step: SyncProcessingStep<TOutput, U>): StepPipeline<TInput, TOutput, U> {
-        const stepName = step.name || 'anonymousStep'
-        const wrappedStep = async (value: TOutput) => {
-            return await instrumentFn(stepName, () => Promise.resolve(step(value)))
-        }
-        return new StepPipeline<TInput, TOutput, U>(wrappedStep, this)
+        return new StepPipeline<TInput, TOutput, U>((value) => Promise.resolve(step(value)), this)
     }
 
     pipeAsync<U>(step: AsyncProcessingStep<TOutput, U>): StepPipeline<TInput, TOutput, U> {
-        const stepName = step.name || 'anonymousAsyncStep'
-        const wrappedStep = async (value: TOutput) => {
-            return await instrumentFn(stepName, () => step(value))
-        }
-        return new StepPipeline<TInput, TOutput, U>(wrappedStep, this)
+        return new StepPipeline<TInput, TOutput, U>(step, this)
     }
 
     async process(input: PipelineResultWithContext<TInput>): Promise<PipelineResultWithContext<TOutput>> {
-        // Process through the previous pipeline first
         const previousResultWithContext = await this.previousPipeline.process(input)
 
-        // If the previous step failed, return the failure with preserved context
         const previousResult = previousResultWithContext.result
         if (!isOkResult(previousResult)) {
             return {
@@ -38,9 +35,7 @@ export class StepPipeline<TInput, TIntermediate, TOutput> implements Pipeline<TI
             }
         }
 
-        // Apply the current step to the successful result value from previous pipeline
         const currentResult = await this.currentStep(previousResult.value)
-
         return {
             result: currentResult,
             context: previousResultWithContext.context,

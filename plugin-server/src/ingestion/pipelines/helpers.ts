@@ -2,7 +2,9 @@ import { Message } from 'node-rdkafka'
 
 import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { BufferingBatchPipeline } from './buffering-batch-pipeline'
+import { Pipeline } from './pipeline.interface'
 import { ok } from './results'
+import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
 import { StartPipeline } from './start-pipeline'
 
 /**
@@ -27,4 +29,14 @@ export function createBatch<T extends { message: Message }>(items: T[]): BatchPi
         result: ok(item),
         context: { message: item.message },
     }))
+}
+
+/**
+ * Helper function to create a retrying pipeline
+ */
+export function createRetryingPipeline<TInput, TOutput>(
+    innerPipeline: Pipeline<TInput, TOutput>,
+    options?: RetryingPipelineOptions
+): RetryingPipeline<TInput, TOutput> {
+    return new RetryingPipeline(innerPipeline, options)
 }
