@@ -1,4 +1,9 @@
-from products.batch_exports.backend.temporal.destinations.databricks_batch_export import DatabricksClient
+import pytest
+
+from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
+    DatabricksClient,
+    DatabricksConnectionError,
+)
 
 
 async def test_get_merge_query_with_schema_evolution():
@@ -167,3 +172,18 @@ async def test_get_copy_into_table_from_volume_query():
         FILEFORMAT = PARQUET
         """
     )
+
+
+async def test_connect_when_invalid_host():
+    """Test that we raise an error when the host is invalid."""
+    client = DatabricksClient(
+        server_hostname="invalid",
+        http_path="test",
+        client_id="test",
+        client_secret="test",
+        catalog="test",
+        schema="test",
+    )
+    with pytest.raises(DatabricksConnectionError, match="Invalid host: invalid"):
+        async with client.connect():
+            pass
