@@ -325,7 +325,6 @@ class User(AbstractUser, UUIDTClassicModel):
                     uac.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
                     .order_by("id")
                     .first()
-                    or organization.teams.order_by("id").first()  # fallback if user has NO access to any project
                 )
             self.save()
 
