@@ -188,7 +188,25 @@ export interface SurveyDateRange {
     date_to: string | null
 }
 
-function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
+function generateUniqueSurveyName(baseName: string, existingSurveys: Survey[]): string {
+    const existingNames = new Set(existingSurveys.map((s) => s.name))
+
+    const copyName = `${baseName} (copy)`
+    if (!existingNames.has(copyName)) {
+        return copyName
+    }
+
+    let counter = 2
+    let uniqueName = `${baseName} (copy ${counter})`
+    while (existingNames.has(uniqueName)) {
+        counter++
+        uniqueName = `${baseName} (copy ${counter})`
+    }
+
+    return uniqueName
+}
+
+function duplicateExistingSurvey(survey: Survey | NewSurvey, existingSurveys: Survey[]): Partial<Survey> {
     return {
         ...survey,
         questions: survey.questions.map((question) => ({
@@ -196,7 +214,7 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
             id: undefined,
         })),
         id: NEW_SURVEY.id,
-        name: `${survey.name} (copy)`,
+        name: generateUniqueSurveyName(survey.name, existingSurveys),
         archived: false,
         start_date: null,
         end_date: null,
@@ -676,8 +694,8 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         duplicatedSurvey: {
             duplicateSurvey: async () => {
-                const { survey } = values
-                const payload = duplicateExistingSurvey(survey)
+                const { survey, data } = values
+                const payload = duplicateExistingSurvey(survey, data.surveys)
                 try {
                     const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
 
@@ -691,6 +709,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         },
                     })
 
+                    actions.setIsDuplicateToProjectModalOpen(false)
                     actions.reportSurveyCreated(createdSurvey, true)
                     actions.addProductIntent({
                         product_type: ProductKey.SURVEYS,
@@ -712,7 +731,13 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         duplicatedToProjectSurvey: {
             duplicateToProject: async ({ sourceSurvey, targetTeamId }) => {
-                const payload = duplicateExistingSurvey(sourceSurvey)
+                // For cross-project duplication, we can't easily check target project surveys,
+                // so we use a timestamp to ensure uniqueness
+                const timestamp = dayjs().format('YYYY-MM-DD HH:mm:ss')
+                const payload = {
+                    ...duplicateExistingSurvey(sourceSurvey, []),
+                    name: `${sourceSurvey.name} (copy ${timestamp})`,
+                }
                 const createdSurvey = await api.surveys.create(sanitizeSurvey(payload), targetTeamId)
 
                 lemonToast.success('Survey duplicated to another project.', {
