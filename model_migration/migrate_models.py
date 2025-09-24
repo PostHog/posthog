@@ -419,7 +419,21 @@ class ModelMigrator:
 
     def create_backend_structure(self, app_name: str) -> bool:
         """Create backend directory structure for product app"""
-        backend_dir = self.root_dir / "products" / app_name / "backend"
+        products_dir = self.root_dir / "products"
+        app_dir = products_dir / app_name
+        backend_dir = app_dir / "backend"
+
+        # Ensure products/__init__.py exists (needed for pytest discovery)
+        products_init = products_dir / "__init__.py"
+        if not products_init.exists():
+            logger.info("📁 Creating products/__init__.py (needed for pytest)")
+            products_init.touch()
+
+        # Ensure product app __init__.py exists (needed for imports)
+        app_init = app_dir / "__init__.py"
+        if not app_init.exists():
+            logger.info("📁 Creating %s/__init__.py (needed for imports)", app_name)
+            app_init.touch()
 
         if not backend_dir.exists():
             logger.info("📁 Creating backend directory: %s", backend_dir)
@@ -435,11 +449,8 @@ class ModelMigrator:
         app_dir = self.root_dir / "products" / app_name
         backend_dir = app_dir / "backend"
 
-        # Check for old structure and warn
+        # Check for old structure and warn (but not __init__.py which is needed)
         old_files_found = []
-        old_init_py = app_dir / "__init__.py"
-        if old_init_py.exists():
-            old_files_found.append(str(old_init_py))
 
         old_apps_py = app_dir / "apps.py"
         if old_apps_py.exists():

@@ -63,6 +63,15 @@ def main():
             # No Python files found (frontend-only or empty)
             logging.info(f"⚠️  {product_name} has no Python package (might be frontend-only)")
 
+    # Ensure products/__init__.py exists (needed for pytest discovery)
+    products_init = products_dir / "__init__.py"
+    if not products_init.exists():
+        try:
+            products_init.touch()
+            logging.info("📝 Created products/__init__.py (needed for pytest)")
+        except (PermissionError, OSError) as e:
+            logging.warning(f"⚠️  Failed to create products/__init__.py: {e}")
+
     if not fixes_needed:
         logging.info("\n✅ All product folders follow correct structure!")
 
@@ -173,15 +182,14 @@ def fix_product_structure(product_path: Path, product_name: str):
         else:
             logging.warning(f"  ⚠️  Both root and backend migrations have content, manual cleanup needed")
 
-    # Clean up root __init__.py if it exists and backend structure is complete
+    # Ensure root __init__.py exists (needed for pytest imports)
     root_init = product_path / "__init__.py"
-    backend_init = backend_dir / "__init__.py"
-    if root_init.exists() and backend_init.exists():
+    if not root_init.exists():
         try:
-            root_init.unlink()
-            logging.info(f"  🗑️  Removed root __init__.py (moved to backend/)")
+            root_init.touch()
+            logging.info(f"  📝 Created root __init__.py (needed for imports)")
         except (PermissionError, OSError) as e:
-            logging.warning(f"  ⚠️  Failed to remove root __init__.py: {e}")
+            logging.warning(f"  ⚠️  Failed to create root __init__.py: {e}")
 
     # Create or update apps.py (idempotent)
     apps_py = backend_dir / "apps.py"
