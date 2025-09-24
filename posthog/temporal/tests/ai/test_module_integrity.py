@@ -41,6 +41,7 @@ class TestAITemporalModuleIntegrity:
             "combine_patterns_from_chunks_activity",
             "split_session_summaries_into_chunks_for_patterns_extraction_activity",
             "process_conversation_activity",
+            "validate_llm_single_session_summary_with_videos_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
