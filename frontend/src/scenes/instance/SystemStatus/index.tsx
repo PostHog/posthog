@@ -5,7 +5,6 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -77,22 +76,6 @@ export function SystemStatus(): JSX.Element {
 
     return (
         <SceneContent className="system-status-scene">
-            <PageHeader
-                caption={
-                    <>
-                        Here you can find all the critical runtime details and settings of your PostHog instance. You
-                        have access to this because you're a <b>staff user</b>.{' '}
-                        <Link
-                            target="_blank"
-                            targetBlankIcon
-                            to="https://posthog.com/docs/self-host/configure/instance-settings?utm_medium=in-product&utm_campaign=instance_status"
-                        >
-                            Learn more
-                        </Link>
-                        .
-                    </>
-                }
-            />
             <SceneTitleSection
                 name="System status"
                 resourceType={{

@@ -86,6 +86,57 @@ export function NotebooksScene(): JSX.Element {
                 resourceType={{
                     type: 'notebook',
                 }}
+                actions={
+                    <>
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Load from JSON',
+                                    onClick: () => {
+                                        void selectFiles({
+                                            contentType: 'application/json',
+                                            multiple: false,
+                                        })
+                                            .then((files) => getTextFromFile(files[0]))
+                                            .then((text) => {
+                                                const data = JSON.parse(text)
+                                                if (data.type !== 'doc') {
+                                                    throw new Error('Not a notebook')
+                                                }
+
+                                                // Looks like a notebook
+                                                router.actions.push(
+                                                    urls.canvas(),
+                                                    {},
+                                                    {
+                                                        '🦔': base64Encode(text),
+                                                    }
+                                                )
+                                            })
+                                            .catch((e) => {
+                                                lemonToast.error(e.message)
+                                            })
+                                    },
+                                },
+                            ]}
+                        >
+                            <LemonButton icon={<IconEllipsis />} size="small" />
+                        </LemonMenu>
+                        <Tooltip title="Like a Notebook but all your exploration is persisted to the URL for easy sharing.">
+                            <LemonButton size="small" data-attr="new-canvas" to={urls.canvas()} type="secondary">
+                                New canvas
+                            </LemonButton>
+                        </Tooltip>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Notebook}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton size="small" data-attr="new-notebook" to={urls.notebook('new')} type="primary">
+                                New notebook
+                            </LemonButton>
+                        </AccessControlAction>
+                    </>
+                }
             />
             <SceneDivider />
 

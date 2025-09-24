@@ -83,6 +83,55 @@ export function NotebookCanvas(): JSX.Element {
                     </>
                 }
             />
+            <div className="flex gap-2 justify-end px-4">
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Clear canvas',
+                            onClick: () => setLocalContent({ type: 'doc', content: [] }, true),
+                        },
+                        {
+                            label: 'Export as JSON',
+                            onClick: () => exportJSON(),
+                        },
+                        {
+                            label: 'Load from JSON',
+                            onClick: () => {
+                                void selectFiles({
+                                    contentType: 'application/json',
+                                    multiple: false,
+                                })
+                                    .then((files) => getTextFromFile(files[0]))
+                                    .then((text) => {
+                                        const data = JSON.parse(text)
+                                        if (data.type !== 'doc') {
+                                            throw new Error('Not a notebook')
+                                        }
+                                        // Looks like a notebook
+                                        setLocalContent(data, true)
+                                    })
+                                    .catch((e) => {
+                                        lemonToast.error(e.message)
+                                    })
+                            },
+                        },
+                    ]}
+                >
+                    <LemonButton icon={<IconEllipsis />} size="small" />
+                </LemonMenu>
+                <LemonButton
+                    type="secondary"
+                    onClick={() => {
+                        void copyToClipboard(window.location.href, 'Canvas URL')
+                    }}
+                    size="small"
+                >
+                    Share
+                </LemonButton>
+                <LemonButton type="primary" onClick={duplicateNotebook} size="small">
+                    Save as Notebook
+                </LemonButton>
+            </div>
             <div className="flex flex-col flex-1">
                 <div className="relative flex-1">
                     <div className="absolute inset-0 flex flex-col p-3 overflow-y-auto">
