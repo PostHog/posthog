@@ -86,15 +86,7 @@ def main():
     for product in fixes_needed:
         logging.info(f"  - {product}")
 
-    try:
-        proceed = input("\nProceed with fixes? (y/N): ")
-        if proceed.lower() != "y":
-            logging.info("Aborted.")
-            return
-    except EOFError:
-        # Running in non-interactive environment, proceed automatically
-        logging.info("\nRunning in non-interactive mode, proceeding with fixes...")
-        pass
+    logging.info("\n🔧 Applying fixes (idempotent operations)...")
 
     # Apply fixes
     for product_name in fixes_needed:
@@ -150,6 +142,46 @@ def fix_product_structure(product_path: Path, product_name: str):
             except (PermissionError, OSError, shutil.Error) as e:
                 logging.exception(f"  ❌ Failed to move {py_file.name}: {e}")
                 continue
+
+    # Move migrations directory to backend if it exists
+    root_migrations = product_path / "migrations"
+    backend_migrations = backend_dir / "migrations"
+    if root_migrations.exists() and not backend_migrations.exists():
+        try:
+            shutil.move(str(root_migrations), str(backend_migrations))
+            logging.info(f"  📦 Moved migrations/ → backend/migrations/")
+        except (PermissionError, OSError, shutil.Error) as e:
+            logging.warning(f"  ⚠️  Failed to move migrations directory: {e}")
+    elif root_migrations.exists() and backend_migrations.exists():
+        # Check if backend migrations is empty (only __init__.py)
+        backend_contents = [f for f in backend_migrations.iterdir() if f.name != "__pycache__"]
+        if len(backend_contents) <= 1 and any(f.name == "__init__.py" for f in backend_contents):
+            # Backend migrations is empty, move files from root
+            try:
+                for item in root_migrations.iterdir():
+                    if item.name == "__pycache__":
+                        continue
+                    dest = backend_migrations / item.name
+                    if not dest.exists() or dest.name == "__init__.py":
+                        shutil.move(str(item), str(dest))
+                        logging.info(f"  📦 Moved migrations/{item.name} → backend/migrations/{item.name}")
+                # Remove empty root migrations directory
+                root_migrations.rmdir()
+                logging.info(f"  🗑️  Removed empty root migrations directory")
+            except (PermissionError, OSError, shutil.Error) as e:
+                logging.warning(f"  ⚠️  Failed to move migration files: {e}")
+        else:
+            logging.warning(f"  ⚠️  Both root and backend migrations have content, manual cleanup needed")
+
+    # Clean up root __init__.py if it exists and backend structure is complete
+    root_init = product_path / "__init__.py"
+    backend_init = backend_dir / "__init__.py"
+    if root_init.exists() and backend_init.exists():
+        try:
+            root_init.unlink()
+            logging.info(f"  🗑️  Removed root __init__.py (moved to backend/)")
+        except (PermissionError, OSError) as e:
+            logging.warning(f"  ⚠️  Failed to remove root __init__.py: {e}")
 
     # Create or update apps.py (idempotent)
     apps_py = backend_dir / "apps.py"

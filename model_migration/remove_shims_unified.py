@@ -126,7 +126,7 @@ class ImportRewriter(cst.CSTTransformer):
     def _create_posthog_models_import(self, names: list[str]) -> cst.ImportFrom:
         import_names = [cst.ImportAlias(cst.Name(name)) for name in sorted(names)]
         return cst.ImportFrom(
-            module=cst.Attribute(value=cst.Attribute(value=cst.Name("posthog"), attr=cst.Name("models"))),
+            module=cst.Attribute(value=cst.Name("posthog"), attr=cst.Name("models")),
             names=import_names,
         )
 
