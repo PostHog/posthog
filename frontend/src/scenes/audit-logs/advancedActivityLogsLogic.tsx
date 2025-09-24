@@ -264,7 +264,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setFilters: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadAdvancedActivityLogs({})
@@ -274,6 +274,24 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
         clearAllFilters: () => {
             actions.loadAdvancedActivityLogs({})
+        },
+
+        setActiveTab: ({ tab }) => {
+            if (tab === 'exports') {
+                // Start polling when switching to exports tab
+                actions.loadExports()
+                if (!cache.exportPollingInterval) {
+                    cache.exportPollingInterval = setInterval(() => {
+                        actions.loadExports()
+                    }, 5000)
+                }
+            } else {
+                // Stop polling when switching away from exports tab
+                if (cache.exportPollingInterval) {
+                    clearInterval(cache.exportPollingInterval)
+                    cache.exportPollingInterval = null
+                }
+            }
         },
 
         // Detail filter management
@@ -396,7 +414,6 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 })
 
                 lemonToast.success(`Export started! Your ${format.toUpperCase()} export is being prepared.`)
-                actions.loadExports()
                 actions.setActiveTab('exports')
             } catch (error) {
                 console.error('Export failed:', error)
@@ -485,15 +502,11 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     events(({ actions, cache }) => ({
         afterMount: () => {
             actions.loadAvailableFilters()
-            actions.loadExports()
-
-            cache.exportPollingInterval = setInterval(() => {
-                actions.loadExports()
-            }, 5000)
         },
         beforeUnmount: () => {
             if (cache.exportPollingInterval) {
                 clearInterval(cache.exportPollingInterval)
+                cache.exportPollingInterval = null
             }
         },
     })),

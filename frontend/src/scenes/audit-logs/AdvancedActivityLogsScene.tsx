@@ -21,15 +21,13 @@ export const scene: SceneExport = {
 }
 
 export function AdvancedActivityLogsScene(): JSX.Element | null {
-    const { isFeatureFlagEnabled, exports, activeTab } = useValues(advancedActivityLogsLogic)
+    const { isFeatureFlagEnabled, activeTab } = useValues(advancedActivityLogsLogic)
     const { setActiveTab } = useActions(advancedActivityLogsLogic)
 
     if (!isFeatureFlagEnabled) {
         window.location.href = urls.projectHomepage()
         return null
     }
-
-    const hasExports = exports && exports.length > 0
 
     const tabs = [
         {
@@ -42,15 +40,11 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                 </div>
             ),
         },
-        ...(hasExports
-            ? [
-                  {
-                      key: 'exports',
-                      label: 'Exports',
-                      content: <ExportsList />,
-                  },
-              ]
-            : []),
+        {
+            key: 'exports',
+            label: 'Exports',
+            content: <ExportsList />,
+        },
     ]
 
     return (
