@@ -96,7 +96,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
     user_access_level: AccessControlLevel.Admin,
-    access_control: true,
     group_types: [
         {
             group_type: 'organization',

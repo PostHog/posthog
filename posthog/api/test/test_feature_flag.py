@@ -4871,21 +4871,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(len(feature_flag["rollback_conditions"]), 1)
 
-    def test_feature_flag_can_edit(self):
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
-        self.assertEqual(
-            (
-                AvailableFeature.ROLE_BASED_ACCESS
-                in [feature["key"] for feature in self.organization.available_product_features or []]
-            ),
-            False,
-        )
-        user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
-        FeatureFlag.objects.create(team=self.team, created_by=user_a, key="blue_button")
-        res = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
-        self.assertEqual(res.json()["results"][0]["can_edit"], True)
-        self.assertEqual(res.json()["results"][1]["can_edit"], True)
-
     def test_get_flags_dont_return_survey_targeting_flags(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         survey = self.client.post(

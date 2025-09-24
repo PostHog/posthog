@@ -60,11 +60,13 @@ export const errorTrackingConfigurationSceneLogic = kea<errorTrackingConfigurati
                     key: Scene.ErrorTracking,
                     path: urls.errorTracking(),
                     name: 'Error tracking',
+                    iconType: 'error_tracking',
                 },
                 {
                     key: Scene.ErrorTrackingConfiguration,
                     path: urls.errorTrackingConfiguration(),
                     name: 'Configuration',
+                    iconType: 'error_tracking',
                 },
             ],
         ],
