@@ -307,6 +307,7 @@ export enum AccessControlResourceType {
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
+    Survey = 'survey',
 }
 
 interface UserBaseType {
@@ -3195,6 +3196,7 @@ export interface Survey {
     response_sampling_interval?: number | null
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
+    user_access_level: AccessControlLevel
     enable_partial_responses?: boolean | null
     _create_in_folder?: string | null
 }

@@ -26,6 +26,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -1392,6 +1393,17 @@ export const surveyLogic = kea<surveyLogicType>([
             () => [(_, props: SurveyLogicProps) => props.id],
             (id): ProjectTreeRef => {
                 return { type: 'survey', ref: id === 'new' ? null : String(id) }
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.survey],
+            (survey): SidePanelSceneContext | null => {
+                return survey.id !== 'new'
+                    ? {
+                          access_control_resource: 'survey',
+                          access_control_resource_id: `${survey.id}`,
+                      }
+                    : null
             },
         ],
         answerFilterHogQLExpression: [
