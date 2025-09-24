@@ -217,7 +217,7 @@ export const parseEncodedSnapshots = async (
         try {
             let snapshotLine: { windowId: string } | EncodedRecordingSnapshot
             if (typeof l === 'string') {
-                // is loaded from blob or realtime storage
+                // is loaded from blob v1 storage
                 snapshotLine = JSON.parse(l) as EncodedRecordingSnapshot
                 if (Array.isArray(snapshotLine)) {
                     snapshotLine = {
@@ -234,7 +234,7 @@ export const parseEncodedSnapshots = async (
                 // is loaded from file export
                 snapshotData = [snapshotLine]
             } else {
-                // is loaded from blob or realtime storage
+                // is loaded from blob storage
                 snapshotData = snapshotLine['data']
             }
 

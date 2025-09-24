@@ -466,11 +466,7 @@ class Resolver(CloningVisitor):
             raise ImpossibleASTError("Alias cannot be empty")
 
         node = super().visit_alias(node)
-        node.type = ast.FieldAliasType(
-            alias=node.alias,
-            type=node.expr.type or ast.UnknownType(),
-            nullable=(node.expr.type.nullable if node.expr.type else True),
-        )
+        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
         if not node.hidden:
             scope.aliases[node.alias] = node.type
         return node
@@ -558,8 +554,8 @@ class Resolver(CloningVisitor):
             # )
 
         if node.name == "concat":
-            return_type.nullable = False  # valid only if at least 1 param is not null
-        else:
+            return_type.nullable = False
+        elif not isinstance(return_type, ast.UnknownType):
             return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
 
         node.type = ast.CallType(
@@ -567,7 +563,6 @@ class Resolver(CloningVisitor):
             arg_types=arg_types,
             param_types=param_types,
             return_type=return_type,
-            nullable=return_type.nullable,
         )
         return node
 
@@ -755,7 +750,7 @@ class Resolver(CloningVisitor):
                 alias=field_name or node.type.name,
                 expr=node,
                 hidden=True,
-                type=ast.FieldAliasType(alias=node.type.name, type=node.type, nullable=node.type.nullable),
+                type=ast.FieldAliasType(alias=node.type.name, type=node.type),
             )
         elif isinstance(node.type, ast.PropertyType):
             property_alias = "__".join(str(s) for s in node.type.chain)
@@ -763,7 +758,7 @@ class Resolver(CloningVisitor):
                 alias=property_alias,
                 expr=node,
                 hidden=True,
-                type=ast.FieldAliasType(alias=property_alias, type=node.type, nullable=node.type.nullable),
+                type=ast.FieldAliasType(alias=property_alias, type=node.type),
             )
 
         return node
