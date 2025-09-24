@@ -539,7 +539,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         const sceneConfig = s.sceneConfig(state, props)
                         return {
                             title: sceneConfig?.name ?? identifierToHuman(activeSceneId),
-                            iconType: sceneConfig?.iconType ?? 'loading',
+                            iconType: sceneConfig?.iconType ?? (activeSceneLogic ? 'notebook' : 'loading'),
                         }
                     }
                     return { title: '...', iconType: 'loading' }
