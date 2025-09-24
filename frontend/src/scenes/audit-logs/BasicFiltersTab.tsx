@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
@@ -14,7 +14,8 @@ import { DetailFilters } from './DetailFilters'
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 
 export const BasicFiltersTab = (): JSX.Element => {
-    const { filters, availableFilters, showMoreFilters } = useValues(advancedActivityLogsLogic)
+    const { filters, availableFilters, showMoreFilters, activeAdvancedFiltersCount } =
+        useValues(advancedActivityLogsLogic)
     const { setFilters, setShowMoreFilters } = useActions(advancedActivityLogsLogic)
 
     return (
@@ -98,15 +99,24 @@ export const BasicFiltersTab = (): JSX.Element => {
                 </div>
 
                 <div className="flex items-end justify-end mb-1">
-                    <LemonButton
-                        type="tertiary"
-                        icon={showMoreFilters ? <IconCollapse /> : <IconExpand />}
-                        onClick={() => setShowMoreFilters(!showMoreFilters)}
-                        data-attr="audit-logs-more-filters-toggle"
-                        className="text-muted-alt hover:text-default"
-                    >
-                        More filters
-                    </LemonButton>
+                    <div className="relative">
+                        <LemonButton
+                            type="tertiary"
+                            icon={showMoreFilters ? <IconCollapse /> : <IconExpand />}
+                            onClick={() => setShowMoreFilters(!showMoreFilters)}
+                            data-attr="audit-logs-more-filters-toggle"
+                            className="text-muted-alt hover:text-default"
+                        >
+                            More filters
+                        </LemonButton>
+                        {!showMoreFilters && activeAdvancedFiltersCount > 0 && (
+                            <LemonBadge
+                                content={activeAdvancedFiltersCount.toString()}
+                                size="small"
+                                className="absolute -top-1 -right-1"
+                            />
+                        )}
+                    </div>
                 </div>
             </div>
 

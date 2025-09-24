@@ -262,6 +262,28 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 onForward: () => advancedActivityLogsLogic.actions.setPage((filters.page || 1) + 1),
             }),
         ],
+
+        activeAdvancedFiltersCount: [
+            (s) => [s.filters],
+            (filters: AdvancedActivityLogFilters): number => {
+                let count = 0
+
+                if (filters.was_impersonated !== undefined) {
+                    count++
+                }
+                if (filters.is_system !== undefined) {
+                    count++
+                }
+                if (filters.item_ids && filters.item_ids.length > 0) {
+                    count++
+                }
+                if (filters.detail_filters && Object.keys(filters.detail_filters).length > 0) {
+                    count++
+                }
+
+                return count
+            },
+        ],
     }),
 
     listeners(({ actions, values, cache }) => ({
@@ -502,6 +524,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     events(({ actions, cache }) => ({
         afterMount: () => {
             actions.loadAvailableFilters()
+            actions.loadAdvancedActivityLogs({})
         },
         beforeUnmount: () => {
             if (cache.exportPollingInterval) {
