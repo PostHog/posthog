@@ -13,7 +13,7 @@ use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
-use tokio::time::{sleep, timeout};
+use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 
 // Add thread-local imports for test-specific counter
@@ -600,28 +600,83 @@ pub async fn set_feature_flag_hash_key_overrides(
     project_id: ProjectId,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
-    const MAX_RETRIES: u32 = 2;
-    const RETRY_DELAY: Duration = Duration::from_millis(100);
+    let retry_strategy = ExponentialBackoff::from_millis(100)
+        .max_delay(Duration::from_millis(300))
+        .take(2)
+        .map(jitter); // Add jitter to prevent thundering herd
 
-    for retry in 0..MAX_RETRIES {
-        // Get connection from persons writer for the transaction
-        let persons_labels = [
-            ("pool".to_string(), "persons_writer".to_string()),
-            (
-                "operation".to_string(),
-                "set_feature_flag_hash_key_overrides".to_string(),
-            ),
-        ];
-        let persons_conn_timer =
-            common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &persons_labels);
-        let mut persons_conn = router.get_persons_writer().get_connection().await?;
-        persons_conn_timer.fin();
-        let mut transaction = persons_conn.begin().await?;
+    // Use tokio-retry to automatically retry on transient failures
+    Retry::spawn(retry_strategy, || async {
+        let result = try_set_feature_flag_hash_key_overrides(
+            router,
+            team_id,
+            &distinct_ids,
+            project_id,
+            &hash_key_override,
+        )
+        .await;
 
-        // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
-        let person_data_query = r#"
-            SELECT DISTINCT
-                p.person_id,
+        // Only retry on foreign key constraint errors (person deletion race condition)
+        match &result {
+            Err(e) if flag_error_is_foreign_key_constraint(e) => {
+                // Increment retry counter for monitoring
+                common_metrics::inc(
+                    FLAG_HASH_KEY_RETRIES_COUNTER,
+                    &[
+                        ("team_id".to_string(), team_id.to_string()),
+                        (
+                            "operation".to_string(),
+                            "set_hash_key_overrides".to_string(),
+                        ),
+                    ],
+                    1,
+                );
+
+                tracing::info!(
+                    team_id = %team_id,
+                    distinct_ids = ?distinct_ids,
+                    error = ?e,
+                    "Hash key override setting failed due to person deletion, will retry"
+                );
+
+                // Return error to trigger retry
+                result
+            }
+            // For other errors, don't retry - return immediately to stop retrying
+            Err(_) => result,
+            // Success case - return the result
+            Ok(_) => result,
+        }
+    })
+    .await
+}
+
+/// Internal function that performs the actual hash key override setting.
+/// This is separated to make it easy to retry with tokio-retry.
+async fn try_set_feature_flag_hash_key_overrides(
+    router: &PostgresRouter,
+    team_id: TeamId,
+    distinct_ids: &[String],
+    project_id: ProjectId,
+    hash_key_override: &str,
+) -> Result<bool, FlagError> {
+    // Get connection from persons writer for the transaction
+    let persons_labels = [
+        ("pool".to_string(), "persons_writer".to_string()),
+        (
+            "operation".to_string(),
+            "set_feature_flag_hash_key_overrides".to_string(),
+        ),
+    ];
+    let persons_conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &persons_labels);
+    let mut persons_conn = router.get_persons_writer().get_connection().await?;
+    persons_conn_timer.fin();
+    let mut transaction = persons_conn.begin().await?;
+
+    // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
+    let person_data_query = r#"
+            SELECT DISTINCT 
+                p.person_id, 
                 p.distinct_id,
                 existing.feature_flag_key
             FROM posthog_persondistinctid p
@@ -632,9 +687,9 @@ pub async fn set_feature_flag_hash_key_overrides(
                 AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
         "#;
 
-        // Query 2: Get all active feature flags with experience continuity (non-person pool)
-        let flags_query = r#"
-            SELECT flag.key
+    // Query 2: Get all active feature flags with experience continuity (non-person pool)
+    let flags_query = r#"
+            SELECT flag.key 
             FROM posthog_featureflag flag
             JOIN posthog_team team ON flag.team_id = team.id
             WHERE team.project_id = $1
@@ -643,191 +698,164 @@ pub async fn set_feature_flag_hash_key_overrides(
                 AND flag.deleted = FALSE
         "#;
 
-        // Query 3: Bulk insert hash key overrides (person pool)
-        let bulk_insert_query = r#"
+    // Query 3: Bulk insert hash key overrides (person pool)
+    let bulk_insert_query = r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
             SELECT $1, person_id, flag_key, $2
             FROM UNNEST($3::bigint[], $4::text[]) AS t(person_id, flag_key)
             ON CONFLICT DO NOTHING
         "#;
 
-        let result: Result<u64, FlagError> = async {
-            // Step 1: Get all person data (person_ids + existing overrides + validation)
-            let person_query_labels = [
-                (
-                    "query".to_string(),
-                    "person_data_with_overrides".to_string(),
-                ),
-                (
-                    "operation".to_string(),
-                    "set_hash_key_overrides".to_string(),
-                ),
-            ];
-            let person_query_timer =
-                common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
-            let person_data_rows = sqlx::query(person_data_query)
-                .bind(team_id)
-                .bind(&distinct_ids)
-                .fetch_all(&mut *transaction)
-                .await
-                .map_err(FlagError::from)?;
-            person_query_timer.fin();
+    let result: Result<u64, FlagError> = async {
+        // Step 1: Get all person data (person_ids + existing overrides + validation)
+        let person_query_labels = [
+            (
+                "query".to_string(),
+                "person_data_with_overrides".to_string(),
+            ),
+            (
+                "operation".to_string(),
+                "set_hash_key_overrides".to_string(),
+            ),
+        ];
+        let person_query_timer =
+            common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
+        let person_data_rows = sqlx::query(person_data_query)
+            .bind(team_id)
+            .bind(distinct_ids)
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(FlagError::from)?;
+        person_query_timer.fin();
 
-            if person_data_rows.is_empty() {
-                return Ok(0); // No persons found, nothing to insert
-            }
-
-            // Process person data - collect person_ids and existing overrides
-            let mut person_ids = HashSet::new();
-            let mut existing_overrides = HashSet::new();
-
-            for row in person_data_rows {
-                let person_id: i64 = row.get("person_id");
-                person_ids.insert(person_id);
-
-                // Handle existing overrides (can be NULL from LEFT JOIN)
-                if let Ok(flag_key) = row.try_get::<String, _>("feature_flag_key") {
-                    existing_overrides.insert((person_id, flag_key));
-                }
-            }
-
-            let person_ids_vec: Vec<i64> = person_ids.into_iter().collect();
-
-            // Step 2: Get active feature flags (from non-person pool)
-            // Get separate connection for non-persons query
-            let non_persons_labels = [
-                ("pool".to_string(), "non_persons_reader".to_string()),
-                (
-                    "operation".to_string(),
-                    "set_feature_flag_hash_key_overrides".to_string(),
-                ),
-            ];
-            let non_persons_conn_timer =
-                common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &non_persons_labels);
-            let mut non_persons_conn = router
-                .get_non_persons_reader()
-                .get_connection()
-                .await
-                .map_err(|e| {
-                    sqlx::Error::Configuration(
-                        format!("Failed to acquire non-persons connection: {e}").into(),
-                    )
-                })?;
-            non_persons_conn_timer.fin();
-
-            let flags_labels = [
-                (
-                    "query".to_string(),
-                    "active_flags_with_continuity".to_string(),
-                ),
-                (
-                    "operation".to_string(),
-                    "set_hash_key_overrides".to_string(),
-                ),
-            ];
-            let flags_query_timer =
-                common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
-            let flag_rows = sqlx::query(flags_query)
-                .bind(project_id)
-                .fetch_all(&mut *non_persons_conn)
-                .await
-                .map_err(FlagError::from)?;
-            flags_query_timer.fin();
-
-            let flag_keys: Vec<String> = flag_rows
-                .iter()
-                .map(|row| row.get::<String, _>("key"))
-                .collect();
-
-            if flag_keys.is_empty() {
-                return Ok(0); // No flags to override
-            }
-
-            // Step 3: Build values for bulk insert
-            // Create all person-flag combinations that need to be inserted
-            let values_to_insert: Vec<(i64, String)> = person_ids_vec
-                .iter()
-                .flat_map(|pid| flag_keys.iter().map(move |fk| (*pid, fk.clone())))
-                .filter(|(pid, fk)| {
-                    // Skip if override already exists
-                    !existing_overrides.contains(&(*pid, fk.clone()))
-                })
-                .collect();
-
-            if values_to_insert.is_empty() {
-                return Ok(0); // Nothing to insert
-            }
-
-            // Separate the tuples into parallel arrays for UNNEST
-            let (person_ids_to_insert, flag_keys_to_insert): (Vec<i64>, Vec<String>) =
-                values_to_insert.into_iter().unzip();
-
-            // Step 4: Bulk insert (person pool)
-            let insert_labels = [
-                ("query".to_string(), "bulk_insert_overrides".to_string()),
-                (
-                    "operation".to_string(),
-                    "set_hash_key_overrides".to_string(),
-                ),
-            ];
-            let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
-            let result = sqlx::query(bulk_insert_query)
-                .bind(team_id)
-                .bind(&hash_key_override)
-                .bind(&person_ids_to_insert)
-                .bind(&flag_keys_to_insert)
-                .execute(&mut *transaction)
-                .await
-                .map_err(FlagError::from)?;
-            insert_timer.fin();
-
-            Ok(result.rows_affected())
+        if person_data_rows.is_empty() {
+            return Ok(0); // No persons found, nothing to insert
         }
-        .await;
 
-        match result {
-            Ok(rows_affected) => {
-                // Commit the transaction if successful
-                transaction.commit().await.map_err(|e| {
-                    FlagError::DatabaseError(e, Some("Failed to commit transaction".to_string()))
-                })?;
-                return Ok(rows_affected > 0);
+        // Process person data - collect person_ids and existing overrides
+        let mut person_ids = HashSet::new();
+        let mut existing_overrides = HashSet::new();
+
+        for row in person_data_rows {
+            let person_id: i64 = row.get("person_id");
+            person_ids.insert(person_id);
+
+            // Handle existing overrides (can be NULL from LEFT JOIN)
+            if let Ok(flag_key) = row.try_get::<String, _>("feature_flag_key") {
+                existing_overrides.insert((person_id, flag_key));
             }
-            Err(e) => {
-                // Rollback the transaction on error
-                transaction.rollback().await.map_err(|e| {
-                    FlagError::DatabaseError(e, Some("Failed to rollback transaction".to_string()))
-                })?;
+        }
 
-                if flag_error_is_foreign_key_constraint(&e) && retry < MAX_RETRIES - 1 {
-                    // Retry logic for specific error
-                    // Increment retry counter for monitoring
-                    common_metrics::inc(
-                        FLAG_HASH_KEY_RETRIES_COUNTER,
-                        &[
-                            ("team_id".to_string(), team_id.to_string()),
-                            (
-                                "operation".to_string(),
-                                "set_hash_key_overrides".to_string(),
-                            ),
-                        ],
-                        1,
-                    );
+        let person_ids_vec: Vec<i64> = person_ids.into_iter().collect();
 
-                    tracing::info!(
-                        "Retrying set_feature_flag_hash_key_overrides due to person deletion: {:?}",
-                        e
-                    );
-                    sleep(RETRY_DELAY).await;
-                } else {
-                    return Err(e);
-                }
-            }
+        // Step 2: Get active feature flags (from non-person pool)
+        // Get separate connection for non-persons query
+        let non_persons_labels = [
+            ("pool".to_string(), "non_persons_reader".to_string()),
+            (
+                "operation".to_string(),
+                "set_feature_flag_hash_key_overrides".to_string(),
+            ),
+        ];
+        let non_persons_conn_timer =
+            common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &non_persons_labels);
+        let mut non_persons_conn = router
+            .get_non_persons_reader()
+            .get_connection()
+            .await
+            .map_err(|e| {
+                sqlx::Error::Configuration(
+                    format!("Failed to acquire non-persons connection: {e}").into(),
+                )
+            })?;
+        non_persons_conn_timer.fin();
+
+        let flags_labels = [
+            (
+                "query".to_string(),
+                "active_flags_with_continuity".to_string(),
+            ),
+            (
+                "operation".to_string(),
+                "set_hash_key_overrides".to_string(),
+            ),
+        ];
+        let flags_query_timer =
+            common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
+        let flag_rows = sqlx::query(flags_query)
+            .bind(project_id)
+            .fetch_all(&mut *non_persons_conn)
+            .await
+            .map_err(FlagError::from)?;
+        flags_query_timer.fin();
+
+        let flag_keys: Vec<String> = flag_rows
+            .iter()
+            .map(|row| row.get::<String, _>("key"))
+            .collect();
+
+        if flag_keys.is_empty() {
+            return Ok(0); // No flags to override
+        }
+
+        // Step 3: Build values for bulk insert
+        // Create all person-flag combinations that need to be inserted
+        let values_to_insert: Vec<(i64, String)> = person_ids_vec
+            .iter()
+            .flat_map(|pid| flag_keys.iter().map(move |fk| (*pid, fk.clone())))
+            .filter(|(pid, fk)| {
+                // Skip if override already exists
+                !existing_overrides.contains(&(*pid, fk.clone()))
+            })
+            .collect();
+
+        if values_to_insert.is_empty() {
+            return Ok(0); // Nothing to insert
+        }
+
+        // Separate the tuples into parallel arrays for UNNEST
+        let (person_ids_to_insert, flag_keys_to_insert): (Vec<i64>, Vec<String>) =
+            values_to_insert.into_iter().unzip();
+
+        // Step 4: Bulk insert (person pool)
+        let insert_labels = [
+            ("query".to_string(), "bulk_insert_overrides".to_string()),
+            (
+                "operation".to_string(),
+                "set_hash_key_overrides".to_string(),
+            ),
+        ];
+        let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
+        let result = sqlx::query(bulk_insert_query)
+            .bind(team_id)
+            .bind(hash_key_override)
+            .bind(&person_ids_to_insert)
+            .bind(&flag_keys_to_insert)
+            .execute(&mut *transaction)
+            .await
+            .map_err(FlagError::from)?;
+        insert_timer.fin();
+
+        Ok(result.rows_affected())
+    }
+    .await;
+
+    match result {
+        Ok(rows_affected) => {
+            // Commit the transaction if successful
+            transaction.commit().await.map_err(|e| {
+                FlagError::DatabaseError(e, Some("Failed to commit transaction".to_string()))
+            })?;
+            Ok(rows_affected > 0)
+        }
+        Err(e) => {
+            // Rollback the transaction on error
+            transaction.rollback().await.map_err(|e| {
+                FlagError::DatabaseError(e, Some("Failed to rollback transaction".to_string()))
+            })?;
+            Err(e)
         }
     }
-
-    // If we get here, something went wrong
-    Ok(false)
 }
 
 /// Checks if hash key overrides should be written for a given distinct ID.
@@ -842,11 +870,62 @@ pub async fn should_write_hash_key_override(
     project_id: ProjectId,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
-    const QUERY_TIMEOUT: Duration = Duration::from_millis(1000);
-    const MAX_RETRIES: u32 = 2;
-    const RETRY_DELAY: Duration = Duration::from_millis(100);
+    let retry_strategy = ExponentialBackoff::from_millis(100)
+        .max_delay(Duration::from_millis(300))
+        .take(2)
+        .map(jitter); // Add jitter to prevent thundering herd
 
-    let distinct_ids = vec![distinct_id, hash_key_override.clone()];
+    let distinct_ids = vec![distinct_id.clone(), hash_key_override.clone()];
+
+    // Use tokio-retry to automatically retry on transient failures
+    Retry::spawn(retry_strategy, || async {
+        let result =
+            try_should_write_hash_key_override(router, team_id, &distinct_ids, project_id).await;
+
+        // Only retry on foreign key constraint errors (person deletion race condition)
+        match &result {
+            Err(e) if flag_error_is_foreign_key_constraint(e) => {
+                // Increment retry counter for monitoring
+                common_metrics::inc(
+                    FLAG_HASH_KEY_RETRIES_COUNTER,
+                    &[
+                        ("team_id".to_string(), team_id.to_string()),
+                        (
+                            "operation".to_string(),
+                            "should_write_hash_key_override".to_string(),
+                        ),
+                    ],
+                    1,
+                );
+
+                tracing::info!(
+                    team_id = %team_id,
+                    distinct_id = %distinct_id,
+                    error = ?e,
+                    "Hash key override check failed due to person deletion, will retry"
+                );
+
+                // Return error to trigger retry
+                result
+            }
+            // For other errors, don't retry - return immediately to stop retrying
+            Err(_) => result,
+            // Success case - return the result
+            Ok(_) => result,
+        }
+    })
+    .await
+}
+
+/// Internal function that performs the actual hash key override check.
+/// This is separated to make it easy to retry with tokio-retry.
+async fn try_should_write_hash_key_override(
+    router: &PostgresRouter,
+    team_id: TeamId,
+    distinct_ids: &[String],
+    project_id: ProjectId,
+) -> Result<bool, FlagError> {
+    const QUERY_TIMEOUT: Duration = Duration::from_millis(1000);
 
     // Query 1: Get person_ids and existing overrides from person pool in one shot
     let person_data_query = r#"
@@ -869,140 +948,108 @@ pub async fn should_write_hash_key_override(
             AND flag.deleted = FALSE
     "#;
 
-    for retry in 0..MAX_RETRIES {
-        let result = timeout(QUERY_TIMEOUT, async {
-            // Get connection from persons pool for person data
-            let persons_labels = [
-                ("pool".to_string(), "persons_reader".to_string()),
-                (
-                    "operation".to_string(),
-                    "should_write_hash_key_override".to_string(),
-                ),
-            ];
-            let persons_conn_timer =
-                common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &persons_labels);
-            let mut persons_conn = router
-                .get_persons_reader()
-                .get_connection()
-                .await
-                .map_err(FlagError::from)?;
-            persons_conn_timer.fin();
+    let result = timeout(QUERY_TIMEOUT, async {
+        // Get connection from persons pool for person data
+        let persons_labels = [
+            ("pool".to_string(), "persons_reader".to_string()),
+            (
+                "operation".to_string(),
+                "should_write_hash_key_override".to_string(),
+            ),
+        ];
+        let persons_conn_timer =
+            common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &persons_labels);
+        let mut persons_conn = router
+            .get_persons_reader()
+            .get_connection()
+            .await
+            .map_err(FlagError::from)?;
+        persons_conn_timer.fin();
 
-            // Step 1: Get person data and existing overrides
-            let person_query_labels = [
-                (
-                    "query".to_string(),
-                    "person_data_with_overrides".to_string(),
-                ),
-                ("operation".to_string(), "should_write_check".to_string()),
-            ];
-            let person_query_timer =
-                common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
-            let person_data_rows = sqlx::query(person_data_query)
-                .bind(team_id)
-                .bind(&distinct_ids)
-                .fetch_all(&mut *persons_conn)
-                .await
-                .map_err(|e| {
-                    FlagError::DatabaseError(e, Some("Failed to fetch person data".to_string()))
-                })?;
-            person_query_timer.fin();
+        // Step 1: Get person data and existing overrides
+        let person_query_labels = [
+            (
+                "query".to_string(),
+                "person_data_with_overrides".to_string(),
+            ),
+            ("operation".to_string(), "should_write_check".to_string()),
+        ];
+        let person_query_timer =
+            common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
+        let person_data_rows = sqlx::query(person_data_query)
+            .bind(team_id)
+            .bind(distinct_ids)
+            .fetch_all(&mut *persons_conn)
+            .await
+            .map_err(|e| {
+                FlagError::DatabaseError(e, Some("Failed to fetch person data".to_string()))
+            })?;
+        person_query_timer.fin();
 
-            // If no person_ids found, there's nothing to check
-            if person_data_rows.is_empty() {
-                return Ok(false);
-            }
+        // If no person_ids found, there's nothing to check
+        if person_data_rows.is_empty() {
+            return Ok(false);
+        }
 
-            // Extract existing flag keys from overrides
-            let existing_flag_keys: HashSet<String> = person_data_rows
-                .iter()
-                .filter_map(|row| row.try_get::<String, _>("feature_flag_key").ok())
-                .collect();
+        // Extract existing flag keys from overrides
+        let existing_flag_keys: HashSet<String> = person_data_rows
+            .iter()
+            .filter_map(|row| row.try_get::<String, _>("feature_flag_key").ok())
+            .collect();
 
-            // Step 2: Get active feature flags with experience continuity from non-persons pool
-            // Get connection from non-persons pool for flag data
-            let non_persons_labels = [
-                ("pool".to_string(), "non_persons_reader".to_string()),
-                (
-                    "operation".to_string(),
-                    "should_write_hash_key_override".to_string(),
-                ),
-            ];
-            let non_persons_conn_timer =
-                common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &non_persons_labels);
-            let mut non_persons_conn = router
-                .get_non_persons_reader()
-                .get_connection()
-                .await
-                .map_err(FlagError::from)?;
-            non_persons_conn_timer.fin();
-            let flags_labels = [
-                (
-                    "query".to_string(),
-                    "active_flags_with_continuity".to_string(),
-                ),
-                ("operation".to_string(), "should_write_check".to_string()),
-            ];
-            let flags_query_timer =
-                common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
-            let flag_rows = sqlx::query(flags_query)
-                .bind(project_id)
-                .fetch_all(&mut *non_persons_conn)
-                .await
-                .map_err(|e| {
-                    FlagError::DatabaseError(e, Some("Failed to fetch flags".to_string()))
-                })?;
-            flags_query_timer.fin();
+        // Step 2: Get active feature flags with experience continuity from non-persons pool
+        // Get connection from non-persons pool for flag data
+        let non_persons_labels = [
+            ("pool".to_string(), "non_persons_reader".to_string()),
+            (
+                "operation".to_string(),
+                "should_write_hash_key_override".to_string(),
+            ),
+        ];
+        let non_persons_conn_timer =
+            common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &non_persons_labels);
+        let mut non_persons_conn = router
+            .get_non_persons_reader()
+            .get_connection()
+            .await
+            .map_err(FlagError::from)?;
+        non_persons_conn_timer.fin();
+        let flags_labels = [
+            (
+                "query".to_string(),
+                "active_flags_with_continuity".to_string(),
+            ),
+            ("operation".to_string(), "should_write_check".to_string()),
+        ];
+        let flags_query_timer =
+            common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
+        let flag_rows = sqlx::query(flags_query)
+            .bind(project_id)
+            .fetch_all(&mut *non_persons_conn)
+            .await
+            .map_err(|e| FlagError::DatabaseError(e, Some("Failed to fetch flags".to_string())))?;
+        flags_query_timer.fin();
 
-            // Check if there are any flags that don't have overrides
-            for row in flag_rows {
-                let flag_key: String = row.get("key");
-                if !existing_flag_keys.contains(&flag_key) {
-                    return Ok(true); // Found a flag without override
-                }
-            }
-
-            Ok::<bool, FlagError>(false) // All flags have overrides
-        })
-        .await;
-
-        match result {
-            Ok(Ok(flags_present)) => return Ok(flags_present),
-            Ok(Err(e)) => {
-                if flag_error_is_foreign_key_constraint(&e) && retry < MAX_RETRIES - 1 {
-                    // Increment retry counter for monitoring
-                    common_metrics::inc(
-                        FLAG_HASH_KEY_RETRIES_COUNTER,
-                        &[
-                            ("team_id".to_string(), team_id.to_string()),
-                            (
-                                "operation".to_string(),
-                                "set_hash_key_overrides".to_string(),
-                            ),
-                        ],
-                        1,
-                    );
-
-                    info!(
-                        "Retrying set_feature_flag_hash_key_overrides due to person deletion: {:?}",
-                        e
-                    );
-                    tokio::time::sleep(RETRY_DELAY).await;
-                    continue;
-                } else {
-                    // For other errors or if max retries exceeded, return the error
-                    return Err(e);
-                }
-            }
-            Err(_) => {
-                // Handle timeout
-                return Err(FlagError::TimeoutError);
+        // Check if there are any flags that don't have overrides
+        for row in flag_rows {
+            let flag_key: String = row.get("key");
+            if !existing_flag_keys.contains(&flag_key) {
+                return Ok(true); // Found a flag without override
             }
         }
-    }
 
-    // If all retries failed without returning, return false
-    Ok(false)
+        Ok::<bool, FlagError>(false) // All flags have overrides
+    })
+    .await;
+
+    match result {
+        Ok(Ok(flags_present)) => Ok(flags_present),
+        Ok(Err(e)) => Err(e),
+        Err(_) => {
+            // Handle timeout
+            Err(FlagError::TimeoutError)
+        }
+    }
 }
 
 #[cfg(test)]

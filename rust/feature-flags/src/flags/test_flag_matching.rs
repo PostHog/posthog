@@ -5493,17 +5493,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_hash_key_override_error_marks_continuity_flags_as_errors() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let router = PostgresRouter::new(
-            reader.clone(),
-            writer.clone(),
-            reader.clone(),
-            writer.clone(),
-        );
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let context = TestContext::new(None).await;
+        let router = context.create_postgres_router();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.persons_reader.clone(),
+            None,
+            None,
+        ));
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team in pg");
 
