@@ -20,6 +20,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -266,6 +267,16 @@ class ExperimentSerializer(serializers.ModelSerializer):
             stats_config["method"] = default_method
             validated_data["stats_config"] = stats_config
 
+        # Add fingerprints to metrics
+        # UI creates experiments without metrics (adds them later in draft mode)
+        # But API can create+launch experiments with metrics in one call
+        for metric_field in ["metrics", "metrics_secondary"]:
+            if metric_field in validated_data:
+                for metric in validated_data[metric_field]:
+                    metric["fingerprint"] = compute_metric_fingerprint(
+                        metric, validated_data.get("start_date"), stats_config, validated_data.get("exposure_criteria")
+                    )
+
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
         )
@@ -425,6 +436,19 @@ class ExperimentSerializer(serializers.ModelSerializer):
                     )
                     existing_flag_serializer.is_valid(raise_exception=True)
                     existing_flag_serializer.save()
+
+        # Add fingerprints to metrics
+        for metric_field in ["metrics", "metrics_secondary"]:
+            if metric_field in validated_data:
+                start_date = validated_data.get("start_date", instance.start_date)
+
+                for metric in validated_data[metric_field]:
+                    metric["fingerprint"] = compute_metric_fingerprint(
+                        metric,
+                        start_date,
+                        validated_data.get("stats_config", instance.stats_config),
+                        validated_data.get("exposure_criteria", instance.exposure_criteria),
+                    )
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True

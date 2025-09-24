@@ -61,10 +61,12 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
                         key: Scene.Groups,
                         name: capitalizeFirstLetter(groupTypeName),
                         path: urls.groups(logicProps.groupTypeIndex),
+                        iconType: 'group',
                     },
                     {
                         key: Scene.GroupsNew,
                         name: `Create ${groupTypeName}`,
+                        iconType: 'group',
                     },
                 ]
             },

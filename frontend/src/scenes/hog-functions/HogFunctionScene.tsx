@@ -101,6 +101,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: Scene.HogFunction,
                             name: 'Loading...',
+                            iconType: 'data_pipeline',
                         },
                     ]
                 }
@@ -108,6 +109,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 const finalCrumb: Breadcrumb = {
                     key: Scene.HogFunction,
                     name: configuration?.name || '(Untitled)',
+                    iconType: 'data_pipeline',
                 }
 
                 if (type === 'internal_destination' && alertId) {
@@ -116,11 +118,13 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             key: Scene.Insight,
                             name: 'Insight',
                             path: urls.alerts(),
+                            iconType: 'data_pipeline',
                         },
                         {
                             key: 'alert',
                             name: 'Alert',
                             path: urls.alert(alertId),
+                            iconType: 'data_pipeline',
                         },
                         finalCrumb,
                     ]
@@ -134,6 +138,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             key: Scene.DataPipelines,
                             name: 'Data pipelines',
                             path: urls.dataPipelines('overview'),
+                            iconType: 'data_pipeline',
                         },
                         {
                             key: [Scene.DataPipelines, pipelineTab],
@@ -141,6 +146,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             path: id
                                 ? urls.dataPipelines(pipelineTab)
                                 : urls.dataPipelinesNew(type as DataPipelinesNewSceneKind),
+                            iconType: 'data_pipeline',
                         },
                         finalCrumb,
                     ]
