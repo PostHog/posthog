@@ -136,7 +136,7 @@ export function ProjectHomepage(): JSX.Element {
                     forceIcon: <Spinner />,
                 }}
             />
-            <LemonSkeleton repeat={3} />¬
+            <LemonSkeleton repeat={3} />
         </SceneContent>
     )
 }
