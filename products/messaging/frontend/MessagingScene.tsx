@@ -1,10 +1,14 @@
 import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconLetter, IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -83,6 +87,7 @@ export const scene: SceneExport<MessagingSceneProps> = {
 export function MessagingScene(): JSX.Element {
     const { currentTab } = useValues(messagingSceneLogic)
     const { setCurrentTab } = useActions(messagingSceneLogic)
+    const { openSetupModal } = useActions(integrationsLogic)
 
     const hasMessagingFeatureFlag = useFeatureFlag('MESSAGING')
 
@@ -96,6 +101,37 @@ export function MessagingScene(): JSX.Element {
             </div>
         )
     }
+
+    const newChannelMenuItems: LemonMenuItems = [
+        {
+            label: (
+                <div className="flex gap-1 items-center">
+                    <IconLetter /> Email
+                </div>
+            ),
+            onClick: () => openSetupModal(undefined, 'email'),
+        },
+        {
+            label: (
+                <div className="flex gap-1 items-center">
+                    <IconSlack /> Slack
+                </div>
+            ),
+            disableClientSideRouting: true,
+            to: api.integrations.authorizeUrl({
+                kind: 'slack',
+                next: urls.messaging('channels'),
+            }),
+        },
+        {
+            label: (
+                <div className="flex gap-1 items-center">
+                    <IconTwilio /> Twilio
+                </div>
+            ),
+            onClick: () => openSetupModal(undefined, 'twilio'),
+        },
+    ]
 
     const tabs: LemonTab<MessagingSceneTab>[] = [
         {
@@ -157,6 +193,18 @@ export function MessagingScene(): JSX.Element {
                             >
                                 New template
                             </LemonButton>
+                        )}
+                        {currentTab === 'channels' && (
+                            <LemonMenu items={newChannelMenuItems} matchWidth>
+                                <LemonButton
+                                    data-attr="new-channel-button"
+                                    icon={<IconPlusSmall />}
+                                    size="small"
+                                    type="primary"
+                                >
+                                    New channel
+                                </LemonButton>
+                            </LemonMenu>
                         )}
                     </>
                 }
