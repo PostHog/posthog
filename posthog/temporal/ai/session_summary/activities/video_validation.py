@@ -1,4 +1,3 @@
-import json
 from dataclasses import asdict
 from typing import Any, cast
 
@@ -42,9 +41,6 @@ async def validate_llm_single_session_summary_with_videos_activity(
             f"User not found in the database for user {inputs.user_id} when validating session summary with videos",
             non_retryable=True,
         )
-    # TODO: Remove after tests
-    with open(f"summary_{inputs.session_id}.json", "w") as f:
-        json.dump(summary_row.summary, f, indent=4, sort_keys=True)
     summary = SessionSummarySerializer(data=summary_row.summary)
     summary.is_valid(raise_exception=True)
     # Validate the session summary with videos

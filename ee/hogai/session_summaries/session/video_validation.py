@@ -87,9 +87,6 @@ class SessionSummaryVideoValidator:
         if not description_results:
             # No description results generated, no need to generate updates
             return None
-        # TODO: Remove after testing
-        with open(f"description_results_{self.session_id}.json", "w") as f:
-            json.dump([asdict(x) for x in description_results], f, indent=4)
         # Generate updates through LLM to update specific fields based on the video-based results from the previous step
         updates_result = await self._generate_updates(
             description_results=description_results, fields_to_update=fields_to_update, model_to_use=model_to_use
@@ -175,9 +172,6 @@ class SessionSummaryVideoValidator:
         # Sort fields to update by path
         fields_to_update_mapping = dict(sorted(fields_to_update_mapping.items(), key=lambda x: x[0]))
         fields_to_update = list(fields_to_update_mapping.values())
-        # TODO: Remove after testing
-        with open(f"fields_to_update_{self.session_id}.yml", "w") as f:
-            yaml.dump([asdict(x) for x in fields_to_update], f, allow_unicode=True, sort_keys=False)
         return events_to_validate, fields_to_update
 
     def _prepare_moment_input_from_summary_event(
@@ -210,9 +204,6 @@ class SessionSummaryVideoValidator:
             for prompt, event in events_to_validate
             if (moment := self._prepare_moment_input_from_summary_event(prompt=prompt, event=event))
         ]
-        # TODO: Remove after testing
-        with open(f"moments_input_{self.session_id}.json", "w") as f:
-            json.dump([asdict(x) for x in moments_input], f, indent=4)
         return moments_input
 
     # TODO: Add more specific instructions on updates
@@ -259,9 +250,6 @@ class SessionSummaryVideoValidator:
             description_results=description_results,
             fields_to_update=fields_to_update,
         )
-        # TODO: Remove after testing
-        with open(f"validation_prompt_{self.session_id}.txt", "w") as f:
-            f.write(validation_prompt)
         # Call LLM with the validation prompt
         updates_raw = await call_llm(
             input_prompt=validation_prompt,
@@ -279,9 +267,6 @@ class SessionSummaryVideoValidator:
             return None
         updates_result = load_yaml_from_raw_llm_content(raw_content=updates_content, final_validation=True)
         updates_result = cast(list[dict[str, str]], updates_result)
-        # TODO: Remove after testing
-        with open(f"updates_result_{self.session_id}.json", "w") as f:
-            json.dump(updates_result, f, indent=4, sort_keys=False)
         return updates_result
 
     def _apply_updates(self, updates_result: list[dict[str, str]]) -> SessionSummarySerializer:
@@ -301,9 +286,6 @@ class SessionSummaryVideoValidator:
             assign_value(obj=summary_to_update, path=field["path"], val=field["new_value"])
         updated_summary = SessionSummarySerializer(data=summary_to_update)
         updated_summary.is_valid(raise_exception=True)
-        # TODO: Remove after testing
-        with open(f"updated_summary_{self.session_id}.json", "w") as f:
-            json.dump(summary_to_update, f, indent=4, sort_keys=True)
         return updated_summary
 
     def _generate_updates_run_metadata(

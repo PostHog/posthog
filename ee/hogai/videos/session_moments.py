@@ -200,9 +200,6 @@ class SessionMomentsLLMAnalyzer:
                     f"No video bytes found for asset {asset_id} for moment {moment_id} of session {self.session_id} of team {self.team_id}"
                 )
                 return None
-            # TODO: Remove after testing, storing for debugging
-            with open(f"video_{moment_id}.mp4", "wb") as f:
-                f.write(video_bytes)
             provider = GeminiProvider(model_id=DEFAULT_VIDEO_UNDERSTANDING_MODEL)
             content = provider.understand_video(
                 video_bytes=video_bytes, mime_type=DEFAULT_EXPORT_MIME_TYPE, prompt=prompt, trace_id=self.trace_id
