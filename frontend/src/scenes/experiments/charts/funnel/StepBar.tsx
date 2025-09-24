@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { useRef } from 'react'
 
 import { percentage } from 'lib/utils'
@@ -9,7 +9,6 @@ import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { useTooltip } from './FunnelBarVertical'
 import { useFunnelChartData } from './FunnelChart'
-import { SampledSessionsModal } from './SampledSessionsModal'
 import { getSeriesColor } from './funnelUtils'
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 
@@ -28,7 +27,6 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
     const { showTooltip, hideTooltip } = useTooltip()
     const { experimentResult } = useFunnelChartData()
     const { openModal } = useActions(sampledSessionsModalLogic)
-    const { isOpen } = useValues(sampledSessionsModalLogic)
 
     const seriesColor = getSeriesColor(step)
 
@@ -77,8 +75,6 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
                 <div className="StepBar__backdrop" onClick={handleClick} style={{ cursor: 'pointer' }} />
                 <div className="StepBar__fill" onClick={handleClick} style={{ cursor: 'pointer' }} />
             </div>
-
-            {isOpen && <SampledSessionsModal />}
         </>
     )
 }
