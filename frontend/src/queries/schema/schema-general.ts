@@ -2438,6 +2438,7 @@ export type FileSystemIconType =
     | 'insight/lifecycle'
     | 'insight/stickiness'
     | 'insight/hog'
+    | 'team_activity'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2563,6 +2564,7 @@ export const enum ExperimentMetricType {
 export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
     uuid?: string
+    fingerprint?: string // # SHA256 hash of metric definition + experiment config
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
@@ -3721,6 +3723,8 @@ export interface MarketingAnalyticsTableQuery
     draftConversionGoal?: ConversionGoalFilter | null
     /** Compare to date range */
     compareFilter?: CompareFilter
+    /** Include conversion goal rows even when they don't match campaign costs table */
+    includeAllConversions?: boolean
 }
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {

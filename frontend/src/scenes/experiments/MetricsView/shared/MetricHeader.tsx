@@ -3,6 +3,7 @@ import { useActions } from 'kea'
 import { IconCopy, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
+import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { urls } from 'scenes/urls'
 
@@ -40,6 +41,8 @@ export const MetricHeader = ({
         openSecondarySharedMetricModal,
     } = useActions(modalsLogic)
 
+    const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
+
     return (
         <div className="text-xs font-semibold">
             <div className="deprecated-space-y-1">
@@ -65,12 +68,20 @@ export const MetricHeader = ({
                                             : openSecondarySharedMetricModal
                                         openSharedModal(metric.sharedMetricId)
                                     } else {
+                                        /**
+                                         * this is for legacy experiments support
+                                         */
                                         const openMetricModal = isPrimaryMetric
                                             ? openPrimaryMetricModal
                                             : openSecondaryMetricModal
                                         if (metric.uuid) {
                                             openMetricModal(metric.uuid)
                                         }
+
+                                        openExperimentMetricModal(
+                                            METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'],
+                                            metric
+                                        )
                                     }
                                 }}
                             />
