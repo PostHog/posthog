@@ -27,7 +27,7 @@ use crate::{
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DB_CONNECTION_TIME,
         FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
-        FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
+        FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
     },
     properties::{
         property_matching::match_property,
@@ -490,6 +490,19 @@ pub async fn get_feature_flag_hash_key_overrides(
         // Log retry attempts for observability
         if let Err(ref e) = result {
             if should_retry_on_error(e) {
+                // Increment retry counter for monitoring
+                common_metrics::inc(
+                    FLAG_HASH_KEY_RETRIES_COUNTER,
+                    &[
+                        ("team_id".to_string(), team_id.to_string()),
+                        (
+                            "operation".to_string(),
+                            "get_hash_key_overrides".to_string(),
+                        ),
+                    ],
+                    1,
+                );
+
                 tracing::warn!(
                     team_id = %team_id,
                     distinct_ids = ?distinct_id_and_hash_key_override,
@@ -789,6 +802,19 @@ pub async fn set_feature_flag_hash_key_overrides(
                     && retry < MAX_RETRIES - 1
                 {
                     // Retry logic for specific error
+                    // Increment retry counter for monitoring
+                    common_metrics::inc(
+                        FLAG_HASH_KEY_RETRIES_COUNTER,
+                        &[
+                            ("team_id".to_string(), team_id.to_string()),
+                            (
+                                "operation".to_string(),
+                                "set_hash_key_overrides".to_string(),
+                            ),
+                        ],
+                        1,
+                    );
+
                     tracing::info!(
                         "Retrying set_feature_flag_hash_key_overrides due to person deletion: {:?}",
                         e
@@ -954,6 +980,19 @@ pub async fn should_write_hash_key_override(
                 if e.to_string().contains("violates foreign key constraint")
                     && retry < MAX_RETRIES - 1
                 {
+                    // Increment retry counter for monitoring
+                    common_metrics::inc(
+                        FLAG_HASH_KEY_RETRIES_COUNTER,
+                        &[
+                            ("team_id".to_string(), team_id.to_string()),
+                            (
+                                "operation".to_string(),
+                                "set_hash_key_overrides".to_string(),
+                            ),
+                        ],
+                        1,
+                    );
+
                     info!(
                         "Retrying set_feature_flag_hash_key_overrides due to person deletion: {:?}",
                         e
