@@ -17,7 +17,7 @@ export interface EmailSetupModalLogicProps {
 
 export interface DnsRecord {
     type: string
-    status: string
+    status: 'verified' | 'pending' | 'unknown'
     recordValue: string
     recordType: string
     recordHostname: string
