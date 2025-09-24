@@ -22,6 +22,7 @@ import { CampaignsTable } from './Campaigns/CampaignsTable'
 import { MessageChannels } from './Channels/MessageChannels'
 import type { messagingSceneLogicType } from './MessagingSceneType'
 import { OptOutScene } from './OptOuts/OptOutScene'
+import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 
 const MESSAGING_SCENE_TABS = ['campaigns', 'library', 'channels', 'opt-outs'] as const
@@ -88,6 +89,7 @@ export function MessagingScene(): JSX.Element {
     const { currentTab } = useValues(messagingSceneLogic)
     const { setCurrentTab } = useActions(messagingSceneLogic)
     const { openSetupModal } = useActions(integrationsLogic)
+    const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
 
     const hasMessagingFeatureFlag = useFeatureFlag('MESSAGING')
 
@@ -205,6 +207,17 @@ export function MessagingScene(): JSX.Element {
                                     New channel
                                 </LemonButton>
                             </LemonMenu>
+                        )}
+                        {currentTab === 'opt-outs' && (
+                            <LemonButton
+                                data-attr="new-optout-category"
+                                icon={<IconPlusSmall />}
+                                size="small"
+                                type="primary"
+                                onClick={() => openNewCategoryModal()}
+                            >
+                                New category
+                            </LemonButton>
                         )}
                     </>
                 }
