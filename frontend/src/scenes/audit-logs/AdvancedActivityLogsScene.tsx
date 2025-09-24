@@ -32,7 +32,7 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
     const tabs = [
         {
             key: 'logs',
-            label: 'Activity logs',
+            label: 'Logs',
             content: (
                 <div className="space-y-4">
                     <AdvancedActivityLogFiltersPanel />
@@ -50,10 +50,10 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Advanced activity logs"
-                description="Track all changes and activities in your organization"
+                name="Activity logs"
+                description="Track all changes and activities in your organization with detailed filtering and export capabilities."
                 resourceType={{
-                    type: 'activity logs',
+                    type: 'team_activity',
                     forceIcon: <IconActivity />,
                 }}
             />
