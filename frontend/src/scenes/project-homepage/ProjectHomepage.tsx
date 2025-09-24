@@ -122,7 +122,7 @@ function HomePageContent(): JSX.Element {
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
-    // if there is no numeric dashboard if, the dashboard logic will throw...
+    // if there is no numeric dashboard id, the dashboard logic will throw...
     // so we check it here first
     if (dashboardLogicProps?.id) {
         return <HomePageContent />
