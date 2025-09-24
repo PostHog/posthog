@@ -30,7 +30,7 @@ class Chunk(typing.NamedTuple):
     is_eof: bool
 
 
-class _TransformerProtocol(typing.Protocol):
+class TransformerProtocol(typing.Protocol):
     """Transformer protocol iterating record batches into chunks of bytes."""
 
     async def iter(
@@ -45,19 +45,17 @@ class _TransformerProtocol(typing.Protocol):
 
 
 def get_stream_transformer(
-    format: str, compression: str | None = None, schema: pa.Schema | None = None, include_inserted_at: bool = False
-) -> _TransformerProtocol:
+    format: str,
+    compression: str | None = None,
+    **kwargs,
+) -> TransformerProtocol:
     match format.lower():
         case "jsonlines" if compression != "brotli":
-            return JSONLStreamTransformer(compression=compression, include_inserted_at=include_inserted_at)
+            return JSONLStreamTransformer(compression=compression, **kwargs)
         case "jsonlines" if compression == "brotli":
-            return JSONLBrotliStreamTransformer(include_inserted_at=include_inserted_at)
+            return JSONLBrotliStreamTransformer(**kwargs)
         case "parquet":
-            if schema is None:
-                raise ValueError("Schema is required for Parquet")
-            return ParquetStreamTransformer(
-                compression=compression, schema=schema, include_inserted_at=include_inserted_at
-            )
+            return ParquetStreamTransformer(compression=compression, **kwargs)
         case _:
             raise ValueError(f"Unsupported format: {format}")
 
