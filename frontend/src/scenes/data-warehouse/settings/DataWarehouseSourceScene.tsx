@@ -59,15 +59,18 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
                         path: urls.dataPipelines('overview'),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: [Scene.DataPipelines, 'sources'],
                         name: `Sources`,
                         path: urls.dataPipelines('sources'),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: Scene.DataWarehouseSource,
                         name: breadcrumbName,
+                        iconType: 'data_pipeline',
                     },
                 ]
             },

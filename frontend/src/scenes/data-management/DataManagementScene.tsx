@@ -191,6 +191,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                         key: tab,
                         name: capitalizeFirstLetter(tab),
                         path: tabs[tab].url,
+                        iconType: 'event_definition',
                     },
                 ]
             },
