@@ -5,7 +5,6 @@ import React from 'react'
 import { IconInfo } from '@posthog/icons'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
@@ -192,6 +191,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                         key: tab,
                         name: capitalizeFirstLetter(tab),
                         path: tabs[tab].url,
+                        iconType: 'event_definition',
                     },
                 ]
             },
@@ -253,12 +253,7 @@ export function DataManagementScene(): JSX.Element | null {
     const { enabledTabs, tab } = useValues(dataManagementSceneLogic)
 
     if (enabledTabs.includes(tab)) {
-        return (
-            <>
-                <PageHeader buttons={<>{tabs[tab].buttons}</>} />
-                {tabs[tab].content}
-            </>
-        )
+        return <>{tabs[tab].content}</>
     }
     return null
 }

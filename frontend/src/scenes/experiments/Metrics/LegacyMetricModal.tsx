@@ -11,6 +11,11 @@ import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { FunnelsMetricForm } from './FunnelsMetricForm'
 import { TrendsMetricForm } from './TrendsMetricForm'
 
+/**
+ * @deprecated
+ * This component is deprecated and only supports the legacy query runner.
+ * Use the MetricModal component instead.
+ */
 export function LegacyMetricModal({
     experimentId,
     isSecondary,
