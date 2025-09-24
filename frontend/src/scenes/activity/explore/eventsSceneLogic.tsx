@@ -42,6 +42,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                 {
                     key: Scene.ExploreEvents,
                     name: 'Explore',
+                    iconType: 'dashboard',
                 },
             ],
         ],

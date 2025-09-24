@@ -153,11 +153,13 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
                     key: Scene.Replay,
                     name: 'Replay',
                     path: urls.replay(),
+                    iconType: 'session_replay',
                 },
                 {
                     key: Scene.ReplayFilePlayback,
                     name: 'File playback',
                     path: urls.replayFilePlayback(),
+                    iconType: 'session_replay',
                 },
             ],
         ],

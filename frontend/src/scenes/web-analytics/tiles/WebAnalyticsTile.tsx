@@ -3,7 +3,7 @@ import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
-import { LemonSegmentedButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
@@ -30,6 +30,7 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
+import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -51,6 +52,7 @@ import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 import { pageReportsLogic } from '../pageReportsLogic'
 import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/components/MarketingAnalyticsTable/MarketingAnalyticsTable'
 import { marketingAnalyticsLogic } from '../tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { validColumnsForTiles } from '../tabs/marketing-analytics/frontend/logic/utils'
 import { DISPLAY_MODE_OPTIONS } from '../tabs/marketing-analytics/frontend/shared'
 
 export const toUtcOffsetFormat = (value: number): string => {
@@ -507,23 +509,37 @@ export const MarketingAnalyticsTrendTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
-    const { setInterval, setChartDisplayType } = useActions(marketingAnalyticsLogic)
-    const { dateFilter, chartDisplayType } = useValues(marketingAnalyticsLogic)
+    const { setInterval, setChartDisplayType, setTileColumnSelection } = useActions(marketingAnalyticsLogic)
+    const { dateFilter, chartDisplayType, tileColumnSelection } = useValues(marketingAnalyticsLogic)
 
+    const MARKETING_COLUMN_OPTIONS: { value: validColumnsForTiles; label: string }[] = [
+        { value: MarketingAnalyticsColumnsSchemaNames.Cost, label: 'Cost' },
+        { value: MarketingAnalyticsColumnsSchemaNames.Impressions, label: 'Impressions' },
+        { value: MarketingAnalyticsColumnsSchemaNames.Clicks, label: 'Clicks' },
+        { value: MarketingAnalyticsColumnsSchemaNames.ReportedConversion, label: 'Reported Conversion' },
+    ]
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {showIntervalTile && (
-                <div className="flex flex-row items-center justify-end m-2 mr-4">
-                    <div className="flex flex-row items-center mr-4">
-                        <span className="mr-2">Group by</span>
-                        <IntervalFilterStandalone interval={dateFilter.interval} onIntervalChange={setInterval} />
-                    </div>
-                    <LemonSegmentedButton
-                        value={chartDisplayType}
-                        onChange={setChartDisplayType}
-                        options={DISPLAY_MODE_OPTIONS}
-                        size="small"
+                <div className="flex flex-row items-center justify-between m-2 mr-4">
+                    <LemonSelect
+                        value={tileColumnSelection}
+                        onChange={setTileColumnSelection}
+                        options={MARKETING_COLUMN_OPTIONS}
+                        placeholder="Select column"
                     />
+                    <div className="flex flex-row items-center">
+                        <div className="flex flex-row items-center mr-4">
+                            <span className="mr-2">Group by</span>
+                            <IntervalFilterStandalone interval={dateFilter.interval} onIntervalChange={setInterval} />
+                        </div>
+                        <LemonSegmentedButton
+                            value={chartDisplayType}
+                            onChange={setChartDisplayType}
+                            options={DISPLAY_MODE_OPTIONS}
+                            size="small"
+                        />
+                    </div>
                 </div>
             )}
             <Query

@@ -1,39 +1,23 @@
 import { useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
-import { urls } from 'scenes/urls'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ProductKey } from '~/types'
 
-export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Element {
+export function DataPipelinesSources({ action }: { action: JSX.Element }): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
-
-    const newButton = (
-        <LemonButton
-            to={newUrl ?? urls.dataPipelinesNew('source')}
-            type="primary"
-            icon={<IconPlusSmall />}
-            size="small"
-        >
-            New source
-        </LemonButton>
-    )
 
     return (
         <div className="flex flex-col gap-4">
-            <PageHeader buttons={newButton} />
-
             {!dataWarehouseSourcesLoading && dataWarehouseSources?.results.length === 0 ? (
                 <ProductIntroduction
                     productName="Data Warehouse Source"
@@ -42,7 +26,7 @@ export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Eleme
                     description="Use data warehouse sources to import data from your external data into PostHog."
                     isEmpty={dataWarehouseSources.results.length === 0 && !dataWarehouseSourcesLoading}
                     docsURL="https://posthog.com/docs/data-warehouse"
-                    actionElementOverride={newButton}
+                    actionElementOverride={action}
                 />
             ) : null}
 
@@ -76,10 +60,6 @@ export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Eleme
                 title="Self-managed data warehouse sources"
                 description="Connect to your own data sources, making them queryable in PostHog"
             >
-                <div>
-                    <h2>Self-managed data warehouse sources</h2>
-                    <p className="m-0">Connect to your own data sources, making them queryable in PostHog</p>
-                </div>
                 <DataWarehouseSelfManagedSourcesTable />
             </SceneSection>
         </div>

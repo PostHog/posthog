@@ -1,4 +1,5 @@
 from posthog.hogql.database.models import (
+    DatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
     FieldTraverser,
@@ -72,7 +73,7 @@ class EventsTable(Table):
         "elements_chain": StringDatabaseField(name="elements_chain", nullable=False),
         "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
         "$session_id": StringDatabaseField(name="$session_id", nullable=False),
-        "$session_id_uuid": IntegerDatabaseField(name="$session_id_uuid", nullable=False),
+        "$session_id_uuid": DatabaseField(name="$session_id_uuid", nullable=False),
         "$window_id": StringDatabaseField(name="$window_id", nullable=False),
         # Lazy table that adds a join to the persons table
         "pdi": LazyJoin(
@@ -136,3 +137,6 @@ class EventsTable(Table):
 
     def to_printed_hogql(self):
         return "events"
+
+    def avoid_asterisk_fields(self) -> list[str]:
+        return ["$session_id_uuid"]

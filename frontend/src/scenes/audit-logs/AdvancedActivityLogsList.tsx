@@ -54,7 +54,7 @@ const AdvancedActivityLogsListSkeleton = (): JSX.Element => (
 const AdvancedActivityLogsEmptyState = (): JSX.Element => (
     <div
         data-attr="billing-empty-state"
-        className="flex flex-col bg-white border rounded px-4 py-8 items-center text-center mx-auto"
+        className="flex flex-col border rounded px-4 py-8 items-center text-center mx-auto"
     >
         <WarningHog width="100" height="100" className="mb-4" />
         <h2 className="text-xl leading-tight">We couldn't find any activity logs for your current query.</h2>

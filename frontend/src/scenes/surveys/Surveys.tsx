@@ -15,7 +15,6 @@ import {
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { PageHeader } from 'lib/components/PageHeader'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -95,7 +94,7 @@ function NewSurveyButton(): JSX.Element {
             active={!!user?.uuid}
             className={cn('mr-3')}
         >
-            <LemonButton to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
+            <LemonButton size="small" to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
                 <span className="pr-3">New survey</span>
             </LemonButton>
         </MaxTool>
@@ -124,16 +123,6 @@ function Surveys(): JSX.Element {
 
     return (
         <SceneContent>
-            <PageHeader
-                buttons={
-                    <>
-                        <SurveyFeedbackButton />
-                        <NewSurveyButton />
-                    </>
-                }
-                className="flex gap-2 justify-between items-center min-w-full"
-                tabbedPage
-            />
             <SurveysDisabledBanner />
             <SceneTitleSection
                 name="Surveys"
@@ -141,6 +130,12 @@ function Surveys(): JSX.Element {
                 resourceType={{
                     type: 'survey',
                 }}
+                actions={
+                    <>
+                        <SurveyFeedbackButton />
+                        <NewSurveyButton />
+                    </>
+                }
             />
             <SceneDivider />
             <LemonTabs

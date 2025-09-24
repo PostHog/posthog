@@ -54,9 +54,10 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
-    const setQuery = (query: Node, isSourceUpdate?: boolean): void => {
-        if (!isInsightVizNode(query) || isSourceUpdate) {
-            setInsightQuery(query)
+    const setQuery = (q: Node | ((q: Node) => Node), isSourceUpdate?: boolean): void => {
+        let node = typeof q === 'function' ? (query ? q(query) : null) : q
+        if (!isInsightVizNode(node) || isSourceUpdate) {
+            setInsightQuery(node)
         }
     }
 

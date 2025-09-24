@@ -20,8 +20,9 @@ import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Var
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 
+import { CodeExampleTab, queryEndpointLogic } from 'products/embedded_analytics/frontend/queryEndpointLogic'
+
 import { multitabEditorLogic } from '../multitabEditorLogic'
-import { CodeExampleTab, queryEndpointLogic } from './queryEndpointLogic'
 
 const variablesColumns: LemonTableColumns<Variable> = [
     {

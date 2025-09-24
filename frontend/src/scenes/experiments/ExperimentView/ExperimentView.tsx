@@ -6,6 +6,7 @@ import { LemonTabs } from '@posthog/lemon-ui'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
@@ -197,72 +198,71 @@ export function ExperimentView(): JSX.Element {
     const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
 
     return (
-        <>
+        <SceneContent>
             <PageHeaderCustom />
-            <div className="deprecated-space-y-8 experiment-view">
-                {experimentLoading ? (
-                    <LoadingState />
-                ) : (
-                    <>
-                        <Info />
-                        {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
-                        <LemonTabs
-                            activeKey={activeTabKey}
-                            onChange={(key) => setActiveTabKey(key)}
-                            tabs={[
-                                {
-                                    key: 'metrics',
-                                    label: 'Metrics',
-                                    content: <MetricsTab />,
-                                },
-                                {
-                                    key: 'code',
-                                    label: 'Code',
-                                    content: <CodeTab />,
-                                },
-                                {
-                                    key: 'variants',
-                                    label: 'Variants',
-                                    content: <VariantsTab />,
-                                },
-                                {
-                                    key: 'history',
-                                    label: 'History',
-                                    content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
-                                },
-                            ]}
-                        />
+            {experimentLoading ? (
+                <LoadingState />
+            ) : (
+                <>
+                    <Info />
+                    {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
+                    <LemonTabs
+                        activeKey={activeTabKey}
+                        onChange={(key) => setActiveTabKey(key)}
+                        sceneInset
+                        tabs={[
+                            {
+                                key: 'metrics',
+                                label: 'Metrics',
+                                content: <MetricsTab />,
+                            },
+                            {
+                                key: 'code',
+                                label: 'Code',
+                                content: <CodeTab />,
+                            },
+                            {
+                                key: 'variants',
+                                label: 'Variants',
+                                content: <VariantsTab />,
+                            },
+                            {
+                                key: 'history',
+                                label: 'History',
+                                content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
+                            },
+                        ]}
+                    />
 
-                        <MetricSourceModal experimentId={experimentId} isSecondary={true} />
-                        <MetricSourceModal experimentId={experimentId} isSecondary={false} />
+                    <MetricSourceModal experimentId={experimentId} isSecondary={true} />
+                    <MetricSourceModal experimentId={experimentId} isSecondary={false} />
 
-                        {usesNewQueryRunner ? (
-                            <>
-                                <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
-                                <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
-                                <ExposureCriteriaModal />
-                                <RunningTimeCalculatorModal />
-                            </>
-                        ) : (
-                            <>
-                                <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
-                                <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
-                            </>
-                        )}
+                    {usesNewQueryRunner ? (
+                        <>
+                            <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
+                            <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
+                            <ExposureCriteriaModal />
+                            <RunningTimeCalculatorModal />
+                        </>
+                    ) : (
+                        <>
+                            <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
+                            <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
+                        </>
+                    )}
 
-                        <SharedMetricModal experimentId={experimentId} isSecondary={true} />
-                        <SharedMetricModal experimentId={experimentId} isSecondary={false} />
+                    <SharedMetricModal experimentId={experimentId} isSecondary={true} />
+                    <SharedMetricModal experimentId={experimentId} isSecondary={false} />
 
-                        <DistributionModal experimentId={experimentId} />
-                        <ReleaseConditionsModal experimentId={experimentId} />
+                    <DistributionModal experimentId={experimentId} />
+                    <ReleaseConditionsModal experimentId={experimentId} />
 
-                        <StopExperimentModal experimentId={experimentId} />
-                        <EditConclusionModal experimentId={experimentId} />
+                    <StopExperimentModal experimentId={experimentId} />
+                    <EditConclusionModal experimentId={experimentId} />
 
-                        <VariantDeltaTimeseries />
-                    </>
-                )}
-            </div>
-        </>
+                    <VariantDeltaTimeseries />
+                </>
+            )}
+        </SceneContent>
     )
 }

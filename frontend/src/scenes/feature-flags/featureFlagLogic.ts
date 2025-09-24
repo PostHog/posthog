@@ -1239,8 +1239,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     key: Scene.FeatureFlags,
                     name: 'Feature Flags',
                     path: urls.featureFlags(),
+                    iconType: 'feature_flag',
                 },
-                { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
+                {
+                    key: [Scene.FeatureFlag, featureFlag.id || 'unknown'],
+                    name: featureFlag.key || 'Unnamed',
+                    iconType: 'feature_flag',
+                },
             ],
         ],
         projectTreeRef: [

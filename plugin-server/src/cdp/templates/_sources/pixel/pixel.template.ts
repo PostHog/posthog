@@ -5,7 +5,7 @@ export const template: HogFunctionTemplate = {
     status: 'alpha',
     type: 'source_webhook',
     id: 'template-source-webhook-pixel',
-    name: 'Pixel tracking',
+    name: 'Tracking pixel',
     description:
         'Capture an event using a 1x1 tracking pixel. Useful for embedding tracking where PostHog SDKs are not available such as emails.',
     icon_url: '/static/services/webhook.svg',

@@ -88,6 +88,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                         key: 'cohorts',
                         name: 'Cohorts',
                         path: urls.cohorts(),
+                        iconType: 'cohort',
                     },
                 ]
             },

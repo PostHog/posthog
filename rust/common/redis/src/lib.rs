@@ -56,6 +56,7 @@ impl From<std::string::FromUtf8Error> for CustomRedisError {
 pub enum RedisValueFormat {
     Pickle,
     Utf8,
+    RawBytes,
 }
 
 impl Default for RedisValueFormat {
@@ -86,6 +87,7 @@ pub trait Client {
         k: String,
         format: RedisValueFormat,
     ) -> Result<String, CustomRedisError>;
+    async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError>;
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError>;
     async fn set_with_format(
         &self,
@@ -176,7 +178,24 @@ impl Client for RedisClient {
                 let string_response = String::from_utf8(raw_bytes)?;
                 Ok(string_response)
             }
+            RedisValueFormat::RawBytes => Err(CustomRedisError::ParseError(
+                "Use get_raw_bytes() for RawBytes format".to_string(),
+            )),
         }
+    }
+
+    async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError> {
+        let mut conn = self.connection.clone();
+        let results = conn.get(k);
+        let fut: Result<Vec<u8>, RedisError> =
+            timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
+
+        // return NotFound error when empty
+        if matches!(&fut, Ok(v) if v.is_empty()) {
+            return Err(CustomRedisError::NotFound);
+        }
+
+        Ok(fut?)
     }
 
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
@@ -192,6 +211,11 @@ impl Client for RedisClient {
         let bytes = match format {
             RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
             RedisValueFormat::Utf8 => v.into_bytes(),
+            RedisValueFormat::RawBytes => {
+                return Err(CustomRedisError::ParseError(
+                    "RawBytes format not supported for setting strings".to_string(),
+                ))
+            }
         };
         let mut conn = self.connection.clone();
         let results = conn.set(k, bytes);
@@ -219,6 +243,11 @@ impl Client for RedisClient {
         let bytes = match format {
             RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
             RedisValueFormat::Utf8 => v.into_bytes(),
+            RedisValueFormat::RawBytes => {
+                return Err(CustomRedisError::ParseError(
+                    "RawBytes format not supported for setting strings".to_string(),
+                ))
+            }
         };
         let mut conn = self.connection.clone();
         let seconds_usize = seconds as usize;
@@ -268,6 +297,7 @@ pub struct MockRedisClient {
     zrangebyscore_ret: HashMap<String, Vec<String>>,
     hincrby_ret: HashMap<String, Result<(), CustomRedisError>>,
     get_ret: HashMap<String, Result<String, CustomRedisError>>,
+    get_raw_bytes_ret: HashMap<String, Result<Vec<u8>, CustomRedisError>>,
     set_ret: HashMap<String, Result<(), CustomRedisError>>,
     set_nx_ex_ret: HashMap<String, Result<bool, CustomRedisError>>,
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
@@ -281,6 +311,7 @@ impl Default for MockRedisClient {
             zrangebyscore_ret: HashMap::new(),
             hincrby_ret: HashMap::new(),
             get_ret: HashMap::new(),
+            get_raw_bytes_ret: HashMap::new(),
             set_ret: HashMap::new(),
             set_nx_ex_ret: HashMap::new(),
             del_ret: HashMap::new(),
@@ -316,6 +347,11 @@ impl MockRedisClient {
 
     pub fn get_ret(&mut self, key: &str, ret: Result<String, CustomRedisError>) -> Self {
         self.get_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn get_raw_bytes_ret(&mut self, key: &str, ret: Result<Vec<u8>, CustomRedisError>) -> Self {
+        self.get_raw_bytes_ret.insert(key.to_owned(), ret);
         self.clone()
     }
 
@@ -441,6 +477,30 @@ impl Client for MockRedisClient {
             .get(&key)
             .cloned()
             .unwrap_or(Err(CustomRedisError::NotFound))
+    }
+
+    async fn get_raw_bytes(&self, key: String) -> Result<Vec<u8>, CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "get_raw_bytes".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::String("".to_string()),
+        });
+
+        // First try the dedicated raw bytes storage
+        if let Some(result) = self.get_raw_bytes_ret.get(&key) {
+            return result.clone();
+        }
+
+        // Fall back to string conversion for backward compatibility
+        match self
+            .get_ret
+            .get(&key)
+            .cloned()
+            .unwrap_or(Err(CustomRedisError::NotFound))
+        {
+            Ok(string_data) => Ok(string_data.into_bytes()),
+            Err(e) => Err(e),
+        }
     }
 
     async fn set(&self, key: String, value: String) -> Result<(), CustomRedisError> {

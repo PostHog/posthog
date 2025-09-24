@@ -15,7 +15,7 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
-import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
+import { createInvocation } from '../utils/invocation-utils'
 import { cleanNullValues } from './transformation-functions'
 
 export const hogTransformationDroppedEvents = new Counter({
@@ -198,26 +198,11 @@ export class HogTransformerService {
                     })
 
                     // If filter didn't pass skip the actual transformation and add logs and errors from the filterResult
+                    this.hogFunctionMonitoringService.queueAppMetrics(filterResults.metrics, 'hog_function')
+                    this.hogFunctionMonitoringService.queueLogs(filterResults.logs, 'hog_function')
+
                     if (!filterResults.match) {
                         transformationsSkipped.push(transformationIdentifier)
-                        results.push(
-                            createInvocationResult(
-                                createInvocation(
-                                    {
-                                        ...globals,
-                                        inputs: {}, // Not needed as this is only for a valid return type
-                                    },
-                                    hogFunction
-                                ),
-                                {},
-                                {
-                                    metrics: filterResults.metrics,
-                                    logs: filterResults.logs,
-                                    error: filterResults.error,
-                                    finished: true,
-                                }
-                            )
-                        )
                         continue
                     }
                 }

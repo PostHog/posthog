@@ -106,11 +106,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="warm team access caches",
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        60 * 60,  # hourly
+    sender.add_periodic_task(
+        crontab(hour="*", minute="0"),  # hourly
         enforce_max_replay_retention_period.s(),
-        "hourly enforce max replay retention period",
+        name="hourly enforce max replay retention period",
+        expires=30 * 60,  # half hour
     )
 
     # Update events table partitions twice a week

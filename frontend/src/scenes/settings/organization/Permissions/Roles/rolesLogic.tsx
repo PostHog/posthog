@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamMembersLogic } from 'scenes/settings/environment/teamMembersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { AccessLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
 
@@ -11,7 +11,7 @@ import type { rolesLogicType } from './rolesLogicType'
 
 export const rolesLogic = kea<rolesLogicType>([
     path(['scenes', 'organization', 'rolesLogic']),
-    connect(() => ({ values: [teamMembersLogic, ['allMembers']] })),
+    connect(() => ({ values: [membersLogic, ['members']] })),
     actions({
         setCreateRoleModalShown: (shown: boolean) => ({ shown }),
         setRoleInFocus: (role: null | RoleType) => ({ role }),
@@ -122,10 +122,10 @@ export const rolesLogic = kea<rolesLogicType>([
     })),
     selectors({
         addableMembers: [
-            (s) => [s.allMembers, s.roleMembersInFocus],
-            (allMembers, roleMembersInFocus): UserBasicType[] => {
+            (s) => [s.members, s.roleMembersInFocus],
+            (members, roleMembersInFocus): UserBasicType[] => {
                 const addableMembers: UserBasicType[] = []
-                for (const member of allMembers) {
+                for (const member of members || []) {
                     if (
                         !roleMembersInFocus.some(
                             (roleMember: RoleMemberType) => roleMember.user.uuid === member.user.uuid

@@ -14,6 +14,9 @@ class AdvancedActivityLogFilterManager:
         queryset = self._apply_search_filters(queryset, filters)
         queryset = self._apply_detail_filters(queryset, filters.get("detail_filters", {}))
         queryset = self._apply_hogql_filter(queryset, filters.get("hogql_filter"))
+        queryset = self._apply_was_impersonated_filter(queryset, filters)
+        queryset = self._apply_is_system_filter(queryset, filters)
+        queryset = self._apply_item_ids_filter(queryset, filters)
         return queryset
 
     def _apply_date_filters(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
@@ -177,4 +180,23 @@ class AdvancedActivityLogFilterManager:
 
     def _apply_hogql_filter(self, queryset: QuerySet[ActivityLog], hogql_filter: str | None) -> QuerySet[ActivityLog]:
         # TODO: HogQL filtering to be implemented
+        return queryset
+
+    def _apply_was_impersonated_filter(
+        self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]
+    ) -> QuerySet[ActivityLog]:
+        if "was_impersonated" in filters:
+            queryset = queryset.filter(was_impersonated=filters["was_impersonated"])
+        return queryset
+
+    def _apply_is_system_filter(
+        self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]
+    ) -> QuerySet[ActivityLog]:
+        if "is_system" in filters:
+            queryset = queryset.filter(is_system=filters["is_system"])
+        return queryset
+
+    def _apply_item_ids_filter(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
+        if filters.get("item_ids"):
+            queryset = queryset.filter(item_id__in=filters["item_ids"])
         return queryset

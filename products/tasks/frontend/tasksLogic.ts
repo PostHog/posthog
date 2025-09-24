@@ -1,7 +1,7 @@
 import { UniqueIdentifier } from '@dnd-kit/core'
-import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -9,12 +9,15 @@ import api from 'lib/api'
 
 import { demoTasks } from './demoData'
 import type { tasksLogicType } from './tasksLogicType'
-import { Task, TaskUpsertProps, TaskWorkflow, WorkflowStage } from './types'
+import { Task, TaskTrackerTab, TaskUpsertProps, TaskWorkflow, WorkflowStage } from './types'
 
 export const tasksLogic = kea<tasksLogicType>([
     path(['products', 'tasks', 'frontend', 'tasksLogic']),
+    connect(() => ({
+        values: [router, ['location']],
+    })),
     actions({
-        setActiveTab: (tab: 'dashboard' | 'backlog' | 'kanban' | 'settings') => ({ tab }),
+        setActiveTab: (tab: TaskTrackerTab) => ({ tab }),
         moveTask: (taskId: string, newStageKey: string, newPosition?: number) => ({
             taskId,
             newStageKey,
@@ -231,7 +234,7 @@ export const tasksLogic = kea<tasksLogicType>([
     })),
     reducers({
         activeTab: [
-            'dashboard' as 'dashboard' | 'backlog' | 'kanban' | 'settings',
+            'dashboard' as TaskTrackerTab,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
@@ -485,6 +488,44 @@ export const tasksLogic = kea<tasksLogicType>([
             // Stop polling if there are no active tasks
             if (!values.hasActiveTasks) {
                 actions.stopPolling()
+            }
+        },
+    })),
+    actionToUrl(({ values }) => {
+        const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
+            const searchParams: Record<string, string> = {}
+            searchParams['tab'] = values.activeTab
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+        }
+
+        return {
+            setActiveTab: changeUrl,
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        '/tasks': async (_, searchParams) => {
+            const tabInURL = searchParams['tab'] as string | undefined
+            const validTabs: TaskTrackerTab[] = ['dashboard', 'backlog', 'kanban', 'settings']
+
+            // No tab in URL, set to dashboard
+            if (!tabInURL) {
+                if (values.activeTab !== 'dashboard') {
+                    actions.setActiveTab('dashboard')
+                }
+                return
+            }
+
+            // Clean up tab from params if invalid and navigate to dashboard
+            if (!validTabs.includes(tabInURL as TaskTrackerTab)) {
+                actions.setActiveTab('dashboard')
+                const cleanParams = { ...searchParams }
+                delete cleanParams.tab
+                router.actions.push(router.values.location.pathname, cleanParams)
+                return
+            }
+
+            if (tabInURL !== values.activeTab) {
+                actions.setActiveTab(tabInURL as TaskTrackerTab)
             }
         },
     })),

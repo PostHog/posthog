@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { managedMigrationLogicType } from './managedMigrationLogicType'
@@ -214,6 +215,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     key: 'managed-migrations',
                     name: 'Managed Migrations',
                     path: urls.managedMigration(),
+                    iconType: 'data_pipeline_metadata',
                 },
                 ...(managedMigrationId
                     ? [
@@ -221,6 +223,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                               key: 'edit-migration',
                               name: 'Manage migration',
                               path: urls.managedMigration(),
+                              iconType: 'data_pipeline_metadata' as FileSystemIconType,
                           },
                       ]
                     : []),

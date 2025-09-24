@@ -211,18 +211,7 @@ export function Cohorts(): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs
-                tabKey="cohorts"
-                buttons={
-                    <LemonButton
-                        type="primary"
-                        data-attr="new-cohort"
-                        onClick={() => router.actions.push(urls.cohort('new'))}
-                    >
-                        New cohort
-                    </LemonButton>
-                }
-            />
+            <PersonsManagementSceneTabs tabKey="cohorts" />
 
             <SceneTitleSection
                 name="Cohorts"
@@ -230,6 +219,16 @@ export function Cohorts(): JSX.Element {
                 resourceType={{
                     type: RESOURCE_TYPE,
                 }}
+                actions={
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        data-attr="new-cohort"
+                        onClick={() => router.actions.push(urls.cohort('new'))}
+                    >
+                        New cohort
+                    </LemonButton>
+                }
             />
             <SceneDivider />
 

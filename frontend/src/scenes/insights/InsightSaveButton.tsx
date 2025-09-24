@@ -24,6 +24,7 @@ export function InsightSaveButton({
             onClick={() => saveInsight(true)}
             data-attr="insight-save-button"
             disabled={disabled}
+            size="small"
             loading={!disabled && insightSaving}
             sideAction={{
                 dropdown: {

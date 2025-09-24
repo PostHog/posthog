@@ -1,6 +1,5 @@
 import { IconPieChart } from '@posthog/icons'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { WebAnalyticsDashboard } from 'scenes/web-analytics/WebAnalyticsDashboard'
 import { WebAnalyticsHeaderButtons } from 'scenes/web-analytics/WebAnalyticsHeaderButtons'
@@ -13,7 +12,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 export function WebAnalyticsScene(): JSX.Element {
     return (
         <>
-            <PageHeader buttons={<WebAnalyticsHeaderButtons />} />
             <SceneContent>
                 <div className="flex flex-col gap-4">
                     <SceneTitleSection
@@ -27,6 +25,7 @@ export function WebAnalyticsScene(): JSX.Element {
                                 'var(--color-product-web-analytics-dark)',
                             ],
                         }}
+                        actions={<WebAnalyticsHeaderButtons />}
                     />
                     <SceneDivider />
                 </div>
