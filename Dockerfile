@@ -103,6 +103,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./plugin-server/src/
 COPY ./plugin-server/tests/ ./plugin-server/tests/
+COPY ./plugin-server/assets/ ./plugin-server/assets/
 
 # Build cyclotron first with increased memory
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
