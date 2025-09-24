@@ -221,7 +221,12 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if self.action in ["update", "partial_update"]:
             update_permissions = [
                 permission()
-                for permission in [permissions.IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
+                for permission in [
+                    permissions.IsAuthenticated,
+                    TimeSensitiveActionPermission,
+                    APIScopePermission,
+                    OrganizationAdminWritePermissions,
+                ]
             ]
 
             if not is_cloud():
@@ -294,27 +299,14 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if "enforce_2fa" in request.data:
-            enforce_2fa_value = request.data["enforce_2fa"]
-            organization = self.get_object()
-            user = cast(User, request.user)
-
-            # Add capture event for 2FA enforcement change
-            posthoganalytics.capture(
-                "organization 2fa enforcement toggled",
-                distinct_id=str(user.distinct_id),
-                properties={
-                    "enabled": enforce_2fa_value,
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "user_role": user.organization_memberships.get(organization=organization).level,
-                },
-                groups=groups(organization),
-            )
-
         # Set user context for activity logging
         with ImpersonatedContext(request):
             return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Set user context for activity logging
+        with ImpersonatedContext(request):
+            return super().partial_update(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         # Set user context for activity logging
