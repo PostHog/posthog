@@ -87,6 +87,13 @@ class AssistantContextMixin(ABC):
         """
         return self._team.timezone_info.tzname(self._utc_now_datetime)
 
+    @property
+    def project_currency(self) -> str:
+        """
+        Returns the currency of the project, e.g. "USD" or "EUR".
+        """
+        return self._team.base_currency
+
     def _get_debug_props(self, config: RunnableConfig) -> dict[str, Any]:
         """Properties to be sent to PostHog SDK (error tracking, etc)."""
         metadata = (config.get("configurable") or {}).get("sdk_metadata")

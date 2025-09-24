@@ -470,6 +470,10 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                     "id": self._format_breakdown(breakdown, kind),
                     "name": self._format_breakdown(breakdown, kind),
                 },
+                "breakdown": {
+                    "property": breakdown,
+                    "kind": kind,
+                },
                 "data": [grouped_results.get((self._format_breakdown(breakdown, kind), day), 0) for day in days],
                 "days": days,
                 "label": self._format_breakdown(breakdown, kind),
@@ -488,7 +492,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
 
         with self.timings.measure("execute_hogql_query"):
             response = execute_hogql_query(
-                query_type="revenue_analytics_customer_count_query",
+                query_type="revenue_analytics_metrics_query",
                 query=query,
                 team=self.team,
                 timings=self.timings,
