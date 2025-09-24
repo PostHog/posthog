@@ -236,8 +236,8 @@ jobs:
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
-                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
-                  PERSONS_MIGRATION_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5434/test_persons'
+                  PERSONS_MIGRATION_DATABASE_URL: 'postgres://posthog:posthog@localhost:5434/test_persons_migration'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
