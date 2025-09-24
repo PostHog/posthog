@@ -517,9 +517,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 // this every time it's rendered. Caching will happen within the scene's breadcrumb selector.
                 (state, props): { title: string; iconType: FileSystemIconType | 'loading' | 'blank' } => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
+                    const activeExportedScene = sceneLogic.selectors.activeExportedScene(state, props)
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
                         try {
-                            const activeExportedScene = sceneLogic.selectors.activeExportedScene(state, props)
                             const sceneParams = sceneLogic.selectors.sceneParams(state, props)
                             const bc = activeSceneLogic.selectors.breadcrumbs(
                                 state,
@@ -539,7 +539,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         const sceneConfig = s.sceneConfig(state, props)
                         return {
                             title: sceneConfig?.name ?? identifierToHuman(activeSceneId),
-                            iconType: sceneConfig?.iconType ?? (activeSceneLogic ? 'notebook' : 'loading'),
+                            iconType: sceneConfig?.iconType ?? (activeExportedScene ? 'notebook' : 'loading'),
                         }
                     }
                     return { title: '...', iconType: 'loading' }
