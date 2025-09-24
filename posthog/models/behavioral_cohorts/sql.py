@@ -25,7 +25,7 @@ def DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL():
 
 def BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL():
     return """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     cohort_id Int64,
@@ -41,7 +41,6 @@ ORDER BY (team_id, cohort_id, condition, date)
 SETTINGS ttl_only_drop_parts = 1
 """.format(
         table_name=BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=AggregatingMergeTree(
             BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE, replication_scheme=ReplicationScheme.SHARDED
         ),
@@ -51,7 +50,7 @@ SETTINGS ttl_only_drop_parts = 1
 
 def BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(table_name: str = BEHAVIORAL_COHORTS_MATCHES_TABLE):
     return """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     cohort_id Int64,
@@ -63,7 +62,6 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 ) ENGINE = {engine}
 """.format(
         table_name=table_name,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=Distributed(
             data_table=BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE,
             cluster=CLICKHOUSE_CLUSTER,
@@ -78,7 +76,7 @@ def BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL():
 
 def KAFKA_BEHAVIORAL_COHORTS_MATCHES_TABLE_SQL():
     return """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     cohort_id Int64,
@@ -90,7 +88,6 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
 """.format(
         table_name=BEHAVIORAL_COHORTS_MATCHES_KAFKA_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=kafka_engine(
             topic="clickhouse_behavioral_cohorts_matches", group="clickhouse_behavioral_cohorts_matches"
         ),
