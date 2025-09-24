@@ -113,17 +113,6 @@ class RemoteConfigThrottle(BurstRateThrottle):
         return super().allow_request(request, view)
 
 
-class CanEditFeatureFlag(BasePermission):
-    message = "You don't have edit permissions for this feature flag."
-
-    def has_object_permission(self, request: Request, view, feature_flag) -> bool:
-        if request.method in SAFE_METHODS:
-            return True
-        else:
-            # TODO(@zach): Add new access control support
-            return can_user_edit_feature_flag(request, feature_flag)
-
-
 class EvaluationTagSerializerMixin(serializers.Serializer):
     """
     Serializer mixin that handles evaluation tags for feature flags.
