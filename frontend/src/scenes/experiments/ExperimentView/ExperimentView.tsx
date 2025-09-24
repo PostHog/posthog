@@ -13,6 +13,7 @@ import { ActivityScope } from '~/types'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
+import { LegacyMetricSourceModal } from '../Metrics/LegacyMetricSourceModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
@@ -243,8 +244,17 @@ export function ExperimentView(): JSX.Element {
                         ]}
                     />
 
-                    <MetricSourceModal isSecondary={true} />
-                    <MetricSourceModal isSecondary={false} />
+                    {usesNewQueryRunner ? (
+                        <>
+                            <MetricSourceModal isSecondary={true} />
+                            <MetricSourceModal isSecondary={false} />
+                        </>
+                    ) : (
+                        <>
+                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={true} />
+                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={false} />
+                        </>
+                    )}
 
                     {usesNewQueryRunner ? (
                         <>

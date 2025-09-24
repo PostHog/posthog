@@ -34,7 +34,12 @@ export const MetricHeader = ({
      * except for which modal to open.
      * The openModal function has to be provided as a dependency.
      */
-    const { openPrimarySharedMetricModal, openSecondarySharedMetricModal } = useActions(modalsLogic)
+    const {
+        openPrimaryMetricModal,
+        openSecondaryMetricModal,
+        openPrimarySharedMetricModal,
+        openSecondarySharedMetricModal,
+    } = useActions(modalsLogic)
 
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
 
@@ -63,6 +68,16 @@ export const MetricHeader = ({
                                             : openSecondarySharedMetricModal
                                         openSharedModal(metric.sharedMetricId)
                                     } else {
+                                        /**
+                                         * this is for legacy experiments support
+                                         */
+                                        const openMetricModal = isPrimaryMetric
+                                            ? openPrimaryMetricModal
+                                            : openSecondaryMetricModal
+                                        if (metric.uuid) {
+                                            openMetricModal(metric.uuid)
+                                        }
+
                                         openExperimentMetricModal(
                                             METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'],
                                             metric
