@@ -232,7 +232,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.cohorts()]: (_, searchParams) => {
-            const { page, search, type, created_by_id } = searchParams
+            const { page, search, type, created_by_id, sorting } = searchParams
             const filtersFromUrl: Partial<CohortFilters> = {
                 search,
                 type,
