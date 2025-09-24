@@ -1,5 +1,5 @@
 import { LogicWrapper } from 'kea'
-import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
+import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
 import { ReactNode } from 'react'
 import { Layout } from 'react-grid-layout'
 
@@ -3074,6 +3074,12 @@ export interface SurveyDisplayConditions {
         repeatedActivation?: boolean
         values: {
             name: string
+            propertyFilters?: {
+                [propertyName: string]: {
+                    values: string[]
+                    operator: PropertyMatchType
+                }
+            }
         }[]
     } | null
 }
