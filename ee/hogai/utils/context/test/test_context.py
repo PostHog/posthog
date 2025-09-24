@@ -364,22 +364,24 @@ Query results: 42 events
         mock_capture_exception.assert_called()
 
     def test_deduplicate_context_messages(self):
-        """Test that context messages are deduplicated based on existing human message content"""
-        # Create state with existing human messages
+        """Test that context messages are deduplicated based on existing context message content"""
+        # Create state with existing context messages
         state = AssistantState(
             messages=[
-                HumanMessage(content="Existing message 1"),
+                HumanMessage(content="User message 1"),
+                ContextMessage(content="Existing context 1", id="1", visible=False),
                 AssistantMessage(content="Response"),
-                HumanMessage(content="Existing message 2"),
+                ContextMessage(content="Existing context 2", id="2", visible=False),
+                HumanMessage(content="User message 2"),
             ]
         )
 
         # Test deduplication - should filter out matching content
         context_prompts = [
             "New context message",
-            "Existing message 1",  # This should be filtered out
+            "Existing context 1",  # This should be filtered out
             "Another new message",
-            "Existing message 2",  # This should be filtered out
+            "Existing context 2",  # This should be filtered out
         ]
 
         result = self.context_manager._deduplicate_context_messages(state, context_prompts)
