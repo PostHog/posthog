@@ -2,6 +2,7 @@ import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
+import { Breadcrumb } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -71,6 +72,16 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
                 }),
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'error-tracking',
+                    name: 'Error tracking',
+                    iconType: 'error_tracking',
+                },
+            ],
         ],
     }),
 

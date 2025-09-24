@@ -24,11 +24,13 @@ export const sessionRecordingsSettingsSceneLogic = kea<sessionRecordingsSettings
                     key: Scene.Replay,
                     path: urls.replay(),
                     name: 'Replay',
+                    iconType: 'session_replay',
                 },
                 {
                     key: Scene.ReplaySettings,
                     path: urls.replaySettings(),
                     name: 'Settings',
+                    iconType: 'session_replay',
                 },
             ],
         ],
