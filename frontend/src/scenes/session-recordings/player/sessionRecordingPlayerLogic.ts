@@ -343,7 +343,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading', 'isRealtimePolling'],
+            ['snapshotsLoaded', 'snapshotsLoading'],
             sessionRecordingDataLogic(props),
             [
                 'urls',
