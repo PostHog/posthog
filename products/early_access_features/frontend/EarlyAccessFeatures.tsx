@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 
 import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -43,15 +42,14 @@ export function EarlyAccessFeatures(): JSX.Element {
                 resourceType={{
                     type: 'early_access_feature',
                 }}
-            />
-            <SceneDivider />
-            <PageHeader
-                buttons={
-                    <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
+                actions={
+                    <LemonButton size="small" type="primary" to={urls.earlyAccessFeature('new')}>
                         New feature
                     </LemonButton>
                 }
             />
+            <SceneDivider />
+
             <ProductIntroduction
                 productName="Early access features"
                 productKey={ProductKey.EARLY_ACCESS_FEATURES}

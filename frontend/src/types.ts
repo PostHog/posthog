@@ -58,6 +58,7 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InsightQueryNode,
     InsightVizNode,
     MarketingAnalyticsConfig,
     Node,
@@ -242,6 +243,7 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
+    EMBEDDED_ANALYTICS = 'embedded_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -500,20 +502,8 @@ export interface OrganizationMemberScopedApiKeysResponse {
     }[]
 }
 
-export interface ExplicitTeamMemberType extends BaseMemberType {
-    /** Level at which the user explicitly is in the project. */
-    level: TeamMembershipLevel
-    /** Level at which the user is in the organization. */
-    parent_level: OrganizationMembershipLevel
-    /** Effective level of the user within the project, which may be higher than parent level, but not lower. */
-    effective_level: OrganizationMembershipLevel
-}
-
-export type EitherMemberType = OrganizationMemberType | ExplicitTeamMemberType
-
 /**
- * While OrganizationMemberType and ExplicitTeamMemberType refer to actual Django models,
- * this interface is only used in the frontend for fusing the data from these models together.
+ * This interface is only used in the frontend for fusing organization member data.
  */
 export interface FusedTeamMemberType extends BaseMemberType {
     /**
@@ -573,8 +563,6 @@ export interface TeamBasicType extends WithAccessControl {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
-    /** Whether the project is private. */
-    access_control: boolean
 }
 
 export interface CorrelationConfigType {
@@ -1085,7 +1073,6 @@ export type EncodedRecordingSnapshot = {
 // we have a strongly typed way to do it
 export const SnapshotSourceType = {
     blob: 'blob',
-    realtime: 'realtime',
     file: 'file',
     blob_v2: 'blob_v2',
 } as const
@@ -2107,6 +2094,23 @@ export interface InsightModel extends Cacheable, WithAccessControl {
 
 export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
+}
+
+export interface QueryEndpointType extends WithAccessControl {
+    id: string
+    name: string
+    description: string
+    query: HogQLQuery | InsightQueryNode
+    parameters: Record<string, any>
+    is_active: boolean
+    endpoint_path: string
+    created_at: string
+    updated_at: string
+    created_by: UserBasicType | null
+    /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
+    _highlight?: boolean
+    /** Last execution time from ClickHouse query_log table */
+    last_executed_at?: string
 }
 
 export interface DashboardBasicType extends WithAccessControl {
@@ -4006,6 +4010,7 @@ interface BreadcrumbBase {
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
     /** Whether to show a custom popover for the project */
     isPopoverProject?: boolean
+    iconType?: FileSystemIconType | 'blank' | 'loading'
 }
 export interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */

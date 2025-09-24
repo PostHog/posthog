@@ -3,13 +3,15 @@ import { useCallback, useEffect } from 'react'
 
 import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
@@ -44,23 +46,25 @@ function InternalNewSourceWizardScene(): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
 
     return (
-        <>
-            <PageHeader
-                buttons={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            center
-                            data-attr="source-form-cancel-button"
-                            onClick={closeWizard}
-                        >
-                            Cancel
-                        </LemonButton>
-                    </>
+        <SceneContent>
+            <SceneTitleSection
+                name="Internal source wizard"
+                resourceType={{ type: 'data_pipeline' }}
+                actions={
+                    <LemonButton
+                        type="secondary"
+                        center
+                        data-attr="source-form-cancel-button"
+                        onClick={closeWizard}
+                        size="small"
+                    >
+                        Cancel
+                    </LemonButton>
                 }
             />
+            <SceneDivider />
             <InternalSourcesWizard />
-        </>
+        </SceneContent>
     )
 }
 

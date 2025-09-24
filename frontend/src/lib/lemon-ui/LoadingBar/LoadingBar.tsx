@@ -54,7 +54,7 @@ export function LoadingBar({ className, loadId, setProgress, progress, wrapperCl
     }, [loadId])
 
     return (
-        <div className={twMerge(`progress-outer max-w-120 w-full my-3`, wrapperClassName)}>
+        <div className={twMerge(`progress-outer max-w-120 w-full my-3`, wrapperClassName)} data-attr="loading-bar">
             <div className={twMerge(`progress`, className)}>
                 <div
                     className="progress-bar"
