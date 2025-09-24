@@ -218,7 +218,7 @@ impl FeatureFlagMatcher {
         feature_flags: FeatureFlagList,
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-        hash_key_override: Option<String>,  // Aka $anon_distinct_id
+        hash_key_override: Option<String>, // Aka $anon_distinct_id
         request_id: Uuid,
         flag_keys: Option<Vec<String>>,
     ) -> FlagsResponse {
@@ -242,6 +242,7 @@ impl FeatureFlagMatcher {
                 person_property_overrides,
                 group_property_overrides,
                 hash_key_overrides,
+                flag_hash_key_override_error,
                 request_id,
                 flag_keys,
             )
@@ -423,11 +424,28 @@ impl FeatureFlagMatcher {
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
+        hash_key_override_error: bool,
         request_id: Uuid,
         flag_keys: Option<Vec<String>>,
     ) -> FlagsResponse {
-        let mut errors_while_computing_flags = false;
+        let mut errors_while_computing_flags = hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
+
+        // Handle hash key override errors by creating error responses for flags that need experience continuity
+        if hash_key_override_error && hash_key_overrides.is_none() {
+            let flags_needing_continuity: Vec<&FeatureFlag> = feature_flags
+                .flags
+                .iter()
+                .filter(|flag| flag.ensure_experience_continuity.unwrap_or(false))
+                .collect();
+
+            for flag in flags_needing_continuity {
+                evaluated_flags_map.insert(
+                    flag.key.clone(),
+                    FlagDetails::create_error(flag, "hash_key_override_error", None),
+                );
+            }
+        }
 
         // Step 1: Initialize group type mappings if needed
         errors_while_computing_flags |= self
