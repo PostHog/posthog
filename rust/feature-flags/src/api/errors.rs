@@ -50,7 +50,7 @@ pub enum FlagError {
     #[error("database unavailable")]
     DatabaseUnavailable,
     #[error("Database error: {0}")]
-    DatabaseError(String),
+    DatabaseError(sqlx::Error, Option<String>),
     #[error("Timed out while fetching data")]
     TimeoutError,
     #[error("No group type mappings")]
@@ -138,8 +138,12 @@ impl IntoResponse for FlagError {
                     "Our database service is currently unavailable. This is likely a temporary issue. Please try again later.".to_string(),
                 )
             }
-            FlagError::DatabaseError(msg) => {
-                tracing::error!("Database error: {}", msg);
+            FlagError::DatabaseError(sqlx_error, context) => {
+                if let Some(ctx) = context {
+                    tracing::error!("Database error with context '{}': {}", ctx, sqlx_error);
+                } else {
+                    tracing::error!("Database error: {}", sqlx_error);
+                }
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "A database error occurred. Please try again later or contact support if the problem persists.".to_string(),
@@ -243,7 +247,7 @@ impl From<sqlx::Error> for FlagError {
     fn from(e: sqlx::Error) -> Self {
         match e {
             sqlx::Error::RowNotFound => FlagError::RowNotFound,
-            _ => FlagError::DatabaseError(e.to_string()),
+            _ => FlagError::DatabaseError(e, None),
         }
     }
 }

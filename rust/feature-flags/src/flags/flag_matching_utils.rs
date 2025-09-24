@@ -389,23 +389,23 @@ fn are_overrides_useful_for_flag(
         .any(|filter| overrides.contains_key(&filter.key))
 }
 
+/// Check if a FlagError contains a foreign key constraint violation
+fn flag_error_is_foreign_key_constraint(error: &FlagError) -> bool {
+    match error {
+        FlagError::DatabaseError(sqlx_error, _) => {
+            common_database::is_foreign_key_constraint_error(sqlx_error)
+        }
+        _ => false,
+    }
+}
+
 /// Determines if a FlagError should trigger a retry
 fn should_retry_on_error(error: &FlagError) -> bool {
     match error {
         // Retry on database errors that are likely transient
-        FlagError::DatabaseError(msg) => {
-            let msg_lower = msg.to_lowercase();
-            msg_lower.contains("connection")
-                || msg_lower.contains("timeout")
-                || msg_lower.contains("timed out")
-                || msg_lower.contains("temporary")
-                || msg_lower.contains("pool")
-                || msg_lower.contains("acquire")
-                || msg_lower.contains("unavailable")
-                || msg_lower.contains("refused")
-                || msg_lower.contains("network")
-        }
-        // Don't retry on other error types (validation errors, etc.)
+        FlagError::DatabaseError(sqlx_error, _) => common_database::is_transient_error(sqlx_error),
+
+        // Other error types generally should not be retried
         _ => false,
     }
 }
@@ -474,7 +474,7 @@ pub async fn get_feature_flag_hash_key_overrides(
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
     let retry_strategy = ExponentialBackoff::from_millis(50)
-        .max_delay(Duration::from_millis(1000))
+        .max_delay(Duration::from_millis(300))
         .take(3)
         .map(jitter); // Add jitter to prevent thundering herd
 
@@ -651,7 +651,7 @@ pub async fn set_feature_flag_hash_key_overrides(
             ON CONFLICT DO NOTHING
         "#;
 
-        let result: Result<u64, sqlx::Error> = async {
+        let result: Result<u64, FlagError> = async {
             // Step 1: Get all person data (person_ids + existing overrides + validation)
             let person_query_labels = [
                 (
@@ -669,7 +669,8 @@ pub async fn set_feature_flag_hash_key_overrides(
                 .bind(team_id)
                 .bind(&distinct_ids)
                 .fetch_all(&mut *transaction)
-                .await?;
+                .await
+                .map_err(FlagError::from)?;
             person_query_timer.fin();
 
             if person_data_rows.is_empty() {
@@ -729,7 +730,8 @@ pub async fn set_feature_flag_hash_key_overrides(
             let flag_rows = sqlx::query(flags_query)
                 .bind(project_id)
                 .fetch_all(&mut *non_persons_conn)
-                .await?;
+                .await
+                .map_err(FlagError::from)?;
             flags_query_timer.fin();
 
             let flag_keys: Vec<String> = flag_rows
@@ -775,7 +777,8 @@ pub async fn set_feature_flag_hash_key_overrides(
                 .bind(&person_ids_to_insert)
                 .bind(&flag_keys_to_insert)
                 .execute(&mut *transaction)
-                .await?;
+                .await
+                .map_err(FlagError::from)?;
             insert_timer.fin();
 
             Ok(result.rows_affected())
@@ -785,22 +788,18 @@ pub async fn set_feature_flag_hash_key_overrides(
         match result {
             Ok(rows_affected) => {
                 // Commit the transaction if successful
-                transaction
-                    .commit()
-                    .await
-                    .map_err(|e| FlagError::DatabaseError(e.to_string()))?;
+                transaction.commit().await.map_err(|e| {
+                    FlagError::DatabaseError(e, Some("Failed to commit transaction".to_string()))
+                })?;
                 return Ok(rows_affected > 0);
             }
             Err(e) => {
                 // Rollback the transaction on error
-                transaction
-                    .rollback()
-                    .await
-                    .map_err(|e| FlagError::DatabaseError(e.to_string()))?;
+                transaction.rollback().await.map_err(|e| {
+                    FlagError::DatabaseError(e, Some("Failed to rollback transaction".to_string()))
+                })?;
 
-                if e.to_string().contains("violates foreign key constraint")
-                    && retry < MAX_RETRIES - 1
-                {
+                if flag_error_is_foreign_key_constraint(&e) && retry < MAX_RETRIES - 1 {
                     // Retry logic for specific error
                     // Increment retry counter for monitoring
                     common_metrics::inc(
@@ -821,7 +820,7 @@ pub async fn set_feature_flag_hash_key_overrides(
                     );
                     sleep(RETRY_DELAY).await;
                 } else {
-                    return Err(FlagError::DatabaseError(e.to_string()));
+                    return Err(e);
                 }
             }
         }
@@ -882,16 +881,11 @@ pub async fn should_write_hash_key_override(
             ];
             let persons_conn_timer =
                 common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &persons_labels);
-            let mut persons_conn =
-                router
-                    .get_persons_reader()
-                    .get_connection()
-                    .await
-                    .map_err(|e| {
-                        FlagError::DatabaseError(format!(
-                            "Failed to acquire persons connection: {e}"
-                        ))
-                    })?;
+            let mut persons_conn = router
+                .get_persons_reader()
+                .get_connection()
+                .await
+                .map_err(FlagError::from)?;
             persons_conn_timer.fin();
 
             // Step 1: Get person data and existing overrides
@@ -910,7 +904,7 @@ pub async fn should_write_hash_key_override(
                 .fetch_all(&mut *persons_conn)
                 .await
                 .map_err(|e| {
-                    FlagError::DatabaseError(format!("Failed to fetch person data: {e}"))
+                    FlagError::DatabaseError(e, Some("Failed to fetch person data".to_string()))
                 })?;
             person_query_timer.fin();
 
@@ -940,11 +934,7 @@ pub async fn should_write_hash_key_override(
                 .get_non_persons_reader()
                 .get_connection()
                 .await
-                .map_err(|e| {
-                    FlagError::DatabaseError(format!(
-                        "Failed to acquire non-persons connection: {e}"
-                    ))
-                })?;
+                .map_err(FlagError::from)?;
             non_persons_conn_timer.fin();
             let flags_labels = [
                 (
@@ -959,7 +949,9 @@ pub async fn should_write_hash_key_override(
                 .bind(project_id)
                 .fetch_all(&mut *non_persons_conn)
                 .await
-                .map_err(|e| FlagError::DatabaseError(format!("Failed to fetch flags: {e}")))?;
+                .map_err(|e| {
+                    FlagError::DatabaseError(e, Some("Failed to fetch flags".to_string()))
+                })?;
             flags_query_timer.fin();
 
             // Check if there are any flags that don't have overrides
@@ -977,9 +969,7 @@ pub async fn should_write_hash_key_override(
         match result {
             Ok(Ok(flags_present)) => return Ok(flags_present),
             Ok(Err(e)) => {
-                if e.to_string().contains("violates foreign key constraint")
-                    && retry < MAX_RETRIES - 1
-                {
+                if flag_error_is_foreign_key_constraint(&e) && retry < MAX_RETRIES - 1 {
                     // Increment retry counter for monitoring
                     common_metrics::inc(
                         FLAG_HASH_KEY_RETRIES_COUNTER,
@@ -1873,31 +1863,52 @@ mod tests {
 
     #[tokio::test]
     async fn test_should_retry_on_error() {
+        use sqlx::Error as SqlxError;
+
         // Test that database connection errors trigger retries
-        let connection_error = FlagError::DatabaseError("connection refused".to_string());
-        assert!(should_retry_on_error(&connection_error));
+        let pool_timeout_error = FlagError::DatabaseError(SqlxError::PoolTimedOut, None);
+        assert!(should_retry_on_error(&pool_timeout_error));
 
-        let timeout_error = FlagError::DatabaseError("operation timed out".to_string());
-        assert!(should_retry_on_error(&timeout_error));
+        let pool_closed_error = FlagError::DatabaseError(SqlxError::PoolClosed, None);
+        assert!(should_retry_on_error(&pool_closed_error));
 
-        let pool_error = FlagError::DatabaseError("connection pool exhausted".to_string());
-        assert!(should_retry_on_error(&pool_error));
+        let io_error = FlagError::DatabaseError(
+            SqlxError::Io(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                "connection refused",
+            )),
+            None,
+        );
+        assert!(should_retry_on_error(&io_error));
 
-        let acquire_error = FlagError::DatabaseError("failed to acquire connection".to_string());
-        assert!(should_retry_on_error(&acquire_error));
+        // Test Protocol errors with connection issues
+        let protocol_connection_error =
+            FlagError::DatabaseError(SqlxError::Protocol("connection lost".to_string()), None);
+        assert!(should_retry_on_error(&protocol_connection_error));
 
-        let temporary_error = FlagError::DatabaseError("temporary failure".to_string());
-        assert!(should_retry_on_error(&temporary_error));
+        let protocol_timeout_error =
+            FlagError::DatabaseError(SqlxError::Protocol("operation timeout".to_string()), None);
+        assert!(should_retry_on_error(&protocol_timeout_error));
 
-        // Test that other errors don't trigger retries
+        // Test that configuration errors don't trigger retries
+        let config_error = FlagError::DatabaseError(
+            SqlxError::Configuration("invalid connection string".into()),
+            None,
+        );
+        assert!(!should_retry_on_error(&config_error));
+
+        let column_error = FlagError::DatabaseError(
+            SqlxError::ColumnNotFound("missing_column".to_string()),
+            None,
+        );
+        assert!(!should_retry_on_error(&column_error));
+
+        // Test that other error types don't trigger retries
         let timeout_error_variant = FlagError::TimeoutError;
-        assert!(!should_retry_on_error(&timeout_error_variant)); // TimeoutError variant doesn't trigger retry
+        assert!(!should_retry_on_error(&timeout_error_variant));
 
         let missing_id_error = FlagError::MissingDistinctId;
         assert!(!should_retry_on_error(&missing_id_error));
-
-        let permanent_db_error = FlagError::DatabaseError("constraint violation".to_string());
-        assert!(!should_retry_on_error(&permanent_db_error));
 
         let row_not_found_error = FlagError::RowNotFound;
         assert!(!should_retry_on_error(&row_not_found_error));
