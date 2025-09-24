@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from posthog.models.integration import Integration
 
-from .models import Task
+from .models import Task, TaskWorkflow, WorkflowStage
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -16,9 +16,11 @@ class TaskSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "description",
-            "status",
             "origin_product",
             "position",
+            # Workflow fields
+            "workflow",
+            "current_stage",
             # Repository fields
             "github_integration",
             "repository_config",
@@ -105,3 +107,166 @@ class RepositoryConfigSerializer(serializers.Serializer):
             except Integration.DoesNotExist:
                 raise serializers.ValidationError("GitHub integration not found")
         return value
+
+
+class WorkflowStageSerializer(serializers.ModelSerializer):
+    """Serializer for workflow stages"""
+
+    task_count = serializers.SerializerMethodField()
+    agent = serializers.SerializerMethodField()
+    agent_name = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
+    class Meta:
+        model = WorkflowStage
+        fields = [
+            "id",
+            "workflow",
+            "name",
+            "key",
+            "position",
+            "color",
+            "agent",
+            "agent_name",
+            "is_manual_only",
+            "is_archived",
+            "fallback_stage",
+            "task_count",
+        ]
+        read_only_fields = ["id", "task_count", "agent"]
+
+    def get_task_count(self, obj):
+        """Get number of tasks currently in this stage"""
+        return Task.objects.filter(current_stage=obj).count()
+
+    def get_agent(self, obj):
+        """Get the agent object for this stage"""
+        if hasattr(obj, "agent_name") and obj.agent_name:
+            from .agents import get_agent_dict_by_id
+
+            return get_agent_dict_by_id(obj.agent_name)
+        return None
+
+    def validate_workflow(self, value):
+        """Validate that the workflow exists and belongs to the current team"""
+        if "team" in self.context and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Workflow must belong to the same team")
+        return value
+
+    def validate_agent_name(self, value):
+        """Validate that the agent name is valid"""
+        if value:
+            from .agents import get_agent_by_id
+
+            if not get_agent_by_id(value):
+                raise serializers.ValidationError(f"Invalid agent name: {value}")
+        return value
+
+
+class AgentDefinitionSerializer(serializers.Serializer):
+    """Serializer for agent definitions"""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    agent_type = serializers.CharField()
+    description = serializers.CharField()
+    config = serializers.DictField(default=dict)
+    is_active = serializers.BooleanField(default=True)
+
+
+class TaskWorkflowSerializer(serializers.ModelSerializer):
+    """Serializer for task workflows"""
+
+    stages = WorkflowStageSerializer(many=True, read_only=True)
+    task_count = serializers.SerializerMethodField()
+    can_delete = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskWorkflow
+        fields = [
+            "id",
+            "name",
+            "description",
+            "color",
+            "is_default",
+            "is_active",
+            "version",
+            "stages",
+            "task_count",
+            "can_delete",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "version", "stages", "task_count", "can_delete", "created_at", "updated_at"]
+
+    def get_task_count(self, obj):
+        """Get number of tasks using this workflow"""
+        return obj.get_tasks_in_workflow().count()
+
+    def get_can_delete(self, obj):
+        """Check if workflow can be safely deleted"""
+        can_delete, reason = obj.can_delete()
+        return {"can_delete": can_delete, "reason": reason}
+
+    def create(self, validated_data):
+        from django.db import IntegrityError
+
+        validated_data["team"] = self.context["team"]
+        try:
+            return super().create(validated_data)
+        except IntegrityError as e:
+            if "posthog_task_workflow_team_id_name" in str(e):
+                raise serializers.ValidationError({"name": "A workflow with this name already exists for this team."})
+            raise
+
+    def validate(self, data):
+        """Validate workflow data"""
+        # Only one default workflow per team
+        if data.get("is_default", False):
+            team = self.context["team"]
+            qs = TaskWorkflow.objects.filter(team=team, is_default=True, is_active=True)
+            instance = self.instance
+            # self.instance may be a sequence according to DRF typing; ensure we only access .id on a single instance
+            if isinstance(instance, TaskWorkflow) and getattr(instance, "id", None):
+                qs = qs.exclude(id=instance.id)
+            existing_default = qs.exists()
+
+            if existing_default:
+                raise serializers.ValidationError("Only one default workflow allowed per team")
+
+        return data
+
+
+class WorkflowConfigurationSerializer(serializers.Serializer):
+    """Serializer for complete workflow configuration (workflow + stages)"""
+
+    workflow = TaskWorkflowSerializer()
+    stages = WorkflowStageSerializer(many=True)
+
+    def create(self, validated_data):
+        """Create a complete workflow with stages"""
+        from django.db import IntegrityError, transaction
+
+        try:
+            with transaction.atomic():
+                workflow_data = validated_data["workflow"]
+                stages_data = validated_data["stages"]
+
+                # Create workflow
+                workflow_serializer = TaskWorkflowSerializer(data=workflow_data, context=self.context)
+                workflow_serializer.is_valid(raise_exception=True)
+                workflow = workflow_serializer.save()
+
+                # Create stages
+                for stage_data in stages_data:
+                    stage_data["workflow"] = workflow.id
+                    stage_serializer = WorkflowStageSerializer(data=stage_data, context=self.context)
+                    stage_serializer.is_valid(raise_exception=True)
+                    stage_serializer.save(workflow=workflow)
+
+                return workflow
+        except IntegrityError as e:
+            if "posthog_task_workflow_team_id_name" in str(e):
+                raise serializers.ValidationError(
+                    {"workflow": {"name": "A workflow with this name already exists for this team."}}
+                )
+            raise

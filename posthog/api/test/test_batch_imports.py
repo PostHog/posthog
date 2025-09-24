@@ -94,6 +94,7 @@ class TestBatchImportConfigBuilder(BaseTest):
         self.assertEqual(self.batch_import.import_config, expected_config)
         self.assertNotIn("import_events", self.batch_import.import_config)
         self.assertNotIn("generate_identify_events", self.batch_import.import_config)
+        self.assertNotIn("generate_group_identify_events", self.batch_import.import_config)
 
     def test_with_import_events_configuration(self):
         """Test that import_events is added as a top-level config field"""
@@ -115,6 +116,30 @@ class TestBatchImportConfigBuilder(BaseTest):
             "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
             "import_events": True,
             "generate_identify_events": True,
+        }
+        self.assertEqual(self.batch_import.import_config, expected_config)
+
+    def test_with_generate_group_identify_events_configuration(self):
+        """Test that generate_group_identify_events is added as a top-level config field"""
+        self.batch_import.config.json_lines(ContentType.AMPLITUDE).with_generate_group_identify_events(True)
+
+        expected_config = {
+            "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
+            "generate_group_identify_events": True,
+        }
+        self.assertEqual(self.batch_import.import_config, expected_config)
+
+    def test_with_all_amplitude_options(self):
+        """Test that all Amplitude-specific options can be set together"""
+        self.batch_import.config.json_lines(ContentType.AMPLITUDE).with_import_events(
+            True
+        ).with_generate_identify_events(False).with_generate_group_identify_events(True)
+
+        expected_config = {
+            "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
+            "import_events": True,
+            "generate_identify_events": False,
+            "generate_group_identify_events": True,
         }
         self.assertEqual(self.batch_import.import_config, expected_config)
 
@@ -189,7 +214,7 @@ class TestBatchImportAPI(APIBaseTest):
         )
 
     def test_mixpanel_migration_does_not_include_amplitude_specific_fields(self):
-        """Test that Mixpanel migrations don't include import_events or generate_identify_events in config"""
+        """Test that Mixpanel migrations don't include Amplitude-specific fields in config"""
         response = self.client.post(
             f"/api/projects/{self.team.id}/managed_migrations",
             {
@@ -208,6 +233,7 @@ class TestBatchImportAPI(APIBaseTest):
         batch_import = BatchImport.objects.get(id=response.json()["id"])
         self.assertNotIn("import_events", batch_import.import_config)
         self.assertNotIn("generate_identify_events", batch_import.import_config)
+        self.assertNotIn("generate_group_identify_events", batch_import.import_config)
 
     def test_amplitude_migration_includes_amplitude_specific_fields(self):
         """Test that Amplitude migrations include import_events and generate_identify_events in config"""
@@ -233,6 +259,58 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertIn("generate_identify_events", batch_import.import_config)
         self.assertEqual(batch_import.import_config["import_events"], True)
         self.assertEqual(batch_import.import_config["generate_identify_events"], False)
+
+    def test_amplitude_migration_with_group_identify_events(self):
+        """Test that Amplitude migrations can include generate_group_identify_events in config"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "amplitude",
+                "content_type": "amplitude",
+                "start_date": "2023-01-01T00:00:00Z",
+                "end_date": "2023-01-02T00:00:00Z",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+                "import_events": True,
+                "generate_identify_events": True,
+                "generate_group_identify_events": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+        # Get the created batch import and check its config
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertIn("import_events", batch_import.import_config)
+        self.assertIn("generate_identify_events", batch_import.import_config)
+        self.assertIn("generate_group_identify_events", batch_import.import_config)
+        self.assertEqual(batch_import.import_config["import_events"], True)
+        self.assertEqual(batch_import.import_config["generate_identify_events"], True)
+        self.assertEqual(batch_import.import_config["generate_group_identify_events"], True)
+
+    def test_amplitude_migration_group_identify_events_defaults_to_false(self):
+        """Test that generate_group_identify_events defaults to False when not specified"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "amplitude",
+                "content_type": "amplitude",
+                "start_date": "2023-01-01T00:00:00Z",
+                "end_date": "2023-01-02T00:00:00Z",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+                "import_events": True,
+                "generate_identify_events": True,
+                # generate_group_identify_events not specified
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+        # Get the created batch import and check its config
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertIn("generate_group_identify_events", batch_import.import_config)
+        self.assertEqual(batch_import.import_config["generate_group_identify_events"], False)
 
     def test_can_create_import_when_no_running_imports(self):
         """Test that creating a new batch import succeeds when there are no running imports"""

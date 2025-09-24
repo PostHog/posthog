@@ -51,6 +51,15 @@ export const getFilterSummary = (exportAsset: ExportedAsset): string => {
     if (filters.detail_filters && Object.keys(filters.detail_filters).length > 0) {
         activeFilters.push(`Detail filters: ${Object.keys(filters.detail_filters).length}`)
     }
+    if (filters.was_impersonated !== undefined) {
+        activeFilters.push(`Was impersonated: ${filters.was_impersonated ? 'Yes' : 'No'}`)
+    }
+    if (filters.is_system !== undefined) {
+        activeFilters.push(`Is system: ${filters.is_system ? 'Yes' : 'No'}`)
+    }
+    if (filters.item_ids && filters.item_ids.length > 0) {
+        activeFilters.push(`Item IDs: ${filters.item_ids.length}`)
+    }
 
     return activeFilters.length > 0 ? activeFilters.join(', ') : 'No filters'
 }
@@ -131,6 +140,37 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
                 <br />
                 {detailFilterText.slice(0, 3).join(', ')}
                 {detailFilterText.length > 3 && `... and ${detailFilterText.length - 3} more`}
+            </div>
+        )
+    }
+
+    if (filters.was_impersonated !== undefined) {
+        filterSections.push(
+            <div key="was_impersonated">
+                <strong>Was Impersonated:</strong>
+                <br />
+                {filters.was_impersonated ? 'Yes' : 'No'}
+            </div>
+        )
+    }
+
+    if (filters.is_system !== undefined) {
+        filterSections.push(
+            <div key="is_system">
+                <strong>Is System Action:</strong>
+                <br />
+                {filters.is_system ? 'Yes' : 'No'}
+            </div>
+        )
+    }
+
+    if (filters.item_ids && filters.item_ids.length > 0) {
+        filterSections.push(
+            <div key="item_ids">
+                <strong>Item IDs ({filters.item_ids.length}):</strong>
+                <br />
+                {filters.item_ids.slice(0, 5).join(', ')}
+                {filters.item_ids.length > 5 && `... and ${filters.item_ids.length - 5} more`}
             </div>
         )
     }

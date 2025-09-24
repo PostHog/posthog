@@ -198,3 +198,16 @@ def cache():
     yield django_cache
 
     django_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def mock_two_factor_sso_enforcement_check(request, mocker):
+    """
+    Mock the two_factor_session.is_domain_sso_enforced check to return False for all tests.
+    Can be disabled by using @pytest.mark.no_mock_two_factor_sso_enforcement_check decorator.
+    """
+    if "no_mock_two_factor_sso_enforcement_check" in request.keywords:
+        return
+
+    mocker.patch("posthog.helpers.two_factor_session.is_domain_sso_enforced", return_value=False)
+    mocker.patch("posthog.helpers.two_factor_session.is_sso_authentication_backend", return_value=False)
