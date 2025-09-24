@@ -20,7 +20,6 @@ from rest_framework import exceptions
 
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
@@ -29,6 +28,8 @@ from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import absolute_uri
+
+from products.experiments.backend.models import Experiment
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims

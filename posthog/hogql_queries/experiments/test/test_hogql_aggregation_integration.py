@@ -7,6 +7,8 @@ from posthog.hogql import ast
 from posthog.hogql_queries.experiments.base_query_utils import get_metric_aggregation_expr, get_metric_value
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 
+from products.experiments.backend.models import Experiment
+
 
 class TestHogQLAggregationIntegration(BaseTest):
     def test_get_metric_value_with_hogql_aggregation(self):
@@ -46,7 +48,7 @@ class TestHogQLAggregationIntegration(BaseTest):
         # Create a mock experiment and query runner
         from posthog.schema import ExperimentQuery
 
-        from posthog.models import Experiment, FeatureFlag
+        from posthog.models import FeatureFlag
 
         # Create feature flag and experiment
         feature_flag = FeatureFlag.objects.create(

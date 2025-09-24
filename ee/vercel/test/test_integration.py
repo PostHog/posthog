@@ -10,13 +10,14 @@ from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
+
+from products.experiments.backend.models import Experiment
 
 from ee.api.vercel.types import VercelUserClaims
 from ee.vercel.integration import VercelIntegration

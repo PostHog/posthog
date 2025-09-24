@@ -14,9 +14,6 @@ def register_all_admin():
         DataColorThemeAdmin,
         DataWarehouseTableAdmin,
         EventIngestionRestrictionConfigAdmin,
-        ExperimentAdmin,
-        ExperimentSavedMetricAdmin,
-        FeatureFlagAdmin,
         GroupTypeMappingAdmin,
         HogFunctionAdmin,
         InsightAdmin,
@@ -43,9 +40,6 @@ def register_all_admin():
         DataColorTheme,
         DataWarehouseTable,
         EventIngestionRestrictionConfig,
-        Experiment,
-        ExperimentSavedMetric,
-        FeatureFlag,
         GroupTypeMapping,
         HogFunction,
         Insight,
@@ -75,11 +69,6 @@ def register_all_admin():
     admin.site.register(Insight, InsightAdmin)
     admin.site.register(GroupTypeMapping, GroupTypeMappingAdmin)
     admin.site.register(DataColorTheme, DataColorThemeAdmin)
-
-    admin.site.register(Experiment, ExperimentAdmin)
-    admin.site.register(ExperimentSavedMetric, ExperimentSavedMetricAdmin)
-    admin.site.register(FeatureFlag, FeatureFlagAdmin)
-
     admin.site.register(AsyncDeletion, AsyncDeletionAdmin)
     admin.site.register(InstanceSetting, InstanceSettingAdmin)
     admin.site.register(PluginConfig, PluginConfigAdmin)

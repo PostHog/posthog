@@ -14,7 +14,6 @@ from dateutil import parser
 from posthog.exceptions_capture import capture_exception
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
@@ -29,6 +28,8 @@ from posthog.tasks.periodic_digest.playlist_digests import (
 from posthog.tasks.report_utils import OrgDigestReport, TeamDigestReport, capture_event, get_user_team_lookup
 from posthog.tasks.usage_report import USAGE_REPORT_TASK_KWARGS, get_instance_metadata, get_ph_client
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+
+from products.experiments.backend.models import Experiment
 
 logger = structlog.get_logger(__name__)
 

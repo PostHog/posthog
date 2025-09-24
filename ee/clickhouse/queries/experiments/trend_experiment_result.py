@@ -21,12 +21,13 @@ from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_credible_intervals,
     calculate_probabilities,
 )
-from posthog.models.experiment import ExperimentHoldout
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
+
+from products.experiments.backend.models import ExperimentHoldout
 
 from ee.clickhouse.queries.experiments import CONTROL_VARIANT_KEY
 

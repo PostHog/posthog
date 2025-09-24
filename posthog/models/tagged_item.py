@@ -77,7 +77,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     experiment_saved_metric = models.ForeignKey(
-        "ExperimentSavedMetric",
+        "experiments.ExperimentSavedMetric",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

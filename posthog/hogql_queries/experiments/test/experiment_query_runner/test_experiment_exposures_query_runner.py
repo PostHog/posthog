@@ -22,9 +22,10 @@ from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureQuer
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import create_standard_group_test_events
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.test_journeys import journeys_for
+
+from products.experiments.backend.models import Experiment
 
 
 @override_settings(IN_UNIT_TESTING=True)

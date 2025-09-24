@@ -29,7 +29,7 @@ from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
-from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, User
+from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import (
@@ -49,6 +49,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.experiments.backend.models import Experiment
 
 
 class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):

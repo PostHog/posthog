@@ -47,8 +47,9 @@ from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
 from posthog.hogql_queries.experiments.types import ExperimentMetricType
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models.experiment import Experiment
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
+
+from products.experiments.backend.models import Experiment
 
 
 class ExperimentTrendsQueryRunner(QueryRunner):

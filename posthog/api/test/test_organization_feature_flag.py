@@ -10,12 +10,12 @@ from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
-from posthog.models.experiment import Experiment
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.experiments.backend.models import Experiment
 
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 

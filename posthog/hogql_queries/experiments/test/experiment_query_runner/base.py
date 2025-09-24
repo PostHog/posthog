@@ -6,10 +6,11 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 from django.test import override_settings
 from django.utils import timezone
 
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
+from products.experiments.backend.models import Experiment
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.experiments.queryrunner"
 

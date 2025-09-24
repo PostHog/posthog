@@ -12,7 +12,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
-from posthog.models import Dashboard, EventDefinition, Experiment, FeatureFlag, Survey, Team
+from posthog.models import Dashboard, EventDefinition, FeatureFlag, Survey, Team
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
@@ -25,6 +25,8 @@ from posthog.session_recordings.models.session_recording_playlist_item import Se
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.periodic_digest.playlist_digests import get_teams_with_interesting_playlists
 from posthog.warehouse.models import ExternalDataSource
+
+from products.experiments.backend.models import Experiment
 
 
 @freeze_time("2024-01-01T00:01:00Z")  # A Monday

@@ -47,7 +47,6 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_dependent_cohorts
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
     can_user_edit_feature_flag,
@@ -72,6 +71,8 @@ from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
+
+from products.experiments.backend.models import Experiment
 
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 
