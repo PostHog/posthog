@@ -616,6 +616,14 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'project',
+        id: 'project-activity-logs',
+        title: 'Activity logs',
+        flag: 'ADVANCED_ACTIVITY_LOGS',
+        to: urls.advancedActivityLogs(),
+        settings: [],
+    },
+    {
+        level: 'project',
         id: 'project-danger-zone',
         title: 'Danger zone',
         settings: [
