@@ -3,7 +3,9 @@ import { router } from 'kea-router'
 
 import { IconDatabase, IconHogQL } from '@posthog/icons'
 
+import { IconRecording } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import {
     ProductIconWrapper,
@@ -14,6 +16,7 @@ import {
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
@@ -39,6 +42,24 @@ function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
 
     // Fall back to iconForType for iconType or type
     return iconForType('iconType' in fs ? fs.iconType : (fs.type as FileSystemIconType), fs.iconColor)
+}
+
+function isUUIDLike(candidate: string): boolean {
+    return candidate.length === 36 && !!candidate.toLowerCase().match(/^[0-9a-f-]+$/)?.length
+}
+
+function isURL(str: string): boolean {
+    try {
+        const url = new URL(str.startsWith('http') ? str : `http://${str}`)
+        return Boolean(url.hostname.includes('.'))
+    } catch {
+        return false
+    }
+}
+
+function isEmail(str: string): boolean {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    return emailRegex.test(str)
 }
 
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
@@ -86,7 +107,72 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 { key: 'create-new', label: 'Create new' },
                 { key: 'apps', label: 'Apps' },
                 { key: 'data-management', label: 'Data management' },
+                { key: 'search-results', label: 'Search results' },
             ],
+        ],
+        searchDetectedItems: [
+            (s) => [s.search],
+            (search): ItemsGridItem | null => {
+                const trimmedSearch = search.trim()
+                if (!trimmedSearch) {
+                    return null
+                }
+
+                const items: { name: string; icon: JSX.Element; href: string }[] = []
+
+                if (isUUIDLike(trimmedSearch)) {
+                    items.push({
+                        name: `Watch recording ${trimmedSearch}`,
+                        icon: <IconRecording />,
+                        href: urls.replaySingle(trimmedSearch),
+                    })
+                } else if (isEmail(trimmedSearch)) {
+                    items.push({
+                        name: `Watch recordings from ${trimmedSearch}`,
+                        icon: <IconRecording />,
+                        href: urls.replay(ReplayTabs.Home, {
+                            filter_group: {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.Event,
+                                        operator: PropertyOperator.Exact,
+                                        key: '$email',
+                                        value: [trimmedSearch],
+                                    },
+                                ],
+                            },
+                        }),
+                    })
+                } else if (isURL(trimmedSearch)) {
+                    items.push({
+                        name: `Watch recordings from ${trimmedSearch}`,
+                        icon: <IconRecording />,
+                        href: urls.replay(ReplayTabs.Home, {
+                            filter_group: {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.Event,
+                                        operator: PropertyOperator.Exact,
+                                        key: '$current_url',
+                                        value: [trimmedSearch],
+                                    },
+                                ],
+                            },
+                        }),
+                    })
+                }
+
+                if (items.length > 0) {
+                    return {
+                        category: 'search-results',
+                        types: items,
+                    }
+                }
+
+                return null
+            },
         ],
         itemsGrid: [
             (s) => [s.featureFlags],
@@ -161,9 +247,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         filteredItemsGrid: [
-            (s) => [s.itemsGrid, s.search, s.selectedCategory],
-            (itemsGrid, search, selectedCategory): ItemsGridItem[] => {
+            (s) => [s.itemsGrid, s.search, s.selectedCategory, s.searchDetectedItems],
+            (itemsGrid, search, selectedCategory, searchDetectedItems): ItemsGridItem[] => {
                 let filtered = itemsGrid
+
+                // Add search-detected items if they exist
+                if (searchDetectedItems) {
+                    filtered = [searchDetectedItems, ...filtered]
+                }
 
                 // Filter by selected category
                 if (selectedCategory !== 'all') {
