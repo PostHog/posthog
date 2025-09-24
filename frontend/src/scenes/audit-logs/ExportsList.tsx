@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
-import { WarningHog } from 'lib/components/hedgehogs'
+import { DetectiveHog } from 'lib/components/hedgehogs'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import {
@@ -107,7 +107,7 @@ const ExportsEmptyState = (): JSX.Element => (
         data-attr="exports-empty-state"
         className="flex flex-col border rounded px-4 py-8 items-center text-center mx-auto"
     >
-        <WarningHog width="100" height="100" className="mb-4" />
+        <DetectiveHog width="100" height="100" className="mb-4" />
         <h2 className="text-xl leading-tight">No exports found</h2>
         <p className="text-sm text-balance text-tertiary">
             Exports will appear here when you create them from the Logs tab. Start by applying filters and then click
