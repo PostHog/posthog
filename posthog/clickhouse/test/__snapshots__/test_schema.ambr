@@ -77,7 +77,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_behavioral_cohorts_matches]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_behavioral_cohorts_matches 
+  CREATE TABLE IF NOT EXISTS kafka_behavioral_cohorts_matches
   (
       team_id Int64,
       cohort_id Int64,
@@ -633,7 +633,7 @@
 # name: test_create_table_query[behavioral_cohorts_matches]
   '''
   
-  CREATE TABLE IF NOT EXISTS behavioral_cohorts_matches 
+  CREATE TABLE IF NOT EXISTS behavioral_cohorts_matches
   (
       team_id Int64,
       cohort_id Int64,
@@ -1208,7 +1208,7 @@
 # name: test_create_table_query[kafka_behavioral_cohorts_matches]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_behavioral_cohorts_matches 
+  CREATE TABLE IF NOT EXISTS kafka_behavioral_cohorts_matches
   (
       team_id Int64,
       cohort_id Int64,
@@ -3255,7 +3255,7 @@
 # name: test_create_table_query[sharded_behavioral_cohorts_matches]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_behavioral_cohorts_matches 
+  CREATE TABLE IF NOT EXISTS sharded_behavioral_cohorts_matches
   (
       team_id Int64,
       cohort_id Int64,
@@ -4304,7 +4304,7 @@
 # name: test_create_table_query[writable_behavioral_cohorts_matches]
   '''
   
-  CREATE TABLE IF NOT EXISTS writable_behavioral_cohorts_matches 
+  CREATE TABLE IF NOT EXISTS writable_behavioral_cohorts_matches
   (
       team_id Int64,
       cohort_id Int64,
@@ -5375,7 +5375,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_behavioral_cohorts_matches]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_behavioral_cohorts_matches 
+  CREATE TABLE IF NOT EXISTS sharded_behavioral_cohorts_matches
   (
       team_id Int64,
       cohort_id Int64,
