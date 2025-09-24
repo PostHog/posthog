@@ -1,10 +1,8 @@
 import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -105,19 +103,7 @@ export function MessagingScene(): JSX.Element {
             key: 'campaigns',
             content: (
                 <>
-                    <PageHeader
-                        caption="Create automated messaging campaigns triggered by events"
-                        buttons={
-                            <LemonButton
-                                data-attr="new-campaign"
-                                to={urls.messagingCampaignNew()}
-                                type="primary"
-                                icon={<IconPlusSmall />}
-                            >
-                                New campaign
-                            </LemonButton>
-                        }
-                    />
+                    <p>Create automated messaging campaigns triggered by events</p>
                     <CampaignsTable />
                 </>
             ),
@@ -127,21 +113,7 @@ export function MessagingScene(): JSX.Element {
             key: 'library',
             content: (
                 <>
-                    <PageHeader
-                        caption="Create and manage messages"
-                        buttons={
-                            <LemonButton
-                                data-attr="new-message-button"
-                                icon={<IconPlusSmall />}
-                                size="small"
-                                type="primary"
-                                to={urls.messagingLibraryTemplateNew()}
-                            >
-                                New template
-                            </LemonButton>
-                        }
-                    />
-
+                    <p>Create and manage messages</p>
                     <MessageTemplatesTable />
                 </>
             ),
@@ -164,6 +136,30 @@ export function MessagingScene(): JSX.Element {
                 name="Messaging"
                 resourceType={{ type: 'messaging' }}
                 description="Create automated workflows triggered by PostHog events to onboard, retain, and re-engage your users."
+                actions={
+                    <>
+                        {currentTab === 'campaigns' && (
+                            <LemonButton
+                                data-attr="new-campaign"
+                                to={urls.messagingCampaignNew()}
+                                type="primary"
+                                size="small"
+                            >
+                                New campaign
+                            </LemonButton>
+                        )}
+                        {currentTab === 'library' && (
+                            <LemonButton
+                                data-attr="new-message-button"
+                                to={urls.messagingLibraryTemplateNew()}
+                                type="primary"
+                                size="small"
+                            >
+                                New template
+                            </LemonButton>
+                        )}
+                    </>
+                }
             />
             <SceneDivider />
             <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
