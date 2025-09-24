@@ -218,7 +218,7 @@ impl FeatureFlagMatcher {
         feature_flags: FeatureFlagList,
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-        hash_key_override: Option<String>,
+        hash_key_override: Option<String>,  // Aka $anon_distinct_id
         request_id: Uuid,
         flag_keys: Option<Vec<String>>,
     ) -> FlagsResponse {

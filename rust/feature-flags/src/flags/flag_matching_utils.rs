@@ -2,6 +2,10 @@ use std::{
     collections::{HashMap, HashSet},
     time::{Duration, Instant},
 };
+use tokio_retry::{
+    strategy::{jitter, ExponentialBackoff},
+    Retry,
+};
 
 use crate::database::PostgresRouter;
 use common_database::PostgresReader;
@@ -385,6 +389,27 @@ fn are_overrides_useful_for_flag(
         .any(|filter| overrides.contains_key(&filter.key))
 }
 
+/// Determines if a FlagError should trigger a retry
+fn should_retry_on_error(error: &FlagError) -> bool {
+    match error {
+        // Retry on database errors that are likely transient
+        FlagError::DatabaseError(msg) => {
+            let msg_lower = msg.to_lowercase();
+            msg_lower.contains("connection")
+                || msg_lower.contains("timeout")
+                || msg_lower.contains("timed out")
+                || msg_lower.contains("temporary")
+                || msg_lower.contains("pool")
+                || msg_lower.contains("acquire")
+                || msg_lower.contains("unavailable")
+                || msg_lower.contains("refused")
+                || msg_lower.contains("network")
+        }
+        // Don't retry on other error types (validation errors, etc.)
+        _ => false,
+    }
+}
+
 /// Check if all properties match the given filters
 pub fn all_properties_match(
     flag_condition_properties: &[PropertyFilter],
@@ -437,15 +462,54 @@ pub fn match_flag_value_to_flag_filter(
     }
 }
 
-/// Retrieves feature flag hash key overrides for a list of distinct IDs.
+/// Retrieves feature flag hash key overrides for a list of distinct IDs with retry logic.
 ///
 /// This function fetches any hash key overrides that have been set for feature flags
 /// for the given distinct IDs. It handles priority by giving precedence to the first
-/// distinct ID in the list.
+/// distinct ID in the list. The operation is retried up to 3 times with exponential
+/// backoff on transient database errors.
 pub async fn get_feature_flag_hash_key_overrides(
     reader: PostgresReader,
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
+) -> Result<HashMap<String, String>, FlagError> {
+    let retry_strategy = ExponentialBackoff::from_millis(50)
+        .max_delay(Duration::from_millis(1000))
+        .take(3)
+        .map(jitter); // Add jitter to prevent thundering herd
+
+    // Use tokio-retry to automatically retry on transient failures
+    Retry::spawn(retry_strategy, || async {
+        let result = try_get_feature_flag_hash_key_overrides(
+            &reader,
+            team_id,
+            &distinct_id_and_hash_key_override,
+        )
+        .await;
+
+        // Log retry attempts for observability
+        if let Err(ref e) = result {
+            if should_retry_on_error(e) {
+                tracing::warn!(
+                    team_id = %team_id,
+                    distinct_ids = ?distinct_id_and_hash_key_override,
+                    error = ?e,
+                    "Hash key override query failed, will retry"
+                );
+            }
+        }
+
+        result
+    })
+    .await
+}
+
+/// Internal function that performs the actual hash key override retrieval.
+/// This is separated to make it easy to retry with tokio-retry.
+async fn try_get_feature_flag_hash_key_overrides(
+    reader: &PostgresReader,
+    team_id: TeamId,
+    distinct_id_and_hash_key_override: &[String],
 ) -> Result<HashMap<String, String>, FlagError> {
     let mut feature_flag_hash_key_overrides = HashMap::new();
     let labels = [
@@ -468,7 +532,7 @@ pub async fn get_feature_flag_hash_key_overrides(
     let person_and_distinct_ids: Vec<(PersonId, String)> =
         sqlx::query_as(person_and_distinct_id_query)
             .bind(team_id)
-            .bind(&distinct_id_and_hash_key_override)
+            .bind(distinct_id_and_hash_key_override)
             .fetch_all(&mut *conn)
             .await?;
 
@@ -1766,5 +1830,37 @@ mod tests {
 
         let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
         assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_should_retry_on_error() {
+        // Test that database connection errors trigger retries
+        let connection_error = FlagError::DatabaseError("connection refused".to_string());
+        assert!(should_retry_on_error(&connection_error));
+
+        let timeout_error = FlagError::DatabaseError("operation timed out".to_string());
+        assert!(should_retry_on_error(&timeout_error));
+
+        let pool_error = FlagError::DatabaseError("connection pool exhausted".to_string());
+        assert!(should_retry_on_error(&pool_error));
+
+        let acquire_error = FlagError::DatabaseError("failed to acquire connection".to_string());
+        assert!(should_retry_on_error(&acquire_error));
+
+        let temporary_error = FlagError::DatabaseError("temporary failure".to_string());
+        assert!(should_retry_on_error(&temporary_error));
+
+        // Test that other errors don't trigger retries
+        let timeout_error_variant = FlagError::TimeoutError;
+        assert!(!should_retry_on_error(&timeout_error_variant)); // TimeoutError variant doesn't trigger retry
+
+        let missing_id_error = FlagError::MissingDistinctId;
+        assert!(!should_retry_on_error(&missing_id_error));
+
+        let permanent_db_error = FlagError::DatabaseError("constraint violation".to_string());
+        assert!(!should_retry_on_error(&permanent_db_error));
+
+        let row_not_found_error = FlagError::RowNotFound;
+        assert!(!should_retry_on_error(&row_not_found_error));
     }
 }
