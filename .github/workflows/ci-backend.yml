@@ -179,14 +179,14 @@ jobs:
                     if [[ $file =~ migrations/([0-9]+)_ ]]; then
                       migration_number="${BASH_REMATCH[1]}"
                       # Get app name by looking at the directory structure
-                    # For new structure products/user_interviews/backend/migrations, we want user_interviews
-                    # For old structure products/user_interviews/migrations, we want user_interviews
-                    if [[ $file =~ products/([^/]+)/backend/migrations/ ]]; then
-                      app_name="${BASH_REMATCH[1]}"
-                    else
-                      app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
-                    fi
-                      echo "Checking migration $migration_number for app $app_name"
+                      # For new structure products/user_interviews/backend/migrations, we want user_interviews
+                      # For old structure products/user_interviews/migrations, we want user_interviews
+                      if [[ $file =~ products/([^/]+)/backend/migrations/ ]]; then
+                        app_name="${BASH_REMATCH[1]}"
+                      else
+                        app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
+                      fi
+                        echo "Checking migration $migration_number for app $app_name"
 
                       # Get SQL output
                       SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
