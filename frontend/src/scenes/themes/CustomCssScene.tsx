@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { IconWrench } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { urls } from '../urls'
 
@@ -93,9 +96,14 @@ export function CustomCssScene(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col deprecated-space-y-2">
-            <PageHeader
-                buttons={
+        <SceneContent>
+            <SceneTitleSection
+                name="Custom CSS"
+                resourceType={{
+                    type: 'customCss',
+                    forceIcon: <IconWrench />,
+                }}
+                actions={
                     <>
                         <LemonButton type="secondary" onClick={onPreview}>
                             Preview
@@ -117,6 +125,7 @@ export function CustomCssScene(): JSX.Element {
                 our templates: <Link onClick={() => setPreviewingCustomCss(TRON_THEME)}>Tron</Link>,{' '}
                 <Link onClick={() => setPreviewingCustomCss(BARBIE_THEME)}>Barbie</Link>
             </p>
+            <SceneDivider />
             <CodeEditor
                 className="border"
                 language="css"
@@ -129,6 +138,6 @@ export function CustomCssScene(): JSX.Element {
                     },
                 }}
             />
-        </div>
+        </SceneContent>
     )
 }
