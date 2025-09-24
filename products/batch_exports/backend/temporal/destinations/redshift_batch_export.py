@@ -52,6 +52,7 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
     run_consumer_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
+from products.batch_exports.backend.temporal.pipeline.transformer import RedshiftQueryStreamTransformer
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -856,28 +857,25 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                     primary_key=primary_key,
                 ) as redshift_stage_table,
             ):
-                schema_columns = {field[0] for field in table_fields}
-
                 consumer = RedshiftConsumerFromStage(
                     client=redshift_client,
                     table=redshift_stage_table if merge_settings.requires_merge else redshift_table,
+                )
+                transformer = RedshiftQueryStreamTransformer(
+                    schema=record_batch_schema,
+                    redshift_table=redshift_stage_table if merge_settings.requires_merge else redshift_table,
+                    redshift_schema=inputs.schema,
+                    table_columns=[field[0] for field in table_fields],
+                    known_json_columns=table_schemas.super_columns,
+                    use_super=inputs.properties_data_type != "varchar",
+                    redshift_client=redshift_client,
                 )
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
+                    transformer=transformer,
                     schema=record_batch_schema,
-                    file_format="redshift_insert",
-                    transformer_parameters={
-                        "schema": record_batch_schema,
-                        "redshift_table": redshift_stage_table if merge_settings.requires_merge else redshift_table,
-                        "redshift_schema": inputs.schema,
-                        "table_columns": schema_columns,
-                        "known_json_columns": table_schemas.super_columns,
-                        "use_super": inputs.properties_data_type != "varchar",
-                        "redshift_client": redshift_client,
-                    },
-                    compression=None,
                     max_file_size_bytes=settings.BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES,
                 )
 

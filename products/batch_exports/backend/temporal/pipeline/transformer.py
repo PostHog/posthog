@@ -45,23 +45,17 @@ class TransformerProtocol(typing.Protocol):
         raise NotImplementedError
 
 
-def get_stream_transformer(
-    format: str,
+def get_json_stream_transformer(
+    include_inserted_at: bool = False,
     compression: str | None = None,
-    **kwargs,
+    max_workers: int = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS,
 ) -> TransformerProtocol:
-    match format.lower():
-        case "jsonlines" if compression != "brotli":
-            return JSONLStreamTransformer(compression=compression, **kwargs)
-        case "jsonlines" if compression == "brotli":
-            return JSONLBrotliStreamTransformer(**kwargs)
-        case "parquet":
-            schema = kwargs.pop("schema")
-            return ParquetStreamTransformer(schema, compression=compression, **kwargs)
-        case "redshift_insert":
-            return RedshiftQueryStreamTransformer(**kwargs)
-        case _:
-            raise ValueError(f"Unsupported format: {format}")
+    if compression == "brotli":
+        return JSONLBrotliStreamTransformer(include_inserted_at=include_inserted_at, max_workers=max_workers)
+
+    return JSONLStreamTransformer(
+        compression=compression, include_inserted_at=include_inserted_at, max_workers=max_workers
+    )
 
 
 class JSONLStreamTransformer:

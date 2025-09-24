@@ -55,6 +55,7 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
 )
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
+from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -67,6 +68,7 @@ from products.batch_exports.backend.temporal.spmc import (
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
     set_status_to_running_task,
@@ -1308,13 +1310,18 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     snowflake_table_stage_prefix=data_interval_end_str,
                 )
 
+                transformer = ParquetStreamTransformer(
+                    schema=cast_record_batch_schema_json_columns(
+                        record_batch_schema, json_columns=known_variant_columns
+                    ),
+                    compression="zstd",
+                )
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
+                    transformer=transformer,
                     schema=record_batch_schema,
-                    file_format="Parquet",
-                    compression="zstd",
                     max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                 )
