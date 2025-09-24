@@ -5547,13 +5547,17 @@ mod tests {
 
         // Test the scenario where hash key override reading fails
         // This simulates the case where we have experience continuity flags but hash override reads fail
+        let overrides = crate::flags::flag_matching::FlagEvaluationOverrides {
+            person_property_overrides: None,
+            group_property_overrides: None,
+            hash_key_overrides: None, // hash_key_overrides (None simulates read failure)
+            hash_key_override_error: true, // hash_key_override_error (simulates the error occurred)
+        };
+
         let response = matcher
             .evaluate_flags_with_overrides(
                 flags,
-                None,
-                None,
-                None, // hash_key_overrides (None simulates read failure)
-                true, // hash_key_override_error (simulates the error occurred)
+                overrides,
                 Uuid::new_v4(),
                 None, // flag_keys
             )

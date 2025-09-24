@@ -39,6 +39,15 @@ use std::sync::Arc;
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
+/// Parameters for feature flag evaluation with various override options
+#[derive(Debug, Default)]
+pub struct FlagEvaluationOverrides {
+    pub person_property_overrides: Option<HashMap<String, Value>>,
+    pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    pub hash_key_overrides: Option<HashMap<String, String>>,
+    pub hash_key_override_error: bool,
+}
+
 #[derive(Debug)]
 struct SuperConditionEvaluation {
     should_evaluate: bool,
@@ -236,16 +245,15 @@ impl FeatureFlagMatcher {
             )
             .await;
 
+        let overrides = FlagEvaluationOverrides {
+            person_property_overrides,
+            group_property_overrides,
+            hash_key_overrides,
+            hash_key_override_error: flag_hash_key_override_error,
+        };
+
         let flags_response = self
-            .evaluate_flags_with_overrides(
-                feature_flags,
-                person_property_overrides,
-                group_property_overrides,
-                hash_key_overrides,
-                flag_hash_key_override_error,
-                request_id,
-                flag_keys,
-            )
+            .evaluate_flags_with_overrides(feature_flags, overrides, request_id, flag_keys)
             .await;
 
         eval_timer
@@ -421,18 +429,15 @@ impl FeatureFlagMatcher {
     pub async fn evaluate_flags_with_overrides(
         &mut self,
         feature_flags: FeatureFlagList,
-        person_property_overrides: Option<HashMap<String, Value>>,
-        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-        hash_key_overrides: Option<HashMap<String, String>>,
-        hash_key_override_error: bool,
+        overrides: FlagEvaluationOverrides,
         request_id: Uuid,
         flag_keys: Option<Vec<String>>,
     ) -> FlagsResponse {
-        let mut errors_while_computing_flags = hash_key_override_error;
+        let mut errors_while_computing_flags = overrides.hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
 
         // Handle hash key override errors by creating error responses for flags that need experience continuity
-        if hash_key_override_error && hash_key_overrides.is_none() {
+        if overrides.hash_key_override_error && overrides.hash_key_overrides.is_none() {
             let flags_needing_continuity: Vec<&FeatureFlag> = feature_flags
                 .flags
                 .iter()
@@ -456,7 +461,7 @@ impl FeatureFlagMatcher {
         let db_prep_errors = self
             .prepare_evaluation_state_if_needed(
                 &feature_flags,
-                &person_property_overrides,
+                &overrides.person_property_overrides,
                 &mut evaluated_flags_map,
             )
             .await;
@@ -504,9 +509,9 @@ impl FeatureFlagMatcher {
         let graph_evaluation_errors = self
             .evaluate_flags_with_dependency_graph(
                 dependency_graph,
-                &person_property_overrides,
-                &group_property_overrides,
-                &hash_key_overrides,
+                &overrides.person_property_overrides,
+                &overrides.group_property_overrides,
+                &overrides.hash_key_overrides,
                 &mut evaluated_flags_map,
             )
             .await;
