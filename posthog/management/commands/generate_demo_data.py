@@ -121,55 +121,19 @@ class Command(BaseCommand):
             verbosity=options["verbosity"],
         )
         if not options["dry_run"]:
-            email = options["email"]
-            password = options["password"]
-            matrix_manager = MatrixManager(matrix, print_steps=True)
-            try:
-                if existing_team_id is not None:
-                    if existing_team_id == 0:
-                        matrix_manager.reset_master()
-                    else:
-                        team = Team.objects.get(pk=existing_team_id)
-                        user = team.organization.members.first()
-                        matrix_manager.run_on_team(team, user)
-                else:
-                    organization, team, user = matrix_manager.ensure_account_and_save(
-                        email,
-                        "Employee 427",
-                        "Hedgebox Inc.",
-                        is_staff=bool(options.get("staff")),
-                        password=password,
-                        email_collision_handling="disambiguate",
-                    )
-                    # Optionally generate demo issues for issue tracker if extension is available
-                    gen_issues = getattr(self, "generate_demo_issues", None)
-                    team_for_issues = getattr(matrix_manager, "team", None)
-                    if callable(gen_issues) and team_for_issues is not None:
-                        gen_issues(team_for_issues)
-            except exceptions.ValidationError as e:
-                print(f"Error: {e}")
-            else:
-                print(
-                    "\nMaster project reset!\n"
-                    if existing_team_id == 0
-                    else (
-                        f"\nDemo data ready for project {team.name}!\n"
-                        if existing_team_id is not None
-                        else f"\nDemo data ready for {user.email}!\n\n"
-                        "Pre-fill the login form with this link:\n"
-                        f"http://localhost:8000/login?email={user.email}\n"
-                        f"The password is:\n{password}\n\n"
-                        "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                        f"http://localhost:8000/signup?email={user.email}\n"
-                    )
-                )
+            self.save_and_setup_matrix(options, matrix, existing_team_id)
+            pass
+        else:
+            print("Dry run - not saving results.")
+
+        if not options["dry_run"]:
             print("Materializing common columns...")
-            self.materialize_common_columns(options["days_past"])
+            # self.materialize_common_columns(options["days_past"])
 
             print("Running dagster materializations...")
             self.initialize_dagster_materialization(options["days_past"])
         else:
-            print("Dry run - not saving results.")
+            print("Dry run - not running materialization.")
 
     @staticmethod
     def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):
@@ -218,6 +182,50 @@ class Command(BaseCommand):
             f"for a total of {total_event_count} event{'' if total_event_count == 1 else 's'} (of which {future_event_count} {'is' if future_event_count == 1 else 'are'} in the future)."
         )
         print("\n".join(summary_lines))
+
+    def save_and_setup_matrix(self, options, matrix, existing_team_id: Optional[int]):
+        email = options["email"]
+        password = options["password"]
+        matrix_manager = MatrixManager(matrix, print_steps=True)
+        try:
+            if existing_team_id is not None:
+                if existing_team_id == 0:
+                    matrix_manager.reset_master()
+                else:
+                    team = Team.objects.get(pk=existing_team_id)
+                    user = team.organization.members.first()
+                    matrix_manager.run_on_team(team, user)
+            else:
+                organization, team, user = matrix_manager.ensure_account_and_save(
+                    email,
+                    "Employee 427",
+                    "Hedgebox Inc.",
+                    is_staff=bool(options.get("staff")),
+                    password=password,
+                    email_collision_handling="disambiguate",
+                )
+                # Optionally generate demo issues for issue tracker if extension is available
+                gen_issues = getattr(self, "generate_demo_issues", None)
+                team_for_issues = getattr(matrix_manager, "team", None)
+                if callable(gen_issues) and team_for_issues is not None:
+                    gen_issues(team_for_issues)
+        except exceptions.ValidationError as e:
+            print(f"Error: {e}")
+        else:
+            print(
+                "\nMaster project reset!\n"
+                if existing_team_id == 0
+                else (
+                    f"\nDemo data ready for project {team.name}!\n"
+                    if existing_team_id is not None
+                    else f"\nDemo data ready for {user.email}!\n\n"
+                    "Pre-fill the login form with this link:\n"
+                    f"http://localhost:8000/login?email={user.email}\n"
+                    f"The password is:\n{password}\n\n"
+                    "If running demo mode (DEMO=1), log in instantly with this link:\n"
+                    f"http://localhost:8000/signup?email={user.email}\n"
+                )
+            )
 
     def materialize_common_columns(self, backfill_days: int) -> None:
         event_properties = {
