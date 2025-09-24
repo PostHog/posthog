@@ -35,7 +35,7 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
     actions({
         showSceneDashboardChoiceModal: () => true,
         closeSceneDashboardChoiceModal: () => true,
-        setSceneDashboardChoice: (dashboardId: number) => ({ dashboardId }),
+        setSceneDashboardChoice: (dashboardId: number | null) => ({ dashboardId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     reducers({

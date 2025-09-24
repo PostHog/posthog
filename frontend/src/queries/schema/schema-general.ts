@@ -2439,6 +2439,7 @@ export type FileSystemIconType =
     | 'insight/stickiness'
     | 'insight/hog'
     | 'team_activity'
+    | 'home'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
