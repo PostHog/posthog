@@ -1232,14 +1232,16 @@ describe('HogTransformer', () => {
                     expect.objectContaining({
                         metric_name: 'filtering_failed',
                     }),
-                ])
+                ]),
+                'hog_function'
             )
             expect(queueLogsSpy).toHaveBeenCalledWith(
                 expect.arrayContaining([
                     expect.objectContaining({
                         message: expect.stringContaining('Global variable not found'),
                     }),
-                ])
+                ]),
+                'hog_function'
             )
 
             expect(result.event?.properties?.working_property).toBe('working')
