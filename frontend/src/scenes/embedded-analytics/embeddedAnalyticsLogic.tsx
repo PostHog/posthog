@@ -18,7 +18,7 @@ import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
+import { Breadcrumb, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
 
 import {
     EmbeddedAnalyticsTileId,
@@ -409,6 +409,16 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                     },
                 ]
             },
+        ],
+        breadcrumbs: [
+            (s) => [s.activeTab],
+            (): Breadcrumb[] => [
+                {
+                    key: EmbeddedTab.QUERY_ENDPOINTS,
+                    name: 'Embedded analytics',
+                    iconType: 'embedded_analytics',
+                },
+            ],
         ],
     }),
 

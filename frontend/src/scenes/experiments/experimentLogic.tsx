@@ -1515,10 +1515,12 @@ export const experimentLogic = kea<experimentLogicType>([
                         key: Scene.Experiments,
                         name: 'Experiments',
                         path: urls.experiments(),
+                        iconType: 'experiment',
                     },
                     {
                         key: [Scene.Experiment, experimentId],
                         name: experiment?.name || '',
+                        iconType: 'experiment',
                     },
                 ]
             },
