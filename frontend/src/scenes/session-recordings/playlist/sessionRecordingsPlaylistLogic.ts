@@ -1165,23 +1165,23 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             replace: boolean
         ): [
             string,
-            ReplayURLSearchParams,
+            ReplayURLSearchParamTypes,
             Record<string, any>,
             {
                 replace: boolean
             },
         ] => {
-            const params: ReplayURLSearchParams = objectClean({
+            const params: ReplayURLSearchParamTypes = objectClean({
                 ...router.values.searchParams,
                 filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
 
-            // we don't keep these
-            delete params.eventProperty
-            delete params.eventPropertyValue
-            delete params.personProperty
-            delete params.personPropertyValue
+            // we don't keep these if they're still in the URL at this point
+            delete (params as any).eventProperty
+            delete (params as any).eventPropertyValue
+            delete (params as any).personProperty
+            delete (params as any).personPropertyValue
 
             if (!objectsEqual(params, router.values.searchParams)) {
                 return [router.values.location.pathname, params, router.values.hashParams, { replace }]
