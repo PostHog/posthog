@@ -27,7 +27,10 @@ describe('StepPipeline', () => {
             const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
 
             expect(step).toHaveBeenCalledWith({ data: 'test' })
-            expect(result).toEqual({ result: ok({ processed: 'test' }), context: { message } })
+            expect(result).toEqual({
+                result: ok({ processed: 'test' }),
+                context: { message, lastStep: 'mockConstructor' },
+            })
         })
 
         it('should skip step when previous result is not success', async () => {
@@ -135,6 +138,79 @@ describe('StepPipeline', () => {
             }
             expect(step1).toHaveBeenCalledTimes(1)
             expect(asyncStep).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('step name tracking', () => {
+        it('should include step name in context for successful results', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            function testStep(input: any) {
+                return Promise.resolve(ok({ processed: input.data }))
+            }
+
+            const previous = new StartPipeline<{ data: string }>()
+            const pipeline = new StepPipeline(testStep, previous)
+            const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
+
+            expect(result).toEqual({
+                result: ok({ processed: 'test' }),
+                context: { message, lastStep: 'testStep' },
+            })
+        })
+
+        it('should use anonymousStep when step has no name', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const anonymousStep = (input: any) => {
+                return Promise.resolve(ok({ processed: input.data }))
+            }
+
+            const previous = new StartPipeline<{ data: string }>()
+            const pipeline = new StepPipeline(anonymousStep, previous)
+            const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
+
+            expect(result).toEqual({
+                result: ok({ processed: 'test' }),
+                context: { message, lastStep: 'anonymousStep' },
+            })
+        })
+
+        it('should not update lastStep for failed results', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            function testStep(input: any) {
+                return Promise.resolve(ok({ processed: input.data }))
+            }
+
+            const previous = new StartPipeline<{ data: string }>()
+            const pipeline = new StepPipeline(testStep, previous)
+            const result = await pipeline.process({ result: drop('dropped'), context: { message } })
+
+            expect(result).toEqual({
+                result: drop('dropped'),
+                context: { message }, // No lastStep update for failed results
+            })
+        })
+
+        it('should preserve existing lastStep in context', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            function testStep(input: any) {
+                return Promise.resolve(ok({ processed: input.data }))
+            }
+
+            const previous = new StartPipeline<{ data: string }>()
+            const pipeline = new StepPipeline(testStep, previous)
+            const result = await pipeline.process({
+                result: ok({ data: 'test' }),
+                context: { message, lastStep: 'firstStep' },
+            })
+
+            expect(result).toEqual({
+                result: ok({ processed: 'test' }),
+                context: { message, lastStep: 'testStep' }, // Should update to current step
+            })
         })
     })
 })

@@ -14,7 +14,7 @@ describe('StartPipeline', () => {
             })
 
             const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-            expect(result).toEqual({ result: ok({ processed: 'test' }), context: { message } })
+            expect(result).toEqual({ result: ok({ processed: 'test' }), context: expect.objectContaining({ message }) })
         })
 
         it('should process single item through pipeline with drop result', async () => {
@@ -25,7 +25,7 @@ describe('StartPipeline', () => {
             })
 
             const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-            expect(result).toEqual({ result: drop('dropped item'), context: { message } })
+            expect(result).toEqual({ result: drop('dropped item'), context: expect.objectContaining({ message }) })
         })
 
         it('should process single item through pipeline with dlq result', async () => {
@@ -36,7 +36,10 @@ describe('StartPipeline', () => {
             })
 
             const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-            expect(result).toEqual({ result: dlq('dlq item', new Error('test error')), context: { message } })
+            expect(result).toEqual({
+                result: dlq('dlq item', new Error('test error')),
+                context: expect.objectContaining({ message }),
+            })
         })
 
         it('should process single item through pipeline with redirect result', async () => {
@@ -47,7 +50,10 @@ describe('StartPipeline', () => {
             })
 
             const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-            expect(result).toEqual({ result: redirect('redirect item', 'retry-topic'), context: { message } })
+            expect(result).toEqual({
+                result: redirect('redirect item', 'retry-topic'),
+                context: expect.objectContaining({ message }),
+            })
         })
     })
 
@@ -64,7 +70,7 @@ describe('StartPipeline', () => {
             const result = await stepPipeline.process({ result: ok({ data: 'test' }), context: { message } })
 
             expect(step).toHaveBeenCalledWith({ data: 'test' })
-            expect(result).toEqual({ result: ok({ processed: 'test' }), context: { message } })
+            expect(result).toEqual({ result: ok({ processed: 'test' }), context: expect.objectContaining({ message }) })
         })
     })
 
@@ -81,7 +87,7 @@ describe('StartPipeline', () => {
             const result = await stepPipeline.process({ result: ok({ data: 'test' }), context: { message } })
 
             expect(asyncStep).toHaveBeenCalledWith({ data: 'test' })
-            expect(result).toEqual({ result: ok({ processed: 'test' }), context: { message } })
+            expect(result).toEqual({ result: ok({ processed: 'test' }), context: expect.objectContaining({ message }) })
         })
     })
 })

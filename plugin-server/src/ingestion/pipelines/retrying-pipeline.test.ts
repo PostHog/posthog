@@ -50,7 +50,7 @@ describe('RetryingPipeline', () => {
             expect(mockProcessStep).toHaveBeenCalledWith({ message })
             expect(result).toEqual({
                 result: ok({ processed: 'test' }),
-                context: { message },
+                context: expect.objectContaining({ message }),
             })
         })
     })
@@ -95,7 +95,7 @@ describe('RetryingPipeline', () => {
             expect(mockCaptureException).not.toHaveBeenCalled() // Should not capture retriable errors
             expect(result).toEqual({
                 result: ok({ processed: 'test' }),
-                context: { message },
+                context: expect.objectContaining({ message }),
             })
         })
 
@@ -165,7 +165,7 @@ describe('RetryingPipeline', () => {
             if (result.result.type === PipelineResultType.DLQ) {
                 expect(result.result.reason).toBe('Processing error - non-retriable')
             }
-            expect(result.context).toEqual({ message })
+            expect(result.context).toEqual(expect.objectContaining({ message }))
         })
 
         it('should treat errors without isRetriable property as retriable', async () => {
@@ -207,7 +207,7 @@ describe('RetryingPipeline', () => {
             expect(mockCaptureException).not.toHaveBeenCalled() // Should not capture retriable errors
             expect(result).toEqual({
                 result: ok({ processed: 'test' }),
-                context: { message },
+                context: expect.objectContaining({ message }),
             })
         })
 
@@ -242,7 +242,7 @@ describe('RetryingPipeline', () => {
                     reason: 'DLQ reason',
                     error: expect.any(Error),
                 },
-                context: { message },
+                context: expect.objectContaining({ message }),
             })
         })
     })
@@ -279,7 +279,7 @@ describe('RetryingPipeline', () => {
             expect(mockProcessStep).toHaveBeenCalledTimes(1)
             expect(result).toEqual({
                 result: ok({ processed: 'test' }),
-                context: { message },
+                context: expect.objectContaining({ message }),
             })
         })
     })

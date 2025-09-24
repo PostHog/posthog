@@ -4,16 +4,13 @@ import { PipelineResult, isOkResult } from './results'
 import { AsyncProcessingStep, SyncProcessingStep } from './steps'
 
 export class StepPipeline<TInput, TIntermediate, TOutput> implements Pipeline<TInput, TOutput> {
-    private currentStep: (value: TIntermediate) => Promise<PipelineResult<TOutput>>
+    private stepName: string
 
     constructor(
-        currentStep: (value: TIntermediate) => Promise<PipelineResult<TOutput>>,
+        private currentStep: (value: TIntermediate) => Promise<PipelineResult<TOutput>>,
         private previousPipeline: Pipeline<TInput, TIntermediate>
     ) {
-        this.currentStep = (wrappedStep) =>
-            instrumentFn({ key: currentStep.name || 'anonymousStep', sendException: false }, () =>
-                currentStep(wrappedStep)
-            )
+        this.stepName = currentStep.name || 'anonymousStep'
     }
 
     pipe<U>(step: SyncProcessingStep<TOutput, U>): StepPipeline<TInput, TOutput, U> {
@@ -35,10 +32,15 @@ export class StepPipeline<TInput, TIntermediate, TOutput> implements Pipeline<TI
             }
         }
 
-        const currentResult = await this.currentStep(previousResult.value)
+        const currentResult = await instrumentFn({ key: this.stepName, sendException: false }, () =>
+            this.currentStep(previousResult.value)
+        )
         return {
             result: currentResult,
-            context: previousResultWithContext.context,
+            context: {
+                ...previousResultWithContext.context,
+                lastStep: this.stepName,
+            },
         }
     }
 }

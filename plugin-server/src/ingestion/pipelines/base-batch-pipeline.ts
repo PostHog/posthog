@@ -15,10 +15,14 @@ function isSuccessResultWithContext<T>(
 export type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
 
 export class BaseBatchPipeline<TInput, TIntermediate, TOutput> implements BatchPipeline<TInput, TOutput> {
+    private stepName: string
+
     constructor(
         private currentStep: BatchProcessingStep<TIntermediate, TOutput>,
         private previousPipeline: BatchPipeline<TInput, TIntermediate>
-    ) {}
+    ) {
+        this.stepName = this.currentStep.name || 'anonymousBatchStep'
+    }
 
     feed(elements: BatchPipelineResultWithContext<TInput>): void {
         this.previousPipeline.feed(elements)
@@ -36,10 +40,9 @@ export class BaseBatchPipeline<TInput, TIntermediate, TOutput> implements BatchP
             .map((resultWithContext) => resultWithContext.result.value)
 
         // Apply current step to successful values
-        const stepName = this.currentStep.name || 'anonymousBatchStep'
         let stepResults: PipelineResult<TOutput>[] = []
         if (successfulValues.length > 0) {
-            stepResults = await instrumentFn({ key: stepName, sendException: false }, () =>
+            stepResults = await instrumentFn({ key: this.stepName, sendException: false }, () =>
                 this.currentStep(successfulValues)
             )
         }
@@ -50,7 +53,10 @@ export class BaseBatchPipeline<TInput, TIntermediate, TOutput> implements BatchP
             if (isOkResult(resultWithContext.result)) {
                 return {
                     result: stepResults[stepIndex++],
-                    context: resultWithContext.context,
+                    context: {
+                        ...resultWithContext.context,
+                        lastStep: this.stepName,
+                    },
                 }
             } else {
                 return {

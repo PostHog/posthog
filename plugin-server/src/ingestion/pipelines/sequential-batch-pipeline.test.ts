@@ -49,8 +49,8 @@ describe('SequentialBatchPipeline', () => {
             expect(mockProcessStep).toHaveBeenNthCalledWith(1, { message: messages[0] })
             expect(mockProcessStep).toHaveBeenNthCalledWith(2, { message: messages[1] })
             expect(results).toEqual([
-                { result: ok({ processed: 'test1' }), context: { message: messages[0] } },
-                { result: ok({ processed: 'test2' }), context: { message: messages[1] } },
+                { result: ok({ processed: 'test1' }), context: expect.objectContaining({ message: messages[0] }) },
+                { result: ok({ processed: 'test2' }), context: expect.objectContaining({ message: messages[1] }) },
             ])
         })
 
@@ -125,9 +125,9 @@ describe('SequentialBatchPipeline', () => {
             expect(processOrder).toEqual([1, 2, 3])
             expect(mockProcessStep).toHaveBeenCalledTimes(3)
             expect(results).toEqual([
-                { result: ok({ count: 2 }), context: { message: messages[0] } },
-                { result: ok({ count: 4 }), context: { message: messages[1] } },
-                { result: ok({ count: 6 }), context: { message: messages[2] } },
+                { result: ok({ count: 2 }), context: expect.objectContaining({ message: messages[0] }) },
+                { result: ok({ count: 4 }), context: expect.objectContaining({ message: messages[1] }) },
+                { result: ok({ count: 6 }), context: expect.objectContaining({ message: messages[2] }) },
             ])
         })
 
@@ -210,10 +210,13 @@ describe('SequentialBatchPipeline', () => {
 
             expect(processedValues).toEqual([{ count: 1 }, { count: 3 }])
             expect(results).toEqual([
-                { result: ok({ count: 2 }), context: { message: messages[0] } },
-                { result: drop('dropped item'), context: { message: messages[1] } },
-                { result: ok({ count: 6 }), context: { message: messages[2] } },
-                { result: dlq('dlq item', new Error('test error')), context: { message: messages[3] } },
+                { result: ok({ count: 2 }), context: expect.objectContaining({ message: messages[0] }) },
+                { result: drop('dropped item'), context: expect.objectContaining({ message: messages[1] }) },
+                { result: ok({ count: 6 }), context: expect.objectContaining({ message: messages[2] }) },
+                {
+                    result: dlq('dlq item', new Error('test error')),
+                    context: expect.objectContaining({ message: messages[3] }),
+                },
             ])
         })
     })

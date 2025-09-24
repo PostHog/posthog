@@ -36,8 +36,14 @@ describe('BaseBatchPipeline', () => {
             const results = await pipeline.next()
 
             expect(results).toEqual([
-                { result: ok({ processed: 'test1' }), context: { message: messages[0] } },
-                { result: ok({ processed: 'test2' }), context: { message: messages[1] } },
+                {
+                    result: ok({ processed: 'test1' }),
+                    context: { message: messages[0], lastStep: 'anonymousBatchStep' },
+                },
+                {
+                    result: ok({ processed: 'test2' }),
+                    context: { message: messages[1], lastStep: 'anonymousBatchStep' },
+                },
             ])
         })
 
@@ -74,9 +80,9 @@ describe('BaseBatchPipeline', () => {
             const results = await pipeline.next()
 
             expect(results).toEqual([
-                { result: ok({ count: 2 }), context: { message: messages[0] } },
-                { result: ok({ count: 4 }), context: { message: messages[1] } },
-                { result: ok({ count: 6 }), context: { message: messages[2] } },
+                { result: ok({ count: 2 }), context: { message: messages[0], lastStep: 'anonymousBatchStep' } },
+                { result: ok({ count: 4 }), context: { message: messages[1], lastStep: 'anonymousBatchStep' } },
+                { result: ok({ count: 6 }), context: { message: messages[2], lastStep: 'anonymousBatchStep' } },
             ])
         })
 
@@ -114,10 +120,13 @@ describe('BaseBatchPipeline', () => {
             const results = await secondPipeline.next()
 
             expect(results).toEqual([
-                { result: ok({ count: 2 }), context: { message: messages[0] } },
-                { result: drop('dropped item'), context: { message: messages[1] } },
-                { result: ok({ count: 6 }), context: { message: messages[2] } },
-                { result: dlq('dlq item', new Error('test error')), context: { message: messages[3] } },
+                { result: ok({ count: 2 }), context: { message: messages[0], lastStep: 'anonymousBatchStep' } },
+                { result: drop('dropped item'), context: { message: messages[1], lastStep: 'anonymousBatchStep' } },
+                { result: ok({ count: 6 }), context: { message: messages[2], lastStep: 'anonymousBatchStep' } },
+                {
+                    result: dlq('dlq item', new Error('test error')),
+                    context: { message: messages[3], lastStep: 'anonymousBatchStep' },
+                },
             ])
         })
     })
@@ -134,6 +143,99 @@ describe('BaseBatchPipeline', () => {
 
             pipeline.feed(batch)
             await expect(pipeline.next()).rejects.toThrow('Batch step failed')
+        })
+    })
+
+    describe('step name tracking', () => {
+        it('should include step name in context for successful results', async () => {
+            const messages: Message[] = [
+                createTestMessage({ value: Buffer.from('test1'), offset: 1 }),
+                createTestMessage({ value: Buffer.from('test2'), offset: 2 }),
+            ]
+
+            const batch = createBatch(messages.map((message) => ({ message })))
+            const rootPipeline = createNewBatchPipeline()
+
+            function testBatchStep(items: any[]) {
+                return Promise.resolve(items.map((item: any) => ok({ processed: item.message.value?.toString() })))
+            }
+
+            const pipeline = new BaseBatchPipeline(testBatchStep, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toEqual([
+                {
+                    result: ok({ processed: 'test1' }),
+                    context: { message: messages[0], lastStep: 'testBatchStep' },
+                },
+                {
+                    result: ok({ processed: 'test2' }),
+                    context: { message: messages[1], lastStep: 'testBatchStep' },
+                },
+            ])
+        })
+
+        it('should use anonymousBatchStep when step has no name', async () => {
+            const messages: Message[] = [createTestMessage({ value: Buffer.from('test1'), offset: 1 })]
+
+            const batch = createBatch(messages.map((message) => ({ message })))
+            const rootPipeline = createNewBatchPipeline()
+
+            const anonymousStep = (items: any[]) => {
+                return Promise.resolve(items.map((item: any) => ok({ processed: item.message.value?.toString() })))
+            }
+
+            const pipeline = new BaseBatchPipeline(anonymousStep, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toEqual([
+                {
+                    result: ok({ processed: 'test1' }),
+                    context: { message: messages[0], lastStep: 'anonymousStep' },
+                },
+            ])
+        })
+
+        it('should not update lastStep for failed results', async () => {
+            const messages: Message[] = [
+                createTestMessage({ value: Buffer.from('test1'), offset: 1 }),
+                createTestMessage({ value: Buffer.from('drop'), offset: 2 }),
+            ]
+
+            const batch = createBatch(messages.map((message) => ({ message })))
+            const rootPipeline = createNewBatchPipeline()
+
+            function testBatchStep(items: any[]) {
+                return Promise.resolve(
+                    items.map((item: any) => {
+                        const value = item.message.value?.toString() || ''
+                        if (value === 'drop') {
+                            return drop('dropped item')
+                        }
+                        return ok({ processed: value })
+                    })
+                )
+            }
+
+            const pipeline = new BaseBatchPipeline(testBatchStep, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toEqual([
+                {
+                    result: ok({ processed: 'test1' }),
+                    context: { message: messages[0], lastStep: 'testBatchStep' },
+                },
+                {
+                    result: drop('dropped item'),
+                    context: { message: messages[1], lastStep: 'testBatchStep' },
+                },
+            ])
         })
     })
 })
