@@ -1,4 +1,4 @@
-import { actions, kea, path, props, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -7,24 +7,44 @@ import { NodeKind, SessionData } from '~/queries/schema/schema-general'
 
 import type { sampledSessionsModalLogicType } from './sampledSessionsModalLogicType'
 
-export interface SampledSessionsModalLogicProps {
+export interface ModalData {
     sessionData: SessionData[]
+    stepName: string
+    variant: string
 }
 
 export const sampledSessionsModalLogic = kea<sampledSessionsModalLogicType>([
     path(['scenes', 'experiments', 'charts', 'funnel', 'sampledSessionsModalLogic']),
-    props({} as SampledSessionsModalLogicProps),
 
     actions({
-        checkRecordingAvailability: true,
+        openModal: (modalData: ModalData) => ({ modalData }),
+        closeModal: true,
+        checkRecordingAvailability: (sessionData: SessionData[]) => ({ sessionData }),
     }),
 
-    loaders(({ props }) => ({
+    reducers({
+        isOpen: [
+            false as boolean,
+            {
+                openModal: () => true,
+                closeModal: () => false,
+            },
+        ],
+        modalData: [
+            null as ModalData | null,
+            {
+                openModal: (_, { modalData }) => modalData,
+                closeModal: () => null,
+            },
+        ],
+    }),
+
+    loaders(() => ({
         recordingAvailability: [
             new Map<string, { hasRecording: boolean }>() as Map<string, { hasRecording: boolean }>,
             {
-                checkRecordingAvailability: async () => {
-                    const allSessionIds = Array.from(new Set(props.sessionData.map((s: SessionData) => s.session_id)))
+                checkRecordingAvailability: async ({ sessionData }) => {
+                    const allSessionIds = Array.from(new Set(sessionData.map((s: SessionData) => s.session_id)))
 
                     if (allSessionIds.length === 0) {
                         return new Map()
@@ -61,12 +81,11 @@ export const sampledSessionsModalLogic = kea<sampledSessionsModalLogicType>([
         ],
     })),
 
-    selectors({
-        allSessionIds: [
-            (_, p) => [p.sessionData],
-            (sessionData: SessionData[]): string[] => {
-                return Array.from(new Set(sessionData.map((s: SessionData) => s.session_id)))
-            },
-        ],
-    }),
+    listeners(({ actions }) => ({
+        openModal: ({ modalData }) => {
+            if (modalData.sessionData.length > 0) {
+                actions.checkRecordingAvailability(modalData.sessionData)
+            }
+        },
+    })),
 ])

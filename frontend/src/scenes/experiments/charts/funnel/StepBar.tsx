@@ -1,5 +1,6 @@
 import clsx from 'clsx'
-import { useRef, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { percentage } from 'lib/utils'
 
@@ -10,6 +11,7 @@ import { useTooltip } from './FunnelBarVertical'
 import { useFunnelChartData } from './FunnelChart'
 import { SampledSessionsModal } from './SampledSessionsModal'
 import { getSeriesColor } from './funnelUtils'
+import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 
 export interface StepBarProps {
     step: FunnelStepWithConversionMetrics
@@ -25,7 +27,8 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { showTooltip, hideTooltip } = useTooltip()
     const { experimentResult } = useFunnelChartData()
-    const [isModalOpen, setIsModalOpen] = useState(false)
+    const { openModal } = useActions(sampledSessionsModalLogic)
+    const { isOpen } = useValues(sampledSessionsModalLogic)
 
     const seriesColor = getSeriesColor(step)
 
@@ -42,7 +45,13 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
         }
     }
     const handleClick = (): void => {
-        setIsModalOpen(true)
+        if (sessionData) {
+            openModal({
+                sessionData,
+                stepName: step.name,
+                variant: String(step.breakdown_value || 'control'),
+            })
+        }
     }
 
     return (
@@ -69,15 +78,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
                 <div className="StepBar__fill" onClick={handleClick} style={{ cursor: 'pointer' }} />
             </div>
 
-            {isModalOpen && sessionData && (
-                <SampledSessionsModal
-                    isOpen={isModalOpen}
-                    onClose={() => setIsModalOpen(false)}
-                    sessionData={sessionData}
-                    stepName={step.name}
-                    variant={String(step.breakdown_value || 'control')}
-                />
-            )}
+            {isOpen && <SampledSessionsModal />}
         </>
     )
 }

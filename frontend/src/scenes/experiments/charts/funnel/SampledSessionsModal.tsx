@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { useEffect } from 'react'
 
 import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
@@ -17,31 +16,16 @@ import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 
-interface SampledSessionsModalProps {
-    isOpen: boolean
-    onClose: () => void
-    sessionData: SessionData[]
-    stepName: string
-    variant: string
-}
+export function SampledSessionsModal(): JSX.Element {
+    const { isOpen, modalData, recordingAvailability, recordingAvailabilityLoading } =
+        useValues(sampledSessionsModalLogic)
+    const { closeModal } = useActions(sampledSessionsModalLogic)
 
-export function SampledSessionsModal({
-    isOpen,
-    onClose,
-    sessionData,
-    stepName,
-    variant,
-}: SampledSessionsModalProps): JSX.Element {
-    const logic = sampledSessionsModalLogic({ sessionData })
-    const { recordingAvailability, recordingAvailabilityLoading } = useValues(logic)
-    const { checkRecordingAvailability } = useActions(logic)
+    if (!modalData) {
+        return <></>
+    }
 
-    // Trigger recording availability check when modal opens
-    useEffect(() => {
-        if (isOpen && sessionData.length > 0) {
-            checkRecordingAvailability()
-        }
-    }, [isOpen, sessionData.length, checkRecordingAvailability])
+    const { sessionData, stepName, variant } = modalData
 
     // Helper function to get events URL for a session ID
     const getEventsUrlForSession = (sessionId: string): string => {
@@ -126,7 +110,7 @@ export function SampledSessionsModal({
     ]
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title={`Sampled sessions - ${variant}`} width={720}>
+        <LemonModal isOpen={isOpen} onClose={closeModal} title={`Sampled sessions - ${variant}`} width={720}>
             <div className="space-y-4">
                 <div className="text">
                     Users in <strong>{variant}</strong> with <strong>{stepName}</strong> as their last funnel step.
