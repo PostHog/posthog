@@ -93,6 +93,14 @@ const isPersonPropertyShortcutSearchParams = (
     return (x as PersonPropertyShortcutSearchParams).personProperty !== undefined
 }
 
+const isReplayURLSearchParams = (x: ReplayURLSearchParamTypes): x is ReplayURLSearchParams => {
+    return (
+        (x as ReplayURLSearchParams).filters !== undefined ||
+        (x as ReplayURLSearchParams).order !== undefined ||
+        (x as ReplayURLSearchParams).order_direction !== undefined
+    )
+}
+
 interface NoEventsToMatch {
     matchType: 'none'
 }
@@ -1250,11 +1258,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 return
             }
 
-            if (params.filters && !equal(params.filters, values.filters)) {
-                actions.setFilters(params.filters)
-            }
-            if (params.order && !equal(params.order, values.filters.order)) {
-                actions.setFilters({ ...values.filters, order: params.order })
+            if (isReplayURLSearchParams(params)) {
+                const updatedFilters = {
+                    ...(params.filters && !equal(params.filters, values.filters) ? params.filters : {}),
+                    ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
+                    ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)
+                        ? { order_direction: params.order_direction }
+                        : {}),
+                }
+
+                if (Object.keys(updatedFilters).length > 0) {
+                    actions.setFilters({ ...values.filters, ...updatedFilters })
+                }
             }
         }
         return {
