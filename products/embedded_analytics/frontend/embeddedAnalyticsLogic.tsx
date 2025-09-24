@@ -52,7 +52,6 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
         setRequestNameFilter: (requestNameFilter: string[]) => ({ requestNameFilter }),
         setRequestNameBreakdownEnabled: (requestNameBreakdownEnabled: boolean) => ({ requestNameBreakdownEnabled }),
         setSearch: (search: string) => ({ search }),
-        // DO NOT ADD setActiveTab here!!!
     }),
 
     reducers({

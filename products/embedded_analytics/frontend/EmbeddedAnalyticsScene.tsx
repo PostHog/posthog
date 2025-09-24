@@ -51,23 +51,6 @@ export function EmbeddedAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
     return (
         <BindLogic logic={embeddedAnalyticsLogic} props={{ key: 'embeddedAnalyticsScene', tabId: tabId || '' }}>
             <BindLogic logic={queryEndpointsLogic} props={{ key: 'queryEndpointsLogic', tabId: tabId || '' }}>
-                <PageHeader
-                    buttons={
-                        <LemonButton
-                            data-attr="new-query-endpoint"
-                            onClick={() => {
-                                router.actions.push(
-                                    urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.QueryEndpoint)
-                                )
-                            }}
-                            type="primary"
-                            tooltip="Redirects you to the SQL Editor."
-                        >
-                            New query endpoint
-                        </LemonButton>
-                    }
-                />
-
                 <SceneContent>
                     <SceneTitleSection
                         name="Embedded analytics"
@@ -75,11 +58,25 @@ export function EmbeddedAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                         resourceType={{
                             type: 'embedded_analytics',
                         }}
+                        actions={
+                            <LemonButton
+                                size="small"
+                                data-attr="new-query-endpoint"
+                                onClick={() => {
+                                    router.actions.push(
+                                        urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.QueryEndpoint)
+                                    )
+                                }}
+                                type="primary"
+                                tooltip="Redirects you to the SQL Editor."
+                            >
+                                New query endpoint
+                            </LemonButton>
+                        }
                     />
                     <LemonBanner
                         type="warning"
                         dismissKey="embedded-analytics-beta-banner"
-                        className="mb-2 mt-4"
                         action={{ children: 'Send feedback', id: 'embedded-analytics-feedback-button' }}
                     >
                         <p>

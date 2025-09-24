@@ -59,6 +59,7 @@ import type {
     HogQLQueryModifiers,
     HogQLVariable,
     InsightVizNode,
+    InsightQueryNode,
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
@@ -2113,7 +2114,7 @@ export interface QueryEndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
-    query: HogQLQuery
+    query: HogQLQuery | InsightQueryNode
     parameters: Record<string, any>
     is_active: boolean
     endpoint_path: string
