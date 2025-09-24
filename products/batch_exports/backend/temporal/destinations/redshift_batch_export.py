@@ -1,8 +1,11 @@
+import io
 import json
 import typing
+import asyncio
 import datetime as dt
 import contextlib
 import dataclasses
+import collections.abc
 
 from django.conf import settings
 
@@ -14,7 +17,12 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import BatchExportField, BatchExportModel, RedshiftBatchExportInputs
+from posthog.batch_exports.service import (
+    BatchExportField,
+    BatchExportModel,
+    BatchExportSchema,
+    RedshiftBatchExportInputs,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -39,6 +47,11 @@ from products.batch_exports.backend.temporal.heartbeat import (
     DateRange,
     should_resume_from_activity_heartbeat,
 )
+from products.batch_exports.backend.temporal.pipeline.consumer import (
+    Consumer as ConsumerFromStage,
+    run_consumer_from_stage,
+)
+from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -352,6 +365,22 @@ class RedshiftConsumer(Consumer):
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
+IAMRole = str
+
+
+@dataclasses.dataclass
+class CopyCredentials:
+    access_key_id: str
+    secret_access_key: str
+
+
+@dataclasses.dataclass
+class CopyParameters:
+    s3_bucket: str
+    region: str
+    authorization: IAMRole | CopyCredentials
+
+
 @dataclasses.dataclass(kw_only=True)
 class RedshiftInsertInputs(PostgresInsertInputs):
     """Inputs for Redshift insert activity.
@@ -361,6 +390,7 @@ class RedshiftInsertInputs(PostgresInsertInputs):
     """
 
     properties_data_type: str = "varchar"
+    copy_parameters: CopyParameters | None = None
 
 
 @activity.defn
@@ -572,6 +602,295 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchEx
                         )
 
                 return BatchExportResult(records_completed=details.records_completed)
+
+
+class RedshiftConsumerFromStage(ConsumerFromStage):
+    def __init__(
+        self,
+        client: RedshiftClient,
+        table: str,
+    ):
+        super().__init__()
+
+        self.client = client
+        self.current_file_index = 0
+        self.current_buffer = io.BytesIO()
+
+        self.logger.bind(table=table)
+
+    async def consume_chunk(self, data: bytes):
+        self.current_buffer.write(data)
+        await asyncio.sleep(0)
+
+    async def finalize_file(self):
+        await self._upload_current_buffer()
+        self._start_new_file()
+
+    def _start_new_file(self):
+        """Start a new file (reset state for file splitting)."""
+        self.current_file_index += 1
+
+    async def finalize(self):
+        """Finalize by uploading any remaining data."""
+        await self._upload_current_buffer()
+
+    async def _upload_current_buffer(self):
+        buffer_size = self.current_buffer.tell()
+        if buffer_size == 0:
+            return
+
+        self.logger.debug(
+            "Insert query starting",
+            current_file_index=self.current_file_index,
+            buffer_size=buffer_size,
+        )
+
+        async with self.client.async_client_cursor() as cursor:
+            async with self.client.connection.transaction():
+                await cursor.execute(self.current_buffer.read())
+
+        self.logger.debug(
+            "Insert query finished finished",
+            current_file_index=self.current_file_index,
+            buffer_size=buffer_size,
+        )
+
+        self.current_buffer = io.BytesIO()
+
+
+class TableSchemas(typing.NamedTuple):
+    table_schema: Fields
+    super_columns: collections.abc.Sequence[str]
+
+
+def _get_table_schemas(
+    model: BatchExportModel | BatchExportSchema | None, record_batch_schema: pa.Schema, properties_data_type: str
+) -> TableSchemas:
+    """Return the schemas used for main and stage tables."""
+    known_super_columns = ["properties", "set", "set_once", "person_properties"]
+    if properties_data_type != "varchar":
+        properties_type = "SUPER"
+
+    else:
+        properties_type = "VARCHAR(65535)"
+
+    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+        table_schema: Fields = [
+            ("uuid", "VARCHAR(200)"),
+            ("event", "VARCHAR(200)"),
+            ("properties", properties_type),
+            ("elements", "VARCHAR(65535)"),
+            ("set", properties_type),
+            ("set_once", properties_type),
+            ("distinct_id", "VARCHAR(200)"),
+            ("team_id", "INTEGER"),
+            ("ip", "VARCHAR(200)"),
+            ("site_url", "VARCHAR(200)"),
+            ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+        ]
+
+    else:
+        table_schema = get_redshift_fields_from_record_schema(
+            record_batch_schema, known_super_columns=known_super_columns, use_super=properties_type == "SUPER"
+        )
+
+    return TableSchemas(table_schema, known_super_columns)
+
+
+class RequiredMergeSettings(typing.NamedTuple):
+    requires_merge: typing.Literal[True]
+    merge_key: Fields
+    update_key: Fields
+    primary_key: Fields
+
+
+class NotRequiredMergeSettings(typing.NamedTuple):
+    requires_merge: typing.Literal[False]
+
+
+MergeSettings = RequiredMergeSettings | NotRequiredMergeSettings
+
+
+def _get_merge_settings(
+    model: BatchExportModel | BatchExportSchema | None,
+) -> MergeSettings:
+    """Return merge settings for models that require merging."""
+    merge_key: Fields
+    update_key: Fields
+    primary_key: Fields
+
+    if isinstance(model, BatchExportModel) and model.name == "persons":
+        merge_key = [
+            ("team_id", "INT"),
+            ("distinct_id", "TEXT"),
+        ]
+        update_key = [
+            ("person_version", "INT"),
+            ("person_distinct_id_version", "INT"),
+        ]
+        primary_key = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
+
+        return RequiredMergeSettings(
+            requires_merge=True, merge_key=merge_key, update_key=update_key, primary_key=primary_key
+        )
+
+    elif isinstance(model, BatchExportModel) and model.name == "sessions":
+        merge_key = [
+            ("team_id", "INT"),
+            ("session_id", "TEXT"),
+        ]
+        update_key = [
+            ("end_timestamp", "TIMESTAMP"),
+        ]
+        primary_key = (("team_id", "INTEGER"), ("session_id", "TEXT"))
+
+        return RequiredMergeSettings(
+            requires_merge=True, merge_key=merge_key, update_key=update_key, primary_key=primary_key
+        )
+    else:
+        return NotRequiredMergeSettings(requires_merge=False)
+
+
+@activity.defn
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
+async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs) -> BatchExportResult:
+    """Activity to insert data from ClickHouse to Redshift.
+
+    This activity executes the following steps:
+    1. Check if anything is to be exported.
+    2. Create destination table if not present.
+    3. Query rows to export.
+    4. Insert rows into Redshift.
+
+    Args:
+        inputs: The dataclass holding inputs for this activity. The inputs
+            include: connection configuration (e.g. host, user, port), batch export
+            query parameters (e.g. team_id, data_interval_start, include_events), and
+            the Redshift-specific properties_data_type to indicate the type of JSON-like
+            fields.
+    """
+    bind_contextvars(
+        team_id=inputs.team_id,
+        destination="Redshift",
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+        copy=inputs.copy_parameters is not None,
+        database=inputs.database,
+        schema=inputs.schema,
+    )
+    external_logger = EXTERNAL_LOGGER.bind()
+
+    external_logger.info(
+        "Batch exporting range %s - %s to Redshift: %s.%s.%s",
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
+        inputs.database,
+        inputs.schema,
+        inputs.table_name,
+    )
+
+    async with Heartbeater():
+        model: BatchExportModel | BatchExportSchema | None = None
+        if inputs.batch_export_schema is None:
+            model = inputs.batch_export_model
+        else:
+            model = inputs.batch_export_schema
+
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        producer = ProducerFromInternalStage()
+        assert inputs.batch_export_id is not None
+        producer_task = await producer.start(
+            queue=queue,
+            batch_export_id=inputs.batch_export_id,
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
+        )
+
+        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
+        if record_batch_schema is None:
+            external_logger.info(
+                "Batch export will finish early as there is no data matching specified filters in range %s - %s",
+                inputs.data_interval_start or "START",
+                inputs.data_interval_end or "END",
+            )
+
+            return BatchExportResult(records_completed=0, bytes_exported=0)
+
+        record_batch_schema = pa.schema(
+            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
+        )
+
+        table_schemas = _get_table_schemas(
+            model=model, record_batch_schema=record_batch_schema, properties_data_type=inputs.properties_data_type
+        )
+
+        merge_settings = _get_merge_settings(model=model)
+
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stagle_table_name = (
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            if merge_settings.requires_merge
+            else inputs.table_name
+        )
+
+        async with RedshiftClient.from_inputs(inputs).connect() as redshift_client:
+            # filter out fields that are not in the destination table
+            try:
+                columns = await redshift_client.aget_table_columns(inputs.schema, inputs.table_name)
+                table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
+            except psycopg.errors.UndefinedTable:
+                table_fields = table_schemas.table_schema
+
+            primary_key = merge_settings.primary_key if merge_settings.requires_merge is True else None
+            async with (
+                redshift_client.managed_table(
+                    inputs.schema, inputs.table_name, table_fields, delete=False, primary_key=primary_key
+                ) as redshift_table,
+                redshift_client.managed_table(
+                    inputs.schema,
+                    stagle_table_name,
+                    table_fields,
+                    create=merge_settings.requires_merge,
+                    delete=merge_settings.requires_merge,
+                    primary_key=primary_key,
+                ) as redshift_stage_table,
+            ):
+                schema_columns = {field[0] for field in table_fields}
+
+                consumer = RedshiftConsumerFromStage(
+                    client=redshift_client,
+                    table=redshift_stage_table if merge_settings.requires_merge else redshift_table,
+                )
+                result = await run_consumer_from_stage(
+                    queue=queue,
+                    consumer=consumer,
+                    producer_task=producer_task,
+                    schema=record_batch_schema,
+                    file_format="redshift_insert",
+                    transformer_parameters={
+                        "schema": record_batch_schema,
+                        "redshift_table": redshift_stage_table if merge_settings.requires_merge else redshift_table,
+                        "redshift_schema": inputs.schema,
+                        "table_columns": schema_columns,
+                        "known_json_columns": table_schemas.super_columns,
+                        "use_super": inputs.properties_data_type != "varchar",
+                        "redshift_client": redshift_client,
+                    },
+                    compression=None,
+                    max_file_size_bytes=settings.BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES,
+                )
+
+                if merge_settings.requires_merge is True:
+                    await redshift_client.amerge_mutable_tables(
+                        final_table_name=redshift_table,
+                        stage_table_name=redshift_stage_table,
+                        schema=inputs.schema,
+                        merge_key=merge_settings.merge_key,
+                        update_key=merge_settings.update_key,
+                    )
+
+                return result
 
 
 @workflow.defn(name="redshift-export", failure_exception_types=[workflow.NondeterminismError])
