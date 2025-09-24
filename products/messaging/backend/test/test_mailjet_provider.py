@@ -14,6 +14,7 @@ class TestMailjetProvider(TestCase):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.domain = "example.com"
+        self.email = "test@example.com"
         self.mock_dns_response = {
             "DKIMRecordName": "mailjet._domainkey.example.com",
             "DKIMRecordValue": "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBA...",
@@ -198,7 +199,7 @@ class TestMailjetProvider(TestCase):
         mock_check_dns.return_value = verified_dns_response
 
         provider = MailjetProvider()
-        result = provider.verify_email_domain(self.domain, self.team.id)
+        result = provider.verify_email_domain(self.email, self.domain, self.team.id)
 
         mock_check_dns.assert_called_once_with(self.domain)
         mock_get_dns.assert_called_once_with(self.domain)
@@ -215,7 +216,7 @@ class TestMailjetProvider(TestCase):
         mock_check_dns.return_value = self.mock_dns_response
 
         provider = MailjetProvider()
-        result = provider.verify_email_domain(self.domain, self.team.id)
+        result = provider.verify_email_domain(self.email, self.domain, self.team.id)
 
         mock_check_dns.assert_called_once_with(self.domain)
         mock_get_dns.assert_called_once_with(self.domain)

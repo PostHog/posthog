@@ -27,6 +27,7 @@ class MailjetConfig:
     API_BASE_URL_V3: str = "https://api.mailjet.com/v3/REST"
 
     SENDER_ENDPOINT: str = "/sender"
+    SENDER_VALIDATE_ENDPOINT: str = "/validate"
     DNS_ENDPOINT: str = "/dns"
     DNS_CHECK_ENDPOINT: str = "/check"
 
@@ -130,6 +131,21 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error checking DNS records: {e}")
             raise
 
+    def _validate_email_domain(self, domain: str):
+        """
+        Trigger validation of the domain in Mailjet
+
+        Reference: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/sender/#v3_post_sender_sender_ID_validate
+        """
+        url = f"{MailjetConfig.API_BASE_URL_V3}{MailjetConfig.SENDER_ENDPOINT}/{domain}{MailjetConfig.SENDER_VALIDATE_ENDPOINT}"
+        try:
+            response = requests.post(url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS)
+            response.raise_for_status()
+            return MailjetResponse(**response.json()).get_first_item()
+        except requests.exceptions.RequestException as e:
+            logger.exception(f"Mailjet API error checking DNS records: {e}")
+            raise
+
     def create_email_domain(self, domain: str, team_id: int):
         """
         Create a new sender domain in Mailjet
@@ -168,11 +184,15 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error creating sender domain: {e}")
             raise
 
-    def verify_email_domain(self, domain: str, team_id: int):
+    def verify_email_domain(self, email: str, domain: str, team_id: int):
         """
         Verify the email domain by checking DNS records status.
         """
         required_dns_records = self._get_domain_dns_records(domain)
         dns_status_response = self._check_domain_dns_records(domain)
         overall_status, formatted_dns_records = self._format_dns_records(required_dns_records, dns_status_response)
+
+        # Attempt email sender validation
+        self._validate_email_domain(email)
+
         return {"status": overall_status, "dnsRecords": formatted_dns_records}
