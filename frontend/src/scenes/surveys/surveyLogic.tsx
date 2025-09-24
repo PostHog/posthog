@@ -217,7 +217,10 @@ function isQuestionOpenChoice(question: SurveyQuestion, choiceIndex: number): bo
 }
 
 // Helper to extract person data from a survey response row
-function extractPersonData(row: SurveyResponseRow): {
+function extractPersonData(
+    row: SurveyResponseRow,
+    teamPersonDisplayNameProperties: string[] | undefined
+): {
     distinctId: string
     personProperties?: Record<string, any>
     timestamp: string
@@ -227,11 +230,12 @@ function extractPersonData(row: SurveyResponseRow): {
     // now, we're querying for all PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES, starting from the third last value, so build our person properties object
     // from those values. We use them to have a display name for the person
     const personProperties: Record<string, any> = {}
+    const personDisplayProperties = teamPersonDisplayNameProperties || PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
     let hasAnyProperties = false
-    for (let i = 0; i < PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.length; i++) {
+    for (let i = 0; i < personDisplayProperties.length; i++) {
         const value = row.at(-3 - i) as string
         if (value && value !== null && value !== '') {
-            personProperties[PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES[i]] = value
+            personProperties[personDisplayProperties[i]] = value
             hasAnyProperties = true
         }
     }
@@ -261,7 +265,8 @@ function processChoiceQuestion(
     question: MultipleSurveyQuestion,
     questionIndex: number,
     results: SurveyRawResults,
-    questionType: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
+    questionType: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice,
+    teamPersonDisplayNameProperties: string[] | undefined
 ): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
     // Store person data for the most recent person who selected each choice - used in UI to show
@@ -283,7 +288,7 @@ function processChoiceQuestion(
             return
         }
 
-        const personData = extractPersonData(row)
+        const personData = extractPersonData(row, teamPersonDisplayNameProperties)
 
         if (questionType === SurveyQuestionType.SingleChoice) {
             const value = rawValue as string
@@ -390,7 +395,11 @@ function processRatingQuestion(
     }
 }
 
-function processOpenQuestion(questionIndex: number, results: SurveyRawResults): OpenQuestionProcessedResponses {
+function processOpenQuestion(
+    questionIndex: number,
+    results: SurveyRawResults,
+    teamPersonDisplayNameProperties: string[] | undefined
+): OpenQuestionProcessedResponses {
     const data: { distinctId: string; response: string; personProperties?: Record<string, any>; timestamp?: string }[] =
         []
     let totalResponses = 0
@@ -401,7 +410,7 @@ function processOpenQuestion(questionIndex: number, results: SurveyRawResults): 
             return
         }
 
-        const personData = extractPersonData(row)
+        const personData = extractPersonData(row, teamPersonDisplayNameProperties)
         const response = {
             distinctId: personData.distinctId,
             response: value,
@@ -422,7 +431,8 @@ function processOpenQuestion(questionIndex: number, results: SurveyRawResults): 
 
 export function processResultsForSurveyQuestions(
     questions: SurveyQuestion[],
-    results: SurveyRawResults
+    results: SurveyRawResults,
+    teamPersonDisplayNameProperties: string[] | undefined
 ): ResponsesByQuestion {
     const responsesByQuestion: ResponsesByQuestion = {}
 
@@ -437,13 +447,19 @@ export function processResultsForSurveyQuestions(
         switch (question.type) {
             case SurveyQuestionType.SingleChoice:
             case SurveyQuestionType.MultipleChoice:
-                processedData = processChoiceQuestion(question, index, results, question.type)
+                processedData = processChoiceQuestion(
+                    question,
+                    index,
+                    results,
+                    question.type,
+                    teamPersonDisplayNameProperties
+                )
                 break
             case SurveyQuestionType.Rating:
                 processedData = processRatingQuestion(question, index, results)
                 break
             case SurveyQuestionType.Open:
-                processedData = processOpenQuestion(index, results)
+                processedData = processOpenQuestion(index, results, teamPersonDisplayNameProperties)
                 break
             default:
                 // Skip unknown question types
@@ -880,7 +896,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 const { results } = responseJSON
 
                 // Process the results into a format that can be used by each question type
-                const responsesByQuestion = processResultsForSurveyQuestions(values.survey.questions, results)
+                const responsesByQuestion = processResultsForSurveyQuestions(
+                    values.survey.questions,
+                    results,
+                    values.currentTeam?.person_display_name_properties
+                )
 
                 return { responsesByQuestion }
             },
