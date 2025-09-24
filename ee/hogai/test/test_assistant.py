@@ -2135,14 +2135,15 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Create a simple graph that returns messages with IDs
         def create_messages_with_ids(_):
+            result = None
             if call_count[0] == 0:
-                return PartialAssistantState(
+                result = PartialAssistantState(
                     messages=[
                         AssistantMessage(id=message_id_1, content="Message 1"),
                     ]
                 )
             else:
-                return PartialAssistantState(
+                result = PartialAssistantState(
                     messages=ReplaceMessages(
                         [
                             AssistantMessage(id=message_id_1, content="Message 1"),
@@ -2150,6 +2151,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         ]
                     )
                 )
+            call_count[0] += 1
+            return result
 
         graph = (
             AssistantGraph(self.team, self.user)
@@ -2160,9 +2163,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         output, _ = await self._run_assistant_graph(graph, message="First run", conversation=self.conversation)
-        self.assertEqual(len(output), 1)
-        self.assertEqual(cast(AssistantMessage, output[0][1]).id, message_id_1)
+        # Filter for assistant messages only, as the test is about tracking assistant message IDs
+        assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertEqual(len(assistant_output), 1)
+        self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_1)
 
         output, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
-        self.assertEqual(len(output), 1)
-        self.assertEqual(cast(AssistantMessage, output[0][1]).id, message_id_2)
+        # Filter for assistant messages only, as the test is about tracking assistant message IDs
+        assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertEqual(len(assistant_output), 1)
+        self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_2)
