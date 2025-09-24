@@ -649,8 +649,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         !name
                             ? 'You must enter a name'
                             : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-                                ? 'Name must be valid'
-                                : undefined,
+                              ? 'Name must be valid'
+                              : undefined,
                 },
                 onSubmit: async ({ viewName }) => {
                     await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft)
@@ -819,7 +819,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         })
                         actions.updateViewSuccess(view, draftId)
                     },
-                    onReject: () => { },
+                    onReject: () => {},
                 })
                 lemonToast.error('View has been edited by another user. Review changes to update.')
             } else {
