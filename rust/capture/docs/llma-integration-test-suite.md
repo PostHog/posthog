@@ -30,6 +30,7 @@ This document describes the high-level architecture and test scenarios for the L
 - **Blob Sizes**: Small (1KB), Medium (100KB), Large (1MB), Extra Large (10MB+)
 - **Content Types**: `application/json`, `text/plain`, `application/octet-stream`
 - **Compression**: Gzipped and uncompressed blobs
+- **Encoding**: Raw binary, text, and base64-encoded blobs
 - **Multipart Boundaries**: Various boundary strings to test collision handling
 
 ## Test Scenarios
