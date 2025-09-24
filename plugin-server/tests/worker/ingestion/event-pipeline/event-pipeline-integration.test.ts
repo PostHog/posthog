@@ -1,5 +1,3 @@
-// eslint-disable-next-line no-restricted-imports
-import { fetch } from 'undici'
 import { v4 } from 'uuid'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
@@ -8,6 +6,7 @@ import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/bat
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
+import { isOkResult } from '../../../../src/ingestion/pipelines/results'
 import { Hook, Hub, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
@@ -64,7 +63,10 @@ describe('Event Pipeline integration test', () => {
         )
         const runner = new EventPipelineRunner(hub, event, undefined, personsStoreForBatch, groupStoreForBatch)
         const result = await runner.runEventPipeline(event, team)
-        const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
+        if (!isOkResult(result)) {
+            throw new Error(`Event pipeline failed: ${result.type}`)
+        }
+        const postIngestionEvent = convertToPostIngestionEvent(result.value.args[0])
         return Promise.all([processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon)])
     }
 
@@ -123,7 +125,7 @@ describe('Event Pipeline integration test', () => {
             text: '[Test Action](https://example.com/project/2/action/69) was triggered by [abc](https://example.com/project/2/person/abc)',
         }
 
-        // eslint-disable-next-line no-restricted-syntax
+        // eslint-disable-next-line no-restricted-syntax, no-restricted-globals
         const details = JSON.parse(JSON.stringify((fetch as any).mock.calls))
         expect(details[0][0]).toEqual('https://webhook.example.com/')
         expect(details[0][1]).toMatchObject({
@@ -197,7 +199,9 @@ describe('Event Pipeline integration test', () => {
 
         // Using a more verbose way instead of toHaveBeenCalledWith because we need to parse request body
         // and use expect.any for a few payload properties, which wouldn't be possible in a simpler way
+        // eslint-disable-next-line no-restricted-globals
         expect(jest.mocked(fetch).mock.calls[0][0]).toBe('https://example.com/')
+        // eslint-disable-next-line no-restricted-globals
         const secondArg = jest.mocked(fetch).mock.calls[0][1]
         expect(parseJSON(secondArg!.body as unknown as string)).toEqual(expectedPayload)
         expect(secondArg!.headers).toStrictEqual({ 'Content-Type': 'application/json' })

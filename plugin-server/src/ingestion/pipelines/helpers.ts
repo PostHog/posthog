@@ -20,11 +20,11 @@ export function createNewBatchPipeline<T = { message: Message }>(): BufferingBat
 }
 
 /**
- * Helper function to create a batch of ResultWithContext from Kafka messages
+ * Helper function to create a batch of ResultWithContext from Kafka messages or objects with a message property
  */
-export function createBatch(messages: Message[]): BatchPipelineResultWithContext<{ message: Message }> {
-    return messages.map((message) => ({
-        result: ok({ message }),
-        context: { message },
+export function createBatch<T extends { message: Message }>(items: T[]): BatchPipelineResultWithContext<T> {
+    return items.map((item) => ({
+        result: ok(item),
+        context: { message: item.message },
     }))
 }

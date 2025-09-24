@@ -23,10 +23,8 @@ import {
 } from '../types'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { logger } from '../utils/logger'
-import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
-import { retryIfRetriable } from '../utils/retries'
-import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
+import { EventPipelineResult } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
@@ -43,6 +41,10 @@ import {
     createResolveTeamStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
+import {
+    PreprocessedEventWithStores,
+    createEventPipelineRunnerV1Step,
+} from './event-processing/event-pipeline-runner-v1-step'
 import { createBatch, createNewBatchPipeline, createNewPipeline } from './pipelines/helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './pipelines/result-handling-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
@@ -116,6 +118,7 @@ export class IngestionConsumer {
     public readonly promiseScheduler = new PromiseScheduler()
 
     private batchPreprocessingPipeline!: ResultHandlingPipeline<{ message: Message }, PreprocessedEvent>
+    private mainEventPipeline!: ResultHandlingPipeline<PreprocessedEventWithStores, EventPipelineResult>
 
     constructor(
         private hub: Hub,
@@ -201,6 +204,9 @@ export class IngestionConsumer {
         // Initialize batch preprocessing pipeline after kafka producer is available
         this.initializePipeline()
 
+        // Initialize main event pipeline
+        this.initializeMainEventPipeline()
+
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
                 {
@@ -243,6 +249,25 @@ export class IngestionConsumer {
 
         // Wrap it in the result handling pipeline
         this.batchPreprocessingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+    }
+
+    private initializeMainEventPipeline(): void {
+        const pipelineConfig: PipelineConfig = {
+            kafkaProducer: this.kafkaProducer!,
+            dlqTopic: this.dlqTopic,
+            promiseScheduler: this.promiseScheduler,
+        }
+
+        // Create the event processing pipeline using fluent API
+        const eventPipelineStep = createEventPipelineRunnerV1Step(this.hub, this.hogTransformer)
+
+        const eventProcessingPipeline = createNewPipeline<PreprocessedEventWithStores>().pipeAsync(eventPipelineStep)
+
+        const mainEventBatchPipeline =
+            createNewBatchPipeline<PreprocessedEventWithStores>().pipeSequentially(eventProcessingPipeline)
+
+        // Wrap in result handling pipeline
+        this.mainEventPipeline = ResultHandlingPipeline.of(mainEventBatchPipeline, pipelineConfig)
     }
 
     public async stop(): Promise<void> {
@@ -507,115 +532,35 @@ export class IngestionConsumer {
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<void> {
-        // Process every message sequentially, stash promises to await on later
-        for (const incomingEvent of eventsForDistinctId.events) {
-            // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-            trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
-            await this.runEventRunnerV1(incomingEvent, personsStoreForBatch, groupStoreForBatch)
-        }
-    }
-
-    private async runEventRunnerV1(
-        incomingEvent: IncomingEventWithTeam,
-        personsStoreForBatch: PersonsStoreForBatch,
-        groupStoreForBatch: GroupStoreForBatch
-    ): Promise<EventPipelineResult | undefined> {
-        const { event, message, team, headers } = incomingEvent
-
-        try {
-            const result = await this.runInstrumented('runEventPipeline', () =>
-                retryIfRetriable(async () => {
-                    const runner = this.getEventPipelineRunnerV1(
-                        event,
-                        personsStoreForBatch,
-                        groupStoreForBatch,
-                        headers
-                    )
-                    return await runner.runEventPipeline(event, team)
-                })
-            )
-
-            // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
-            result.ackPromises?.forEach((promise) => {
-                void this.promiseScheduler.schedule(
-                    promise.catch(async (error) => {
-                        await this.handleProcessingErrorV1(error, message, event)
-                    })
-                )
-            })
-
-            return result
-        } catch (error) {
-            await this.handleProcessingErrorV1(error, message, event)
-        }
-    }
-
-    private async handleProcessingErrorV1(error: any, message: Message, event: PipelineEvent): Promise<void> {
-        logger.error('🔥', `Error processing message`, {
-            stack: error.stack,
-            error: error,
-        })
-
-        // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
-        // error.
-        //
-        // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
-        // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
-        // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
-        // some metadata to the message e.g. in the header or reference e.g. the event id.
-        //
-        // TODO: properly abstract out this `isRetriable` error logic. This is currently relying on the
-        // fact that node-rdkafka adheres to the `isRetriable` interface.
-
-        if (error?.isRetriable === false) {
-            captureException(error)
-            try {
-                await this.kafkaProducer!.produce({
-                    topic: this.dlqTopic,
-                    value: message.value,
-                    key: message.key ?? null, // avoid undefined, just to be safe
-                    headers: {
-                        'event-id': event.uuid,
-                    },
-                })
-            } catch (error) {
-                // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
-                // offset and move on.
-                if (error?.isRetriable === false) {
-                    logger.error('🔥', `Error pushing to DLQ`, {
-                        stack: error.stack,
-                        error: error,
-                    })
-                    return
+        const preprocessedEventsWithStores: PreprocessedEventWithStores[] = eventsForDistinctId.events.map(
+            (incomingEvent) => {
+                // Track $set usage in events that aren't known to use it, before ingestion adds anything there
+                trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
+                return {
+                    ...incomingEvent,
+                    personsStoreForBatch,
+                    groupStoreForBatch,
                 }
-
-                // If we can't send to the DLQ and it is retriable, raise the error.
-                throw error
             }
-        } else {
-            throw error
-        }
-    }
-
-    private getEventPipelineRunnerV1(
-        event: PipelineEvent,
-        personsStoreForBatch: PersonsStoreForBatch,
-        groupStoreForBatch: GroupStoreForBatch,
-        headers?: EventHeaders
-    ): EventPipelineRunner {
-        return new EventPipelineRunner(
-            this.hub,
-            event,
-            this.hogTransformer,
-            personsStoreForBatch,
-            groupStoreForBatch,
-            headers
         )
+
+        // Feed the batch to the main event pipeline
+        const eventsSequence = createBatch(preprocessedEventsWithStores)
+        this.mainEventPipeline.feed(eventsSequence)
+        const results = await this.mainEventPipeline.next()
+
+        if (results) {
+            results.forEach((result) => {
+                result.ackPromises?.forEach((promise: Promise<void>) => {
+                    void this.promiseScheduler.schedule(promise)
+                })
+            })
+        }
     }
 
     private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {
         // Create batch using the helper function
-        const batch = createBatch(messages)
+        const batch = createBatch(messages.map((message) => ({ message })))
 
         // Feed batch to the pipeline
         this.batchPreprocessingPipeline.feed(batch)

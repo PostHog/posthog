@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { BaseBatchPipeline, BatchProcessingStep } from './base-batch-pipeline'
 import { createBatch, createNewBatchPipeline, createNewPipeline } from './helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
 import { PipelineResult, dlq, drop, ok, redirect } from './results'
-import { BatchProcessingStep, SequentialBatchPipeline } from './sequential-batch-pipeline'
 import { AsyncProcessingStep, SyncProcessingStep } from './steps'
 
 // Simple test types - only include fields needed for testing
@@ -254,7 +254,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -331,7 +331,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -392,7 +392,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -465,7 +465,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -642,7 +642,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -803,7 +803,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -952,7 +952,7 @@ describe('Pipeline Integration Tests', () => {
                 promiseScheduler: mockPromiseScheduler,
             })
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             // Expect the pipeline to throw an exception
@@ -1095,8 +1095,8 @@ describe('Pipeline Integration Tests', () => {
             const gatheredPipeline = createNewBatchPipeline().pipeConcurrently(preprocessingPipeline).gather()
 
             const batchPipeline1 = gatheredPipeline.pipeBatch(batchStep1)
-            const batchPipeline2 = new SequentialBatchPipeline(batchStep2, batchPipeline1)
-            const batchPipeline = new SequentialBatchPipeline(batchStep3, batchPipeline2)
+            const batchPipeline2 = new BaseBatchPipeline(batchStep2, batchPipeline1)
+            const batchPipeline = new BaseBatchPipeline(batchStep3, batchPipeline2)
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, {
                 kafkaProducer: mockKafkaProducer,
@@ -1104,7 +1104,7 @@ describe('Pipeline Integration Tests', () => {
                 promiseScheduler: mockPromiseScheduler,
             })
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             // Expect the pipeline to throw an exception
@@ -1194,7 +1194,7 @@ describe('Pipeline Integration Tests', () => {
                 promiseScheduler: mockPromiseScheduler,
             })
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             // Expect the pipeline to throw an exception
@@ -1305,7 +1305,7 @@ describe('Pipeline Integration Tests', () => {
                 promiseScheduler: mockPromiseScheduler,
             })
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             // Start the pipeline processing
@@ -1555,7 +1555,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -1651,7 +1651,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const startTime = Date.now()

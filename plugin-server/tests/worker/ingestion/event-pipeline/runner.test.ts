@@ -3,7 +3,15 @@ import { v4 } from 'uuid'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { dlq, ok, redirect } from '~/ingestion/pipelines/results'
+import {
+    PipelineResultType,
+    dlq,
+    isDlqResult,
+    isOkResult,
+    isRedirectResult,
+    ok,
+    redirect,
+} from '~/ingestion/pipelines/results'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
@@ -267,19 +275,19 @@ describe('EventPipelineRunner', () => {
         })
 
         it('emits metrics for every step', async () => {
-            const pipelineLastStepCounterSpy = jest.spyOn(metrics.pipelineLastStepCounter, 'labels')
             const eventProcessedAndIngestedCounterSpy = jest.spyOn(metrics.eventProcessedAndIngestedCounter, 'inc')
             const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
             const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
 
             const result = await runner.runEventPipeline(pluginEvent, team)
-            expect(result.error).toBeUndefined()
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.value.error).toBeUndefined()
+            }
 
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
-            expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('emitEventStep')
-            expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('emitEventStep')
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
@@ -323,30 +331,19 @@ describe('EventPipelineRunner', () => {
             })
 
             it('emits DLQ when merge limit is exceeded during processPersonsStep', async () => {
-                const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
-
                 // Make processPersonsStep return a DLQ result instead of throwing
                 jest.mocked(processPersonsStep).mockResolvedValueOnce(
                     dlq('Merge limit exceeded', new PersonMergeLimitExceededError('person_merge_move_limit_hit'))
                 )
 
-                await runner.runEventPipeline(pluginEvent, team)
+                const result = await runner.runEventPipeline(pluginEvent, team)
 
-                // Verify DLQ messages were produced (ingestion warning + main DLQ)
-                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(2)
-
-                // Check the main DLQ message
-                const dlqCall = mockProducer.queueMessages.mock.calls.find(
-                    ([msg]) => (msg as TopicMessage).topic === 'events_dead_letter_queue_test'
-                )?.[0] as TopicMessage
-                expect(dlqCall).toBeDefined()
-                const value = parseJSON(dlqCall.messages[0].value as string)
-                expect(value).toMatchObject({
-                    team_id: 2,
-                    distinct_id: 'my_id',
-                    error_location: 'plugin_server_ingest_event:processPersonsStep',
-                })
-                expect(pipelineStepDLQCounterSpy).toHaveBeenCalledWith('processPersonsStep')
+                // Verify that the pipeline returned a DLQ result
+                expect(result.type).toBe(PipelineResultType.DLQ)
+                if (isDlqResult(result)) {
+                    expect(result.reason).toBe('Merge limit exceeded')
+                    expect(result.error).toBeInstanceOf(PersonMergeLimitExceededError)
+                }
             })
 
             it('redirects event when merge limit is exceeded in async mode during processPersonsStep', async () => {
@@ -355,18 +352,14 @@ describe('EventPipelineRunner', () => {
                     redirect('Event redirected to async merge topic', 'async-merge-topic')
                 )
 
-                await runner.runEventPipeline(pluginEvent, team)
+                const result = await runner.runEventPipeline(pluginEvent, team)
 
-                // Verify the event was redirected to the async topic
-                expect(mockProducer.produce).toHaveBeenCalledWith({
-                    topic: 'async-merge-topic',
-                    key: `${pluginEvent.team_id}:${pluginEvent.distinct_id}`,
-                    value: expect.any(Buffer),
-                    headers: {
-                        distinct_id: pluginEvent.distinct_id,
-                        team_id: pluginEvent.team_id.toString(),
-                    },
-                })
+                // Verify that the pipeline returned a redirect result
+                expect(result.type).toBe(PipelineResultType.REDIRECT)
+                if (isRedirectResult(result)) {
+                    expect(result.reason).toBe('Event redirected to async merge topic')
+                    expect(result.topic).toBe('async-merge-topic')
+                }
             })
         })
 
