@@ -116,14 +116,20 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         reportAIQueryPromptOpen: true,
         setWasPanelActive: (wasPanelActive: boolean) => ({ wasPanelActive }),
     }),
-    reducers({
+    reducers(() => ({
         wasPanelActive: [
             false,
             {
                 setWasPanelActive: (_, { wasPanelActive }) => wasPanelActive,
             },
         ],
-    }),
+        panelExplicitlyClosed: [
+            false,
+            {
+                [panelLayoutLogic.actionTypes.closePanel]: () => true,
+            },
+        ],
+    })),
     listeners(() => ({
         reportAIQueryPrompted: () => {
             posthog.capture('ai_query_prompted')
@@ -514,11 +520,13 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
     })),
-    urlToAction(() => ({
+    urlToAction(({ values }) => ({
         [urls.sqlEditor()]: () => {
-            panelLayoutLogic.actions.showLayoutPanel(true)
-            panelLayoutLogic.actions.setActivePanelIdentifier('Database')
-            panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
+            if (!values.panelExplicitlyClosed) {
+                panelLayoutLogic.actions.showLayoutPanel(true)
+                panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+                panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
+            }
         },
         '*': () => {
             if (router.values.location.pathname !== urls.sqlEditor()) {

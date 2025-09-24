@@ -22,6 +22,7 @@ export function HogFunctionConfigurationSaveButton(): JSX.Element {
             onClick={submitConfiguration}
             loading={isConfigurationSubmitting}
             disabledReason={!configurationChanged && hogFunction ? 'No changes' : undefined}
+            size="small"
         >
             {template ? 'Create' : 'Save'}
             {willReEnableOnSave
@@ -49,6 +50,7 @@ export function HogFunctionConfigurationClearChangesButton(): JSX.Element | null
             disabledReason={
                 !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
             }
+            size="small"
         >
             Clear changes
         </LemonButton>

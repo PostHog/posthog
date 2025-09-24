@@ -34,6 +34,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
@@ -100,6 +101,7 @@ function TraceSceneWrapper(): JSX.Element {
                 <NotFound object="trace" />
             ) : (
                 <div className="relative deprecated-space-y-4 flex flex-col">
+                    <SceneBreadcrumbBackButton />
                     <div className="flex items-start justify-between">
                         <TraceMetadata
                             trace={trace}
@@ -335,9 +337,9 @@ const TreeNode = React.memo(function TraceNode({
     const usage = node.displayUsage
     const item = node.event
 
-    const { eventTypeFilters } = useValues(llmAnalyticsTraceLogic)
+    const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
     const eventType = getEventType(item)
-    const isCollapsedDueToFilter = eventTypeFilters[eventType] === false
+    const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
 
     const children = [
         isLLMTraceEvent(item) && item.properties.$ai_is_error && (
@@ -778,8 +780,8 @@ function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?:
 
 function EventTypeFilters(): JSX.Element {
     const { availableEventTypes } = useValues(llmAnalyticsTraceDataLogic)
-    const { eventTypeFilters } = useValues(llmAnalyticsTraceLogic)
-    const { toggleEventTypeFilter } = useActions(llmAnalyticsTraceLogic)
+    const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
+    const { toggleEventTypeExpanded } = useActions(llmAnalyticsTraceLogic)
 
     if (availableEventTypes.length === 0) {
         return <></>
@@ -792,8 +794,8 @@ function EventTypeFilters(): JSX.Element {
                 {availableEventTypes.map((eventType: string) => (
                     <LemonCheckbox
                         key={eventType}
-                        checked={eventTypeFilters[eventType] ?? true}
-                        onChange={() => toggleEventTypeFilter(eventType)}
+                        checked={eventTypeExpanded(eventType)}
+                        onChange={() => toggleEventTypeExpanded(eventType)}
                         label={<span className="capitalize text-xs">{eventType}s</span>}
                         size="small"
                     />

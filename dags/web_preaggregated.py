@@ -27,6 +27,7 @@ from dags.web_preaggregated_utils import (
     merge_clickhouse_settings,
     recreate_staging_table,
     swap_partitions_from_staging,
+    sync_partitions_on_replicas,
     web_analytics_retry_policy_def,
 )
 
@@ -64,14 +65,14 @@ def pre_aggregate_web_analytics_data(
     staging_table_name = f"{table_name}_staging"
 
     try:
-        # 1. Recreate staging table (replaces partition cleaning)
+        # 1. Recreate staging table
         if staging_table_name not in REPLACE_TEMPLATES_BY_STAGING_TABLE_NAME:
             raise dagster.Failure(f"No REPLACE TABLE function found for {staging_table_name}")
 
         replace_sql_func = REPLACE_TEMPLATES_BY_STAGING_TABLE_NAME[staging_table_name]
         recreate_staging_table(context, cluster, staging_table_name, replace_sql_func)
 
-        # 2. Generate hourly data into staging table
+        # 2. Write data into staging table
         insert_query = sql_generator(
             date_start=date_start,
             date_end=date_end,
@@ -85,7 +86,10 @@ def pre_aggregate_web_analytics_data(
         context.log.info(insert_query)
         sync_execute(insert_query)
 
-        # 3. Atomically swap partitions from staging to target
+        # 3. Sync replicas before partition swapping to ensure consistency
+        sync_partitions_on_replicas(context, cluster, staging_table_name)
+
+        # 4. Atomically swap partitions from staging to target
         context.log.info(f"Swapping partitions from {staging_table_name} to {table_name}")
         swap_partitions_from_staging(context, cluster, table_name, staging_table_name)
 

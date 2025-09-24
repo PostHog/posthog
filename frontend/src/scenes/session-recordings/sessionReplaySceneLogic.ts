@@ -71,11 +71,13 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                         key: Scene.Replay,
                         name: 'Replay',
                         path: urls.replay(),
+                        iconType: 'session_replay',
                     })
                 }
                 breadcrumbs.push({
                     key: tab,
                     name: humanFriendlyTabName(tab),
+                    iconType: 'session_replay',
                 })
 
                 return breadcrumbs

@@ -174,6 +174,20 @@ class TaskResult(BaseModel):
     status: TaskExecutionStatus
 
 
+class InsightQuery(BaseModel):
+    """
+    A single insight query to be included in a dashboard.
+    Includes the name and description of the insight to be included in the dashboard.
+    """
+
+    name: str = Field(
+        description="The short name of the insight to be included in the dashboard, it will be used in the dashboard tile. So keep it short and concise. It will be displayed as a header in the insight tile, so make sure it is starting with a capital letter. Be specific about time periods and filters if the user mentioned them. Do not be general or vague."
+    )
+    description: str = Field(
+        description="The detailed description of the insight to be included in the dashboard. Include all relevant context about the insight from earlier messages too, as the tool won't see that conversation history. Do not forget fiters, properties, event names if the user mentioned them. Be specific about time periods and filters if the user mentioned them. Do not be general or vague."
+    )
+
+
 class BaseState(BaseModel):
     """Base state class with reset functionality."""
 
@@ -292,6 +306,18 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The short ID of the notebook being used.
     """
+    dashboard_name: Optional[str] = Field(default=None)
+    """
+    The name of the dashboard to be created based on the user request.
+    """
+    selected_insight_ids: Optional[list[int]] = Field(default=None)
+    """
+    The selected insights to be included in the dashboard.
+    """
+    search_insights_queries: Optional[list[InsightQuery]] = Field(default=None)
+    """
+    The user's queries to search for insights.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -336,6 +362,12 @@ class AssistantNodeName(StrEnum):
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
+    DASHBOARD_CREATION = "dashboard_creation"
+    DASHBOARD_CREATION_EXECUTOR = "dashboard_creation_executor"
+    HOGQL_GENERATOR = "hogql_generator"
+    HOGQL_GENERATOR_TOOLS = "hogql_generator_tools"
+    SESSION_REPLAY_FILTER = "session_replay_filter"
+    SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
 
 
 class AssistantMode(StrEnum):
