@@ -39,6 +39,7 @@ const meta: Meta = {
         pageUrl: urls.heatmaps(),
         testOptions: {
             waitForLoadersToDisappear: true,
+            wa,
         },
     },
     decorators: [

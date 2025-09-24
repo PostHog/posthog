@@ -10,12 +10,11 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { queryEndpointLogic } from 'scenes/data-warehouse/editor/output-pane-tabs/queryEndpointLogic'
 import { urls } from 'scenes/urls'
 
 import { QueryEndpointType } from '~/types'
 
-import { EmbeddedTab } from '../common'
+import { queryEndpointLogic } from './queryEndpointLogic'
 import { queryEndpointsLogic } from './queryEndpointsLogic'
 
 interface QueryEndpointsProps {
@@ -50,7 +49,7 @@ export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.El
                 return (
                     <LemonTableLink
                         // TODO: Add link to endpoint modal
-                        to={urls.embeddedAnalytics(EmbeddedTab.QUERY_ENDPOINTS)}
+                        // to={urls.embeddedAnalyticsQueryEndpoint(record.name)}
                         title={record.name}
                         description={record.description}
                     />
@@ -114,7 +113,7 @@ export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.El
                             <LemonButton
                                 onClick={() => {
                                     router.actions.push(
-                                        urls.embeddedAnalytics(EmbeddedTab.USAGE, { requestNameFilter: record.name })
+                                        urls.embeddedAnalyticsUsage({ requestNameFilter: [record.name] })
                                     )
                                 }}
                                 fullWidth

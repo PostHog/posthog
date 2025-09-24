@@ -44,7 +44,6 @@ import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
-import { queryEndpointLogic } from 'scenes/data-warehouse/editor/output-pane-tabs/queryEndpointLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -79,6 +78,8 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { QueryEndpointModal } from 'products/embedded_analytics/frontend/QueryEndpointModal'
+
 import { getInsightIconTypeFromQuery } from './utils'
 
 const RESOURCE_TYPE = 'insight'
@@ -111,7 +112,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { createStaticCohort } = useActions(exportsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const { createQueryEndpoint } = useActions(queryEndpointLogic({ tabId: 'qe-insight' }))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -128,6 +128,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
+    const [queryEndpointModalOpen, setQueryEndpointModalOpen] = useState<boolean>(false)
 
     const dashboardOverridesExist =
         (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
@@ -205,6 +206,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     )}
                     <NewDashboardModal />
+                    <QueryEndpointModal
+                        isOpen={queryEndpointModalOpen}
+                        closeModal={() => setQueryEndpointModalOpen(false)}
+                        tabId={insightProps.tabId || ''}
+                        insightQuery={insightQuery as HogQLQuery | InsightQueryNode}
+                    />
                 </>
             )}
 
@@ -352,23 +359,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : null}
 
                         {featureFlags[FEATURE_FLAGS.EMBEDDED_ANALYTICS] ? (
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    {
-                                        query &&
-                                            createQueryEndpoint({
-                                                name: (
-                                                    defaultInsightName || Math.random().toString(36).substring(2, 15)
-                                                )
-                                                    .slice(0, 20)
-                                                    .replace(/\s+/g, '-'),
-                                                description: insight.description,
-                                                query: insightQuery as HogQLQuery | InsightQueryNode,
-                                            })
-                                    }
-                                }}
-                                menuItem
-                            >
+                            <ButtonPrimitive onClick={() => setQueryEndpointModalOpen(true)} menuItem>
                                 <IconCode2 />
                                 Create query endpoint
                             </ButtonPrimitive>
