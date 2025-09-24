@@ -20,6 +20,8 @@ class TestMailjetProvider(TestCase):
             "DKIMStatus": "Not checked",
             "SPFRecordValue": "v=spf1 include:spf.mailjet.com ~all",
             "SPFStatus": "Not checked",
+            "OwnerShipToken": "123a4bc56d7890efg123h4ijk56l78mn",
+            "OwnerShipTokenRecordName": "mailjet._123a4bc56.example.com.",
         }
 
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
@@ -53,6 +55,7 @@ class TestMailjetProvider(TestCase):
 
         dkim_record = next((r for r in records if r["type"] == "dkim"), None)
         spf_record = next((r for r in records if r["type"] == "spf"), None)
+        ownership_record = next((r for r in records if r["type"] == "ownership"), None)
 
         self.assertEqual(dkim_record["recordType"], "TXT")
         self.assertEqual(dkim_record["recordHostname"], self.mock_dns_response["DKIMRecordName"])
@@ -63,6 +66,11 @@ class TestMailjetProvider(TestCase):
         self.assertEqual(spf_record["recordHostname"], "@")
         self.assertEqual(spf_record["recordValue"], self.mock_dns_response["SPFRecordValue"])
         self.assertEqual(spf_record["status"], "pending")
+
+        self.assertEqual(ownership_record["recordType"], "TXT")
+        self.assertEqual(ownership_record["recordHostname"], self.mock_dns_response["OwnerShipRecordName"])
+        self.assertEqual(ownership_record["recordValue"], self.mock_dns_response["OwnerShipToken"])
+        self.assertEqual(ownership_record["status"], "pending")
 
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_format_dns_records_verified(self):

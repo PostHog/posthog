@@ -85,11 +85,22 @@ class MailjetProvider:
                 }
             )
 
+        if "OwnerShipToken" in required_dns_records and "OwnerShipTokenRecordName" in required_dns_records:
+            formatted_dns_records.append(
+                {
+                    "type": "ownership",
+                    "recordType": "TXT",
+                    "recordHostname": required_dns_records.get("OwnerShipTokenRecordName"),
+                    "recordValue": required_dns_records.get("OwnerShipToken"),
+                    "status": "unknown",  # Ownership token doesn't have a status field
+                }
+            )
+
         return overall_status, formatted_dns_records
 
     def _get_domain_dns_records(self, domain: str):
         """
-        Get DNS records for a domain (DKIM and SPF verification status)
+        Get DNS records for a domain (Mailjet verification, DKIM + SPF verification status)
 
         Reference: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/dns/
         """
