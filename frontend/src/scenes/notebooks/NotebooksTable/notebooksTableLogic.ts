@@ -7,6 +7,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectClean, objectsEqual } from 'lib/utils'
 
 import { notebooksModel } from '~/models/notebooksModel'
+import { Breadcrumb } from '~/types'
 
 import { NotebookListItemType, NotebookNodeType } from '../types'
 import type { notebooksTableLogicType } from './notebooksTableLogicType'
@@ -138,4 +139,16 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
             },
         ],
     })),
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'notebooks',
+                    name: 'Notebooks',
+                    iconType: 'notebook',
+                },
+            ],
+        ],
+    }),
 ])

@@ -11,7 +11,7 @@ interface DetailFilterRowProps {
 }
 
 const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
-    const { availableFilters } = useValues(advancedActivityLogsLogic)
+    const { availableFilters, activeFilters } = useValues(advancedActivityLogsLogic)
     const { updateActiveFilter, removeActiveFilter } = useActions(advancedActivityLogsLogic)
 
     const [localValue, setLocalValue] = useState<string | string[]>(filter.value)
@@ -24,7 +24,6 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
             return []
         }
 
-        const { activeFilters } = advancedActivityLogsLogic.values
         const selectedFields = new Set(
             activeFilters.filter((f) => f.key !== filter.key && !f.isCustom).map((f) => f.fieldPath)
         )
@@ -67,7 +66,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
             .filter((section) => section.options.length > 0)
 
         return fieldSections
-    }, [availableFilters, filter.key, filter.fieldPath])
+    }, [availableFilters, filter.key, filter.fieldPath, activeFilters])
 
     const validateCustomFieldPath = (path: string): string | null => {
         if (!path || !path.trim()) {
@@ -90,7 +89,10 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
     }, [filter.fieldPath])
 
     const handleOperationChange = (operation: ActiveDetailFilter['operation']): void => {
-        const newValue = operation === 'in' && !Array.isArray(filter.value) ? [filter.value as string] : filter.value
+        let newValue = filter.value
+        if (operation === 'in' && !Array.isArray(filter.value)) {
+            newValue = filter.value && (filter.value as string).trim() ? [filter.value as string] : []
+        }
         setLocalValue(newValue)
         updateActiveFilter(filter.key, { operation, value: newValue })
     }

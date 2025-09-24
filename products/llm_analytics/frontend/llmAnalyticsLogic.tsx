@@ -22,6 +22,7 @@ import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
     BaseMathType,
+    Breadcrumb,
     ChartDisplayType,
     EventDefinitionType,
     HogQLMathType,
@@ -721,7 +722,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
                 FROM (
-                    SELECT 
+                    SELECT
                         distinct_id,
                         timestamp,
                         JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
@@ -766,6 +767,18 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         isRefreshing: [
             (s) => [s.refreshStatus],
             (refreshStatus) => Object.values(refreshStatus).some((status) => status.loading),
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        key: 'llm_analytics',
+                        name: 'LLM Analytics',
+                        iconType: 'llm_analytics',
+                    },
+                ]
+            },
         ],
     }),
 

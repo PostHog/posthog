@@ -3,6 +3,7 @@ import './EditSurvey.scss'
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
@@ -41,6 +42,7 @@ import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollect
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
 import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -226,7 +228,7 @@ function SurveyCompletionConditions(): JSX.Element {
     )
 }
 
-export default function SurveyEdit(): JSX.Element {
+export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     const {
         survey,
         urlMatchTypeValidationError,
@@ -241,6 +243,7 @@ export default function SurveyEdit(): JSX.Element {
         surveyErrors,
         isExternalSurveyFFEnabled,
         user,
+        surveyLoading,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -250,11 +253,22 @@ export default function SurveyEdit(): JSX.Element {
         setFlagPropertyErrors,
         deleteBranchingLogic,
         setSurveyManualErrors,
+        editingSurvey,
+        loadSurvey,
     } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     useMountedLogic(actionsModel)
+
+    const handleCancelClick = (): void => {
+        editingSurvey(false)
+        if (id === 'new') {
+            router.actions.push(urls.surveys())
+        } else {
+            loadSurvey()
+        }
+    }
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -291,6 +305,29 @@ export default function SurveyEdit(): JSX.Element {
                     onDescriptionChange={(description) => setSurveyValue('description', description)}
                     renameDebounceMs={0}
                     forceEdit
+                    actions={
+                        <>
+                            <LemonButton
+                                data-attr="cancel-survey"
+                                type="secondary"
+                                loading={surveyLoading}
+                                onClick={handleCancelClick}
+                                size="small"
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                data-attr="save-survey"
+                                htmlType="submit"
+                                loading={surveyLoading}
+                                form="survey"
+                                size="small"
+                            >
+                                {id === 'new' ? 'Save as draft' : 'Save'}
+                            </LemonButton>
+                        </>
+                    }
                 />
                 <SceneDivider />
             </div>

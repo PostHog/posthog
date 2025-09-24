@@ -7,7 +7,6 @@ import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link } from '@
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -321,20 +320,6 @@ export function LLMAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <PageHeader
-                buttons={
-                    <div className="flex gap-2">
-                        <LemonButton
-                            to="https://posthog.com/docs/llm-analytics/installation"
-                            type="secondary"
-                            targetBlank
-                        >
-                            Documentation
-                        </LemonButton>
-                    </div>
-                }
-            />
-
             <SceneContent>
                 {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
                 <SceneTitleSection
@@ -343,6 +328,18 @@ export function LLMAnalyticsScene(): JSX.Element {
                     resourceType={{
                         type: 'llm_analytics',
                     }}
+                    actions={
+                        <>
+                            <LemonButton
+                                to="https://posthog.com/docs/llm-analytics/installation"
+                                type="secondary"
+                                targetBlank
+                                size="small"
+                            >
+                                Documentation
+                            </LemonButton>
+                        </>
+                    }
                 />
                 <SceneDivider />
 

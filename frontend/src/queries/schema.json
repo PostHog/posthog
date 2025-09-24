@@ -11384,6 +11384,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "funnel_order_type": {
                     "$ref": "#/definitions/StepOrderValue"
                 },
@@ -11599,6 +11602,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
@@ -11677,6 +11683,9 @@
                 },
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "fingerprint": {
+                    "type": "string"
                 },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
@@ -11941,6 +11950,9 @@
                 },
                 "denominator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "fingerprint": {
+                    "type": "string"
                 },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
@@ -12526,7 +12538,8 @@
                 "insight/paths",
                 "insight/lifecycle",
                 "insight/stickiness",
-                "insight/hog"
+                "insight/hog",
+                "team_activity"
             ],
             "type": "string"
         },

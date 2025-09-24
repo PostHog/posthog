@@ -14,6 +14,7 @@ import {
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { Breadcrumb } from '~/types'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
@@ -221,6 +222,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     ? filteredItemsList[selectedIndex]
                     : null,
         ],
+        breadcrumbs: [() => [], (): Breadcrumb[] => [{ key: 'new-tab', name: 'New tab', iconType: 'blank' }]],
     }),
     listeners(({ values }) => ({
         onSubmit: () => {

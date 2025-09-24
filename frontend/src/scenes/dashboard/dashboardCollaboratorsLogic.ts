@@ -2,13 +2,14 @@ import { actions, connect, events, kea, key, path, props, reducers, selectors } 
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
-import { teamMembersLogic } from 'scenes/settings/environment/teamMembersLogic'
+import { DashboardPrivilegeLevel, DashboardRestrictionLevel, OrganizationMembershipLevel } from 'lib/constants'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 import {
     DashboardCollaboratorType,
     DashboardType,
     FusedDashboardCollaboratorType,
+    FusedTeamMemberType,
     UserBasicType,
     UserType,
 } from '~/types'
@@ -25,12 +26,7 @@ export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType>(
     key((props) => props.dashboardId),
     path((key) => ['scenes', 'dashboard', 'dashboardCollaboratorsLogic', key]),
     connect((props: DashboardCollaboratorsLogicProps) => ({
-        values: [
-            teamMembersLogic,
-            ['admins', 'plainMembers', 'allMembers', 'allMembersLoading'],
-            dashboardLogic({ id: props.dashboardId }),
-            ['dashboard'],
-        ],
+        values: [membersLogic, ['members', 'membersLoading'], dashboardLogic({ id: props.dashboardId }), ['dashboard']],
     })),
     actions({
         deleteExplicitCollaborator: (userUuid: UserType['uuid']) => ({ userUuid }),
@@ -80,6 +76,27 @@ export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType>(
         ],
     }),
     selectors({
+        // Create the missing selectors that teamMembersLogic used to provide
+        allMembers: [
+            (s) => [s.members],
+            (members): FusedTeamMemberType[] =>
+                (members || []).map((member) => ({
+                    ...member,
+                    explicit_team_level: null,
+                    organization_level: member.level,
+                })),
+        ],
+        admins: [
+            (s) => [s.allMembers],
+            (allMembers: FusedTeamMemberType[]): FusedTeamMemberType[] =>
+                allMembers.filter(({ level }) => level >= OrganizationMembershipLevel.Admin),
+        ],
+        plainMembers: [
+            (s) => [s.allMembers],
+            (allMembers: FusedTeamMemberType[]): FusedTeamMemberType[] =>
+                allMembers.filter(({ level }) => level < OrganizationMembershipLevel.Admin),
+        ],
+        allMembersLoading: [(s) => [s.membersLoading], (membersLoading): boolean => membersLoading],
         allCollaborators: [
             (s) => [s.explicitCollaborators, s.admins, s.allMembers, s.dashboard],
             (explicitCollaborators, admins, allMembers, dashboard): FusedDashboardCollaboratorType[] => {

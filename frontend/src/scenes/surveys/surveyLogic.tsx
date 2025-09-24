@@ -196,7 +196,7 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
             id: undefined,
         })),
         id: NEW_SURVEY.id,
-        name: `${survey.name} (copy)`,
+        name: `${survey.name} (duplicated at ${dayjs().format('YYYY-MM-DD HH:mm:ss')})`,
         archived: false,
         start_date: null,
         end_date: null,
@@ -691,6 +691,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         },
                     })
 
+                    actions.setIsDuplicateToProjectModalOpen(false)
                     actions.reportSurveyCreated(createdSurvey, true)
                     actions.addProductIntent({
                         product_type: ProductKey.SURVEYS,
@@ -1378,10 +1379,12 @@ export const surveyLogic = kea<surveyLogicType>([
                     key: Scene.Surveys,
                     name: 'Surveys',
                     path: urls.surveys(),
+                    iconType: 'survey',
                 },
                 {
                     key: [Scene.Survey, survey?.id || 'new'],
                     name: survey.name,
+                    iconType: 'survey',
                 },
             ],
         ],

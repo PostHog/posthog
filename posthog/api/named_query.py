@@ -20,6 +20,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import _process_query_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
@@ -81,6 +82,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
                     "endpoint_path": named_query.endpoint_path,
                     "created_at": named_query.created_at,
                     "updated_at": named_query.updated_at,
+                    "created_by": UserBasicSerializer(named_query.created_by).data,
                 }
             )
 

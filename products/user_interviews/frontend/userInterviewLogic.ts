@@ -43,11 +43,13 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                     key: 'UserInterviews',
                     name: 'User interviews',
                     path: urls.userInterviews(),
+                    iconType: 'user_interview',
                 },
                 {
                     key: props.id,
                     name: userInterview?.interviewee_emails?.join(', '),
                     path: urls.userInterview(props.id),
+                    iconType: 'user_interview',
                 },
             ],
         ],

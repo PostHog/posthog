@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
@@ -22,9 +20,8 @@ interface MessageCategory {
 }
 
 export function OptOutCategories(): JSX.Element {
-    const { categories, categoriesLoading } = useValues(optOutCategoriesLogic)
-    const { loadCategories, deleteCategory } = useActions(optOutCategoriesLogic)
-    const [isNewCategoryModalOpen, setIsNewCategoryModalOpen] = useState(false)
+    const { categories, categoriesLoading, isNewCategoryModalOpen } = useValues(optOutCategoriesLogic)
+    const { loadCategories, deleteCategory, closeNewCategoryModal } = useActions(optOutCategoriesLogic)
     const [editingCategory, setEditingCategory] = useState<MessageCategory | null>(null)
 
     useEffect(() => {
@@ -36,7 +33,6 @@ export function OptOutCategories(): JSX.Element {
     }
 
     const handleCloseModal = (): void => {
-        setIsNewCategoryModalOpen(false)
         setEditingCategory(null)
     }
 
@@ -127,20 +123,6 @@ export function OptOutCategories(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                caption="Configure message categories and view opt-outs"
-                buttons={
-                    <LemonButton
-                        data-attr="new-optout-category"
-                        icon={<IconPlusSmall />}
-                        size="small"
-                        type="primary"
-                        onClick={() => setIsNewCategoryModalOpen(true)}
-                    >
-                        New category
-                    </LemonButton>
-                }
-            />
             {categoriesLoading ? (
                 <LemonSkeleton className="h-10" />
             ) : (
@@ -155,7 +137,10 @@ export function OptOutCategories(): JSX.Element {
 
             <NewCategoryModal
                 isOpen={isNewCategoryModalOpen || editingCategory !== null}
-                onClose={handleCloseModal}
+                onClose={() => {
+                    closeNewCategoryModal()
+                    handleCloseModal()
+                }}
                 category={editingCategory}
             />
         </>

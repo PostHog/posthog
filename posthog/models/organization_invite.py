@@ -16,7 +16,6 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.utils import absolute_uri
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
@@ -38,9 +37,7 @@ def validate_private_project_access(value):
             raise exceptions.ValidationError('Each dictionary must contain "id" and "level" keys.')
         if not isinstance(item["id"], int):
             raise exceptions.ValidationError('The "id" field must be an integer.')
-        # This is a temporary fix to support both the old ExplicitTeamMembership.Level int and the new ACCESS_CONTROL_LEVELS_MEMBER
-        # In the future it will only check for ACCESS_CONTROL_LEVELS_MEMBER str
-        valid_levels = list(ExplicitTeamMembership.Level.values) + list(ACCESS_CONTROL_LEVELS_MEMBER)
+        valid_levels = list(ACCESS_CONTROL_LEVELS_MEMBER)
         if item["level"] not in valid_levels:
             raise exceptions.ValidationError('The "level" field must be a valid access level.')
 
@@ -140,26 +137,13 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 # if the team doesn't exist, it was probably deleted. We can still continue with the invite.
                 continue
 
-            # This path is deprecated, and will be removed soon
-            if team.access_control:
-                ExplicitTeamMembership.objects.create(
-                    team=team,
-                    parent_membership=parent_membership,
-                    # Supporting both the old ExplicitTeamMembership.Level int and the new AccessControlLevel str
-                    level=item["level"] if isinstance(item["level"], int) else (8 if item["level"] == "admin" else 1),
-                )
-            else:
-                # New access control
-                AccessControl.objects.create(
-                    team=team,
-                    resource="project",
-                    resource_id=str(team.id),
-                    organization_member=parent_membership,
-                    # Supporting both the old ExplicitTeamMembership.Level int and the new AccessControlLevel str
-                    access_level=item["level"]
-                    if isinstance(item["level"], str)
-                    else ("admin" if item["level"] == 8 else "member"),
-                )
+            AccessControl.objects.create(
+                team=team,
+                resource="project",
+                resource_id=str(team.id),
+                organization_member=parent_membership,
+                access_level=item["level"],
+            )
 
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join

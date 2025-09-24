@@ -1,4 +1,3 @@
-import crypto from 'crypto'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
@@ -163,33 +162,13 @@ export class EmailTrackingService {
     public async handleMailjetWebhook(
         req: ModifiedRequest
     ): Promise<{ status: number; message?: string; metrics?: AppMetricType[] }> {
-        const signature = req.headers['x-mailjet-signature'] as string
-        const timestamp = req.headers['x-mailjet-timestamp'] as string
-
         const okResponse = { status: 200, message: 'OK' }
 
-        if (!signature || !timestamp || !req.rawBody) {
-            return { status: 403, message: 'Missing required headers or body' }
+        if (!req.rawBody) {
+            return { status: 403, message: 'Missing request body' }
         }
 
-        const payload = `${timestamp}.${req.rawBody.toString()}`
-        const hmac = crypto.createHmac('sha256', this.hub.MAILJET_SECRET_KEY).update(payload).digest()
-
         try {
-            const signatureBuffer = Buffer.from(signature, 'hex')
-            if (
-                hmac.length !== signatureBuffer.length ||
-                !crypto.timingSafeEqual(new Uint8Array(hmac), new Uint8Array(signatureBuffer))
-            ) {
-                emailTrackingErrorsCounter.inc({ error_type: 'invalid_signature' })
-                logger.error('[EmailService] handleWebhook: Invalid signature', {
-                    signature,
-                    timestamp,
-                    payload,
-                })
-                return { status: 403, message: 'Invalid signature' }
-            }
-
             const event = req.body as MailjetWebhookEvent
 
             const { functionId, invocationId } = parseEmailTrackingCode(event.Payload || '') || {}

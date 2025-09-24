@@ -309,12 +309,14 @@ export const personsLogic = kea<personsLogicType>([
                         key: Scene.Persons,
                         name: 'People',
                         path: urls.persons(),
+                        iconType: 'person',
                     },
                 ]
                 if (showPerson) {
                     breadcrumbs.push({
                         key: [Scene.Person, person.id || 'unknown'],
                         name: asDisplay(person),
+                        iconType: 'person',
                     })
                 }
                 return breadcrumbs

@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -14,7 +14,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
+import { Breadcrumb, Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
 
@@ -305,18 +305,28 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
     })),
-    events(({ actions, values }) => ({
-        afterMount: () => {
-            actions.loadExperiments()
-            // Sync modal page with URL on mount
-            const urlPage = values.featureFlagModalPageFromURL
-            if (urlPage !== 1) {
-                actions.setFeatureFlagModalFilters({ page: urlPage })
-            } else {
-                actions.loadFeatureFlagModalFeatureFlags()
-            }
-        },
-    })),
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'experiments',
+                    name: 'Experiments',
+                    iconType: 'experiment',
+                },
+            ],
+        ],
+    }),
+    afterMount(({ actions, values }) => {
+        actions.loadExperiments()
+        // Sync modal page with URL on mount
+        const urlPage = values.featureFlagModalPageFromURL
+        if (urlPage !== 1) {
+            actions.setFeatureFlagModalFilters({ page: urlPage })
+        } else {
+            actions.loadFeatureFlagModalFeatureFlags()
+        }
+    }),
     actionToUrl(({ values }) => {
         const changeUrl = ():
             | [

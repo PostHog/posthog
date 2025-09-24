@@ -184,6 +184,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                     key: 'RevenueAnalytics',
                     name: 'Revenue analytics',
                     path: urls.revenueAnalytics(),
+                    iconType: 'revenue_analytics',
                 },
             ],
         ],

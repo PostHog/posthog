@@ -7,10 +7,9 @@ from posthog.test.base import BaseTest
 from posthog.hogql.ast import DateType, FloatType, IntegerType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.functions.core import HogQLFunctionMeta, compare_types
 from posthog.hogql.functions.mapping import (
     HOGQL_CLICKHOUSE_FUNCTIONS,
-    HogQLFunctionMeta,
-    compare_types,
     find_hogql_aggregation,
     find_hogql_function,
     find_hogql_posthog_function,

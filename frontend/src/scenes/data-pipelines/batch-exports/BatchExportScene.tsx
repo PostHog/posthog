@@ -5,7 +5,6 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
@@ -60,16 +59,18 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
                         path: urls.dataPipelines(),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: [Scene.DataPipelines, 'destinations'],
                         name: 'Destinations',
                         path: urls.dataPipelines('destinations'),
+                        iconType: 'data_pipeline',
                     },
-
                     {
                         key: Scene.BatchExport,
                         name: 'Batch export',
+                        iconType: 'data_pipeline',
                     },
                 ]
             },
@@ -119,14 +120,6 @@ function BatchExportSceneHeader(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                buttons={
-                    <>
-                        <BatchExportConfigurationClearChangesButton />
-                        <BatchExportConfigurationSaveButton />
-                    </>
-                }
-            />
             <SceneTitleSection
                 name={configuration.name}
                 description={null}
@@ -142,6 +135,12 @@ function BatchExportSceneHeader(): JSX.Element {
                 onNameChange={(value) => setConfigurationValue('name', value)}
                 onDescriptionChange={(value) => setConfigurationValue('description', value)}
                 canEdit
+                actions={
+                    <>
+                        <BatchExportConfigurationClearChangesButton />
+                        <BatchExportConfigurationSaveButton />
+                    </>
+                }
             />
         </>
     )

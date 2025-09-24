@@ -203,6 +203,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconHogQL />,
         iconColor: ['var(--color-insight-sql-light)'],
     },
+    team_activity: {
+        icon: <IconNotification />,
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
+    },
 }
 
 const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
@@ -383,7 +387,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
     {
         path: `Activity logs`,
         category: 'Activity',
-        iconType: 'logs',
+        iconType: 'team_activity',
         href: urls.advancedActivityLogs(),
         flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
     } as FileSystemImport,

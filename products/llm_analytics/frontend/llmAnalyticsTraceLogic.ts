@@ -190,15 +190,18 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                         key: 'LLMAnalytics',
                         name: 'LLM analytics',
                         path: urls.llmAnalyticsDashboard(),
+                        iconType: 'llm_analytics',
                     },
                     {
                         key: 'LLMAnalyticsTraces',
                         name: 'Traces',
                         path: urls.llmAnalyticsTraces(),
+                        iconType: 'llm_analytics',
                     },
                     {
                         key: ['LLMAnalyticsTrace', traceId || ''],
                         name: traceId,
+                        iconType: 'llm_analytics',
                     },
                 ]
             },
