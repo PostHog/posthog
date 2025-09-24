@@ -1,17 +1,34 @@
-import { actions, events, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, kea, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import {
     dateStringToDayJs,
     getDefaultInterval,
     isValidRelativeOrAbsoluteDate,
     updateDatesWithInterval,
 } from 'lib/utils'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
 
-import { EmbeddedAnalyticsTileId, EmbeddedQueryTile } from './common'
+import {
+    EmbeddedAnalyticsTileId,
+    EmbeddedQueryTile,
+    EmbeddedTab,
+    INITIAL_DATE_FROM,
+    INITIAL_DATE_TO,
+    INITIAL_INTERVAL,
+    INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED,
+} from './common'
 import type { embeddedAnalyticsLogicType } from './embeddedAnalyticsLogicType'
 import {
     createApiCpuSecondsQuery,
@@ -20,24 +37,20 @@ import {
     createApiReadTbQuery,
     createExpensiveQueriesColumns,
     createExpensiveQueriesQuery,
+    createFailedQueriesColumns,
+    createFailedQueriesQuery,
     createLast20QueriesColumns,
     createLast20QueriesQuery,
 } from './queries'
 
-const INITIAL_DATE_FROM = '-7d' as string
-const INITIAL_DATE_TO = null as string | null
-const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
-
-export const EMBEDDED_ANALYTICS_DATA_COLLECTION_NODE_ID = 'EmbeddedAnalyticsScene'
-
 export interface EmbeddedAnalyticsLogicProps {
-    dashboardId?: string | number
+    tabId?: string
 }
 
 export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
     path(['scenes', 'embedded-analytics', 'embeddedAnalyticsLogic']),
+    tabAwareScene(),
     props({} as EmbeddedAnalyticsLogicProps),
-    key(({ dashboardId }) => dashboardId || 'default'),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -48,8 +61,36 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             interval,
         }),
         setRequestNameBreakdownEnabled: (enabled: boolean) => ({ enabled }),
+        setRequestNameFilter: (requestNames: string[]) => ({ requestNames }),
+        ensureAllRequestNamesLoaded: true,
+        loadRequestNames: true,
+        setSearch: (search: string) => ({ search }),
+        setActiveTab: (tab: EmbeddedTab) => ({ tab }),
     }),
 
+    loaders(({}) => ({
+        requestNames: [
+            [] as string[],
+            {
+                loadRequestNames: async () => {
+                    const query = hogql`
+                        SELECT DISTINCT name
+                        FROM query_log
+                        WHERE is_personal_api_key_request
+                            AND name IS NOT NULL
+                            AND name != ''
+                        ORDER BY name ASC
+                    `
+
+                    const response = await api.queryHogQL(query, {
+                        refresh: 'force_blocking',
+                    })
+
+                    return response.results?.map((row: string[]) => row[0]) || []
+                },
+            },
+        ],
+    })),
     reducers({
         dateFilter: [
             {
@@ -99,17 +140,34 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             },
         ],
         requestNameBreakdownEnabled: [
-            false,
+            INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED as boolean,
             {
                 setRequestNameBreakdownEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        requestNameFilter: [
+            [] as string[],
+            {
+                setRequestNameFilter: (_, { requestNames }) => requestNames,
+            },
+        ],
+        search: ['', { setSearch: (_, { search }) => search }],
+        activeTab: [
+            EmbeddedTab.QUERY_ENDPOINTS as EmbeddedTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
     }),
 
     selectors({
         tiles: [
-            (s) => [s.dateFilter, s.requestNameBreakdownEnabled],
-            (dateFilter, requestNameBreakdownEnabled): EmbeddedQueryTile[] => {
+            (s) => [s.dateFilter, s.requestNameBreakdownEnabled, s.requestNameFilter, s.activeTab],
+            (dateFilter, requestNameBreakdownEnabled, requestNameFilter, activeTab): EmbeddedQueryTile[] => {
+                if (activeTab === EmbeddedTab.QUERY_ENDPOINTS) {
+                    return []
+                }
+
                 const dateFromDayjs = dateStringToDayJs(dateFilter.dateFrom)
                 const dateToDayjs = dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo) : null
 
@@ -123,16 +181,20 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                     dateFrom,
                     dateTo,
                     requestNameBreakdownEnabled,
+                    requestNameFilter,
                 }
 
                 const expensiveQueriesColumns = createExpensiveQueriesColumns(requestNameBreakdownEnabled)
                 const last20QueriesColumns = createLast20QueriesColumns(requestNameBreakdownEnabled)
+                const failedQueriesColumns = createFailedQueriesColumns()
+
                 const apiQueriesCountQuery = createApiQueriesCountQuery(queryConfig)
                 const apiReadTbQuery = createApiReadTbQuery(queryConfig)
                 const apiCpuSecondsQuery = createApiCpuSecondsQuery(queryConfig)
                 const apiQueriesPerKeyQuery = createApiQueriesPerKeyQuery(queryConfig)
                 const last20QueriesQuery = createLast20QueriesQuery(queryConfig)
                 const expensiveQueriesQuery = createExpensiveQueriesQuery(queryConfig)
+                const failedQueriesQuery = createFailedQueriesQuery(queryConfig)
 
                 return [
                     {
@@ -281,20 +343,6 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                                 query: last20QueriesQuery,
                             },
                             display: ChartDisplayType.ActionsTable,
-                            chartSettings: {
-                                xAxis: { column: 'query_start_time' },
-                                yAxis: [
-                                    {
-                                        column: 'query_duration_ms',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                    {
-                                        column: 'created_by',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                ],
-                                seriesBreakdownColumn: null,
-                            },
                             tableSettings: {
                                 columns: last20QueriesColumns,
                                 conditionalFormatting: [],
@@ -321,20 +369,6 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                                 query: expensiveQueriesQuery,
                             },
                             display: ChartDisplayType.ActionsTable,
-                            chartSettings: {
-                                xAxis: { column: 'query_start_time' },
-                                yAxis: [
-                                    {
-                                        column: 'read_tb',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                    {
-                                        column: 'cpu_sec',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                ],
-                                seriesBreakdownColumn: null,
-                            },
                             tableSettings: {
                                 columns: expensiveQueriesColumns,
                                 conditionalFormatting: [],
@@ -347,15 +381,113 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                         canOpenInsight: false,
                         canOpenModal: false,
                     },
+                    {
+                        kind: 'query',
+                        tileId: EmbeddedAnalyticsTileId.API_FAILED_QUERIES,
+                        title: 'Recently failed API request queries',
+                        layout: {
+                            colSpanClassName: 'md:col-span-full',
+                        },
+                        query: {
+                            kind: NodeKind.DataVisualizationNode,
+                            source: {
+                                kind: NodeKind.HogQLQuery,
+                                query: failedQueriesQuery,
+                            },
+                            display: ChartDisplayType.ActionsTable,
+                            tableSettings: {
+                                columns: failedQueriesColumns,
+                                conditionalFormatting: [],
+                            },
+                        },
+                        insightProps: {
+                            dashboardItemId: 'embedded_analytics_failed_queries',
+                            cachedInsight: null,
+                        } as InsightLogicProps,
+                        canOpenInsight: false,
+                        canOpenModal: false,
+                    },
                 ]
             },
         ],
     }),
 
-    events(({ actions, values }) => ({
-        afterMount: () => {
-            // Force initial breakdown state setup
-            actions.setRequestNameBreakdownEnabled(values.requestNameBreakdownEnabled)
+    tabAwareActionToUrl(({ values }) => {
+        const actionToUrl = ({
+            dateFilter = values.dateFilter,
+            requestNameBreakdownEnabled = values.requestNameBreakdownEnabled,
+            requestNameFilter = values.requestNameFilter,
+        }): [string, Record<string, any> | undefined, string | undefined] | undefined => {
+            const { dateFrom, dateTo, interval } = dateFilter
+            const searchParams = { ...router.values.searchParams }
+
+            if (values.activeTab === EmbeddedTab.USAGE) {
+                if (dateFrom !== INITIAL_DATE_FROM) {
+                    searchParams.dateFrom = dateFrom
+                } else {
+                    delete searchParams.dateFrom
+                }
+
+                if (dateTo !== INITIAL_DATE_TO) {
+                    searchParams.dateTo = dateTo
+                } else {
+                    delete searchParams.dateTo
+                }
+
+                if (interval !== INITIAL_INTERVAL) {
+                    searchParams.interval = interval
+                } else {
+                    delete searchParams.interval
+                }
+
+                if (requestNameBreakdownEnabled !== INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED) {
+                    searchParams.requestNameBreakdownEnabled = requestNameBreakdownEnabled
+                } else {
+                    delete searchParams.requestNameBreakdownEnabled
+                }
+
+                if (requestNameFilter.length > 0) {
+                    searchParams.requestNameFilter = requestNameFilter.join(',')
+                } else {
+                    delete searchParams.requestNameFilter
+                }
+            } else {
+                delete searchParams.dateFrom
+                delete searchParams.dateTo
+                delete searchParams.interval
+                delete searchParams.requestNameBreakdownEnabled
+                delete searchParams.requestNameFilter
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.location.hash]
+        }
+
+        return {
+            setActiveTab: actionToUrl,
+            setDates: actionToUrl,
+            setDatesAndInterval: actionToUrl,
+            setRequestNameBreakdownEnabled: actionToUrl,
+            setRequestNameFilter: actionToUrl,
+        }
+    }),
+
+    tabAwareUrlToAction(({ actions }) => ({
+        [urls.embeddedAnalytics(':tab')]: (path, searchParams) => {
+            actions.setActiveTab(path.tab as EmbeddedTab)
+            if (path.tab === EmbeddedTab.USAGE) {
+                const { dateFrom, dateTo, interval, requestNameBreakdownEnabled, requestNameFilter } = searchParams
+                actions.setDatesAndInterval(
+                    dateFrom ?? INITIAL_DATE_FROM,
+                    dateTo ?? INITIAL_DATE_TO,
+                    interval ?? INITIAL_INTERVAL
+                )
+                actions.setRequestNameBreakdownEnabled(
+                    requestNameBreakdownEnabled ?? INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED
+                )
+                actions.setRequestNameFilter(requestNameFilter ? requestNameFilter.split(',') : [])
+            }
         },
     })),
+
+    permanentlyMount(),
 ])

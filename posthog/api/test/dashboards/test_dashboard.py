@@ -80,7 +80,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         for dashboard_name in dashboard_names:
             self.dashboard_api.create_dashboard({"name": dashboard_name})
 
-        response_data = self.dashboard_api.list_dashboards()
+        with self.assertNumQueries(14):
+            response_data = self.dashboard_api.list_dashboards()
         self.assertEqual(
             [dashboard["name"] for dashboard in response_data["results"]],
             dashboard_names,
@@ -112,6 +113,34 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {dashboard["id"] for dashboard in response_env_other_data["results"]},
             {dashboard_a_id, dashboard_b_id},
         )
+
+    def test_list_filter_by_tag(self):
+        self.dashboard_api.create_dashboard({"name": "tagged", "tags": ["tag"]})
+        self.dashboard_api.create_dashboard({"name": "also tagged", "tags": ["tag2"]})
+        self.dashboard_api.create_dashboard({"name": "not tagged"})
+
+        with self.assertNumQueries(14):
+            response = self.dashboard_api.list_dashboards(
+                expected_status=status.HTTP_200_OK, query_params={"tags": ["tag"]}
+            )
+
+        assert response["count"] == 1
+        assert response["results"][0]["name"] == "tagged"
+
+    def test_list_filter_by_multiple_tags(self):
+        self.dashboard_api.create_dashboard({"name": "tagged", "tags": ["tag"]})
+        self.dashboard_api.create_dashboard({"name": "also tagged", "tags": ["tag2"]})
+        self.dashboard_api.create_dashboard({"name": "not tagged"})
+        self.dashboard_api.create_dashboard({"name": "not with the right tag", "tags": ["wrong-tag"]})
+
+        with self.assertNumQueries(14):
+            response = self.dashboard_api.list_dashboards(
+                expected_status=status.HTTP_200_OK, query_params={"tags": ["tag", "tag2"]}
+            )
+
+        assert response["count"] == 2
+        dashboard_names = {dashboard["name"] for dashboard in response["results"]}
+        assert dashboard_names == {"tagged", "also tagged"}
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard(self):

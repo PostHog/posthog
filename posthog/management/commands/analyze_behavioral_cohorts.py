@@ -13,7 +13,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import MESSAGING_TASK_QUEUE
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.messaging.behavioral_cohorts_workflow import BehavioralCohortsWorkflowInputs
+from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import CoordinatorWorkflowInputs
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -59,7 +59,13 @@ class Command(BaseCommand):
             "--parallelism",
             type=int,
             default=10,
-            help="Number of parallel workers for processing (default: 10)",
+            help="Number of parallel child workflows to spawn (default: 10)",
+        )
+        parser.add_argument(
+            "--conditions-page-size",
+            type=int,
+            default=1000,
+            help="Number of conditions to fetch per page when loading data (default: 1000)",
         )
         parser.add_argument(
             "--use-temporal",
@@ -82,6 +88,8 @@ class Command(BaseCommand):
         condition = options.get("condition")
         limit = options.get("limit")
         parallelism = options.get("parallelism", 10)
+        conditions_page_size = options.get("conditions_page_size", 1000)
+        conditions_per_workflow = options.get("conditions_per_workflow", 5000)
         use_temporal = options.get("use_temporal", True)
 
         logger.info(
@@ -92,8 +100,7 @@ class Command(BaseCommand):
 
         if use_temporal:
             # Use Temporal workflow for parallel processing
-            start_time = time.time()
-            result = self.run_temporal_workflow(
+            self.run_temporal_workflow(
                 team_id=team_id,
                 cohort_id=cohort_id,
                 condition=condition,
@@ -101,39 +108,19 @@ class Command(BaseCommand):
                 days=days,
                 limit=limit,
                 parallelism=parallelism,
+                conditions_page_size=conditions_page_size,
+                conditions_per_workflow=conditions_per_workflow,
             )
 
-            if result:
-                total_time_seconds = round(time.time() - start_time, 2)
+            logger.info(
+                "Coordinator workflow scheduled child workflows",
+                parallelism=parallelism,
+            )
 
-                logger.info(
-                    "Completed (Temporal parallel processing)",
-                    total_memberships=result["total_memberships"],
-                    conditions_processed=result["conditions_processed"],
-                    batches_processed=result["batches_processed"],
-                    parallelism=parallelism,
-                    total_time_seconds=total_time_seconds,
-                )
-
-                self.stdout.write(
-                    f"Workflow completed: {result['total_memberships']} memberships from {result['conditions_processed']} conditions"
-                )
-                self.stdout.write(
-                    f"Processed in {result['batches_processed']} parallel batches (parallelism={parallelism})"
-                )
-                self.stdout.write(f"Total time: {total_time_seconds} seconds")
-
-                # Display sample results
-                if result.get("memberships"):
-                    self.stdout.write("\nSample results (first 5):")
-                    self.stdout.write("team_id,person_id,cohort_id")
-                    for team_id, person_id, cohort_id in result["memberships"][:5]:
-                        self.stdout.write(f"{team_id},{person_id},{cohort_id}")
-
-                    if len(result["memberships"]) > 5:
-                        self.stdout.write(
-                            f"\n... showing first 5 of {result['total_memberships']} total memberships ..."
-                        )
+            self.stdout.write(f"Coordinator workflow scheduled {parallelism} child workflows")
+            self.stdout.write(
+                "Child workflows are running in the background. Check Temporal UI for progress and results."
+            )
         else:
             # Legacy sequential processing
             logger.info("Using legacy sequential processing")
@@ -180,15 +167,17 @@ class Command(BaseCommand):
         days: int,
         limit: int | None,
         parallelism: int,
-    ) -> dict[str, Any] | None:
+        conditions_page_size: int,
+        conditions_per_workflow: int,
+    ) -> None:
         """Run the Temporal workflow for parallel processing."""
 
         async def _run_workflow():
             # Connect to Temporal
             client = await async_connect()
 
-            # Create workflow inputs
-            inputs = BehavioralCohortsWorkflowInputs(
+            # Always use coordinator workflow for true parallelism and to avoid GRPC limits
+            inputs = CoordinatorWorkflowInputs(
                 team_id=team_id,
                 cohort_id=cohort_id,
                 condition=condition,
@@ -196,17 +185,18 @@ class Command(BaseCommand):
                 days=days,
                 limit=limit,
                 parallelism=parallelism,
+                conditions_per_workflow=conditions_per_workflow,
             )
 
             # Generate unique workflow ID
-            workflow_id = f"behavioral-cohorts-{team_id or 'all'}-{cohort_id or 'all'}-{int(time.time())}"
+            workflow_id = f"behavioral-cohorts-coordinator-{team_id or 'all'}-{cohort_id or 'all'}-{int(time.time())}"
 
-            logger.info(f"Starting Temporal workflow: {workflow_id}")
+            logger.info(f"Starting Temporal coordinator workflow: {workflow_id}")
 
             try:
-                # Execute the workflow
-                result = await client.execute_workflow(
-                    "behavioral-cohorts-analysis",
+                # Execute the coordinator workflow (no result expected)
+                await client.execute_workflow(
+                    "behavioral-cohorts-coordinator",
                     inputs,
                     id=workflow_id,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
@@ -214,7 +204,6 @@ class Command(BaseCommand):
                 )
 
                 logger.info(f"Workflow {workflow_id} completed successfully")
-                return result
 
             except Exception as e:
                 logger.exception(f"Workflow execution failed: {e}")
@@ -222,11 +211,9 @@ class Command(BaseCommand):
 
         try:
             # Run the async function
-            result = asyncio.run(_run_workflow())
-            return result
+            asyncio.run(_run_workflow())
         except Exception as e:
             logger.exception(f"Failed to execute Temporal workflow: {e}")
-            return None
 
     def get_unique_conditions(
         self,
