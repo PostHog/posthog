@@ -237,11 +237,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                   key: Scene.Dashboards,
                                   name: 'Dashboards',
                                   path: urls.dashboards(),
+                                  iconType: 'dashboard',
                               },
                               {
                                   key: Scene.Dashboard,
                                   name: dashboardName,
                                   path: urls.dashboard(dashboardId),
+                                  iconType: 'dashboard',
                               },
                           ]
                         : [
@@ -250,23 +252,27 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                         key: Scene.WebAnalytics,
                                         name: 'Web analytics',
                                         path: urls.webAnalytics(),
+                                        iconType: 'web_analytics',
                                     }
                                   : sceneSource === 'llm-analytics'
                                     ? {
                                           key: 'LLMAnalytics',
                                           name: 'LLM analytics',
                                           path: urls.llmAnalyticsDashboard(),
+                                          iconType: 'llm_analytics',
                                       }
                                     : {
                                           key: Scene.SavedInsights,
                                           name: 'Product analytics',
                                           path: urls.savedInsights(),
+                                          iconType: 'insight/trends',
                                       },
                           ]),
                     {
                         key: [Scene.Insight, insight?.short_id || `new-${tabId}`],
                         name: insightLogicRef?.logic.values.insightName,
                         forceEditMode: insightLogicRef?.logic.values.canEditInsight,
+                        iconType: `insight/trends` as FileSystemIconType,
                     },
                 ]
             },

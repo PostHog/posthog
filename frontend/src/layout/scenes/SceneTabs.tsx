@@ -16,7 +16,9 @@ import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -219,6 +221,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 className
             )}
         >
+            {iconForType(tab.iconType as FileSystemIconType)}
             <div
                 className={cn(
                     'scene-tab-title flex-grow text-left max-w-[200px] truncate',

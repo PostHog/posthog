@@ -4024,6 +4024,7 @@ interface BreadcrumbBase {
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
     /** Whether to show a custom popover for the project */
     isPopoverProject?: boolean
+    iconType?: FileSystemIconType
 }
 export interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
