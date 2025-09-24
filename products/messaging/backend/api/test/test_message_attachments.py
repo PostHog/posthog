@@ -5,11 +5,11 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from rest_framework import status
 
-from products.messaging.backend.api import messaging_attachments
+from products.messaging.backend.api.message_attachments import MAX_FILE_SIZE
 
 
 class TestMessageAttachmentsAPI(APIBaseTest):
-    @patch("products.messaging.backend.api.messaging_attachments.object_storage")
+    @patch("products.messaging.backend.api.message_attachments.object_storage")
     def test_upload_success(self, mock_storage):
         mock_storage.write = MagicMock()
         test_file = SimpleUploadedFile(
@@ -35,11 +35,11 @@ class TestMessageAttachmentsAPI(APIBaseTest):
         uuid_txt_pattern = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.txt$"
         self.assertRegex(object_path_arg, uuid_txt_pattern)
 
-    @patch("products.messaging.backend.api.messaging_attachments.object_storage")
+    @patch("products.messaging.backend.api.message_attachments.object_storage")
     def test_upload_file_too_large(self, mock_storage):
         test_file = SimpleUploadedFile(
             "big.svg",
-            b'<svg viewBox="0 0 1 1">' + b"0" * (messaging_attachments.MAX_FILE_SIZE + 1) + b"</svg>",
+            b'<svg viewBox="0 0 1 1">' + b"0" * (MAX_FILE_SIZE + 1) + b"</svg>",
             content_type="image/svg+xml",
         )
         response = self.client.post(
@@ -65,7 +65,7 @@ class TestMessageAttachmentsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Invalid file type", response.json())
 
-    @patch("products.messaging.backend.api.messaging_attachments.object_storage")
+    @patch("products.messaging.backend.api.message_attachments.object_storage")
     def test_upload_disallowed_mime_type(self, mock_storage):
         test_file = SimpleUploadedFile(
             "test.svg",
@@ -80,7 +80,7 @@ class TestMessageAttachmentsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Invalid MIME type", response.json())
 
-    @patch("products.messaging.backend.api.messaging_attachments.object_storage")
+    @patch("products.messaging.backend.api.message_attachments.object_storage")
     def test_upload_storage_exception(self, mock_storage):
         mock_storage.write.side_effect = Exception("Storage error!")
         test_file = SimpleUploadedFile("test.txt", b"hello world", content_type="text/plain")
@@ -92,7 +92,7 @@ class TestMessageAttachmentsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertIn("error", response.json())
 
-    @patch("products.messaging.backend.api.messaging_attachments.object_storage")
+    @patch("products.messaging.backend.api.message_attachments.object_storage")
     def test_upload_missing_file(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_attachments/upload/",

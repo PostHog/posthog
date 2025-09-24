@@ -11,6 +11,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".svg"}
+ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/svg+xml"}
+
 
 class MessageAttachmentsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
@@ -21,9 +25,6 @@ class MessageAttachmentsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not file:
             return JsonResponse({"error": "Missing file"}, status=400)
 
-        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-        ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".svg"}
-        ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/svg+xml"}
         _, file_extension = os.path.splitext(file.name)
 
         if file.size > MAX_FILE_SIZE:
