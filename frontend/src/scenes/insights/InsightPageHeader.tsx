@@ -44,7 +44,6 @@ import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
-import { queryEndpointLogic } from 'scenes/data-warehouse/editor/output-pane-tabs/queryEndpointLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -78,6 +77,8 @@ import {
     ItemMode,
     QueryBasedInsightModel,
 } from '~/types'
+
+import { queryEndpointLogic } from 'products/embedded_analytics/frontend/queryEndpointLogic'
 
 import { getInsightIconTypeFromQuery } from './utils'
 
