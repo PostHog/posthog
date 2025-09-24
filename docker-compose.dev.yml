@@ -251,3 +251,6 @@ services:
 networks:
     otel_network:
         driver: bridge
+
+volumes:
+    redpanda-data:
