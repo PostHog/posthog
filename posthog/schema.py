@@ -50,6 +50,7 @@ class AlertConditionType(StrEnum):
     ABSOLUTE_VALUE = "absolute_value"
     RELATIVE_INCREASE = "relative_increase"
     RELATIVE_DECREASE = "relative_decrease"
+    ANOMALY = "anomaly"
 
 
 class AlertState(StrEnum):
@@ -2966,6 +2967,7 @@ class AlertCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    confidence_level: Optional[float] = None
     type: AlertConditionType
 
 

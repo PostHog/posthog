@@ -7,7 +7,7 @@ from unittest import mock
 
 from rest_framework import status
 
-from posthog.schema import AlertState, InsightThresholdType
+from posthog.schema import AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
@@ -214,3 +214,20 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         # should also create a new alert check with resolution
         check = AlertCheck.objects.filter(alert_configuration=firing_alert.id).latest("created_at")
         assert check.state == AlertState.SNOOZED
+
+    def test_create_anomaly_alert(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "name": "anomaly alert",
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ANOMALY, "confidence_level": 0.95},
+            "calculation_interval": "daily",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+        response_json = response.json()
+        assert response_json["name"] == "anomaly alert"
+        assert response_json["condition"]["type"] == AlertConditionType.ANOMALY
+        assert response_json["condition"]["confidence_level"] == 0.95
