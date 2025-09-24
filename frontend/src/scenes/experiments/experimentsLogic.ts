@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -304,6 +304,8 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 ])
             },
         ],
+    })),
+    selectors({
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -314,19 +316,17 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 },
             ],
         ],
-    })),
-    events(({ actions, values }) => ({
-        afterMount: () => {
-            actions.loadExperiments()
-            // Sync modal page with URL on mount
-            const urlPage = values.featureFlagModalPageFromURL
-            if (urlPage !== 1) {
-                actions.setFeatureFlagModalFilters({ page: urlPage })
-            } else {
-                actions.loadFeatureFlagModalFeatureFlags()
-            }
-        },
-    })),
+    }),
+    afterMount(({ actions, values }) => {
+        actions.loadExperiments()
+        // Sync modal page with URL on mount
+        const urlPage = values.featureFlagModalPageFromURL
+        if (urlPage !== 1) {
+            actions.setFeatureFlagModalFilters({ page: urlPage })
+        } else {
+            actions.loadFeatureFlagModalFeatureFlags()
+        }
+    }),
     actionToUrl(({ values }) => {
         const changeUrl = ():
             | [

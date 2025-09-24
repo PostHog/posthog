@@ -138,7 +138,8 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                 }
             },
         ],
-
+    })),
+    selectors({
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -149,5 +150,5 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                 },
             ],
         ],
-    })),
+    }),
 ])

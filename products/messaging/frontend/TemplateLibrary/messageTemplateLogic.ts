@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { NEW_TEMPLATE } from './constants'
@@ -44,7 +45,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                                   key: 'new-template',
                                   name: 'New template',
                                   path: urls.messagingLibraryTemplateNew(),
-                                  iconType: 'messaging',
+                                  iconType: 'messaging' as FileSystemIconType,
                               },
                           ]
                         : [
@@ -52,7 +53,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                                   key: 'edit-template',
                                   name: 'Manage template',
                                   path: urls.messagingLibraryTemplate(id),
-                                  iconType: 'messaging',
+                                  iconType: 'messaging' as FileSystemIconType,
                               },
                           ]),
                 ]
