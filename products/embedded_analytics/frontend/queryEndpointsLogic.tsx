@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -10,22 +10,18 @@ import type { queryEndpointsLogicType } from './queryEndpointsLogicType'
 
 export interface QueryEndpointsFilters {
     search: string
-    createdBy: string
 }
 
 export const DEFAULT_FILTERS: QueryEndpointsFilters = {
     search: '',
-    createdBy: 'All users',
 }
-
-export type QueryEndpointsFuse = Fuse<QueryEndpointType>
 
 export interface QueryEndpointsLogicProps {
     tabId: string
 }
 
 export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
-    path(['scenes', 'embedded-analytics', 'query-endpoints', 'queryEndpointsLogic']),
+    path(['products', 'embedded_analytics', 'frontend', 'queryEndpointsLogic']),
     props({} as QueryEndpointsLogicProps),
     key((props) => props.tabId),
     actions({
@@ -37,9 +33,9 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
             {
                 loadQueryEndpoints: async () => {
                     const response = await api.queryEndpoint.list()
-
                     let haystack: QueryEndpointType[] = response.results || []
 
+                    // TODO: Filter the already fetched results, not every time filter changes
                     if (haystack.length > 0) {
                         const names = haystack.map((endpoint) => endpoint.name)
                         const lastExecutionTimes = await api.queryEndpoint.getLastExecutionTimes(names)
@@ -57,24 +53,11 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
                         })
                         haystack = fuse.search(values.filters.search).map((result) => result.item)
                     }
-
-                    if (values.filters.createdBy !== 'All users') {
-                        haystack = haystack.filter(
-                            (endpoint) =>
-                                endpoint.created_by &&
-                                `${endpoint.created_by.first_name} ${endpoint.created_by.last_name}`.trim() ===
-                                    values.filters.createdBy
-                        )
-                    }
-
                     return haystack
                 },
             },
         ],
     })),
-    selectors({
-        isEmpty: [(s) => [s.queryEndpoints], (queryEndpoints) => queryEndpoints.length === 0],
-    }),
     reducers({
         filters: [
             DEFAULT_FILTERS as QueryEndpointsFilters,

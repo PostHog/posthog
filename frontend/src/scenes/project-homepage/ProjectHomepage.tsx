@@ -10,6 +10,8 @@ import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoic
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -29,7 +31,7 @@ export const scene: SceneExport = {
     logic: projectHomepageLogic,
 }
 
-export function ProjectHomepage(): JSX.Element {
+function HomePageContent(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showSceneDashboardChoiceModal } = useActions(
@@ -114,6 +116,27 @@ export function ProjectHomepage(): JSX.Element {
                 )}
             </div>
             <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
+        </SceneContent>
+    )
+}
+
+export function ProjectHomepage(): JSX.Element {
+    const { dashboardLogicProps } = useValues(projectHomepageLogic)
+    // if there is no numeric dashboard id, the dashboard logic will throw...
+    // so we check it here first
+    if (dashboardLogicProps?.id) {
+        return <HomePageContent />
+    }
+    return (
+        <SceneContent className="ProjectHomepage">
+            <SceneTitleSection
+                name="Loading homepage"
+                resourceType={{
+                    type: 'project',
+                    forceIcon: <Spinner />,
+                }}
+            />
+            <LemonSkeleton repeat={3} />
         </SceneContent>
     )
 }
