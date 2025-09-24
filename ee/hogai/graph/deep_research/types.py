@@ -42,6 +42,7 @@ class DeepResearchIntermediateResult(BaseModel):
 
 
 class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
+    tasks: Annotated[Optional[list[DeepResearchTask]], replace] = Field(default=None)  # type: ignore[assignment]
     todos: Annotated[Optional[list[DeepResearchTodo]], replace] = Field(default=None)
     """
     The current TO-DO list.

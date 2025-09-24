@@ -1835,6 +1835,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniqState": HogQLFunctionMeta("uniqState", 1, 1, aggregate=True),
     "uniqStateIf": HogQLFunctionMeta("uniqStateIf", 2, 2, aggregate=True),
     "uniqUpToMerge": HogQLFunctionMeta("uniqUpToMerge", 1, 1, 1, 1, aggregate=True),
+    "uniqExactMerge": HogQLFunctionMeta("uniqExactMerge", 1, 1, aggregate=True),
     "median": HogQLFunctionMeta("median", 1, 1, aggregate=True),
     "medianIf": HogQLFunctionMeta("medianIf", 2, 2, aggregate=True),
     "medianExact": HogQLFunctionMeta("medianExact", 1, 1, aggregate=True),
