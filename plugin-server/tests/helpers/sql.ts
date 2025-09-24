@@ -33,7 +33,6 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
-// Query for deleting common tables (in main database)
 export const POSTGRES_DELETE_COMMON_TABLES_QUERY = `
 DO $$
 DECLARE
@@ -88,7 +87,6 @@ BEGIN
 END $$;
 `
 
-// Query for deleting persons tables (in persons database)
 export const POSTGRES_DELETE_PERSONS_TABLES_QUERY = `
 DO $$
 DECLARE
@@ -132,7 +130,6 @@ END $$;
 `
 
 export async function clearDatabase(db: PostgresRouter) {
-    // Delete common tables using COMMON_WRITE
     await db
         .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_COMMON_TABLES_QUERY, undefined, 'delete-common-tables')
         .catch((e) => {
@@ -140,7 +137,6 @@ export async function clearDatabase(db: PostgresRouter) {
             throw e
         })
 
-    // Delete persons tables using PERSONS_WRITE
     await db
         .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSONS_TABLES_QUERY, undefined, 'delete-persons-tables')
         .catch((e) => {
@@ -222,7 +218,6 @@ export async function resetTestDatabase(
 
 // Helper function to determine which database a table belongs to
 function getPostgresUseForTable(table: string): PostgresUse {
-    // All tables that belong in the persons database based on the migration file
     const personsTablesRegex =
         /^posthog_(person|persondistinctid|personlessdistinctid|personoverridemapping|personoverride|pendingpersonoverride|flatpersonoverride|featureflaghashkeyoverride|cohortpeople|group|grouptypemapping)$/
     return personsTablesRegex.test(table) ? PostgresUse.PERSONS_WRITE : PostgresUse.COMMON_WRITE
@@ -245,7 +240,6 @@ export async function insertRow(db: PostgresRouter, table: string, objectProvide
         return value
     })
 
-    // Determine which database to use based on table name
     const postgresUse = getPostgresUseForTable(table)
 
     try {
