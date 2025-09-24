@@ -1,7 +1,6 @@
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -64,7 +63,13 @@ export function EmbeddedAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                                 data-attr="new-query-endpoint"
                                 onClick={() => {
                                     router.actions.push(
-                                        urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.QueryEndpoint)
+                                        urls.sqlEditor(
+                                            undefined,
+                                            undefined,
+                                            undefined,
+                                            undefined,
+                                            OutputTab.QueryEndpoint
+                                        )
                                     )
                                 }}
                                 type="primary"
