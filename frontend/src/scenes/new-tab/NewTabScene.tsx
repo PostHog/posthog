@@ -147,7 +147,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                             {source === 'homepage' ? (
                                 <>
                                     <LemonButton
-                                        type="tetriary"
+                                        type="tertiary"
                                         size="small"
                                         data-attr="project-home-customize-homepage"
                                         className="ml-auto"
