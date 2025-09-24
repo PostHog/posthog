@@ -6,16 +6,16 @@ from itertools import product
 from typing import Optional
 
 from posthog.hogql.ast import IntegerType, StringType
-from posthog.hogql.base import ConstantType
+from posthog.hogql.functions.core import AnyConstantType
 
 
 def generate_variadic_signatures(
-    fixed_types: list[ConstantType],
-    variadic_types: list[ConstantType],
-    suffix_types: Optional[list[ConstantType]] = None,
+    fixed_types: list[AnyConstantType],
+    variadic_types: list[AnyConstantType],
+    suffix_types: Optional[list[AnyConstantType]] = None,
     min_variadic: int = 0,
     max_variadic: int = 5,
-) -> list[tuple[ConstantType, ...]]:
+) -> list[tuple[AnyConstantType, ...]]:
     """
     Generate all possible input signature combinations for functions with variadic arguments.
 
@@ -46,12 +46,12 @@ def generate_variadic_signatures(
 
 
 def generate_json_path_signatures(
-    fixed_types: list[ConstantType],
-    return_type: ConstantType,
-    suffix_types: Optional[list[ConstantType]] = None,
+    fixed_types: list[AnyConstantType],
+    return_type: AnyConstantType,
+    suffix_types: Optional[list[AnyConstantType]] = None,
     min_paths: int = 0,
     max_paths: int = 5,
-) -> list[tuple[tuple[ConstantType, ...], ConstantType]]:
+) -> list[tuple[tuple[AnyConstantType, ...], AnyConstantType]]:
     """
     Generate signature combinations specifically for JSON functions with path arguments.
     Path arguments can be either String (key) or Integer (array index).
