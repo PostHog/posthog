@@ -40,6 +40,7 @@ import {
     RecordingUniversalFilters,
     SessionRecordingId,
     SessionRecordingType,
+    UniversalFilterValue,
 } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -51,13 +52,45 @@ import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylist
 
 export type PersonUUID = string
 
-interface Params {
-    filters?: RecordingUniversalFilters
-    simpleFilters?: LegacyRecordingFilters
-    advancedFilters?: LegacyRecordingFilters
+interface ReplayURLBaseSearchParams {
     sessionRecordingId?: SessionRecordingId
+}
+
+/**
+ * Allows a caller to send an event property and value that will be converted into the appropriate filters.
+ */
+type EventPropertyShortcutSearchParams = ReplayURLBaseSearchParams & {
+    eventProperty: string
+    eventPropertyValue: string
+}
+
+/**
+ * Allows a caller to send a person property and value that will be converted into the appropriate filters.
+ */
+type PersonPropertyShortcutSearchParams = ReplayURLBaseSearchParams & {
+    personProperty: string
+    personPropertyValue: string
+}
+
+type ReplayURLSearchParams = ReplayURLBaseSearchParams & {
+    filters?: RecordingUniversalFilters
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
+}
+
+type ReplayURLSearchParamTypes =
+    | ReplayURLSearchParams
+    | EventPropertyShortcutSearchParams
+    | PersonPropertyShortcutSearchParams
+
+const isEventPropertyShortcutSearchParams = (x: ReplayURLSearchParamTypes): x is EventPropertyShortcutSearchParams => {
+    return (x as EventPropertyShortcutSearchParams).eventProperty !== undefined
+}
+
+const isPersonPropertyShortcutSearchParams = (
+    x: ReplayURLSearchParamTypes
+): x is PersonPropertyShortcutSearchParams => {
+    return (x as PersonPropertyShortcutSearchParams).personProperty !== undefined
 }
 
 interface NoEventsToMatch {
@@ -263,6 +296,9 @@ export function convertLegacyFiltersToUniversalFilters(
     simpleFilters?: LegacyRecordingFilters,
     advancedFilters?: LegacyRecordingFilters
 ): RecordingUniversalFilters {
+    // we want to remove this, so set a tombstone, let's us see if the dead come back to life
+    posthog.capture('legacy_recording_filters_converted_tombstone')
+
     const filters = combineLegacyRecordingFilters(simpleFilters || {}, advancedFilters || {})
 
     const events = filters.events ?? []
@@ -1129,13 +1165,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             replace: boolean
         ): [
             string,
-            Params,
+            ReplayURLSearchParams,
             Record<string, any>,
             {
                 replace: boolean
             },
         ] => {
-            const params: Params = objectClean({
+            const params: ReplayURLSearchParams = objectClean({
                 ...router.values.searchParams,
                 filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
@@ -1160,7 +1196,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     urlToAction(({ actions, values, props }) => {
-        const urlToAction = (_: any, params: Params): void => {
+        const urlToAction = (_: any, params: ReplayURLSearchParams): void => {
             if (!props.updateSearchParams) {
                 return
             }
@@ -1170,13 +1206,42 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.setSelectedRecordingId(nulledSessionRecordingId)
             }
 
-            // Support legacy URLs. Can be removed shortly after release
-            if (params.simpleFilters || params.advancedFilters) {
-                if (!equal(params.filters, values.filters)) {
-                    actions.setFilters(
-                        convertLegacyFiltersToUniversalFilters(params.simpleFilters, params.advancedFilters)
-                    )
+            let quickEventFilter: UniversalFilterValue | null = null
+            let quickPersonFilter: UniversalFilterValue | null = null
+            if (isEventPropertyShortcutSearchParams(params)) {
+                quickEventFilter = {
+                    type: PropertyFilterType.Event,
+                    operator: PropertyOperator.Exact,
+                    key: params.eventProperty,
+                    value: params.eventPropertyValue,
                 }
+            }
+
+            if (isPersonPropertyShortcutSearchParams(params)) {
+                quickPersonFilter = {
+                    type: PropertyFilterType.Person,
+                    operator: PropertyOperator.Exact,
+                    key: params.personProperty,
+                    value: params.personPropertyValue,
+                }
+            }
+
+            if (quickEventFilter || quickPersonFilter) {
+                actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    ...(quickEventFilter ? [quickEventFilter] : []),
+                                    ...(quickPersonFilter ? [quickPersonFilter] : []),
+                                ],
+                            },
+                        ],
+                    },
+                })
+                return
             }
 
             if (params.filters && !equal(params.filters, values.filters)) {
