@@ -1,6 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
@@ -12,12 +17,13 @@ import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 export const BasicFiltersTab = (): JSX.Element => {
     const { filters, availableFilters } = useValues(advancedActivityLogsLogic)
     const { setFilters } = useActions(advancedActivityLogsLogic)
+    const [showAdvancedMode, setShowAdvancedMode] = useState(false)
 
     return (
         <div className="flex flex-col gap-4 pt-4">
             <div className="flex gap-4 flex-start flex-wrap">
                 <div className="flex flex-col gap-1">
-                    <label className="block text-sm font-medium mb-1">Date Range</label>
+                    <label className="block text-sm font-medium mb-1">Date range</label>
                     <DateFilter
                         dateFrom={filters.start_date}
                         dateTo={filters.end_date}
@@ -92,9 +98,97 @@ export const BasicFiltersTab = (): JSX.Element => {
                         className="min-w-50 min-h-10"
                     />
                 </div>
+
+                <div className="flex items-end justify-end mb-1">
+                    <LemonButton
+                        type="tertiary"
+                        icon={showAdvancedMode ? <IconCollapse /> : <IconExpand />}
+                        onClick={() => setShowAdvancedMode(!showAdvancedMode)}
+                        data-attr="audit-logs-more-filters-toggle"
+                        className="text-muted-alt hover:text-default"
+                    >
+                        More filters
+                    </LemonButton>
+                </div>
             </div>
 
-            <DetailFilters />
+            <AnimatedCollapsible collapsed={!showAdvancedMode}>
+                <div className="border-t border-border mt-4 pt-4">
+                    <div className="flex gap-4 flex-start flex-wrap pt-2">
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1 mb-1">
+                                <label className="block text-sm font-medium">Was impersonated?</label>
+                                <Tooltip title="During support, PostHog team members may act as a specific user to help troubleshoot issues. These impersonated actions are logged and can be filtered here.">
+                                    <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                                </Tooltip>
+                            </div>
+                            <LemonSelect
+                                value={
+                                    filters.was_impersonated === undefined ? 'all' : filters.was_impersonated.toString()
+                                }
+                                onChange={(value) =>
+                                    setFilters({ was_impersonated: value === 'all' ? undefined : value === 'true' })
+                                }
+                                options={[
+                                    { value: 'all', label: 'All' },
+                                    { value: 'true', label: 'Yes' },
+                                    { value: 'false', label: 'No' },
+                                ]}
+                                placeholder="All"
+                                data-attr="audit-logs-was-impersonated-filter"
+                                className="min-w-50 min-h-10"
+                            />
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1 mb-1">
+                                <label className="block text-sm font-medium">Is system action?</label>
+                                <Tooltip title="Actions performed automatically by PostHog's system, such as scheduled tasks, background processes, or automated workflows.">
+                                    <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                                </Tooltip>
+                            </div>
+                            <LemonSelect
+                                value={filters.is_system === undefined ? 'all' : filters.is_system.toString()}
+                                onChange={(value) =>
+                                    setFilters({ is_system: value === 'all' ? undefined : value === 'true' })
+                                }
+                                options={[
+                                    { value: 'all', label: 'All' },
+                                    { value: 'true', label: 'Yes' },
+                                    { value: 'false', label: 'No' },
+                                ]}
+                                placeholder="All"
+                                data-attr="audit-logs-is-system-filter"
+                                className="min-w-50 min-h-10"
+                            />
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1 mb-1">
+                                <label className="block text-sm font-medium">Item IDs</label>
+                                <Tooltip title="Filter by specific IDs of the items being tracked. Each activity log entry is associated with the ID of the object that was modified (e.g., dashboard ID, feature flag ID, etc.).">
+                                    <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                                </Tooltip>
+                            </div>
+                            <LemonInputSelect
+                                mode="multiple"
+                                displayMode="count"
+                                bulkActions="select-and-clear-all"
+                                value={filters.item_ids || []}
+                                onChange={(item_ids) => setFilters({ item_ids })}
+                                options={[]}
+                                placeholder="Enter item IDs"
+                                allowCustomValues={true}
+                                data-attr="audit-logs-item-ids-filter"
+                                className="min-w-50 min-h-10"
+                            />
+                        </div>
+                    </div>
+                    <div className="py-4">
+                        <DetailFilters />
+                    </div>
+                </div>
+            </AnimatedCollapsible>
         </div>
     )
 }
