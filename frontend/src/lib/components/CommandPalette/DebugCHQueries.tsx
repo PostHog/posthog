@@ -320,163 +320,153 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                 </LemonButton>
             </div>
 
-            <span>
-                <LemonTable
-                    columns={[
-                        {
-                            title: 'Timestamp',
-                            render: function Timestamp(_, item) {
-                                return (
-                                    <>
-                                        <div className="font-mono whitespace-pre mb-2">
-                                            {dayjs.tz(item.timestamp, 'UTC').tz().format().replace('T', '\n')}
-                                        </div>
-                                        <div>
-                                            {item.status === 1 ? (
-                                                'In progress…'
-                                            ) : (
-                                                <>
-                                                    Took{' '}
-                                                    {Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms
-                                                </>
-                                            )}
-                                        </div>
-                                    </>
-                                )
-                            },
-                            width: 160,
-                        },
-                        {
-                            title: 'Query',
-                            render: function Query(_, item) {
-                                return (
-                                    <div className="max-w-200 py-1 deprecated-space-y-2">
-                                        <div>
-                                            <LemonTag className="inline-block">
-                                                <span className="font-bold tracking-wide">ID:</span>{' '}
-                                                <span className="font-mono">{item.query_id}</span>
-                                                <LinkMetabaseQuery queryId={item.query_id} />
-                                            </LemonTag>{' '}
-                                            {typeof item.logComment.cache_key === 'string' ? (
-                                                <LemonTag className="inline-block">
-                                                    <span className="font-bold tracking-wide">Cache key:</span>{' '}
-                                                    <span className="font-mono">{item.logComment.cache_key}</span>{' '}
-                                                    <Link
-                                                        to={errorTrackingLink('cache_key', item.logComment.cache_key)}
-                                                        className="inline-block"
-                                                        target="_blank"
-                                                        targetBlankIcon
-                                                    />
-                                                </LemonTag>
-                                            ) : null}{' '}
-                                            {typeof item.logComment.insight_id === 'number' ? (
-                                                <LemonTag className="inline-block">
-                                                    <span className="font-bold tracking-wide">Insight ID:</span>{' '}
-                                                    <span className="font-mono">{item.logComment.insight_id}</span>{' '}
-                                                    <Link
-                                                        to={errorTrackingLink('insight_id', item.logComment.insight_id)}
-                                                        className="inline-block"
-                                                        target="_blank"
-                                                        targetBlankIcon
-                                                    />
-                                                </LemonTag>
-                                            ) : null}{' '}
-                                            {typeof item.logComment.dashboard_id === 'number' ? (
-                                                <LemonTag className="inline-block">
-                                                    <span className="font-bold tracking-wide">Dashboard ID:</span>{' '}
-                                                    <span className="font-mono">{item.logComment.dashboard_id}</span>{' '}
-                                                    <Link
-                                                        to={errorTrackingLink(
-                                                            'dashboard_id',
-                                                            item.logComment.dashboard_id
-                                                        )}
-                                                        className="inline-block"
-                                                        target="_blank"
-                                                        targetBlankIcon
-                                                    />
-                                                </LemonTag>
-                                            ) : null}{' '}
-                                            {typeof item.logComment.user_id === 'number' ? (
-                                                <LemonTag className="inline-block">
-                                                    <span className="font-bold tracking-wide">User ID:</span>{' '}
-                                                    <span className="font-mono">{item.logComment.user_id}</span>{' '}
-                                                    <Link
-                                                        to={errorTrackingLink('user_id', item.logComment.user_id)}
-                                                        className="inline-block"
-                                                        target="_blank"
-                                                        targetBlankIcon
-                                                    />
-                                                </LemonTag>
-                                            ) : null}
-                                        </div>
-                                        {item.exception && (
-                                            <LemonBanner type="error" className="text-xs font-mono">
-                                                <div>{item.exception}</div>
-                                            </LemonBanner>
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Timestamp',
+                        render: function Timestamp(_, item) {
+                            return (
+                                <>
+                                    <div className="font-mono whitespace-pre mb-2">
+                                        {dayjs.tz(item.timestamp, 'UTC').tz().format().replace('T', '\n')}
+                                    </div>
+                                    <div>
+                                        {item.status === 1 ? (
+                                            'In progress…'
+                                        ) : (
+                                            <>
+                                                Took {Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms
+                                            </>
                                         )}
-                                        <CodeSnippet
-                                            language={Language.SQL}
-                                            thing="query"
-                                            maxLinesWithoutExpansion={10}
-                                            className="text-sm max-w-[60vw]"
-                                        >
-                                            {item.query}
-                                        </CodeSnippet>
-                                        {typeof item.logComment.query === 'object' && item.logComment.query !== null ? (
-                                            <LemonButton
-                                                type="primary"
-                                                size="small"
-                                                fullWidth
-                                                center
-                                                icon={<IconCodeInsert />}
-                                                to={urls.debugQuery(item.logComment.query)}
-                                                targetBlank
-                                                sideAction={{
-                                                    icon: <IconCopy />,
-                                                    onClick: () =>
-                                                        void copyToClipboard(
-                                                            JSON.stringify(item.logComment.query),
-                                                            'query JSON'
-                                                        ),
-                                                    tooltip: 'Copy query JSON to clipboard',
-                                                }}
-                                                className="my-0"
-                                            >
-                                                <div className="flex gap-x-1 items-center">
-                                                    <span>Debug</span>
-                                                    <span>
-                                                        {'kind' in item.logComment.query
-                                                            ? item.logComment.query.kind
-                                                            : 'query'}
-                                                    </span>{' '}
-                                                    <span>in new tab</span>
-                                                </div>
-                                            </LemonButton>
+                                    </div>
+                                </>
+                            )
+                        },
+                        width: 160,
+                    },
+                    {
+                        title: 'Query',
+                        render: function Query(_, item) {
+                            return (
+                                <div className="max-w-200 py-1 deprecated-space-y-2">
+                                    <div>
+                                        <LemonTag className="inline-block">
+                                            <span className="font-bold tracking-wide">ID:</span>{' '}
+                                            <span className="font-mono">{item.query_id}</span>
+                                            <LinkMetabaseQuery queryId={item.query_id} />
+                                        </LemonTag>{' '}
+                                        {typeof item.logComment.cache_key === 'string' ? (
+                                            <LemonTag className="inline-block">
+                                                <span className="font-bold tracking-wide">Cache key:</span>{' '}
+                                                <span className="font-mono">{item.logComment.cache_key}</span>{' '}
+                                                <Link
+                                                    to={errorTrackingLink('cache_key', item.logComment.cache_key)}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
+                                        ) : null}{' '}
+                                        {typeof item.logComment.insight_id === 'number' ? (
+                                            <LemonTag className="inline-block">
+                                                <span className="font-bold tracking-wide">Insight ID:</span>{' '}
+                                                <span className="font-mono">{item.logComment.insight_id}</span>{' '}
+                                                <Link
+                                                    to={errorTrackingLink('insight_id', item.logComment.insight_id)}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
+                                        ) : null}{' '}
+                                        {typeof item.logComment.dashboard_id === 'number' ? (
+                                            <LemonTag className="inline-block">
+                                                <span className="font-bold tracking-wide">Dashboard ID:</span>{' '}
+                                                <span className="font-mono">{item.logComment.dashboard_id}</span>{' '}
+                                                <Link
+                                                    to={errorTrackingLink('dashboard_id', item.logComment.dashboard_id)}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
+                                        ) : null}{' '}
+                                        {typeof item.logComment.user_id === 'number' ? (
+                                            <LemonTag className="inline-block">
+                                                <span className="font-bold tracking-wide">User ID:</span>{' '}
+                                                <span className="font-mono">{item.logComment.user_id}</span>{' '}
+                                                <Link
+                                                    to={errorTrackingLink('user_id', item.logComment.user_id)}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
                                         ) : null}
                                     </div>
-                                )
-                            },
+                                    {item.exception && (
+                                        <LemonBanner type="error" className="text-xs font-mono">
+                                            <div>{item.exception}</div>
+                                        </LemonBanner>
+                                    )}
+                                    <CodeSnippet
+                                        language={Language.SQL}
+                                        thing="query"
+                                        maxLinesWithoutExpansion={10}
+                                        className="text-sm max-w-[60vw]"
+                                    >
+                                        {item.query}
+                                    </CodeSnippet>
+                                    {typeof item.logComment.query === 'object' && item.logComment.query !== null ? (
+                                        <LemonButton
+                                            type="primary"
+                                            size="small"
+                                            fullWidth
+                                            center
+                                            icon={<IconCodeInsert />}
+                                            to={urls.debugQuery(item.logComment.query)}
+                                            targetBlank
+                                            sideAction={{
+                                                icon: <IconCopy />,
+                                                onClick: () =>
+                                                    void copyToClipboard(
+                                                        JSON.stringify(item.logComment.query),
+                                                        'query JSON'
+                                                    ),
+                                                tooltip: 'Copy query JSON to clipboard',
+                                            }}
+                                            className="my-0"
+                                        >
+                                            Debug{' '}
+                                            <span>
+                                                {'kind' in item.logComment.query ? item.logComment.query.kind : 'query'}
+                                            </span>{' '}
+                                            in new tab
+                                        </LemonButton>
+                                    ) : null}
+                                </div>
+                            )
                         },
-                        {
-                            title: 'Metadata',
-                            render: (_, item) => {
-                                return (
-                                    <div className="space-y-4">
-                                        <ProfilingStats item={item} />
-                                        <QueryContext item={item} />
-                                        <Timing item={item} />
-                                    </div>
-                                )
-                            },
+                    },
+                    {
+                        title: 'Metadata',
+                        render: (_, item) => {
+                            return (
+                                <div className="space-y-4">
+                                    <ProfilingStats item={item} />
+                                    <QueryContext item={item} />
+                                    <Timing item={item} />
+                                </div>
+                            )
                         },
-                    ]}
-                    dataSource={filteredQueries}
-                    loading={debugResponseLoading}
-                    loadingSkeletonRows={5}
-                    pagination={undefined}
-                    rowClassName="align-top"
-                />
-            </span>
+                    },
+                ]}
+                dataSource={filteredQueries}
+                loading={debugResponseLoading}
+                loadingSkeletonRows={5}
+                pagination={undefined}
+                rowClassName="align-top"
+            />
         </>
     )
 }
