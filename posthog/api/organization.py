@@ -217,8 +217,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 create_permissions.append(PremiumMultiorganizationPermission())
             return create_permissions
 
-        if self.action == "update":
-            create_permissions = [
+        if self.action in ["update", "partial_update"]:
+            update_permissions = [
                 permission()
                 for permission in [permissions.IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
             ]
@@ -231,12 +231,12 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "allow_publicly_shared_resources",
                 ]
             ):
-                create_permissions.append(OrganizationAdminWritePermissions())
+                update_permissions.append(OrganizationAdminWritePermissions())
 
             if not is_cloud():
-                create_permissions.append(PremiumMultiorganizationPermission())
+                update_permissions.append(PremiumMultiorganizationPermission())
 
-            return create_permissions
+            return update_permissions
 
         # We don't override for other actions
         raise NotImplementedError()

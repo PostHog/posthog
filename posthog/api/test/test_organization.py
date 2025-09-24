@@ -240,6 +240,180 @@ def create_organization(name: str) -> Organization:
     return Organization.objects.create(name=name)
 
 
+class TestOrganizationPutPatchPermissions(APIBaseTest):
+    """Test that PUT and PATCH methods have consistent permission behavior."""
+
+    def test_put_organization_allowed_fields_as_member(self):
+        """Test that members can update basic fields using PUT method."""
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Test updating basic fields that don't require admin permissions
+        response = self.client.put(
+            f"/api/organizations/{self.organization.id}",
+            {
+                "name": "Updated Name PUT",
+                "is_member_join_email_enabled": True,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.name, "Updated Name PUT")
+        self.assertEqual(self.organization.is_member_join_email_enabled, True)
+
+    def test_patch_organization_allowed_fields_as_member(self):
+        """Test that members can update basic fields using PATCH method."""
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Test updating basic fields that don't require admin permissions
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}",
+            {"name": "Updated Name PATCH"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.name, "Updated Name PATCH")
+
+    def test_put_organization_sensitive_fields_as_member_forbidden(self):
+        """Test that members cannot update sensitive fields using PUT method."""
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Test updating sensitive fields that require admin permissions
+        response = self.client.put(
+            f"/api/organizations/{self.organization.id}",
+            {
+                "name": "Updated Name",
+                "members_can_invite": False,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_patch_organization_sensitive_fields_as_member_forbidden(self):
+        """Test that members cannot update sensitive fields using PATCH method."""
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Test updating sensitive fields that require admin permissions
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}",
+            {"members_can_invite": False},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_put_organization_sensitive_fields_as_admin_allowed(self):
+        """Test that admins can update sensitive fields using PUT method."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Test updating sensitive fields that require admin permissions
+        response = self.client.put(
+            f"/api/organizations/{self.organization.id}",
+            {
+                "name": "Admin Updated Name PUT",
+                "members_can_invite": False,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.name, "Admin Updated Name PUT")
+        self.assertEqual(self.organization.members_can_invite, False)
+
+    def test_patch_organization_sensitive_fields_as_admin_allowed(self):
+        """Test that admins can update sensitive fields using PATCH method."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Test updating sensitive fields that require admin permissions
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}",
+            {"members_can_use_personal_api_keys": False},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.members_can_use_personal_api_keys, False)
+
+    def test_put_patch_consistency_for_all_sensitive_fields(self):
+        """Test that PUT and PATCH have consistent behavior for all sensitive fields."""
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        sensitive_fields = [
+            "members_can_invite",
+            "members_can_use_personal_api_keys",
+            "allow_publicly_shared_resources",
+        ]
+
+        for field in sensitive_fields:
+            # Test PUT - should be forbidden for members
+            response_put = self.client.put(
+                f"/api/organizations/{self.organization.id}",
+                {"name": "Test", field: True},
+            )
+            self.assertEqual(
+                response_put.status_code, status.HTTP_403_FORBIDDEN, f"PUT with {field} should be forbidden for members"
+            )
+
+            # Test PATCH - should be forbidden for members
+            response_patch = self.client.patch(
+                f"/api/organizations/{self.organization.id}",
+                {field: True},
+            )
+            self.assertEqual(
+                response_patch.status_code,
+                status.HTTP_403_FORBIDDEN,
+                f"PATCH with {field} should be forbidden for members",
+            )
+
+        # Now test as admin - should work for both
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        for field in sensitive_fields:
+            # Test PUT - should be allowed for admins
+            response_put = self.client.put(
+                f"/api/organizations/{self.organization.id}",
+                {"name": "Test Admin", field: False},
+            )
+            self.assertEqual(
+                response_put.status_code, status.HTTP_200_OK, f"PUT with {field} should be allowed for admins"
+            )
+
+            # Test PATCH - should be allowed for admins
+            response_patch = self.client.patch(
+                f"/api/organizations/{self.organization.id}",
+                {field: True},
+            )
+            self.assertEqual(
+                response_patch.status_code, status.HTTP_200_OK, f"PATCH with {field} should be allowed for admins"
+            )
+
+    def test_idor_protection_put_patch(self):
+        """Test that users cannot modify organizations they don't belong to using PUT/PATCH."""
+        # Create another organization with a different owner
+        other_org, _, other_user = Organization.objects.bootstrap(self._create_user("other_user@posthog.com"))
+
+        # Try to modify other organization using PUT - should fail
+        response_put = self.client.put(
+            f"/api/organizations/{other_org.id}",
+            {"name": "Hacked Name PUT"},
+        )
+        self.assertEqual(response_put.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Try to modify other organization using PATCH - should fail
+        response_patch = self.client.patch(
+            f"/api/organizations/{other_org.id}",
+            {"name": "Hacked Name PATCH"},
+        )
+        self.assertEqual(response_patch.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Verify the other organization wasn't modified
+        other_org.refresh_from_db()
+        self.assertNotEqual(other_org.name, "Hacked Name PUT")
+        self.assertNotEqual(other_org.name, "Hacked Name PATCH")
+
+
 class TestOrganizationSerializer(APIBaseTest):
     def setUp(self):
         super().setUp()
