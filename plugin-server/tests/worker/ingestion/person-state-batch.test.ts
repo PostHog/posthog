@@ -2230,7 +2230,7 @@ describe('PersonState.processEvent()', () => {
             expect(person.is_identified).toEqual(true)
 
             const result = await hub.db.postgres.query(
-                PostgresUse.PERSONS_READ,
+                PostgresUse.PERSONS_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
                 'testQueryHashKeyOverride'
@@ -2325,7 +2325,7 @@ describe('PersonState.processEvent()', () => {
             expect(person.is_identified).toEqual(true)
 
             const result = await hub.db.postgres.query(
-                PostgresUse.PERSONS_READ,
+                PostgresUse.PERSONS_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
                 'testQueryHashKeyOverride'
@@ -2407,7 +2407,7 @@ describe('PersonState.processEvent()', () => {
             expect(person.is_identified).toEqual(true)
 
             const result = await hub.db.postgres.query(
-                PostgresUse.PERSONS_READ,
+                PostgresUse.PERSONS_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
                 'testQueryHashKeyOverride'
