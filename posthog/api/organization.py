@@ -215,6 +215,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
             if not is_cloud():
                 create_permissions.append(PremiumMultiorganizationPermission())
+
             return create_permissions
 
         if self.action in ["update", "partial_update"]:
@@ -222,16 +223,6 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 permission()
                 for permission in [permissions.IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
             ]
-
-            if any(
-                key in self.request.data
-                for key in [
-                    "members_can_invite",
-                    "members_can_use_personal_api_keys",
-                    "allow_publicly_shared_resources",
-                ]
-            ):
-                update_permissions.append(OrganizationAdminWritePermissions())
 
             if not is_cloud():
                 update_permissions.append(PremiumMultiorganizationPermission())
