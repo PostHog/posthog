@@ -1115,7 +1115,6 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         schema=record_batch_schema,
                         file_format="Parquet" if can_perform_merge else "JSONLines",
                         compression="zstd" if can_perform_merge else None,
-                        include_inserted_at=False,
                         max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
                         json_columns=() if can_perform_merge else table_schemas.json_columns,
                     )

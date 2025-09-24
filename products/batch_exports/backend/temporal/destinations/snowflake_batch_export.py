@@ -1315,7 +1315,6 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     schema=record_batch_schema,
                     file_format="Parquet",
                     compression="zstd",
-                    include_inserted_at=False,
                     max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                 )

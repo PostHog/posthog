@@ -56,7 +56,8 @@ def get_stream_transformer(
         case "jsonlines" if compression == "brotli":
             return JSONLBrotliStreamTransformer(**kwargs)
         case "parquet":
-            return ParquetStreamTransformer(compression=compression, **kwargs)
+            schema = kwargs.pop("schema")
+            return ParquetStreamTransformer(schema, compression=compression, **kwargs)
         case "redshift_insert":
             return RedshiftQueryStreamTransformer(**kwargs)
         case _:

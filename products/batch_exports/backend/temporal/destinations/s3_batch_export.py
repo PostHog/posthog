@@ -405,7 +405,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
             schema=record_batch_schema,
             file_format=inputs.file_format,
             compression=inputs.compression,
-            include_inserted_at=True,
+            transformer_parameters={"include_inserted_at": True},
             max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             json_columns=("properties", "person_properties", "set", "set_once"),
         )
