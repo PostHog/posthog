@@ -190,7 +190,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     fixedProperties: [
                         { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
                     ],
-                    select: ['person_display_name -- Person', 'id', 'created_at', 'person.$delete'],
                 },
                 full: true,
                 showPropertyFilter: false,
@@ -198,6 +197,15 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             } as DataTableNode,
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
+                setCohort: (state, { cohort }) => ({
+                    ...state,
+                    source: {
+                        ...state.source,
+                        select: cohort.is_static
+                            ? ['person_display_name -- Person', 'id', 'created_at', 'person.$delete']
+                            : ['person_display_name -- Person', 'id', 'created_at'],
+                    },
+                }),
             },
         ],
         creationPersonQuery: [
