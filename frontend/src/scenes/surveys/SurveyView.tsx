@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { IconGraph, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
+import { AccessControlAction, userHasAccess } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -39,6 +40,8 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     ActivityScope,
     PropertyFilterType,
     PropertyOperator,
@@ -86,15 +89,23 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             ) : (
                                 <SceneCommonButtons
                                     dataAttrKey={RESOURCE_TYPE}
-                                    duplicate={{
-                                        onClick: () => {
-                                            if (hasMultipleProjects) {
-                                                setIsDuplicateToProjectModalOpen(true)
-                                            } else {
-                                                duplicateSurvey()
-                                            }
-                                        },
-                                    }}
+                                    duplicate={
+                                        userHasAccess(
+                                            AccessControlResourceType.Survey,
+                                            AccessControlLevel.Editor,
+                                            survey.user_access_level
+                                        )
+                                            ? {
+                                                  onClick: () => {
+                                                      if (hasMultipleProjects) {
+                                                          setIsDuplicateToProjectModalOpen(true)
+                                                      } else {
+                                                          duplicateSurvey()
+                                                      }
+                                                  },
+                                              }
+                                            : undefined
+                                    }
                                 />
                             )}
                         </ScenePanelCommonActions>
@@ -103,36 +114,42 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         </ScenePanelInfoSection>
                         <ScenePanelDivider />
                         <ScenePanelActionsSection>
-                            <ButtonPrimitive
-                                menuItem
-                                variant="danger"
-                                data-attr={`${RESOURCE_TYPE}-delete`}
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Delete this survey?',
-                                        content: (
-                                            <div className="text-sm text-secondary">
-                                                This action cannot be undone. All survey data will be permanently
-                                                removed.
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Delete',
-                                            type: 'primary',
-                                            onClick: () => deleteSurvey(id),
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Survey}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={survey.user_access_level}
                             >
-                                <IconTrash />
-                                Delete survey
-                            </ButtonPrimitive>
+                                <ButtonPrimitive
+                                    menuItem
+                                    variant="danger"
+                                    data-attr={`${RESOURCE_TYPE}-delete`}
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Delete this survey?',
+                                            content: (
+                                                <div className="text-sm text-secondary">
+                                                    This action cannot be undone. All survey data will be permanently
+                                                    removed.
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                type: 'primary',
+                                                onClick: () => deleteSurvey(id),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
+                                >
+                                    <IconTrash />
+                                    Delete survey
+                                </ButtonPrimitive>
+                            </AccessControlAction>
                         </ScenePanelActionsSection>
                     </ScenePanel>
 
@@ -151,63 +168,49 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         actions={
                             <>
                                 <SurveyFeedbackButton />
-                                <LemonButton
-                                    data-attr="edit-survey"
-                                    onClick={() => editingSurvey(true)}
-                                    type="secondary"
-                                    size="small"
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Survey}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={survey.user_access_level}
                                 >
-                                    Edit
-                                </LemonButton>
-                                {!survey.start_date ? (
-                                    <LaunchSurveyButton />
-                                ) : survey.end_date && !survey.archived ? (
                                     <LemonButton
+                                        data-attr="edit-survey"
+                                        onClick={() => editingSurvey(true)}
                                         type="secondary"
                                         size="small"
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: 'Resume this survey?',
-                                                content: (
-                                                    <div className="text-sm text-secondary">
-                                                        Once resumed, the survey will be visible to your users again.
-                                                    </div>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Resume',
-                                                    type: 'primary',
-                                                    onClick: () => resumeSurvey(),
-                                                    size: 'small',
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                    type: 'tertiary',
-                                                    size: 'small',
-                                                },
-                                            })
-                                        }}
                                     >
-                                        Resume
+                                        Edit
                                     </LemonButton>
-                                ) : (
-                                    !survey.archived && (
+                                </AccessControlAction>
+                                {!survey.start_date ? (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Survey}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={survey.user_access_level}
+                                    >
+                                        <LaunchSurveyButton />
+                                    </AccessControlAction>
+                                ) : survey.end_date && !survey.archived ? (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Survey}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={survey.user_access_level}
+                                    >
                                         <LemonButton
-                                            data-attr="stop-survey"
                                             type="secondary"
-                                            status="danger"
                                             size="small"
                                             onClick={() => {
                                                 LemonDialog.open({
-                                                    title: 'Stop this survey?',
+                                                    title: 'Resume this survey?',
                                                     content: (
                                                         <div className="text-sm text-secondary">
-                                                            The survey will no longer be displayed to users.
+                                                            Once resumed, the survey will be visible to your users again.
                                                         </div>
                                                     ),
                                                     primaryButton: {
-                                                        children: 'Stop',
+                                                        children: 'Resume',
                                                         type: 'primary',
-                                                        onClick: () => stopSurvey(),
+                                                        onClick: () => resumeSurvey(),
                                                         size: 'small',
                                                     },
                                                     secondaryButton: {
@@ -218,8 +221,46 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 })
                                             }}
                                         >
-                                            Stop
+                                            Resume
                                         </LemonButton>
+                                    </AccessControlAction>
+                                ) : (
+                                    !survey.archived && (
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.Survey}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={survey.user_access_level}
+                                        >
+                                            <LemonButton
+                                                data-attr="stop-survey"
+                                                type="secondary"
+                                                status="danger"
+                                                size="small"
+                                                onClick={() => {
+                                                    LemonDialog.open({
+                                                        title: 'Stop this survey?',
+                                                        content: (
+                                                            <div className="text-sm text-secondary">
+                                                                The survey will no longer be displayed to users.
+                                                            </div>
+                                                        ),
+                                                        primaryButton: {
+                                                            children: 'Stop',
+                                                            type: 'primary',
+                                                            onClick: () => stopSurvey(),
+                                                            size: 'small',
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                            type: 'tertiary',
+                                                            size: 'small',
+                                                        },
+                                                    })
+                                                }}
+                                            >
+                                                Stop
+                                            </LemonButton>
+                                        </AccessControlAction>
                                     )
                                 )}
                             </>

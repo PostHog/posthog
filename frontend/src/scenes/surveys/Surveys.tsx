@@ -13,6 +13,7 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
@@ -37,7 +38,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_CREATED_SOURCE, SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
@@ -54,50 +55,55 @@ function NewSurveyButton(): JSX.Element {
     const { user } = useValues(userLogic)
 
     return (
-        <MaxTool
-            identifier="create_survey"
-            initialMaxPrompt="Create a survey to collect "
-            suggestions={[
-                'Create an NPS survey for customers who completed checkout',
-                'Create a feedback survey asking about our new dashboard',
-                'Create a product-market fit survey for trial users',
-                'Create a quick satisfaction survey for support interactions',
-            ]}
-            context={{
-                user_id: user?.uuid,
-            }}
-            callback={(toolOutput: {
-                survey_id?: string
-                survey_name?: string
-                error?: string
-                error_message?: string
-            }) => {
-                addProductIntent({
-                    product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_CREATED,
-                    metadata: {
-                        survey_id: toolOutput.survey_id,
-                        source: SURVEY_CREATED_SOURCE.MAX_AI,
-                        created_successfully: !toolOutput?.error,
-                    },
-                })
-
-                if (toolOutput?.error || !toolOutput?.survey_id) {
-                    return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.MAX_AI)
-                }
-
-                // Refresh surveys list to show new survey, then redirect to it
-                loadSurveys()
-                router.actions.push(urls.survey(toolOutput.survey_id))
-            }}
-            position="bottom-right"
-            active={!!user?.uuid}
-            className={cn('mr-3')}
+        <AccessControlAction
+            resourceType={AccessControlResourceType.Survey}
+            minAccessLevel={AccessControlLevel.Editor}
         >
-            <LemonButton size="small" to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
-                <span className="pr-3">New survey</span>
-            </LemonButton>
-        </MaxTool>
+            <MaxTool
+                identifier="create_survey"
+                initialMaxPrompt="Create a survey to collect "
+                suggestions={[
+                    'Create an NPS survey for customers who completed checkout',
+                    'Create a feedback survey asking about our new dashboard',
+                    'Create a product-market fit survey for trial users',
+                    'Create a quick satisfaction survey for support interactions',
+                ]}
+                context={{
+                    user_id: user?.uuid,
+                }}
+                callback={(toolOutput: {
+                    survey_id?: string
+                    survey_name?: string
+                    error?: string
+                    error_message?: string
+                }) => {
+                    addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_CREATED,
+                        metadata: {
+                            survey_id: toolOutput.survey_id,
+                            source: SURVEY_CREATED_SOURCE.MAX_AI,
+                            created_successfully: !toolOutput?.error,
+                        },
+                    })
+
+                    if (toolOutput?.error || !toolOutput?.survey_id) {
+                        return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.MAX_AI)
+                    }
+
+                    // Refresh surveys list to show new survey, then redirect to it
+                    loadSurveys()
+                    router.actions.push(urls.survey(toolOutput.survey_id))
+                }}
+                position="bottom-right"
+                active={!!user?.uuid}
+                className={cn('mr-3')}
+            >
+                <LemonButton size="small" to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
+                    <span className="pr-3">New survey</span>
+                </LemonButton>
+            </MaxTool>
+        </AccessControlAction>
     )
 }
 
@@ -319,6 +325,16 @@ function Surveys(): JSX.Element {
                                                             {!survey.start_date && (
                                                                 <LemonButton
                                                                     fullWidth
+                                                                    disabledReason={
+                                                                        !survey.user_access_level ||
+                                                                        !accessLevelSatisfied(
+                                                                            AccessControlResourceType.Survey,
+                                                                            survey.user_access_level,
+                                                                            'editor'
+                                                                        )
+                                                                            ? 'You do not have permission to launch this survey.'
+                                                                            : undefined
+                                                                    }
                                                                     onClick={() =>
                                                                         LemonDialog.open({
                                                                             title: 'Launch this survey?',
@@ -359,6 +375,16 @@ function Surveys(): JSX.Element {
                                                             {isSurveyRunning(survey) && (
                                                                 <LemonButton
                                                                     fullWidth
+                                                                    disabledReason={
+                                                                        !survey.user_access_level ||
+                                                                        !accessLevelSatisfied(
+                                                                            AccessControlResourceType.Survey,
+                                                                            survey.user_access_level,
+                                                                            'editor'
+                                                                        )
+                                                                            ? 'You do not have permission to stop this survey.'
+                                                                            : undefined
+                                                                    }
                                                                     onClick={() => {
                                                                         LemonDialog.open({
                                                                             title: 'Stop this survey?',
@@ -398,6 +424,16 @@ function Surveys(): JSX.Element {
                                                             {survey.end_date && !survey.archived && (
                                                                 <LemonButton
                                                                     fullWidth
+                                                                    disabledReason={
+                                                                        !survey.user_access_level ||
+                                                                        !accessLevelSatisfied(
+                                                                            AccessControlResourceType.Survey,
+                                                                            survey.user_access_level,
+                                                                            'editor'
+                                                                        )
+                                                                            ? 'You do not have permission to resume this survey.'
+                                                                            : undefined
+                                                                    }
                                                                     onClick={() => {
                                                                         LemonDialog.open({
                                                                             title: 'Resume this survey?',
@@ -437,6 +473,16 @@ function Surveys(): JSX.Element {
                                                             {survey.end_date && survey.archived && (
                                                                 <LemonButton
                                                                     fullWidth
+                                                                    disabledReason={
+                                                                        !survey.user_access_level ||
+                                                                        !accessLevelSatisfied(
+                                                                            AccessControlResourceType.Survey,
+                                                                            survey.user_access_level,
+                                                                            'editor'
+                                                                        )
+                                                                            ? 'You do not have permission to unarchive this survey.'
+                                                                            : undefined
+                                                                    }
                                                                     onClick={() => {
                                                                         updateSurvey({
                                                                             id: survey.id,
@@ -452,6 +498,16 @@ function Surveys(): JSX.Element {
                                                             {survey.end_date && !survey.archived && (
                                                                 <LemonButton
                                                                     fullWidth
+                                                                    disabledReason={
+                                                                        !survey.user_access_level ||
+                                                                        !accessLevelSatisfied(
+                                                                            AccessControlResourceType.Survey,
+                                                                            survey.user_access_level,
+                                                                            'editor'
+                                                                        )
+                                                                            ? 'You do not have permission to archive this survey.'
+                                                                            : undefined
+                                                                    }
                                                                     onClick={() => {
                                                                         LemonDialog.open({
                                                                             title: 'Archive this survey?',
@@ -490,6 +546,16 @@ function Surveys(): JSX.Element {
                                                             )}
                                                             <LemonButton
                                                                 status="danger"
+                                                                disabledReason={
+                                                                    !survey.user_access_level ||
+                                                                    !accessLevelSatisfied(
+                                                                        AccessControlResourceType.Survey,
+                                                                        survey.user_access_level,
+                                                                        'editor'
+                                                                    )
+                                                                        ? 'You do not have permission to delete this survey.'
+                                                                        : undefined
+                                                                }
                                                                 onClick={() => {
                                                                     LemonDialog.open({
                                                                         title: 'Delete this survey?',

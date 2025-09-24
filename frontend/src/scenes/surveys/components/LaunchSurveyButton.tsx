@@ -9,7 +9,15 @@ import { doesSurveyHaveDisplayConditions } from 'scenes/surveys/utils'
 
 import { SurveyType } from '~/types'
 
-export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
+export function LaunchSurveyButton({
+    children = 'Launch',
+    disabled,
+    disabledReason: accessControlDisabledReason,
+}: {
+    children?: ReactNode
+    disabled?: boolean
+    disabledReason?: string | null
+}): JSX.Element {
     const { survey } = useValues(surveyLogic)
     const { showSurveysDisabledBanner } = useValues(surveysLogic)
     const { launchSurvey } = useActions(surveyLogic)
@@ -18,10 +26,12 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
         <LemonButton
             type="primary"
             data-attr="launch-survey"
+            disabled={disabled}
             disabledReason={
-                showSurveysDisabledBanner && survey.type !== SurveyType.API
+                accessControlDisabledReason ||
+                (showSurveysDisabledBanner && survey.type !== SurveyType.API
                     ? 'Please enable surveys in the banner below before launching'
-                    : undefined
+                    : undefined)
             }
             size="small"
             onClick={() => {
