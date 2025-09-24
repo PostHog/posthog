@@ -676,7 +676,8 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         duplicatedSurvey: {
             duplicateSurvey: async () => {
-                const payload = duplicateExistingSurvey(values.survey)
+                const { survey } = values
+                const payload = duplicateExistingSurvey(survey)
                 try {
                     const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
 
