@@ -23,6 +23,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                     ? 'Please enable surveys in the banner below before launching'
                     : undefined
             }
+            size="small"
             onClick={() => {
                 LemonDialog.open({
                     title: 'Launch this survey?',

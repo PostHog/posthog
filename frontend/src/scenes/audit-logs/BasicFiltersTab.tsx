@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
@@ -15,9 +14,8 @@ import { DetailFilters } from './DetailFilters'
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 
 export const BasicFiltersTab = (): JSX.Element => {
-    const { filters, availableFilters } = useValues(advancedActivityLogsLogic)
-    const { setFilters } = useActions(advancedActivityLogsLogic)
-    const [showAdvancedMode, setShowAdvancedMode] = useState(false)
+    const { filters, availableFilters, showMoreFilters } = useValues(advancedActivityLogsLogic)
+    const { setFilters, setShowMoreFilters } = useActions(advancedActivityLogsLogic)
 
     return (
         <div className="flex flex-col gap-4 pt-4">
@@ -102,8 +100,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                 <div className="flex items-end justify-end mb-1">
                     <LemonButton
                         type="tertiary"
-                        icon={showAdvancedMode ? <IconCollapse /> : <IconExpand />}
-                        onClick={() => setShowAdvancedMode(!showAdvancedMode)}
+                        icon={showMoreFilters ? <IconCollapse /> : <IconExpand />}
+                        onClick={() => setShowMoreFilters(!showMoreFilters)}
                         data-attr="audit-logs-more-filters-toggle"
                         className="text-muted-alt hover:text-default"
                     >
@@ -112,7 +110,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                 </div>
             </div>
 
-            <AnimatedCollapsible collapsed={!showAdvancedMode}>
+            <AnimatedCollapsible collapsed={!showMoreFilters} autoHeight>
                 <div className="border-t border-border mt-4 pt-4">
                     <div className="flex gap-4 flex-start flex-wrap pt-2">
                         <div className="flex flex-col gap-1">
