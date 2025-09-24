@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -16,17 +16,7 @@ export const sampledSessionsModalLogic = kea<sampledSessionsModalLogicType>([
     props({} as SampledSessionsModalLogicProps),
 
     actions({
-        setIsOpen: (isOpen: boolean) => ({ isOpen }),
         checkRecordingAvailability: true,
-    }),
-
-    reducers({
-        isOpen: [
-            false as boolean,
-            {
-                setIsOpen: (_, { isOpen }) => isOpen,
-            },
-        ],
     }),
 
     loaders(({ props }) => ({
@@ -79,12 +69,4 @@ export const sampledSessionsModalLogic = kea<sampledSessionsModalLogicType>([
             },
         ],
     }),
-
-    listeners(({ actions, values }) => ({
-        setIsOpen: ({ isOpen }) => {
-            if (isOpen && values.allSessionIds.length > 0) {
-                actions.checkRecordingAvailability()
-            }
-        },
-    })),
 ])

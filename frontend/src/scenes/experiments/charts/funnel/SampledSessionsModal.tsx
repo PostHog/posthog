@@ -1,6 +1,5 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { useEffect } from 'react'
 
 import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
@@ -34,7 +33,6 @@ export function SampledSessionsModal({
 }: SampledSessionsModalProps): JSX.Element {
     const logic = sampledSessionsModalLogic({ sessionData })
     const { recordingAvailability, recordingAvailabilityLoading } = useValues(logic)
-    const { setIsOpen } = useActions(logic)
 
     // Helper function to get events URL for a session ID
     const getEventsUrlForSession = (sessionId: string): string => {
@@ -52,11 +50,6 @@ export function SampledSessionsModal({
         }
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
     }
-
-    // Sync isOpen state with logic
-    useEffect(() => {
-        setIsOpen(isOpen)
-    }, [isOpen, setIsOpen])
 
     const openSessionRecording = (sessionId: string, eventUuid: string): void => {
         sessionPlayerModalLogic.actions.openSessionPlayer({
