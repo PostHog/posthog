@@ -350,7 +350,7 @@ class CohortSerializer(serializers.ModelSerializer):
         return header.strip().lower() in email_headers_lower
 
     def _find_id_column(self, headers: list[str]) -> tuple[int, str] | None:
-        """Find the index and type of the ID column in headers with person_id preference over distinct_id over email"""
+        """Find the index and type of the ID column in headers, with preference order: person_id > distinct_id > email"""
         normalized_headers = [h.strip() for h in headers]
         normalized_lower_headers = [h.lower() for h in normalized_headers]
 

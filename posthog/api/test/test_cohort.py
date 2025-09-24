@@ -434,7 +434,9 @@ Zero User,0,zero@example.com
         self.assertIn(str(person3.uuid), person_uuids_in_cohort)
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
-    def test_static_cohort_csv_upload_multicolumn_without_distinct_id_fails(self, patch_calculate_cohort_from_list):
+    def test_static_cohort_csv_upload_multicolumn_without_valid_identifier_fails(
+        self, patch_calculate_cohort_from_list
+    ):
         """Test that multi-column CSV without distinct_id column fails with clear error"""
         csv = SimpleUploadedFile(
             "no_distinct_id.csv",
