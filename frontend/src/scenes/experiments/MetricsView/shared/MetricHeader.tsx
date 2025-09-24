@@ -29,8 +29,17 @@ const AddBreakdownButton = ({
 }: {
     experiment: Experiment
     onChange: (breakdown: { type: string; property: any }) => void
-}): JSX.Element => {
+}): JSX.Element | null => {
     const [dropdownOpen, setDropdownOpen] = useState(false)
+
+    /**
+     * bail if we don't have an experiment
+     * this could happen if the experiment has not been loaded yet
+     * or if we are in the legacy experiment view
+     */
+    if (!experiment) {
+        return null
+    }
 
     // Create metadata source for the exposure event to filter properties
     const exposureEvent = getExposureEvent(experiment)
@@ -43,7 +52,7 @@ const AddBreakdownButton = ({
         <LemonDropdown
             overlay={
                 <TaxonomicFilter
-                    onChange={(taxonomicGroup, value) => {
+                    onChange={(_, value) => {
                         onChange({ type: 'event', property: value })
                         setDropdownOpen(false)
                     }}
@@ -205,7 +214,13 @@ export const MetricHeader = ({
                 <AddBreakdownButton
                     experiment={experiment}
                     onChange={(breakdown) => {
-                        // TODO: Handle the breakdown selection
+                        /**
+                         * TODO: Handle the breakdown selection
+                         * this is to please the eslint gods
+                         */
+                        if (breakdown) {
+                            return
+                        }
                     }}
                 />
             </div>
