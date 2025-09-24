@@ -1,31 +1,35 @@
-from datetime import datetime
-
-from dagster import AssetExecutionContext, MonthlyPartitionsDefinition, asset
-from dateutil.relativedelta import relativedelta
+from dagster import AssetExecutionContext, BackfillPolicy, MonthlyPartitionsDefinition, asset
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 
+# Each partition is pretty heavy, as it's an entire month of events, so this number doesn't need to be high
+MAX_PARTITIONS_PER_RUN = 3
+
 monthly_partitions = MonthlyPartitionsDefinition(
-    start_date="2019-01-01"
-)  # this is a year before posthog was founded, so should be early enough even including data imports
+    start_date="2019-01-01",  # this is a year before posthog was founded, so should be early enough even including data imports
+)
 
 
-def partion_key_to_where_clause(partition_key: str) -> str:
-    partition_start_date_incl = datetime.strptime(partition_key, "%Y-%m-%d")
-    partition_end_date_excl = partition_start_date_incl + relativedelta(months=1)
+def get_partion_where_clause(context: AssetExecutionContext) -> str:
+    start_incl = context.partition_time_window.start.strftime("%Y-%m-%d")
+    end_excl = context.partition_time_window.end.strftime("%Y-%m-%d")
 
-    start_incl = partition_start_date_incl.strftime("%Y-%m-%d")
-    end_excl = partition_end_date_excl.strftime("%Y-%m-%d")
+    # it's ok that we use inclusive equality for both comparisons here, adding events to this table is idempotent
+    # so if an event did get added twice on the exact boundary, the data would still be correct
+    return f"'{start_incl}' <= timestamp AND timestamp <= '{end_excl}'"
 
-    return f"'{start_incl}' <= timestamp AND timestamp < '{end_excl}'"
 
-
-@asset(partitions_def=monthly_partitions, name="sessions_v3_backfill")
+@asset(
+    partitions_def=monthly_partitions,
+    name="sessions_v3_backfill",
+    backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
+)
 def sessions_v3_backfill(context: AssetExecutionContext):
-    where_clause = partion_key_to_where_clause(context.partition_key)
+    where_clause = get_partion_where_clause(context)
 
-    # Generate the SQL using your existing function
+    # note that this is idempotent, so we don't need to worry about running it multiple times for the same partition
+    # as long as the backfill has run at least once for each partition, the data will be correct
     backfill_sql = RAW_SESSION_TABLE_BACKFILL_SQL_V3(where=where_clause)
 
     context.log.info(f"Running backfill for {context.partition_key} (where='{where_clause}')")
