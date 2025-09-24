@@ -2463,8 +2463,18 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(duplicate_experiment["type"], original_experiment["type"])
         self.assertEqual(duplicate_experiment["parameters"], original_experiment["parameters"])
         self.assertEqual(duplicate_experiment["filters"], original_experiment["filters"])
-        self.assertEqual(duplicate_experiment["metrics"], original_experiment["metrics"])
-        self.assertEqual(duplicate_experiment["metrics_secondary"], original_experiment["metrics_secondary"])
+
+        # Compare metrics ignoring fingerprints (they differ due to different start_dates)
+        def remove_fingerprints(metrics):
+            return [{k: v for k, v in metric.items() if k != "fingerprint"} for metric in metrics or []]
+
+        self.assertEqual(
+            remove_fingerprints(duplicate_experiment["metrics"]), remove_fingerprints(original_experiment["metrics"])
+        )
+        self.assertEqual(
+            remove_fingerprints(duplicate_experiment["metrics_secondary"]),
+            remove_fingerprints(original_experiment["metrics_secondary"]),
+        )
         self.assertEqual(duplicate_experiment["stats_config"], original_experiment["stats_config"])
         self.assertEqual(duplicate_experiment["exposure_criteria"], original_experiment["exposure_criteria"])
 
@@ -2577,13 +2587,144 @@ class TestExperimentCRUD(APILicensedTest):
         assert duplicate_data["description"] == original_experiment["description"]
         assert duplicate_data["parameters"] == original_experiment["parameters"]
         assert duplicate_data["filters"] == original_experiment["filters"]
-        assert duplicate_data["metrics"] == original_experiment["metrics"]
-        assert duplicate_data["metrics_secondary"] == original_experiment["metrics_secondary"]
+
+        # Compare metrics ignoring fingerprints (they differ due to different start_dates)
+        def remove_fingerprints(metrics):
+            return [{k: v for k, v in metric.items() if k != "fingerprint"} for metric in metrics or []]
+
+        assert remove_fingerprints(duplicate_data["metrics"]) == remove_fingerprints(original_experiment["metrics"])
+        assert remove_fingerprints(duplicate_data["metrics_secondary"]) == remove_fingerprints(
+            original_experiment["metrics_secondary"]
+        )
 
         # Verify temporal fields are reset
         assert duplicate_data["start_date"] is None
         assert duplicate_data["end_date"] is None
         assert duplicate_data["archived"] is False
+
+    def test_metric_fingerprinting(self):
+        """Test that metric fingerprints are computed correctly on create and update"""
+
+        # Step 1: Create experiment with 3 metrics (tests create method fingerprinting)
+        ff_key = "fingerprint-test"
+
+        initial_mean_metric = {
+            "uuid": "metric-1",
+            "name": "Initial Mean Metric",
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "EventsNode",
+                "event": "$session_duration",
+            },
+        }
+
+        initial_funnel_metric = {
+            "uuid": "metric-2",
+            "name": "Initial Funnel Metric",
+            "kind": "ExperimentMetric",
+            "metric_type": "funnel",
+            "series": [
+                {"kind": "EventsNode", "event": "$pageview"},
+                {"kind": "EventsNode", "event": "$autocapture"},
+            ],
+        }
+
+        initial_ratio_metric = {
+            "uuid": "metric-3",
+            "name": "Initial Ratio Metric",
+            "kind": "ExperimentMetric",
+            "metric_type": "ratio",
+            "numerator": {"kind": "EventsNode", "event": "$session_duration"},
+            "denominator": {"kind": "EventsNode", "event": "$autocapture"},
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Fingerprint Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {},
+                "metrics": [initial_mean_metric, initial_funnel_metric, initial_ratio_metric],
+            },
+        )
+        exp_id = response.json()["id"]
+        initial_metrics = response.json()["metrics"]
+
+        expected_initial_fingerprints = {
+            "mean": "de1dab82a19408c2964a29b96df7d1a6c85b3c71b8fe73a9510e0b399d25174f",
+            "funnel": "3bfed12a5bfad881855c3bf35f52fb6fcb0925568b5fb5e876f10c7cc912b3f7",
+            "ratio": "8f713ea90302cc058ce14c2fba5f61423eedc8f406dbf685b7f51f06e2cdad72",
+        }
+
+        for metric in initial_metrics:
+            metric_type = metric["metric_type"]
+            self.assertEqual(metric["fingerprint"], expected_initial_fingerprints[metric_type])
+
+        # Step 2: Update with different metrics, conversion windows, start_date, stats_config, exposure_criteria
+        updated_funnel_metric = {
+            "goal": "increase",
+            "kind": "ExperimentMetric",
+            "uuid": "964398d7-ec8a-424d-890b-4e6bbc9a5c84",
+            "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview"}],
+            "metric_type": "funnel",
+            "conversion_window": 14,
+            "conversion_window_unit": "day",
+            "funnel_order_type": "unordered",
+        }
+
+        updated_mean_metric = {
+            "goal": "increase",
+            "kind": "ExperimentMetric",
+            "uuid": "824e38ae-f9d7-41f4-962c-74c9e744529a",
+            "source": {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
+            "metric_type": "mean",
+            "conversion_window": 14,
+            "conversion_window_unit": "day",
+            "lower_bound_percentile": 0.05,
+            "upper_bound_percentile": 0.95,
+        }
+
+        updated_ratio_metric = {
+            "goal": "decrease",
+            "kind": "ExperimentMetric",
+            "uuid": "70e0c887-1f32-4c7d-8405-0faded2e9722",
+            "numerator": {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
+            "denominator": {"kind": "EventsNode", "math": "total", "name": "$pageview", "event": "$pageview"},
+            "metric_type": "ratio",
+            "conversion_window": 14,
+            "conversion_window_unit": "day",
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "metrics": [updated_funnel_metric, updated_mean_metric, updated_ratio_metric],
+                "start_date": "2024-01-01T10:00:00Z",
+                "stats_config": {"method": "frequentist"},
+                "exposure_criteria": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "$feature_flag_called",
+                    "properties": [],
+                },
+            },
+        )
+
+        updated_metrics = response.json()["metrics"]
+
+        expected_updated_fingerprints = {
+            "mean": "a5e74c9c8c2bfd2fbda5fb786f2c068377415123eadaa7bcd67a9c2c0d4e110e",
+            "funnel": "210059a9d7948df92b597dd21def6c8c7356c6b8c3b0d620eb69bdd8fa838e7a",
+            "ratio": "2d82c06a61dabb8b86ca0c317cf64ba9dd33b6744176e0e2777294bf2eec598f",
+        }
+
+        for metric in updated_metrics:
+            metric_type = metric["metric_type"]
+            self.assertEqual(metric["fingerprint"], expected_updated_fingerprints[metric_type])
 
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):

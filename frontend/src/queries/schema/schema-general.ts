@@ -2564,6 +2564,7 @@ export const enum ExperimentMetricType {
 export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
     uuid?: string
+    fingerprint?: string // # SHA256 hash of metric definition + experiment config
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
