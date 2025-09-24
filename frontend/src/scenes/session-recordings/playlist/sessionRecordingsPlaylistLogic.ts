@@ -296,7 +296,7 @@ export function convertLegacyFiltersToUniversalFilters(
     simpleFilters?: LegacyRecordingFilters,
     advancedFilters?: LegacyRecordingFilters
 ): RecordingUniversalFilters {
-    // we want to remove this, so set a tombstone, let's us see if the dead come back to life
+    // we want to remove this, so set a tombstone, lets us see if the dead come back to life
     posthog.capture('legacy_recording_filters_converted_tombstone')
 
     const filters = combineLegacyRecordingFilters(simpleFilters || {}, advancedFilters || {})
@@ -1176,6 +1176,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
+
+            // we don't keep these
+            delete params.eventProperty
+            delete params.eventPropertyValue
+            delete params.personProperty
+            delete params.personPropertyValue
 
             if (!objectsEqual(params, router.values.searchParams)) {
                 return [router.values.location.pathname, params, router.values.hashParams, { replace }]
