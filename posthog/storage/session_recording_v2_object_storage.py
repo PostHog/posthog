@@ -13,6 +13,10 @@ from botocore.client import Config
 logger = structlog.get_logger(__name__)
 
 
+class BlockDeleteError(Exception):
+    pass
+
+
 class BlockFetchError(Exception):
     pass
 
@@ -24,6 +28,10 @@ class FileFetchError(Exception):
 class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
+        pass
+
+    @abc.abstractmethod
+    def read_all_bytes(self, key: str) -> bytes | None:
         pass
 
     @abc.abstractmethod
@@ -45,6 +53,11 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def delete_block(self, block_url: str) -> None:
+        """Zeroes out the specified block or raises BlockDeleteError"""
+        pass
+
+    @abc.abstractmethod
     def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
         """Returns a tuple of (target_key, error_message)"""
         pass
@@ -58,6 +71,9 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
     def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
         return None
 
+    def read_all_bytes(self, key: str) -> bytes | None:
+        pass
+
     def write(self, key: str, data: bytes) -> None:
         pass
 
@@ -69,6 +85,9 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
 
     def fetch_block(self, block_url: str) -> str:
         raise BlockFetchError("Storage not available")
+
+    def delete_block(self, block_url: str) -> None:
+        raise BlockDeleteError("Storage not available")
 
     def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
         return None, "Storage not available"
@@ -89,6 +108,25 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 "Bucket": self.bucket,
                 "Key": key,
                 "Range": f"bytes={first_byte}-{last_byte}",
+            }
+            s3_response = self.aws_client.get_object(**kwargs)
+            return s3_response["Body"].read()
+        except Exception as e:
+            logger.exception(
+                "session_recording_v2_object_storage.read_failed",
+                bucket=self.bucket,
+                file_name=key,
+                error=e,
+                s3_response=s3_response,
+            )
+            return None
+
+    def read_all_bytes(self, key: str) -> bytes | None:
+        s3_response = {}
+        try:
+            kwargs = {
+                "Bucket": self.bucket,
+                "Key": key,
             }
             s3_response = self.aws_client.get_object(**kwargs)
             return s3_response["Body"].read()
@@ -172,6 +210,32 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
         except Exception as e:
             logger.exception("Failed to read and decompress block", error=e)
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
+
+    def delete_block(self, block_url: str) -> None:
+        try:
+            # Parse URL and extract key and byte range
+            parsed_url = urlparse(block_url)
+            key = parsed_url.path.lstrip("/")
+            query_params = parse_qs(parsed_url.query)
+            byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
+            start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
+
+            if start_byte is None or end_byte is None:
+                raise BlockDeleteError("Invalid byte range in block URL")
+
+            expected_length = end_byte - start_byte + 1
+
+            file_bytes = self.read_all_bytes(key)
+            new_file_bytes = bytes(
+                bytearray(file_bytes[:start_byte]) + bytearray(expected_length) + bytearray(file_bytes[end_byte + 1 :])
+            )
+
+            self.write(key, new_file_bytes)
+        except BlockDeleteError:
+            raise
+        except Exception as e:
+            logger.exception("Failed to delete block", error=e)
+            raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
     def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
         try:
