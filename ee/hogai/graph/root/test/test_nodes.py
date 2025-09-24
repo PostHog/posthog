@@ -372,7 +372,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
                     node._get_model(
                         AssistantState(messages=[HumanMessage(content="show me long recordings")]),
-                        RunnableConfig(configurable=config),
+                        config,
                     )
 
                     # Verify get_contextual_tool_class was called
