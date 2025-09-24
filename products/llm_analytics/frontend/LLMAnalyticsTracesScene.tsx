@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
+import { IconCheck } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -14,12 +17,77 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { tracesReviewLogic } from './tracesReviewLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, normalizeMessages, removeMilliseconds } from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
+    return <LLMAnalyticsTracesWithReviews />
+}
+
+function LLMAnalyticsTracesWithReviews(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(llmAnalyticsLogic)
+    const { loadBatchReviewStatuses } = useActions(tracesReviewLogic)
+    const { getReviewStatus, isTraceReviewed } = useValues(tracesReviewLogic)
 
     const { tracesQuery } = useValues(llmAnalyticsLogic)
+
+    // Store the IDColumn component with review logic injected
+    const IDColumnWithReviews = useMemo(
+        () =>
+            ({ record }: { record: any }) => (
+                <IDColumn record={record} getReviewStatus={getReviewStatus} isTraceReviewed={isTraceReviewed} />
+            ),
+        [getReviewStatus, isTraceReviewed]
+    )
+
+    // Extract trace IDs from query response data and load review statuses
+    const handleDataLoaded = useMemo(
+        () => (data: Record<string, unknown> | null | undefined) => {
+            if (data && Array.isArray(data.results)) {
+                const traceIds = data.results.filter((trace: any) => trace?.id).map((trace: any) => trace.id)
+
+                if (traceIds.length > 0) {
+                    loadBatchReviewStatuses(traceIds)
+                }
+            }
+        },
+        [loadBatchReviewStatuses]
+    )
+
+    return (
+        <TracesDataTableWithReviews
+            tracesQuery={tracesQuery}
+            IDColumnWithReviews={IDColumnWithReviews}
+            onDataLoaded={handleDataLoaded}
+            setDates={setDates}
+            setShouldFilterTestAccounts={setShouldFilterTestAccounts}
+            setPropertyFilters={setPropertyFilters}
+            setTracesQuery={setTracesQuery}
+        />
+    )
+}
+
+interface TracesDataTableProps {
+    tracesQuery: any
+    IDColumnWithReviews: any
+    onDataLoaded: (data: Record<string, unknown> | null | undefined) => void
+    setDates: (from: string | null, to: string | null) => void
+    setShouldFilterTestAccounts: (filter: boolean) => void
+    setPropertyFilters: (filters: any[]) => void
+    setTracesQuery: (query: any) => void
+}
+
+function TracesDataTableWithReviews({
+    tracesQuery,
+    IDColumnWithReviews,
+    onDataLoaded,
+    setDates,
+    setShouldFilterTestAccounts,
+    setPropertyFilters,
+    setTracesQuery,
+}: TracesDataTableProps): JSX.Element {
+    // Create a unique key to ensure proper dataNodeLogic connection
+    const dataNodeKey = useMemo(() => `traces-table-${Date.now()}`, [])
 
     return (
         <DataTable
@@ -27,6 +95,7 @@ export function LLMAnalyticsTraces(): JSX.Element {
                 ...tracesQuery,
                 showSavedFilters: true,
             }}
+            dataNodeLogicKey={dataNodeKey}
             setQuery={(query) => {
                 if (!isTracesQuery(query.source)) {
                     throw new Error('Invalid query')
@@ -39,10 +108,14 @@ export function LLMAnalyticsTraces(): JSX.Element {
             context={{
                 emptyStateHeading: 'There were no traces in this period',
                 emptyStateDetail: 'Try changing the date range or filters.',
+                insightProps: {
+                    dashboardItemId: undefined,
+                    onData: onDataLoaded,
+                },
                 columns: {
                     id: {
                         title: 'ID',
-                        render: IDColumn,
+                        render: IDColumnWithReviews,
                     },
                     inputState: {
                         title: 'Input message',
@@ -82,19 +155,61 @@ export function LLMAnalyticsTraces(): JSX.Element {
     )
 }
 
-const IDColumn: QueryContextColumnComponent = ({ record }) => {
+interface IDColumnProps {
+    record: any
+    getReviewStatus: (traceId: string) => any
+    isTraceReviewed: (traceId: string) => boolean
+}
+
+const IDColumn = ({ record, getReviewStatus, isTraceReviewed }: IDColumnProps): JSX.Element => {
     const row = record as LLMTrace
+
+    const isReviewed = isTraceReviewed(row.id)
+    const reviewData = getReviewStatus(row.id)
+
+    const reviewTooltip = reviewData ? (
+        <div className="space-y-1">
+            <div className="text-xs text-muted-alt">Reviewed by</div>
+            <div className="flex items-center gap-2">
+                <PersonDisplay
+                    person={{
+                        distinct_id: String(reviewData.reviewed_by.id),
+                        properties: {
+                            email: reviewData.reviewed_by.email,
+                            first_name: reviewData.reviewed_by.first_name,
+                        },
+                    }}
+                    withIcon="sm"
+                    noPopover
+                    noLink
+                />
+            </div>
+            <div className="text-xs text-muted-alt">
+                <TZLabel time={reviewData.reviewed_at} />
+            </div>
+        </div>
+    ) : (
+        'This trace has been reviewed'
+    )
+
     return (
-        <strong>
-            <Tooltip title={row.id}>
-                <Link
-                    className="ph-no-capture"
-                    to={urls.llmAnalyticsTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
-                >
-                    {row.id.slice(0, 4)}...{row.id.slice(-4)}
-                </Link>
-            </Tooltip>
-        </strong>
+        <div className="flex items-center gap-1.5">
+            <strong className={isReviewed ? 'opacity-[var(--opacity-disabled)]' : ''}>
+                <Tooltip title={row.id}>
+                    <Link
+                        className="ph-no-capture"
+                        to={urls.llmAnalyticsTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
+                    >
+                        {row.id.slice(0, 4)}...{row.id.slice(-4)}
+                    </Link>
+                </Tooltip>
+            </strong>
+            {isReviewed && (
+                <Tooltip title={reviewTooltip}>
+                    <IconCheck className="text-success size-4 shrink-0" />
+                </Tooltip>
+            )}
+        </div>
     )
 }
 

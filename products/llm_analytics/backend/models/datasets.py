@@ -2,6 +2,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel
 
 
@@ -41,3 +42,21 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
     ref_trace_id = models.CharField(max_length=255, null=True, blank=True)
     ref_timestamp = models.DateTimeField(null=True, blank=True)
     ref_source_id = models.CharField(max_length=255, null=True, blank=True)
+
+
+class TraceReview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+    class Meta:
+        ordering = ["-created_at", "id"]
+        indexes = [
+            models.Index(fields=["team", "trace_id"]),
+            models.Index(fields=["team", "-created_at", "id"]),
+            models.Index(fields=["reviewed_by", "-created_at"]),
+        ]
+        constraints = [models.UniqueConstraint(fields=["team", "trace_id"], name="unique_trace_review_per_team")]
+
+    objects: models.Manager["TraceReview"]
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    trace_id = models.CharField(max_length=255, db_index=True)
+    reviewed_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reviewed_traces")
+    reviewed_at = models.DateTimeField(auto_now_add=True)

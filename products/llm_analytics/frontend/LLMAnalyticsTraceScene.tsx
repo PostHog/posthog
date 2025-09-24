@@ -44,6 +44,7 @@ import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
+import { TraceReviewButton } from './components/TraceReviewButton'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
@@ -108,9 +109,10 @@ function TraceSceneWrapper(): JSX.Element {
                             metricEvents={metricEvents as LLMTraceEvent[]}
                             feedbackEvents={feedbackEvents as LLMTraceEvent[]}
                         />
-                        <div className="flex gap-2">
-                            <DisplayOptionsSelect />
+                        <div className="flex gap-x-2 gap-y-1.5 flex-wrap justify-end">
+                            <TraceReviewButton traceId={trace.id} />
                             <CopyTraceButton trace={trace} tree={enrichedTree} />
+                            <DisplayOptionsSelect />
                         </div>
                     </div>
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
@@ -790,7 +792,7 @@ function EventTypeFilters(): JSX.Element {
     return (
         <fieldset className="border border-border rounded p-1.5">
             <legend className="text-xs font-medium text-muted px-1">Expand</legend>
-            <div className="flex flex-wrap gap-x-3 gap-y-1">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 px-1">
                 {availableEventTypes.map((eventType: string) => (
                     <LemonCheckbox
                         key={eventType}
