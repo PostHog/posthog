@@ -293,9 +293,9 @@ def fetch_android_sdk_data() -> Optional[dict[str, Any]]:
 def fetch_go_sdk_data() -> Optional[dict[str, Any]]:
     """Fetch Go SDK data from CHANGELOG.md (simplified logic)"""
     try:
-        # Fetch CHANGELOG.md for versions
+        # Fetch CHANGELOG.md for versions (Go SDK uses master branch, not main)
         changelog_response = requests.get(
-            "https://raw.githubusercontent.com/PostHog/posthog-go/main/CHANGELOG.md", timeout=10
+            "https://raw.githubusercontent.com/PostHog/posthog-go/master/CHANGELOG.md", timeout=10
         )
         if not changelog_response.ok:
             return None
@@ -320,7 +320,7 @@ def fetch_php_sdk_data() -> Optional[dict[str, Any]]:
     try:
         # Fetch History.md for versions
         changelog_response = requests.get(
-            "https://raw.githubusercontent.com/PostHog/posthog-php/main/History.md", timeout=10
+            "https://raw.githubusercontent.com/PostHog/posthog-php/master/History.md", timeout=10
         )
         if not changelog_response.ok:
             return None
@@ -371,7 +371,7 @@ def fetch_elixir_sdk_data() -> Optional[dict[str, Any]]:
     try:
         # Fetch CHANGELOG.md for versions
         changelog_response = requests.get(
-            "https://raw.githubusercontent.com/PostHog/posthog-elixir/main/CHANGELOG.md", timeout=10
+            "https://raw.githubusercontent.com/PostHog/posthog-elixir/master/CHANGELOG.md", timeout=10
         )
         if not changelog_response.ok:
             return None
