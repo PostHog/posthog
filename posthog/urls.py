@@ -29,6 +29,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.github_sdk_versions import github_sdk_versions
 from posthog.api.query import progress
 from posthog.api.slack import slack_interactivity_callback
 from posthog.api.survey import public_survey_page, surveys
@@ -168,6 +169,7 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
+    re_path(r"^api/github-sdk-versions/(?P<sdk_type>[^/]+)/?$", github_sdk_versions),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),

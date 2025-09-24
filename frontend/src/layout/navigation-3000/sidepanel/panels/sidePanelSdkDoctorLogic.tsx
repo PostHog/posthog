@@ -98,55 +98,7 @@ export type FeatureFlagMisconfiguration = {
 
 export type SdkHealthStatus = 'healthy' | 'warning' | 'critical'
 
-// Add per-SDK cache utility for GitHub API responses
-const GITHUB_CACHE_EXPIRY = 6 * 60 * 60 * 1000 // 6 hours in milliseconds (faster refresh for PostHog's release frequency)
-
-interface SdkCache {
-    timestamp: number
-    data: { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
-}
-
-// Utility functions for per-SDK GitHub API cache
-const getSdkCache = (sdkType: SdkType): SdkCache | null => {
-    try {
-        const cacheKey = `posthog_sdk_${sdkType}_cache`
-        const cachedData = localStorage.getItem(cacheKey)
-        if (!cachedData) {
-            return null
-        }
-
-        const parsedCache = JSON.parse(cachedData) as SdkCache
-        const now = Date.now()
-
-        // Check if cache is expired
-        if (now - parsedCache.timestamp > GITHUB_CACHE_EXPIRY) {
-            localStorage.removeItem(cacheKey)
-            return null
-        }
-
-        return parsedCache
-    } catch {
-        const cacheKey = `posthog_sdk_${sdkType}_cache`
-        localStorage.removeItem(cacheKey)
-        return null
-    }
-}
-
-const setSdkCache = (
-    sdkType: SdkType,
-    data: { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
-): void => {
-    try {
-        const cacheKey = `posthog_sdk_${sdkType}_cache`
-        const cacheData: SdkCache = {
-            timestamp: Date.now(),
-            data,
-        }
-        localStorage.setItem(cacheKey, JSON.stringify(cacheData))
-    } catch {
-        // Fail silently on cache errors
-    }
-}
+// Client-side caching removed - now handled server-side with Redis
 
 // DISABLED: Bulk GitHub API functions (causing 403 errors) - kept for future per-SDK implementation
 /*
@@ -381,13 +333,41 @@ const fetchNodeGitHubReleaseDates = async (): Promise<Record<string, string>> =>
 const fetchSdkData = async (
     sdkType: SdkType
 ): Promise<{ latestVersion: string; versions: string[]; releaseDates?: Record<string, string> } | null> => {
-    // Check cache first
-    const cached = getSdkCache(sdkType)
-    if (cached) {
-        if (IS_DEBUG_MODE) {
-            console.info(`[SDK Doctor] Using cached data for ${sdkType}`)
+    // Check server cache first
+    if (IS_DEBUG_MODE) {
+        console.info(
+            `[SDK Doctor] Checking if ${sdkType.charAt(0).toUpperCase() + sdkType.slice(1)} SDK info is cached on server...`
+        )
+    }
+    try {
+        const response = await api.get(`api/github-sdk-versions/${sdkType}`)
+        if (response.latestVersion && response.versions) {
+            if (IS_DEBUG_MODE) {
+                if (response.cached) {
+                    console.info(
+                        `[SDK Doctor] ${sdkType.charAt(0).toUpperCase() + sdkType.slice(1)} SDK details successfully read from server CACHE`
+                    )
+                } else {
+                    console.info(
+                        `[SDK Doctor] ${sdkType.charAt(0).toUpperCase() + sdkType.slice(1)} SDK info not found in CACHE, querying GitHub API`
+                    )
+                    console.info(
+                        `[SDK Doctor] ${sdkType.charAt(0).toUpperCase() + sdkType.slice(1)} SDK info received from GitHub. CACHED successfully on the server`
+                    )
+                }
+            }
+            return {
+                latestVersion: response.latestVersion,
+                versions: response.versions,
+                releaseDates: response.releaseDates || {},
+            }
         }
-        return cached.data
+    } catch {
+        if (IS_DEBUG_MODE) {
+            console.info(
+                `[SDK Doctor] ${sdkType.charAt(0).toUpperCase() + sdkType.slice(1)} SDK info not found in CACHE, querying GitHub API`
+            )
+        }
     }
 
     // Implement per-SDK fetching for all time-based detection SDKs
@@ -475,8 +455,7 @@ const fetchSdkData = async (
                     `[SDK Doctor] Python SDK complete result: latestVersion=${pythonResult.latestVersion}, release dates count=${Object.keys(pythonResult.releaseDates).length}`
                 )
 
-                // Cache and return
-                setSdkCache(sdkType, pythonResult)
+                // Return result (server handles caching)
                 return pythonResult
 
             case 'node':
@@ -631,8 +610,7 @@ const fetchSdkData = async (
                     `[SDK Doctor] iOS SDK complete result: latestVersion=${iosResult.latestVersion}, release dates count=${Object.keys(iosResult.releaseDates).length}`
                 )
 
-                // Cache and return
-                setSdkCache(sdkType, iosResult)
+                // Return result
                 return iosResult
 
             case 'android':
@@ -666,8 +644,7 @@ const fetchSdkData = async (
                     `[SDK Doctor] Android SDK complete result: latestVersion=${androidResult.latestVersion}, release dates count=${Object.keys(androidResult.releaseDates).length}`
                 )
 
-                // Cache and return
-                setSdkCache(sdkType, androidResult)
+                // Return result
                 return androidResult
 
             case 'php':
@@ -710,8 +687,7 @@ const fetchSdkData = async (
                 )
                 console.info(`[SDK Doctor] PHP SDK setting cache and returning result for 'php' type`)
 
-                // Cache and return
-                setSdkCache(sdkType, phpResult)
+                // Return result
                 return phpResult
 
             case 'elixir':
@@ -745,8 +721,7 @@ const fetchSdkData = async (
                     `[SDK Doctor] Elixir SDK complete result: latestVersion=${elixirResult.latestVersion}, versions count=${elixirVersions.length}, versions=${elixirVersions.slice(0, 5).join(', ')}`
                 )
                 console.info(`[SDK Doctor] Elixir SDK setting cache and returning result for 'elixir' type`)
-                // Cache and return
-                setSdkCache(sdkType, elixirResult)
+                // Return result
                 return elixirResult
 
             case 'dotnet':
@@ -784,8 +759,7 @@ const fetchSdkData = async (
                     `[SDK Doctor] .NET SDK complete result: latestVersion=${dotnetResult.latestVersion}, versions count=${dotnetVersions.length}, versions=${dotnetVersions.slice(0, 5).join(', ')}`
                 )
                 console.info(`[SDK Doctor] .NET SDK setting cache and returning result for 'dotnet' type`)
-                // Cache and return
-                setSdkCache(sdkType, dotnetResult)
+                // Return result
                 return dotnetResult
 
             case 'ruby':
@@ -841,8 +815,7 @@ const fetchSdkData = async (
                     `[SDK Doctor] Go SDK complete result: latestVersion=${goResult.latestVersion}, release dates count=${Object.keys(goResult.releaseDates).length}`
                 )
 
-                // Cache and return
-                setSdkCache(sdkType, goResult)
+                // Return result
                 return goResult
 
             default:
@@ -885,8 +858,7 @@ const fetchSdkData = async (
             `[SDK Doctor] fetchSdkData() returning for ${sdkType}: latestVersion=${result.latestVersion}, release dates count=${Object.keys(result.releaseDates).length}`
         )
 
-        // Cache the result
-        setSdkCache(sdkType, result)
+        // Return result (server handles caching)
         return result
     } catch (error) {
         console.warn(`[SDK Doctor] Failed to fetch ${sdkType} data:`, error)
