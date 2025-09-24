@@ -20,7 +20,12 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -116,7 +121,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 />
 
                 <ScenePanel>
-                    <ScenePanelMetaInfo>
+                    <ScenePanelInfoSection>
                         <SceneTags
                             onSave={(tags) => {
                                 setActionValue('tags', tags)
@@ -129,10 +134,10 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                         <SceneFile dataAttrKey={RESOURCE_TYPE} />
 
                         <SceneActivityIndicator at={action.created_at} by={action.created_by} prefix="Created" />
-                    </ScenePanelMetaInfo>
+                    </ScenePanelInfoSection>
                     <ScenePanelDivider />
 
-                    <ScenePanelActions>
+                    <ScenePanelActionsSection>
                         {id && (
                             <>
                                 <Link
@@ -184,7 +189,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                             <IconTrash />
                             Delete
                         </ButtonPrimitive>
-                    </ScenePanelActions>
+                    </ScenePanelActionsSection>
                 </ScenePanel>
 
                 <SceneTitleSection

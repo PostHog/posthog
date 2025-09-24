@@ -1,10 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urls } from 'scenes/urls'
@@ -33,6 +31,7 @@ export function EmbeddedAnalyticsContent({ tabId }: { tabId: string }): JSX.Elem
                 <SceneContent className="EmbeddedAnalyticsContent w-full flex flex-col">
                     <EmbeddedAnalyticsTabs />
                     <ProductIntroduction
+                        className="m-0"
                         productName="embedded analytics"
                         productKey={ProductKey.EMBEDDED_ANALYTICS}
                         thingName="query endpoint"
@@ -51,28 +50,6 @@ export function EmbeddedAnalyticsContent({ tabId }: { tabId: string }): JSX.Elem
                         }
                     />
 
-                    <PageHeader
-                        buttons={
-                            <LemonButton
-                                data-attr="new-query-endpoint"
-                                onClick={() => {
-                                    router.actions.push(
-                                        urls.sqlEditor(
-                                            undefined,
-                                            undefined,
-                                            undefined,
-                                            undefined,
-                                            OutputTab.QueryEndpoint
-                                        )
-                                    )
-                                }}
-                                type="primary"
-                                tooltip="Redirects you to the SQL Editor."
-                            >
-                                New query endpoint
-                            </LemonButton>
-                        }
-                    />
                     <MainContent tabId={tabId} />
                 </SceneContent>
             </BindLogic>
@@ -88,6 +65,7 @@ const EmbeddedAnalyticsTabs = (): JSX.Element => {
         <LemonTabs<EmbeddedTab>
             activeKey={activeTab}
             onChange={setActiveTab}
+            sceneInset
             tabs={[
                 {
                     key: EmbeddedTab.QUERY_ENDPOINTS,

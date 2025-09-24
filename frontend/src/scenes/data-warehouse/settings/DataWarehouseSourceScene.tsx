@@ -7,6 +7,9 @@ import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipeli
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
 import type { dataWarehouseSourceSceneLogicType } from './DataWarehouseSourceSceneType'
@@ -100,7 +103,7 @@ export const scene: SceneExport<(typeof dataWarehouseSourceSceneLogic)['props']>
 }
 
 export function DataWarehouseSourceScene(): JSX.Element {
-    const { currentTab, logicProps } = useValues(dataWarehouseSourceSceneLogic)
+    const { currentTab, logicProps, breadcrumbName } = useValues(dataWarehouseSourceSceneLogic)
     const { setCurrentTab } = useActions(dataWarehouseSourceSceneLogic)
     const { id } = logicProps
 
@@ -136,5 +139,15 @@ export function DataWarehouseSourceScene(): JSX.Element {
               },
           ]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return (
+        <SceneContent>
+            <SceneTitleSection
+                name={breadcrumbName}
+                resourceType={{ type: 'data_pipeline' }}
+                isLoading={breadcrumbName === 'Source'}
+            />
+            <SceneDivider />
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+        </SceneContent>
+    )
 }

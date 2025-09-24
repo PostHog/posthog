@@ -63,25 +63,22 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
 
-            {/* Add a div here to break out of the gap-2 */}
-            <div>
-                <ScenePanelDivider className="mb-0" />
+            <ScenePanelDivider />
 
-                <ScenePanelCommonActions>
-                    <SceneCommonButtons
-                        comment
-                        share={{
-                            onClick: () => {
-                                void copyToClipboard(
-                                    window.location.origin + urls.errorTrackingIssue(issue.id),
-                                    'issue link'
-                                )
-                            },
-                        }}
-                        dataAttrKey={RESOURCE_TYPE}
-                    />
-                </ScenePanelCommonActions>
-            </div>
+            <ScenePanelCommonActions>
+                <SceneCommonButtons
+                    comment
+                    share={{
+                        onClick: () => {
+                            void copyToClipboard(
+                                window.location.origin + urls.errorTrackingIssue(issue.id),
+                                'issue link'
+                            )
+                        },
+                    }}
+                    dataAttrKey={RESOURCE_TYPE}
+                />
+            </ScenePanelCommonActions>
         </div>
     ) : null
 }

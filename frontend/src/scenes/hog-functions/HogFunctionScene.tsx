@@ -5,7 +5,6 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -232,8 +231,27 @@ function HogFunctionHeader(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                buttons={
+            <SceneTitleSection
+                name={configuration.name}
+                description={configuration.description || ''}
+                resourceType={{
+                    type: 'data_pipeline',
+                    forceIcon: (
+                        <span className="ml-2 flex">
+                            <HogFunctionIconEditable
+                                logicKey={logicProps.id ?? 'new'}
+                                src={configuration.icon_url}
+                                onChange={(val) => setConfigurationValue('icon_url', val)}
+                                size="small"
+                            />
+                        </span>
+                    ),
+                }}
+                isLoading={loading}
+                onNameChange={(value) => setConfigurationValue('name', value)}
+                onDescriptionChange={(value) => setConfigurationValue('description', value)}
+                canEdit
+                actions={
                     <>
                         {!logicProps.templateId && (
                             <>
@@ -259,27 +277,6 @@ function HogFunctionHeader(): JSX.Element {
                         <HogFunctionConfigurationSaveButton />
                     </>
                 }
-            />
-            <SceneTitleSection
-                name={configuration.name}
-                description={configuration.description || ''}
-                resourceType={{
-                    type: 'data_pipeline',
-                    forceIcon: (
-                        <span className="ml-2 flex">
-                            <HogFunctionIconEditable
-                                logicKey={logicProps.id ?? 'new'}
-                                src={configuration.icon_url}
-                                onChange={(val) => setConfigurationValue('icon_url', val)}
-                                size="small"
-                            />
-                        </span>
-                    ),
-                }}
-                isLoading={loading}
-                onNameChange={(value) => setConfigurationValue('name', value)}
-                onDescriptionChange={(value) => setConfigurationValue('description', value)}
-                canEdit
             />
         </>
     )

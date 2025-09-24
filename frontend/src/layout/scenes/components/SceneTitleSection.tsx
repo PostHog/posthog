@@ -1,9 +1,9 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconPencil } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconEllipsis, IconPencil } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
@@ -17,9 +17,46 @@ import { Breadcrumb, FileSystemIconColor } from '~/types'
 
 import '../../panel-layout/ProjectTree/defaultTree'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
-import { SceneActions } from '../SceneActions'
+import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 
+function SceneTitlePanelButton(): JSX.Element | null {
+    const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative, forceScenePanelClosedWhenRelative } =
+        useValues(sceneLayoutLogic)
+    const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
+
+    if (!scenePanelIsPresent) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            onClick={() =>
+                scenePanelIsRelative
+                    ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
+                    : setScenePanelOpen(!scenePanelOpen)
+            }
+            icon={<IconEllipsis className="text-primary" />}
+            tooltip={
+                !scenePanelOpen
+                    ? 'Open Info & actions panel'
+                    : scenePanelIsRelative
+                      ? 'Force close Info & actions panel'
+                      : 'Close Info & actions panel'
+            }
+            data-attr="info-actions-panel"
+            aria-label={
+                !scenePanelOpen
+                    ? 'Open Info & actions panel'
+                    : scenePanelIsRelative
+                      ? 'Force close Info & actions panel'
+                      : 'Close Info & actions panel'
+            }
+            active={scenePanelOpen}
+            size="small"
+        />
+    )
+}
 type ResourceType = {
     to?: string
     /** pass in a value from the FileSystemIconType enum, or a string if not available */
@@ -68,7 +105,7 @@ type SceneMainTitleProps = {
      * If true, the actions from PageHeader will be shown
      * @default false
      */
-    actions?: boolean
+    actions?: JSX.Element
     /**
      * If provided, the back button will be forced to this breadcrumb
      * @default undefined
@@ -88,7 +125,7 @@ export function SceneTitleSection({
     forceEdit = false,
     renameDebounceMs,
     saveOnBlur = false,
-    actions = true,
+    actions,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -108,7 +145,14 @@ export function SceneTitleSection({
                 {willShowBreadcrumbs && (
                     <div className="flex justify-between w-full">
                         <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
-                        {actions && <SceneActions className="shrink-0 ml-auto" />}
+                        <div className="pt-1 shrink-0">
+                            {actions && (
+                                <div className="flex gap-2 shrink-0 ml-auto">
+                                    {actions}
+                                    <SceneTitlePanelButton />
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
                 <div className="flex w-full justify-between gap-2">
@@ -136,7 +180,14 @@ export function SceneTitleSection({
                     </div>
                     {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
                     {!willShowBreadcrumbs && (
-                        <div className="pt-1 shrink-0">{actions && <SceneActions className="shrink-0 ml-auto" />}</div>
+                        <div className="pt-1 shrink-0">
+                            {actions && (
+                                <div className="flex gap-2 shrink-0 ml-auto">
+                                    {actions}
+                                    <SceneTitlePanelButton />
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
                 {description !== null && (description || canEdit) && (

@@ -1,13 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { PageHeader } from 'lib/components/PageHeader'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
@@ -19,16 +15,6 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 
 export function DataPipelinesOverview(): JSX.Element {
-    const menuItems: LemonMenuItems = [
-        {
-            label: 'Source',
-            to: urls.dataPipelinesNew('source'),
-            'data-attr': 'data-warehouse-data-pipelines-overview-new-source',
-        },
-        { label: 'Transformation', to: urls.dataPipelinesNew('transformation') },
-        { label: 'Destination', to: urls.dataPipelinesNew('destination') },
-    ]
-
     const { hogFunctionPluginsDestinations, hogFunctionBatchExports } = useValues(nonHogFunctionsLogic)
     const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports } = useActions(nonHogFunctionsLogic)
 
@@ -39,20 +25,6 @@ export function DataPipelinesOverview(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                buttons={
-                    <LemonMenu items={menuItems}>
-                        <LemonButton
-                            data-attr="new-pipeline-button"
-                            icon={<IconPlusSmall />}
-                            size="small"
-                            type="primary"
-                        >
-                            New
-                        </LemonButton>
-                    </LemonMenu>
-                }
-            />
             <div className="flex flex-col gap-4">
                 <FlaggedFeature flag="cdp-hog-sources">
                     <>

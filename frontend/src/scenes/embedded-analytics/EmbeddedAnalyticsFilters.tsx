@@ -119,6 +119,7 @@ export const EmbeddedAnalyticsFilters = ({ tabs }: { tabs?: JSX.Element }): JSX.
 
     return activeTab === EmbeddedTab.USAGE ? (
         <FilterBar
+            className="m-0 px-0 rounded-none"
             top={tabs}
             left={
                 <>
