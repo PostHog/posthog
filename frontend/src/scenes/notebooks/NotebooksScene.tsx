@@ -6,7 +6,6 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { PageHeader } from 'lib/components/PageHeader'
 import { base64Encode } from 'lib/utils'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,60 +25,6 @@ export const scene: SceneExport = {
 export function NotebooksScene(): JSX.Element {
     return (
         <SceneContent>
-            <PageHeader
-                buttons={
-                    <>
-                        <LemonMenu
-                            items={[
-                                {
-                                    label: 'Load from JSON',
-                                    onClick: () => {
-                                        void selectFiles({
-                                            contentType: 'application/json',
-                                            multiple: false,
-                                        })
-                                            .then((files) => getTextFromFile(files[0]))
-                                            .then((text) => {
-                                                const data = JSON.parse(text)
-                                                if (data.type !== 'doc') {
-                                                    throw new Error('Not a notebook')
-                                                }
-
-                                                // Looks like a notebook
-                                                router.actions.push(
-                                                    urls.canvas(),
-                                                    {},
-                                                    {
-                                                        '🦔': base64Encode(text),
-                                                    }
-                                                )
-                                            })
-                                            .catch((e) => {
-                                                lemonToast.error(e.message)
-                                            })
-                                    },
-                                },
-                            ]}
-                        >
-                            <LemonButton icon={<IconEllipsis />} size="small" />
-                        </LemonMenu>
-                        <Tooltip title="Like a Notebook but all your exploration is persisted to the URL for easy sharing.">
-                            <LemonButton data-attr="new-canvas" to={urls.canvas()} type="secondary">
-                                New canvas
-                            </LemonButton>
-                        </Tooltip>
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Notebook}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton data-attr="new-notebook" to={urls.notebook('new')} type="primary">
-                                New notebook
-                            </LemonButton>
-                        </AccessControlAction>
-                    </>
-                }
-            />
-
             <SceneTitleSection
                 name="Notebooks"
                 description="Notebooks are a way to organize your work and share it with others."
