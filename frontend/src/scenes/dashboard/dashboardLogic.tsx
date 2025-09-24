@@ -1203,6 +1203,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         key: Scene.Dashboards,
                         name: 'Dashboards',
                         path: urls.dashboards(),
+                        iconType: 'dashboard',
                     },
                     {
                         key: [Scene.Dashboard, dashboard?.id || 'new'],
@@ -1213,6 +1214,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               : error404
                                 ? 'Not found'
                                 : '...',
+                        iconType: 'dashboard',
                     },
                 ]
             },

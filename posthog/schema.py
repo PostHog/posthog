@@ -1354,6 +1354,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_LIFECYCLE = "insight/lifecycle"
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
+    TEAM_ACTIVITY = "team_activity"
 
 
 class FileSystemImport(BaseModel):
@@ -3803,6 +3804,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
@@ -11758,6 +11760,7 @@ class ExperimentRatioMetric(BaseModel):
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["ratio"] = "ratio"
@@ -12624,6 +12627,7 @@ class ExperimentFunnelMetric(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    fingerprint: Optional[str] = None
     funnel_order_type: Optional[StepOrderValue] = None
     goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
@@ -12641,6 +12645,7 @@ class ExperimentMeanMetric(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     lower_bound_percentile: Optional[float] = None
