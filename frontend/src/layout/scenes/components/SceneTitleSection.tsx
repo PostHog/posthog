@@ -68,7 +68,11 @@ type ResourceType = {
 }
 
 type SceneMainTitleProps = {
-    name?: string
+    /**
+     * null to hide the name,
+     * undefined to show the default name
+     */
+    name?: string | null
     /**
      * null to hide the description,
      * undefined to show the default description
@@ -143,7 +147,7 @@ export function SceneTitleSection({
             <div className="w-full flex flex-col gap-1 flex-1 -ml-[var(--button-padding-x-sm)] group/colorful-product-icons colorful-product-icons-true items-start">
                 {/* If we're showing breadcrumbs, we want to show the actions inline with the back button */}
                 {willShowBreadcrumbs && (
-                    <div className="flex justify-between w-full">
+                    <div className="flex justify-between w-full items-center">
                         <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
                         <div className="pt-1 shrink-0">
                             {actions && (
@@ -156,28 +160,30 @@ export function SceneTitleSection({
                     </div>
                 )}
                 <div className="flex w-full justify-between gap-2">
-                    <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
-                        <span
-                            className={buttonPrimitiveVariants({
-                                size: 'base',
-                                iconOnly: true,
-                                className: 'rounded-sm h-[var(--button-height-lg)]',
-                                inert: true,
-                            })}
-                            aria-hidden
-                        >
-                            {icon}
-                        </span>
-                        <SceneName
-                            name={name}
-                            isLoading={isLoading}
-                            onChange={onNameChange}
-                            canEdit={canEdit}
-                            forceEdit={forceEdit}
-                            renameDebounceMs={renameDebounceMs}
-                            saveOnBlur={saveOnBlur}
-                        />
-                    </div>
+                    {name !== null && (
+                        <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
+                            <span
+                                className={buttonPrimitiveVariants({
+                                    size: 'base',
+                                    iconOnly: true,
+                                    className: 'rounded-sm h-[var(--button-height-lg)]',
+                                    inert: true,
+                                })}
+                                aria-hidden
+                            >
+                                {icon}
+                            </span>
+                            <SceneName
+                                name={name}
+                                isLoading={isLoading}
+                                onChange={onNameChange}
+                                canEdit={canEdit}
+                                forceEdit={forceEdit}
+                                renameDebounceMs={renameDebounceMs}
+                                saveOnBlur={saveOnBlur}
+                            />
+                        </div>
+                    )}
                     {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
                     {!willShowBreadcrumbs && (
                         <div className="pt-1 shrink-0">
