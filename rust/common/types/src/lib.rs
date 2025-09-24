@@ -15,6 +15,7 @@ pub use event::RawEvent;
 pub use team::ProjectId;
 pub use team::Team;
 pub use team::TeamId;
+pub use team::TeamIdentifier;
 
 // Utils
 pub mod util;
