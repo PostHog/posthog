@@ -214,6 +214,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     key: 'managed-migrations',
                     name: 'Managed Migrations',
                     path: urls.managedMigration(),
+                    iconType: 'data_pipeline_metadata',
                 },
                 ...(managedMigrationId
                     ? [
@@ -221,6 +222,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                               key: 'edit-migration',
                               name: 'Manage migration',
                               path: urls.managedMigration(),
+                              iconType: 'data_pipeline_metadata',
                           },
                       ]
                     : []),

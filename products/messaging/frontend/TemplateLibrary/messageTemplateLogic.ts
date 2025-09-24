@@ -36,6 +36,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                         key: [Scene.Messaging, 'library'],
                         name: 'Library',
                         path: urls.messaging('library'),
+                        iconType: 'messaging',
                     },
                     ...(id === 'new'
                         ? [
@@ -43,6 +44,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                                   key: 'new-template',
                                   name: 'New template',
                                   path: urls.messagingLibraryTemplateNew(),
+                                  iconType: 'messaging',
                               },
                           ]
                         : [
@@ -50,6 +52,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                                   key: 'edit-template',
                                   name: 'Manage template',
                                   path: urls.messagingLibraryTemplate(id),
+                                  iconType: 'messaging',
                               },
                           ]),
                 ]

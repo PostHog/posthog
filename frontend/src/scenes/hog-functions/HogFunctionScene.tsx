@@ -101,7 +101,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: Scene.HogFunction,
                             name: 'Loading...',
-                            iconType: 'insight/hog',
+                            iconType: 'data_pipeline',
                         },
                     ]
                 }
@@ -109,7 +109,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 const finalCrumb: Breadcrumb = {
                     key: Scene.HogFunction,
                     name: configuration?.name || '(Untitled)',
-                    iconType: 'insight/hog',
+                    iconType: 'data_pipeline',
                 }
 
                 if (type === 'internal_destination' && alertId) {
@@ -118,13 +118,13 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             key: Scene.Insight,
                             name: 'Insight',
                             path: urls.alerts(),
-                            iconType: 'insight/hog',
+                            iconType: 'data_pipeline',
                         },
                         {
                             key: 'alert',
                             name: 'Alert',
                             path: urls.alert(alertId),
-                            iconType: 'insight/hog',
+                            iconType: 'data_pipeline',
                         },
                         finalCrumb,
                     ]

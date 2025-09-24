@@ -539,10 +539,10 @@ export const sceneLogic = kea<sceneLogicType>([
                         const sceneConfig = s.sceneConfig(state, props)
                         return {
                             title: sceneConfig?.name ?? identifierToHuman(activeSceneId),
-                            iconType: sceneConfig?.iconType ?? 'blank',
+                            iconType: sceneConfig?.iconType ?? 'loading',
                         }
                     }
-                    return { title: '...', iconType: 'blank' }
+                    return { title: '...', iconType: 'loading' }
                 },
             ],
             (titleAndIcon) => titleAndIcon as { title: string; iconType: string },
@@ -606,7 +606,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         search,
                         hash,
                         title: 'Loading...',
-                        iconType: 'blank',
+                        iconType: 'loading',
                     },
                 ])
             }
@@ -642,7 +642,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         search,
                         hash,
                         title: 'Loading...',
-                        iconType: 'blank',
+                        iconType: 'loading',
                     },
                 ])
             }
@@ -943,7 +943,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     search: currentLocation.search,
                     hash: currentLocation.hash,
                     title: 'Loading...',
-                    iconType: 'blank',
+                    iconType: 'loading',
                 },
             ])
         }

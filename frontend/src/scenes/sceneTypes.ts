@@ -156,7 +156,7 @@ export interface SceneTab {
     title: string
     active: boolean
     customTitle?: string
-    iconType: string
+    iconType: FileSystemIconType | 'loading' | 'blank'
 
     sceneId?: string
     sceneKey?: string
