@@ -299,11 +299,47 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if "enforce_2fa" in request.data:
+            enforce_2fa_value = request.data["enforce_2fa"]
+            organization = self.get_object()
+            user = cast(User, request.user)
+
+            # Add capture event for 2FA enforcement change
+            posthoganalytics.capture(
+                "organization 2fa enforcement toggled",
+                distinct_id=str(user.distinct_id),
+                properties={
+                    "enabled": enforce_2fa_value,
+                    "organization_id": str(organization.id),
+                    "organization_name": organization.name,
+                    "user_role": user.organization_memberships.get(organization=organization).level,
+                },
+                groups=groups(organization),
+            )
+
         # Set user context for activity logging
         with ImpersonatedContext(request):
             return super().update(request, *args, **kwargs)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if "enforce_2fa" in request.data:
+            enforce_2fa_value = request.data["enforce_2fa"]
+            organization = self.get_object()
+            user = cast(User, request.user)
+
+            # Add capture event for 2FA enforcement change
+            posthoganalytics.capture(
+                "organization 2fa enforcement toggled",
+                distinct_id=str(user.distinct_id),
+                properties={
+                    "enabled": enforce_2fa_value,
+                    "organization_id": str(organization.id),
+                    "organization_name": organization.name,
+                    "user_role": user.organization_memberships.get(organization=organization).level,
+                },
+                groups=groups(organization),
+            )
+
         # Set user context for activity logging
         with ImpersonatedContext(request):
             return super().partial_update(request, *args, **kwargs)

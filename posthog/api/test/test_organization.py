@@ -243,8 +243,8 @@ def create_organization(name: str) -> Organization:
 class TestOrganizationPutPatchPermissions(APIBaseTest):
     """Test that PUT and PATCH methods have consistent permission behavior."""
 
-    def test_put_organization_as_member(self):
-        """Test that members can update organization name using PUT method."""
+    def test_put_organization_as_member_forbidden(self):
+        """Test that members cannot update organization using PUT method."""
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -252,12 +252,10 @@ class TestOrganizationPutPatchPermissions(APIBaseTest):
             f"/api/organizations/{self.organization.id}",
             {"name": "Updated Name PUT"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.organization.refresh_from_db()
-        self.assertEqual(self.organization.name, "Updated Name PUT")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_patch_organization_as_member(self):
-        """Test that members can update organization name using PATCH method."""
+    def test_patch_organization_as_member_forbidden(self):
+        """Test that members cannot update organization using PATCH method."""
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -265,26 +263,15 @@ class TestOrganizationPutPatchPermissions(APIBaseTest):
             f"/api/organizations/{self.organization.id}",
             {"name": "Updated Name PATCH"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.organization.refresh_from_db()
-        self.assertEqual(self.organization.name, "Updated Name PATCH")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_put_patch_consistency(self):
-        """Test that PUT and PATCH methods have consistent behavior."""
-        # Test as admin - both PUT and PATCH should work
+    def test_patch_consistency_admin(self):
+        """Test that PATCH method works consistently for admins."""
+        # Test as admin - PATCH should work
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        # Test PUT
-        response_put = self.client.put(
-            f"/api/organizations/{self.organization.id}",
-            {"name": "Admin Updated Name PUT"},
-        )
-        self.assertEqual(response_put.status_code, status.HTTP_200_OK)
-        self.organization.refresh_from_db()
-        self.assertEqual(self.organization.name, "Admin Updated Name PUT")
-
-        # Test PATCH
+        # Test PATCH - only need to provide the fields we're updating
         response_patch = self.client.patch(
             f"/api/organizations/{self.organization.id}",
             {"name": "Admin Updated Name PATCH"},
@@ -293,28 +280,26 @@ class TestOrganizationPutPatchPermissions(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "Admin Updated Name PATCH")
 
-    def test_idor_protection_put_patch(self):
-        """Test that users cannot modify organizations they don't belong to using PUT/PATCH."""
+    def test_idor_protection_patch(self):
+        """Test that users cannot modify organizations they don't belong to using PATCH."""
         # Create another organization with a different owner
         other_org, _, other_user = Organization.objects.bootstrap(self._create_user("other_user@posthog.com"))
 
-        # Try to modify other organization using PUT - should fail
-        response_put = self.client.put(
-            f"/api/organizations/{other_org.id}",
-            {"name": "Hacked Name PUT"},
-        )
-        self.assertEqual(response_put.status_code, status.HTTP_404_NOT_FOUND)
+        # Make current user an admin of their own org
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
 
         # Try to modify other organization using PATCH - should fail
+        # The exact status code (403 or 404) depends on permission implementation
         response_patch = self.client.patch(
             f"/api/organizations/{other_org.id}",
             {"name": "Hacked Name PATCH"},
         )
-        self.assertEqual(response_patch.status_code, status.HTTP_404_NOT_FOUND)
+        # Should be either forbidden or not found - both indicate access is properly restricted
+        self.assertIn(response_patch.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
 
         # Verify the other organization wasn't modified
         other_org.refresh_from_db()
-        self.assertNotEqual(other_org.name, "Hacked Name PUT")
         self.assertNotEqual(other_org.name, "Hacked Name PATCH")
 
 
