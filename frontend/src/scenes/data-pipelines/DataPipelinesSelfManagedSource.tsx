@@ -31,6 +31,7 @@ export const DataPipelinesSelfManagedSource = ({ id }: SelfManagedProps): JSX.El
                             editingTable(false)
                             router.actions.push(urls.dataPipelines('sources'))
                         }}
+                        size="small"
                     >
                         Cancel
                     </LemonButton>

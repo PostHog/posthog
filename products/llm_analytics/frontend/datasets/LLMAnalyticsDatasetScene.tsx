@@ -115,6 +115,7 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                                                 }
                                             }}
                                             disabledReason={isDatasetFormSubmitting ? 'Saving…' : undefined}
+                                            size="small"
                                         >
                                             Cancel
                                         </LemonButton>
@@ -123,6 +124,7 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                                             data-attr="save-dataset"
                                             onClick={submitDatasetForm}
                                             loading={isDatasetFormSubmitting}
+                                            size="small"
                                         >
                                             {isNewDataset ? 'Create dataset' : 'Save'}
                                         </LemonButton>
@@ -134,6 +136,7 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                                             onClick={() => editDataset(true)}
                                             loading={false}
                                             data-attr="edit-dataset"
+                                            size="small"
                                         >
                                             Edit
                                         </LemonButton>
@@ -142,6 +145,7 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                                             onClick={() => triggerDatasetItemModal(true)}
                                             data-attr="add-dataset-item"
                                             icon={<IconPlusSmall />}
+                                            size="small"
                                         >
                                             Add item
                                         </LemonButton>

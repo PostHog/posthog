@@ -41,6 +41,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                                     data-attr="cancel-message-template"
                                     type="secondary"
                                     onClick={() => resetTemplate(originalTemplate)}
+                                    size="small"
                                 >
                                     Discard changes
                                 </LemonButton>
@@ -52,6 +53,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                                 onClick={submitTemplate}
                                 loading={isTemplateSubmitting}
                                 disabledReason={templateChanged ? undefined : 'No changes to save'}
+                                size="small"
                             >
                                 {id === 'new' ? 'Create' : 'Save'}
                             </LemonButton>

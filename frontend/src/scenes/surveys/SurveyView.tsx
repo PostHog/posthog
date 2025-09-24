@@ -155,6 +155,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     data-attr="edit-survey"
                                     onClick={() => editingSurvey(true)}
                                     type="secondary"
+                                    size="small"
                                 >
                                     Edit
                                 </LemonButton>
@@ -163,6 +164,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 ) : survey.end_date && !survey.archived ? (
                                     <LemonButton
                                         type="secondary"
+                                        size="small"
                                         onClick={() => {
                                             LemonDialog.open({
                                                 title: 'Resume this survey?',
@@ -193,6 +195,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             data-attr="stop-survey"
                                             type="secondary"
                                             status="danger"
+                                            size="small"
                                             onClick={() => {
                                                 LemonDialog.open({
                                                     title: 'Stop this survey?',

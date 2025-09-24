@@ -105,7 +105,7 @@ export function CustomCssScene(): JSX.Element {
                 }}
                 actions={
                     <>
-                        <LemonButton type="secondary" onClick={onPreview}>
+                        <LemonButton type="secondary" onClick={onPreview} size="small">
                             Preview
                         </LemonButton>
                         <LemonButton
@@ -114,6 +114,7 @@ export function CustomCssScene(): JSX.Element {
                                 saveCustomCss()
                                 router.actions.push(urls.projectHomepage())
                             }}
+                            size="small"
                         >
                             Save and set
                         </LemonButton>

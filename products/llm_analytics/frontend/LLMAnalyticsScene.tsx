@@ -334,6 +334,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                                 to="https://posthog.com/docs/llm-analytics/installation"
                                 type="secondary"
                                 targetBlank
+                                size="small"
                             >
                                 Documentation
                             </LemonButton>

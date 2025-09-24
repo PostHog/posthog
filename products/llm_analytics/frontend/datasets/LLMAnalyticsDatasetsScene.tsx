@@ -105,6 +105,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                         type="primary"
                         to={urls.llmAnalyticsDataset('new')}
                         data-testid="create-dataset-button"
+                        size="small"
                     >
                         New dataset
                     </LemonButton>

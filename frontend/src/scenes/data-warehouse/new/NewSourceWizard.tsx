@@ -56,7 +56,13 @@ function InternalNewSourceWizardScene(): JSX.Element {
                 name="Internal source wizard"
                 resourceType={{ type: 'data_pipeline' }}
                 actions={
-                    <LemonButton type="secondary" center data-attr="source-form-cancel-button" onClick={closeWizard}>
+                    <LemonButton
+                        type="secondary"
+                        center
+                        data-attr="source-form-cancel-button"
+                        onClick={closeWizard}
+                        size="small"
+                    >
                         Cancel
                     </LemonButton>
                 }

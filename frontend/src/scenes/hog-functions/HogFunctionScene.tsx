@@ -256,6 +256,7 @@ function HogFunctionHeader(): JSX.Element {
                         {!logicProps.templateId && (
                             <>
                                 <More
+                                    size="small"
                                     overlay={
                                         <>
                                             {!isLegacyPlugin && (

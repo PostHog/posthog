@@ -137,6 +137,7 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                             data-attr="delete-link"
                                             status="danger"
                                             type="secondary"
+                                            size="small"
                                             onClick={() => {
                                                 LemonDialog.open({
                                                     title: 'Permanently delete link?',
