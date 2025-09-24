@@ -881,11 +881,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const { results } = responseJSON
 
                 // Process the results into a format that can be used by each question type
-                const responsesByQuestion = processResultsForSurveyQuestions(
-                    values.survey.questions,
-                    results,
-                    undefined
-                )
+                const responsesByQuestion = processResultsForSurveyQuestions(values.survey.questions, results)
 
                 return { responsesByQuestion }
             },
