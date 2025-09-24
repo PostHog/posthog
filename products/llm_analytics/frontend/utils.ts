@@ -95,6 +95,22 @@ export function getSessionID(event: LLMTrace | LLMTraceEvent): string | null {
     return event.events.find((e) => e.properties.$session_id !== null)?.properties.$session_id || null
 }
 
+export function getEventType(event: LLMTrace | LLMTraceEvent): string {
+    if (isLLMTraceEvent(event)) {
+        switch (event.event) {
+            case '$ai_generation':
+                return 'generation'
+            case '$ai_embedding':
+                return 'embedding'
+            case '$ai_trace':
+                return 'trace'
+            default:
+                return 'span'
+        }
+    }
+    return 'trace'
+}
+
 export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | null {
     if (isLLMTraceEvent(event)) {
         return event.properties.$recording_status || null

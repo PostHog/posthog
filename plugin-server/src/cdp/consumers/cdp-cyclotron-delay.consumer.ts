@@ -1,4 +1,4 @@
-import { isDevEnv } from '~/utils/env-utils'
+import { isCloud } from '~/utils/env-utils'
 import { logger } from '~/utils/logger'
 
 import { HealthCheckResult, Hub } from '../../types'
@@ -16,7 +16,7 @@ export class CdpCyclotronDelayConsumer extends CdpConsumerBase {
 
     constructor(hub: Hub) {
         super(hub)
-        this.queue = isDevEnv() ? 'delay-10m' : hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
+        this.queue = !isCloud() ? 'delay_10m' : hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 
         if (!['delay-10m', 'delay-60m', 'delay-24h'].includes(this.queue)) {
             throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)

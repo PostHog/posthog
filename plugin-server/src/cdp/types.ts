@@ -95,7 +95,9 @@ export type HogFunctionInvocationGlobals = {
 
     // Unique to sources - will be modified later
     request?: {
+        method: string
         headers: Record<string, string | undefined>
+        query: Record<string, string | undefined>
         ip?: string
         body: Record<string, any>
         stringBody: string

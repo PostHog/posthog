@@ -48,7 +48,6 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
-from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
@@ -83,12 +82,18 @@ from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
     join_replay_table_to_sessions_table_v2,
+    join_replay_table_to_sessions_table_v3,
 )
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import (
     RawSessionsTableV2,
     SessionsTableV2,
     join_events_table_to_sessions_table_v2,
+)
+from posthog.hogql.database.schema.sessions_v3 import (
+    RawSessionsTableV3,
+    SessionsTableV3,
+    join_events_table_to_sessions_table_v3,
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
@@ -141,7 +146,7 @@ class Database(BaseModel):
     app_metrics: AppMetrics2Table = AppMetrics2Table()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
-    sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
+    sessions: Union[SessionsTableV1, SessionsTableV2, SessionsTableV3] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
 
@@ -170,7 +175,8 @@ class Database(BaseModel):
     raw_error_tracking_issue_fingerprint_overrides: RawErrorTrackingIssueFingerprintOverridesTable = (
         RawErrorTrackingIssueFingerprintOverridesTable()
     )
-    raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
+    raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV1()
+    raw_sessions_v3: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV3()
     raw_query_log: RawQueryLogArchiveTable = RawQueryLogArchiveTable()
     pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
     # logs table for logs product
@@ -179,22 +185,6 @@ class Database(BaseModel):
     # system tables
     numbers: NumbersTable = NumbersTable()
     system: TableGroup = SystemTables()
-
-    # Postgres tables
-    dashboards: PostgresTable = PostgresTable(
-        name="dashboards",
-        postgres_table_name="posthog_dashboard",
-        fields={
-            "id": IntegerDatabaseField(name="id"),
-            "team_id": IntegerDatabaseField(name="team_id"),
-            "name": StringDatabaseField(name="name"),
-            "description": StringDatabaseField(name="description"),
-            "created_at": DateTimeDatabaseField(name="created_at"),
-            "deleted": BooleanDatabaseField(name="deleted"),
-            "filters": StringJSONDatabaseField(name="filters"),
-            "variables": StringJSONDatabaseField(name="variables"),
-        },
-    )
 
     # These are the tables exposed via SQL editor autocomplete and data management
     _table_names: ClassVar[list[str]] = [
@@ -536,9 +526,9 @@ def create_hogql_database(
             modifiers.sessionTableVersion == SessionTableVersion.V2
             or modifiers.sessionTableVersion == SessionTableVersion.AUTO
         ):
-            raw_sessions = RawSessionsTableV2()
+            raw_sessions: Union[RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV2()
             database.raw_sessions = raw_sessions
-            sessions = SessionsTableV2()
+            sessions: Union[SessionsTableV2, SessionsTableV3] = SessionsTableV2()
             database.sessions = sessions
             events = database.events
             events.fields["session"] = LazyJoin(
@@ -558,6 +548,29 @@ def create_hogql_database(
                 from_field=["session_id"],
                 join_table=sessions,
                 join_function=join_replay_table_to_sessions_table_v2,
+            )
+            cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
+        elif modifiers.sessionTableVersion == SessionTableVersion.V3:
+            sessions = SessionsTableV3()
+            database.sessions = sessions
+            events = database.events
+            events.fields["session"] = LazyJoin(
+                from_field=["$session_id"],
+                join_table=sessions,
+                join_function=join_events_table_to_sessions_table_v3,
+            )
+            replay_events = database.session_replay_events
+            replay_events.fields["session"] = LazyJoin(
+                from_field=["session_id"],
+                join_table=sessions,
+                join_function=join_replay_table_to_sessions_table_v3,
+            )
+            cast(LazyJoin, replay_events.fields["events"]).join_table = events
+            raw_replay_events = database.raw_session_replay_events
+            raw_replay_events.fields["session"] = LazyJoin(
+                from_field=["session_id"],
+                join_table=sessions,
+                join_function=join_replay_table_to_sessions_table_v3,
             )
             cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
 
@@ -956,6 +969,7 @@ DatabaseSchemaTable: TypeAlias = (
 
 def serialize_database(
     context: HogQLContext,
+    include_only: Optional[set[str]] = None,
 ) -> dict[str, DatabaseSchemaTable]:
     from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -972,6 +986,9 @@ def serialize_database(
     # PostHog tables
     posthog_tables = context.database.get_posthog_tables()
     for table_key in posthog_tables:
+        if include_only and table_key not in include_only:
+            continue
+
         field_input: dict[str, Any] = {}
         table = context.database.get_table(table_key)
         if isinstance(table, FunctionCallTable):
@@ -986,6 +1003,9 @@ def serialize_database(
     # System tables
     system_tables = context.database.get_system_tables()
     for table_key in system_tables:
+        if include_only and table_key not in include_only:
+            continue
+
         system_field_input: dict[str, Any] = {}
         table = context.database.get_table(table_key)
         if isinstance(table, FunctionCallTable):
@@ -1069,6 +1089,9 @@ def serialize_database(
         else:
             table_key = warehouse_table.name
 
+        if include_only and table_key not in include_only:
+            continue
+
         field_input = {}
         table = context.database.get_table(table_key)
         if isinstance(table, Table):
@@ -1103,6 +1126,9 @@ def serialize_database(
     # Process views using prefetched data
     views_dict = {view.name: view for view in all_views}
     for view_name in views:
+        if include_only and view_name not in include_only:
+            continue
+
         view: Table | TableGroup | None = getattr(context.database, view_name, None)
         if view is None:
             continue
