@@ -345,8 +345,8 @@ FROM parsed_events
     )
 
 
-RAW_SESSIONS_TABLE_MV_SQL_V3 = (
-    lambda: """
+def RAW_SESSIONS_TABLE_MV_SQL_V3(where=True):
+    return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}
 TO {database}.{target_table}
 AS
@@ -355,9 +355,9 @@ AS
         table_name=f"{TABLE_BASE_NAME_V3}_mv",
         target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         database=settings.CLICKHOUSE_DATABASE,
-        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where),
     )
-)
+
 
 RAW_SESSION_TABLE_UPDATE_SQL_V3 = (
     lambda: """
