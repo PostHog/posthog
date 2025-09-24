@@ -1354,6 +1354,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_LIFECYCLE = "insight/lifecycle"
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
+    TEAM_ACTIVITY = "team_activity"
 
 
 class FileSystemImport(BaseModel):

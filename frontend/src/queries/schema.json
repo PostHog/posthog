@@ -12526,7 +12526,8 @@
                 "insight/paths",
                 "insight/lifecycle",
                 "insight/stickiness",
-                "insight/hog"
+                "insight/hog",
+                "team_activity"
             ],
             "type": "string"
         },
