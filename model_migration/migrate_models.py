@@ -6,6 +6,7 @@ Uses LibCST for refactoring and intelligent migration editing.
 
 import os
 import ast
+import sys
 import json
 import logging
 import subprocess
@@ -143,8 +144,11 @@ class LLMInvocationError(Exception):
 
 
 class ModelMigrator:
-    def __init__(self, config_file: str = "model_migration/migration_config.json"):
+    def __init__(
+        self, config_file: str = "model_migration/migration_config.json", continue_from_migrations: bool = False
+    ):
         self.root_dir = Path.cwd()
+        self.continue_from_migrations = continue_from_migrations
 
         config_path = Path(config_file)
         if not config_path.is_absolute():
@@ -497,7 +501,7 @@ class {app_name.title()}Config(AppConfig):
         return True
 
     def move_admin_classes(self, model_names: set[str], target_app: str) -> bool:
-        """Move Django admin classes to the product backend folder"""
+        """Move Django admin classes to the product backend folder using new deduplication logic"""
         admin_admins_dir = self.root_dir / "posthog" / "admin" / "admins"
         backend_dir = self.root_dir / "products" / target_app / "backend"
         self._admin_classes_for_registration = []
@@ -533,7 +537,6 @@ class {app_name.title()}Config(AppConfig):
 
         for model_name in model_names:
             snake_name = to_snake_case(model_name)
-            # Look for files that contain the model name
             pattern = str(admin_admins_dir / f"*{snake_name}*admin*.py")
             for found_file in glob.glob(pattern):
                 found_path = Path(found_file)
@@ -544,99 +547,17 @@ class {app_name.title()}Config(AppConfig):
             logger.info("✅ No admin files found to move")
             return True
 
-        # Create backend/admin.py by combining all related admin files
-        admin_imports = set()
-        combined_content = []
-        admin_classes = []
-
-        for admin_file, filename in admin_files_to_move:
-            try:
-                with open(admin_file) as f:
-                    content = f.read()
-
-                # Parse the file to extract imports and classes
-                import ast
-
-                tree = ast.parse(content)
-
-                # Extract imports (excluding model imports which need to be updated)
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.ImportFrom) and node.module:
-                        if not node.module.startswith(("posthog.models", "products.")):
-                            # Keep other imports
-                            admin_imports.add(ast.unparse(node))
-                    elif isinstance(node, ast.Import):
-                        admin_imports.add(ast.unparse(node))
-                    elif isinstance(node, ast.ClassDef) and node.name.endswith("Admin"):
-                        # Extract admin class names for registration
-                        admin_classes.append(node.name)
-
-                # Add the content (we'll fix imports later)
-                combined_content.append(f"# From {filename}")
-                combined_content.append(content)
-                combined_content.append("")
-
-                logger.info("📋 Found admin file to move: %s", admin_file)
-
-            except Exception:
-                logger.exception("❌ Failed to parse admin file: %s", admin_file)
-                continue
-
-        if not combined_content:
-            logger.info("✅ No admin content to move")
-            return True
-
-        # Create the new admin.py file
-        new_admin_file = backend_dir / "admin.py"
-
-        # Build the header with proper imports
-        header = [
-            "# Django admin classes for this product",
-            "",
-            "from django.contrib import admin",
-            "",
-            "from posthog.models import (",
-            "    # Add any posthog models still needed",
-            ")",
-            "",
-            f"from .models import (",
-        ]
-
-        # Add model imports
-        for model_name in sorted(model_names):
-            header.append(f"    {model_name},")
-
-        header.extend(
-            [
-                ")",
-                "",
-                "",
-            ]
-        )
-
-        # Store admin classes for AppConfig generation (don't add registrations to admin.py)
-        if admin_classes:
-            for admin_class in sorted(set(admin_classes)):
-                # Map admin class to model name (remove "Admin" suffix)
-                model_name = admin_class.replace("Admin", "")
-                if model_name in model_names:
-                    self._admin_classes_for_registration.append((model_name, admin_class))
-
-        # Combine everything (no registrations in admin.py)
-        final_content = "\n".join(header + combined_content)
-
-        with open(new_admin_file, "w") as f:
-            f.write(final_content)
-
-        logger.info("✅ Created backend admin file: %s", new_admin_file)
+        # Use the new deduplication logic
+        success = self._create_combined_admin_file(admin_files_to_move, backend_dir, model_names)
+        if not success:
+            return False
 
         # Create __init__.py in backend
         backend_init = backend_dir / "__init__.py"
         if not backend_init.exists():
-            init_content = ""
-            f.write(init_content)
+            backend_init.touch()
 
-        # Remove the old admin files and update imports in admin __init__.py
+        # Update admin __init__.py after move
         self._update_admin_init_after_move(admin_files_to_move, model_names, target_app)
 
         return True
@@ -807,35 +728,77 @@ class {app_name.title()}Config(AppConfig):
             with open(source_path) as f:
                 content = f.read()
 
-            # Extract imports and content
+            # Parse file to separate imports from content properly
             lines = content.split("\n")
             file_imports = []
             file_content = []
+            in_imports_section = True
 
             for line in lines:
-                if line.strip().startswith(("from ", "import ")) and not line.strip().startswith("#"):
-                    # Filter out circular imports and strip whitespace from import lines
-                    stripped_line = line.strip()  # Remove leading whitespace from import lines
-                    if stripped_line not in imports_seen and not any(
-                        model_name in stripped_line for model_name in model_names
-                    ):
-                        file_imports.append(stripped_line)
-                        imports_seen.add(stripped_line)
+                stripped = line.strip()
+
+                # Determine if we're still in the imports section
+                if in_imports_section:
+                    if stripped.startswith(("from ", "import ")) and not stripped.startswith("#"):
+                        # This is an import line - collect it
+                        if stripped not in imports_seen and not any(
+                            model_name in stripped for model_name in model_names
+                        ):
+                            file_imports.append(stripped)  # Always store without leading whitespace
+                            imports_seen.add(stripped)
+                    elif stripped == "" or stripped.startswith("#") or stripped == "if TYPE_CHECKING:":
+                        # Skip empty lines, comments, and TYPE_CHECKING in import section
+                        continue
+                    else:
+                        # First non-import line - we're done with imports section
+                        in_imports_section = False
+                        if stripped:  # Don't include empty line that ends imports
+                            updated_line = self._update_foreign_key_references(line, model_names)
+                            file_content.append(updated_line)
                 else:
-                    # Skip TYPE_CHECKING blocks and empty/whitespace-only lines
-                    if not (line.strip() == "if TYPE_CHECKING:" or line.strip() == ""):
-                        # Update string-based foreign key references to include posthog. prefix
+                    # We're in the content section - include everything except TYPE_CHECKING blocks
+                    if not (stripped == "if TYPE_CHECKING:" or stripped == ""):
                         updated_line = self._update_foreign_key_references(line, model_names)
                         file_content.append(updated_line)
 
+            # Store the parsed content for later use
+            combined_content.append(f"# === From {source_file} ===")
             combined_content.extend(file_imports)
             combined_content.extend(["", ""])
             combined_content.extend(file_content)
             combined_content.extend(["", ""])
 
+        # Restructure to put all imports at the top
+        final_content = []
+        all_imports = sorted(imports_seen)  # Sort for consistency
+
+        # Add all imports first
+        final_content.extend(all_imports)
+        final_content.extend(["", ""])  # Blank lines after imports
+
+        # Add content sections (skip individual file imports)
+        for i, line in enumerate(combined_content):
+            if line.startswith("# === From "):
+                # Add section header
+                final_content.append(line)
+                # Skip imports that follow, add only content
+                j = i + 1
+                while j < len(combined_content) and combined_content[j].strip():
+                    if not combined_content[j].strip().startswith(("from ", "import ")):
+                        break
+                    j += 1
+                # Add remaining content
+                while j < len(combined_content):
+                    if j + 1 < len(combined_content) and combined_content[j + 1].startswith("# === From "):
+                        break
+                    if combined_content[j].strip():  # Skip empty lines at section boundaries
+                        final_content.append(combined_content[j])
+                    j += 1
+                final_content.extend(["", ""])
+
         # Write combined file
         with open(target_models_py, "w") as f:
-            f.write("\n".join(combined_content))
+            f.write("\n".join(final_content))
 
         self._ensure_model_db_tables(target_models_py)
 
@@ -1454,25 +1417,104 @@ class {app_name.title()}Config(AppConfig):
             return False
 
     def _create_combined_admin_file(self, admin_files: list, target_dir, model_names: set[str]) -> bool:
-        """Create combined admin.py file"""
+        """Create combined admin.py file without duplicates"""
         try:
             admin_file = target_dir / "admin.py"
-            combined_content = []
 
-            # Header
-            header = [
-                "# Django admin classes for this product",
-                "",
-                "from django.contrib import admin",
-                "",
-                "from .models import (",
-            ]
+            # Parse all admin files to extract unique classes and imports
+            admin_classes = []
+            unique_imports = set()
+            admin_registrations = []
+
+            for admin_file_path, filename in admin_files:
+                with open(admin_file_path) as f:
+                    content = f.read()
+
+                try:
+                    import ast
+
+                    tree = ast.parse(content)
+
+                    # Extract imports (excluding posthog.models imports which we'll replace)
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.ImportFrom) and node.module:
+                            if not node.module.startswith(("posthog.models", "products.")):
+                                unique_imports.add(ast.unparse(node))
+                        elif isinstance(node, ast.Import):
+                            unique_imports.add(ast.unparse(node))
+
+                    # Extract admin classes (not registrations)
+                    for node in tree.body:
+                        if isinstance(node, ast.ClassDef) and node.name.endswith("Admin"):
+                            admin_classes.append((filename, ast.unparse(node)))
+                        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                            # Extract admin.site.register calls
+                            call = node.value
+                            if (
+                                isinstance(call.func, ast.Attribute)
+                                and isinstance(call.func.value, ast.Attribute)
+                                and call.func.value.attr == "site"
+                                and call.func.attr == "register"
+                            ):
+                                admin_registrations.append(ast.unparse(node))
+
+                except SyntaxError:
+                    logger.warning("⚠️  Could not parse admin file %s, including as-is", filename)
+                    # Fallback: include content as-is but with header comment
+                    admin_classes.append((filename, f"# {filename} (could not parse)\n{content}"))
+
+                # Remove the old admin file
+                admin_file_path.unlink()
+                logger.info("🗑️  Removed old admin file: %s", admin_file_path)
+
+            # Build the new admin.py file
+            final_content = []
+
+            # Header with standard imports
+            final_content.extend(
+                [
+                    "# Django admin classes for this product",
+                    "",
+                    "from django.contrib import admin",
+                    "",
+                ]
+            )
+
+            # Add unique external imports (semantic deduplication)
+            imports_by_module = {}
+            for imp_str in unique_imports:
+                try:
+                    # Parse the import statement to get module and names
+                    import_node = ast.parse(imp_str).body[0]
+                    if isinstance(import_node, ast.ImportFrom):
+                        module = import_node.module
+                        if module not in imports_by_module:
+                            imports_by_module[module] = set()
+                        for alias in import_node.names:
+                            imports_by_module[module].add(alias.name)
+                except:
+                    # Fallback: just add the import as-is
+                    final_content.append(imp_str)
+
+            # Reconstruct imports without duplicates
+            for module in sorted(imports_by_module.keys()):
+                names = sorted(imports_by_module[module])
+                if len(names) == 1:
+                    final_content.append(f"from {module} import {names[0]}")
+                else:
+                    final_content.append(f"from {module} import (")
+                    for name in names:
+                        final_content.append(f"    {name},")
+                    final_content.append(")")
+
+            if imports_by_module:
+                final_content.append("")
 
             # Add model imports
+            final_content.append("from .models import (")
             for model_name in sorted(model_names):
-                header.append(f"    {model_name},")
-
-            header.extend(
+                final_content.append(f"    {model_name},")
+            final_content.extend(
                 [
                     ")",
                     "",
@@ -1480,26 +1522,60 @@ class {app_name.title()}Config(AppConfig):
                 ]
             )
 
-            combined_content.extend(header)
+            # Add admin classes (deduplicated by class name)
+            admin_classes_by_name = {}
+            for filename, class_content in admin_classes:
+                # Extract class name from content
+                try:
+                    # Parse the class to get its name
+                    class_node = ast.parse(class_content).body[0]
+                    if isinstance(class_node, ast.ClassDef):
+                        class_name = class_node.name
+                        # Only keep first occurrence of each class
+                        if class_name not in admin_classes_by_name:
+                            admin_classes_by_name[class_name] = (filename, class_content)
+                except:
+                    # Fallback: use content as-is with filename
+                    final_content.append(f"# === From {filename} ===")
+                    final_content.append(class_content)
+                    final_content.extend(["", ""])
+                    continue
 
-            # Process each admin file
-            for admin_file_path, filename in admin_files:
-                combined_content.append(f"# === From {filename} ===")
+            # Add deduplicated admin classes
+            for class_name in sorted(admin_classes_by_name.keys()):
+                filename, class_content = admin_classes_by_name[class_name]
+                final_content.append(f"# {class_name} from {filename}")
+                final_content.append(class_content)
+                final_content.extend(["", ""])
 
-                with open(admin_file_path) as f:
-                    content = f.read()
+            # Add admin registrations at the end (semantically deduplicated)
+            if admin_registrations:
+                final_content.append("# Admin registrations")
+                # Deduplicate registrations by parsing them
+                registrations_by_model = {}
+                for reg_str in admin_registrations:
+                    try:
+                        # Parse to extract model and admin class
+                        reg_node = ast.parse(reg_str).body[0]
+                        if isinstance(reg_node, ast.Expr) and isinstance(reg_node.value, ast.Call):
+                            args = reg_node.value.args
+                            if len(args) >= 1:
+                                # Get the model name (first argument)
+                                model_name = ast.unparse(args[0])
+                                # Only keep the first registration for each model
+                                if model_name not in registrations_by_model:
+                                    registrations_by_model[model_name] = reg_str
+                    except:
+                        # Fallback: include as-is
+                        final_content.append(reg_str)
 
-                # Simple content addition (imports will be fixed by LibCST later)
-                combined_content.append(content)
-                combined_content.append("")
-
-                # Remove the old admin file
-                admin_file_path.unlink()
-                logger.info("🗑️  Removed old admin file: %s", admin_file_path)
+                # Add deduplicated registrations
+                for model_name in sorted(registrations_by_model.keys()):
+                    final_content.append(registrations_by_model[model_name])
 
             # Write combined admin file
             with open(admin_file, "w") as f:
-                f.write("\n".join(combined_content))
+                f.write("\n".join(final_content))
 
             logger.info("✅ Created backend admin file: %s", admin_file)
             return True
@@ -1572,48 +1648,65 @@ class {app_name.title()}Config(AppConfig):
         logger.info("   Source files: %s", source_files)
         logger.info("   Target app: %s", target_app)
 
-        # Step 1: Create backend structure if needed
-        if create_backend:
-            if not self.create_backend_structure(target_app):
+        if self.continue_from_migrations:
+            logger.info("🔄 Continuing from migrations step (skipping file operations)")
+            # Extract model class names from the target backend models.py file
+            target_models_file = self.root_dir / "products" / target_app / "backend" / "models.py"
+            if not target_models_file.exists():
+                logger.error("❌ Cannot continue: target models.py not found at %s", target_models_file)
                 return False
 
-        # Step 2: Extract model class names early (before files are moved/deleted)
-        model_names = self._extract_class_names_from_files(source_files)
-        logger.info("📋 Model classes found: %s", list(model_names))
+            with open(target_models_file) as f:
+                content = f.read()
+            model_names = self._extract_models_from_content(content)
+            logger.info("📋 Model classes found in target: %s", list(model_names))
+        else:
+            # Step 1: Create backend structure if needed
+            if create_backend:
+                if not self.create_backend_structure(target_app):
+                    return False
 
-        # Step 3: Update posthog/models/__init__.py imports (before LibCST to prevent circular imports)
-        if not self.update_posthog_models_init(source_files, target_app):
-            return False
+            # Step 2: Extract model class names early (before files are moved/deleted)
+            model_names = self._extract_class_names_from_files(source_files)
+            logger.info("📋 Model classes found: %s", list(model_names))
 
-        # Step 4: Move model files and update imports with LibCST
-        if not self.move_model_files_and_update_imports(source_files, target_app):
-            return False
+            # Step 3: Update posthog/models/__init__.py imports (before LibCST to prevent circular imports)
+            if not self.update_posthog_models_init(source_files, target_app):
+                return False
 
-        # Step 5: Update external file references to moved models
-        self._update_external_references_to_moved_models(model_names, target_app)
+            # Step 4: Move model files and update imports with LibCST
+            if not self.move_model_files_and_update_imports(source_files, target_app):
+                return False
 
-        # Step 6: Move Django admin classes to product backend
-        if not self.move_admin_classes(model_names, target_app):
-            logger.warning("⚠️  Admin class migration failed, but continuing...")
+            # Step 5: Update external file references to moved models
+            self._update_external_references_to_moved_models(model_names, target_app)
 
-        admin_registrations = getattr(self, "_admin_classes_for_registration", [])
+            # Step 6: Move Django admin classes to product backend
+            if not self.move_admin_classes(model_names, target_app):
+                logger.warning("⚠️  Admin class migration failed, but continuing...")
 
-        # Step 7: Create Django app configuration (register admin classes when available)
-        if not self.create_django_app_config(target_app, admin_registrations):
-            return False
+            admin_registrations = getattr(self, "_admin_classes_for_registration", [])
 
-        # Step 8: Update settings
-        if not self.update_settings(target_app):
-            return False
+            # Step 7: Create Django app configuration (register admin classes when available)
+            if not self.create_django_app_config(target_app, admin_registrations):
+                return False
 
-        proceed = input(
-            "\n🔍 Please review the changes so far. "
-            "Also run `python manage.py migrate --plan` to verify there are no errors. "
-            "If everything looks good, type 'yes' to proceed with migrations: "
-        )
-        if proceed.strip().lower() != "yes":
-            logger.info("🛑 Migration aborted by user.")
-            return False
+            # Step 8: Update settings
+            if not self.update_settings(target_app):
+                return False
+
+            proceed = input(
+                "\n🔍 Please review the changes so far. "
+                "Also run `python manage.py migrate --plan` to verify there are no errors. "
+                "If everything looks good, type 'yes' to proceed with migrations, "
+                "or 'quit' to exit (you can resume later with --continue flag): "
+            )
+            if proceed.strip().lower() == "quit":
+                logger.info("🛑 Migration paused by user. Resume with --continue flag.")
+                return False
+            elif proceed.strip().lower() != "yes":
+                logger.info("🛑 Migration aborted by user.")
+                return False
 
         # Step 9: Generate migrations
         success, target_migration, posthog_migration = self.generate_migrations(target_app)
@@ -1688,8 +1781,16 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    # Check for single mode flag
+    # Check for command line flags
     single_mode = "--single" in sys.argv
+    continue_mode = "--continue" in sys.argv
 
-    migrator = ModelMigrator()
+    if continue_mode and single_mode:
+        logger.info("🔄 Running in single continue mode")
+    elif continue_mode:
+        logger.info("🔄 Running in continue mode (from migrations step)")
+    elif single_mode:
+        logger.info("🎯 Running in single mode")
+
+    migrator = ModelMigrator(continue_from_migrations=continue_mode)
     migrator.run_all_migrations(single_mode=single_mode)
