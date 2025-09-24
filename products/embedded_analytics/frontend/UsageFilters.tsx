@@ -5,12 +5,11 @@ import { LemonButton, LemonInputSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { dayjs } from 'lib/dayjs'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+// import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { formatDateRange } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
-import { EmbeddedTab } from './common'
 import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
 
 const embeddedAnalyticsDateMapping: DateMappingOption[] = [
@@ -58,9 +57,9 @@ const embeddedAnalyticsDateMapping: DateMappingOption[] = [
     },
 ]
 
-const RequestNameBreakdownToggle = (): JSX.Element => {
-    const { requestNameBreakdownEnabled } = useValues(embeddedAnalyticsLogic)
-    const { setRequestNameBreakdownEnabled } = useActions(embeddedAnalyticsLogic)
+const RequestNameBreakdownToggle = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { requestNameBreakdownEnabled } = useValues(embeddedAnalyticsLogic({ tabId }))
+    const { setRequestNameBreakdownEnabled } = useActions(embeddedAnalyticsLogic({ tabId }))
 
     return (
         <LemonButton
@@ -76,13 +75,11 @@ const RequestNameBreakdownToggle = (): JSX.Element => {
 type RequestNameSelectProps = {
     value: string[]
     onChange: (values: string[]) => void
+    tabId: string
 }
 
-const RequestNameFilter = ({ value, onChange }: RequestNameSelectProps): JSX.Element => {
-    const { requestNames, requestNamesLoading } = useValues(embeddedAnalyticsLogic)
-
-    const { loadRequestNames } = useActions(embeddedAnalyticsLogic)
-    useOnMountEffect(loadRequestNames)
+const RequestNameFilter = ({ value, onChange, tabId }: RequestNameSelectProps): JSX.Element => {
+    const { requestNames, requestNamesLoading } = useValues(embeddedAnalyticsLogic({ tabId }))
 
     const options = requestNames.map((requestName: string) => ({
         key: requestName,
@@ -92,7 +89,7 @@ const RequestNameFilter = ({ value, onChange }: RequestNameSelectProps): JSX.Ele
 
     return (
         <LemonInputSelect
-            placeholder="Search request names to filter by…"
+            title="Request names"
             autoWidth={false}
             popoverClassName="max-h-60 max-w-s overflow-y-auto"
             className="max-h-30 max-w-s overflow-y-auto"
@@ -113,11 +110,11 @@ const RequestNameFilter = ({ value, onChange }: RequestNameSelectProps): JSX.Ele
     )
 }
 
-export const EmbeddedAnalyticsFilters = ({ tabs }: { tabs?: JSX.Element }): JSX.Element => {
-    const { dateFilter, activeTab, requestNameFilter } = useValues(embeddedAnalyticsLogic)
-    const { setDates, setRequestNameFilter } = useActions(embeddedAnalyticsLogic)
+export const UsageFilters = ({ tabs, tabId }: { tabs?: JSX.Element; tabId: string }): JSX.Element => {
+    const { dateFilter, activeTab, requestNameFilter } = useValues(embeddedAnalyticsLogic({ tabId }))
+    const { setDates, setRequestNameFilter } = useActions(embeddedAnalyticsLogic({ tabId }))
 
-    return activeTab === EmbeddedTab.USAGE ? (
+    return activeTab === 'usage' ? (
         <FilterBar
             className="m-0 px-0 rounded-none"
             top={tabs}
@@ -130,8 +127,8 @@ export const EmbeddedAnalyticsFilters = ({ tabs }: { tabs?: JSX.Element }): JSX.
                         forceGranularity="day"
                         dateOptions={embeddedAnalyticsDateMapping}
                     />
-                    <RequestNameBreakdownToggle />
-                    <RequestNameFilter value={requestNameFilter} onChange={setRequestNameFilter} />
+                    <RequestNameBreakdownToggle tabId={tabId} />
+                    <RequestNameFilter value={requestNameFilter} onChange={setRequestNameFilter} tabId={tabId} />
                 </>
             }
         />

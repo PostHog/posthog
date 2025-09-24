@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
-import { EmbeddedTab } from 'scenes/embedded-analytics/common'
 import { urls } from 'scenes/urls'
 
 import { NamedQueryRequest, NodeKind } from '~/queries/schema/schema-general'
@@ -18,7 +17,7 @@ export interface QueryEndpointLogicProps {
 }
 
 export const queryEndpointLogic = kea<queryEndpointLogicType>([
-    path(['data-warehouse', 'editor', 'output-pane-tabs', 'queryEndpointLogic']),
+    path(['products', 'embedded_analytics', 'frontend', 'queryEndpointLogic']),
     props({} as QueryEndpointLogicProps),
     key((props) => props.tabId),
     actions({
@@ -57,6 +56,8 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
             }
         },
         createQueryEndpointSuccess: () => {
+            actions.setQueryEndpointName('')
+            actions.setQueryEndpointDescription('')
             lemonToast.success(
                 <>
                     Query endpoint created successfully!
@@ -65,7 +66,7 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
                 </>,
                 {
                     onClose: () => {
-                        router.actions.push(urls.embeddedAnalytics(EmbeddedTab.QUERY_ENDPOINTS))
+                        router.actions.push(urls.embeddedAnalyticsQueryEndpoints())
                     },
                 }
             )
