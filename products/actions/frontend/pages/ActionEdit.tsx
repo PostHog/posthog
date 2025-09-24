@@ -6,7 +6,6 @@ import { useEffect } from 'react'
 import { IconInfo, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
@@ -80,6 +79,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 router.actions.push(urls.actions())
             }}
             tooltip="Cancel and return to the list of actions"
+            size="small"
         >
             Cancel
         </LemonButton>
@@ -94,32 +94,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 enableFormOnSubmit
                 className="flex flex-col gap-y-4"
             >
-                <PageHeader
-                    buttons={
-                        <>
-                            {!id && cancelButton()}
-                            <LemonButton
-                                data-attr="save-action-button"
-                                type="primary"
-                                htmlType="submit"
-                                loading={actionLoading}
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    if (id) {
-                                        submitAction()
-                                    } else {
-                                        setActionValue('_create_in_folder', 'Unfiled/Insights')
-                                        submitAction()
-                                    }
-                                }}
-                                disabledReason={!actionChanged ? 'No changes to save' : undefined}
-                            >
-                                {actionChanged ? 'Save' : 'No changes'}
-                            </LemonButton>
-                        </>
-                    }
-                />
-
                 <ScenePanel>
                     <ScenePanelInfoSection>
                         <SceneTags
@@ -174,10 +148,11 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                     <IconRewindPlay />
                                     View recordings
                                 </Link>
-                                <ScenePanelDivider />
                             </>
                         )}
-
+                    </ScenePanelActionsSection>
+                    <ScenePanelDivider />
+                    <ScenePanelActionsSection>
                         <ButtonPrimitive
                             onClick={() => {
                                 deleteAction()
@@ -209,6 +184,30 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     }}
                     canEdit
                     forceEdit={!id}
+                    actions={
+                        <>
+                            {!id && cancelButton()}
+                            <LemonButton
+                                data-attr="save-action-button"
+                                type="primary"
+                                htmlType="submit"
+                                loading={actionLoading}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    if (id) {
+                                        submitAction()
+                                    } else {
+                                        setActionValue('_create_in_folder', 'Unfiled/Insights')
+                                        submitAction()
+                                    }
+                                }}
+                                size="small"
+                                disabledReason={!actionChanged ? 'No changes to save' : undefined}
+                            >
+                                {actionChanged ? 'Save' : 'No changes'}
+                            </LemonButton>
+                        </>
+                    }
                 />
 
                 <SceneDivider />
