@@ -392,31 +392,29 @@ const ExperimentFormFields = (): JSX.Element => {
                                                         description:
                                                             'Same variant before and after login. Incompatible with server-side flag evaluation.',
                                                     },
-                                                ].map((option) => (
+                                                ].map(({ value, icon, title, description }) => (
                                                     <div
-                                                        key={option.value.toString()}
+                                                        key={value.toString()}
                                                         className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
-                                                            currentValue === option.value
+                                                            currentValue === value
                                                                 ? 'border-primary bg-primary-highlight'
                                                                 : 'border-border'
                                                         }`}
-                                                        onClick={() => onChange(option.value)}
+                                                        onClick={() => onChange(value)}
                                                     >
                                                         <div className="flex items-start gap-3">
-                                                            <div className="text-lg text-muted">{option.icon}</div>
+                                                            <div className="text-lg text-muted">{icon}</div>
                                                             <div className="flex-1">
-                                                                <div className="font-medium text-sm">
-                                                                    {option.title}
-                                                                </div>
+                                                                <div className="font-medium text-sm">{title}</div>
                                                                 <div className="text-xs text-muted mt-1">
-                                                                    {option.description}
+                                                                    {description}
                                                                 </div>
                                                             </div>
                                                             <input
                                                                 type="radio"
                                                                 name="persistence-mode"
-                                                                checked={currentValue === option.value}
-                                                                onChange={() => onChange(option.value)}
+                                                                checked={currentValue === value}
+                                                                onChange={() => onChange(value)}
                                                                 className="cursor-pointer"
                                                             />
                                                         </div>
