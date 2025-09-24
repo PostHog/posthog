@@ -451,44 +451,6 @@ export function PageHeaderCustom(): JSX.Element {
                         )}
                         {experiment && isExperimentRunning && (
                             <div className="flex flex-row gap-2">
-                                <>
-                                    {/* <More
-                                        overlay={
-                                            <>
-                                                <LemonButton onClick={() => setDuplicateModalOpen(true)} fullWidth>
-                                                    Duplicate
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => (exposureCohortId ? undefined : createExposureCohort())}
-                                                    fullWidth
-                                                    data-attr={`${exposureCohortId ? 'view' : 'create'}-exposure-cohort`}
-                                                    to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
-                                                    targetBlank={!!exposureCohortId}
-                                                >
-                                                    {exposureCohortId ? 'View' : 'Create'} exposure cohort
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => createExperimentDashboard()}
-                                                    fullWidth
-                                                    disabled={isCreatingExperimentDashboard}
-                                                >
-                                                    Create dashboard
-                                                </LemonButton>
-                                                {experiment.feature_flag && (
-                                                    <LemonButton
-                                                        onClick={openMax || undefined}
-                                                        fullWidth
-                                                        data-attr="create-survey"
-                                                        disabled={!openMax}
-                                                    >
-                                                        Create survey
-                                                    </LemonButton>
-                                                )}
-                                            </>
-                                        }
-                                    />
-                                    <LemonDivider vertical /> */}
-                                </>
                                 {!experiment.end_date && (
                                     <LemonButton
                                         type="secondary"
@@ -540,6 +502,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         type="primary"
                                         icon={<IconFlask />}
                                         onClick={() => openShipVariantModal()}
+                                        size="small"
                                     >
                                         <b>Ship a variant</b>
                                     </LemonButton>
