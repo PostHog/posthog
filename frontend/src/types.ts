@@ -1086,7 +1086,6 @@ export type EncodedRecordingSnapshot = {
 // we have a strongly typed way to do it
 export const SnapshotSourceType = {
     blob: 'blob',
-    realtime: 'realtime',
     file: 'file',
     blob_v2: 'blob_v2',
 } as const

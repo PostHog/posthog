@@ -166,6 +166,7 @@ dependencies = [
     "playwright>=1.54.0",
     "linkedin-api-client>=0.3.0",
     "glom>=24.11.0",
+    "runloop-api-client>=0.60.0",
 ]
 
 [dependency-groups]
