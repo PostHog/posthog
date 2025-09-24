@@ -6,14 +6,12 @@ from dateutil.relativedelta import relativedelta
 from posthog.clickhouse.client import sync_execute
 from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 
-# Define monthly partitions - adjust start_date as needed
 monthly_partitions = MonthlyPartitionsDefinition(
     start_date="2019-01-01"
 )  # this is a year before posthog was founded, so should be early enough even including data imports
 
 
 def partion_key_to_where_clause(partition_key: str) -> str:
-    """Convert a partition key (e.g., "2023-01-01") to a SQL WHERE clause for that month."""
     partition_start_date_incl = datetime.strptime(partition_key, "%Y-%m-%d")
     partition_end_date_excl = partition_start_date_incl + relativedelta(months=1)
 
