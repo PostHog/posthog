@@ -94,8 +94,8 @@ jobs:
                         - bin/check_kafka_clickhouse_up
                       migrations:
                         - 'posthog/migrations/*.py'
-                      - 'products/*/backend/migrations/*.py'
-                      - 'products/*/migrations/*.py'  # Legacy structure
+                        - 'products/*/backend/migrations/*.py'
+                        - 'products/*/migrations/*.py'  # Legacy structure
 
     check-migrations:
         needs: [changes]
