@@ -70,8 +70,8 @@ describe('EmailTrackingService', () => {
                 MessageID: 1,
                 Message_GUID: 'test-message-guid',
                 customcampaign: 'test-custom-campaign',
-                CustomID: generateEmailTrackingCode({ functionId: hogFunction.id, id: invocationId }),
-                Payload: JSON.stringify({}),
+                CustomID: '',
+                Payload: generateEmailTrackingCode({ functionId: hogFunction.id, id: invocationId }),
             }
         })
 
@@ -130,7 +130,7 @@ describe('EmailTrackingService', () => {
             it('should not track a metric if the hog function or flow is not found', async () => {
                 const mailjetEvent: MailjetEventBase = {
                     ...exampleEvent,
-                    CustomID: 'ph_fn_id=invalid-function-id&ph_inv_id=invalid-invocation-id',
+                    Payload: 'ph_fn_id=invalid-function-id&ph_inv_id=invalid-invocation-id',
                 }
                 const res = await sendValidEvent(mailjetEvent)
 
@@ -143,7 +143,7 @@ describe('EmailTrackingService', () => {
             it('should track a hog flow if given', async () => {
                 const mailjetEvent: MailjetEventBase = {
                     ...exampleEvent,
-                    CustomID: generateEmailTrackingCode({ functionId: hogFlow.id, id: invocationId }),
+                    Payload: generateEmailTrackingCode({ functionId: hogFlow.id, id: invocationId }),
                 }
                 const res = await sendValidEvent(mailjetEvent)
 
