@@ -2463,8 +2463,18 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(duplicate_experiment["type"], original_experiment["type"])
         self.assertEqual(duplicate_experiment["parameters"], original_experiment["parameters"])
         self.assertEqual(duplicate_experiment["filters"], original_experiment["filters"])
-        self.assertEqual(duplicate_experiment["metrics"], original_experiment["metrics"])
-        self.assertEqual(duplicate_experiment["metrics_secondary"], original_experiment["metrics_secondary"])
+
+        # Compare metrics ignoring fingerprints (they differ due to different start_dates)
+        def remove_fingerprints(metrics):
+            return [{k: v for k, v in metric.items() if k != "fingerprint"} for metric in metrics or []]
+
+        self.assertEqual(
+            remove_fingerprints(duplicate_experiment["metrics"]), remove_fingerprints(original_experiment["metrics"])
+        )
+        self.assertEqual(
+            remove_fingerprints(duplicate_experiment["metrics_secondary"]),
+            remove_fingerprints(original_experiment["metrics_secondary"]),
+        )
         self.assertEqual(duplicate_experiment["stats_config"], original_experiment["stats_config"])
         self.assertEqual(duplicate_experiment["exposure_criteria"], original_experiment["exposure_criteria"])
 
@@ -2577,8 +2587,15 @@ class TestExperimentCRUD(APILicensedTest):
         assert duplicate_data["description"] == original_experiment["description"]
         assert duplicate_data["parameters"] == original_experiment["parameters"]
         assert duplicate_data["filters"] == original_experiment["filters"]
-        assert duplicate_data["metrics"] == original_experiment["metrics"]
-        assert duplicate_data["metrics_secondary"] == original_experiment["metrics_secondary"]
+
+        # Compare metrics ignoring fingerprints (they differ due to different start_dates)
+        def remove_fingerprints(metrics):
+            return [{k: v for k, v in metric.items() if k != "fingerprint"} for metric in metrics or []]
+
+        assert remove_fingerprints(duplicate_data["metrics"]) == remove_fingerprints(original_experiment["metrics"])
+        assert remove_fingerprints(duplicate_data["metrics_secondary"]) == remove_fingerprints(
+            original_experiment["metrics_secondary"]
+        )
 
         # Verify temporal fields are reset
         assert duplicate_data["start_date"] is None
