@@ -107,8 +107,8 @@ mod tests {
     use crate::cohorts::cohort_models::Cohort;
     use crate::team::team_models::Team;
     use crate::utils::test_utils::{
-        insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
-        setup_pg_writer_client,
+        insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_dual_pg_writers,
+        setup_pg_reader_client, setup_pg_writer_client,
     };
     use common_database::Client;
     use common_types::TeamId;
@@ -116,10 +116,9 @@ mod tests {
     use tokio::time::{sleep, Duration};
 
     /// Helper function to setup a new team for testing.
-    async fn setup_test_team(
-        writer_client: Arc<dyn Client + Send + Sync>,
-    ) -> Result<Team, anyhow::Error> {
-        let team = insert_new_team_in_pg(writer_client, None).await?;
+    async fn setup_test_team() -> Result<Team, anyhow::Error> {
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await?;
         Ok(team)
     }
 
@@ -139,7 +138,7 @@ mod tests {
         let writer_client = setup_pg_writer_client(None).await;
         let reader_client = setup_pg_reader_client(None).await;
 
-        let team = setup_test_team(writer_client.clone()).await?;
+        let team = setup_test_team().await?;
         let _cohort = setup_test_cohort(writer_client.clone(), team.id, None).await?;
 
         // Initialize CohortCacheManager with a short TTL for testing
@@ -181,7 +180,8 @@ mod tests {
 
         // Insert multiple teams and their cohorts
         for _ in 0..max_capacity {
-            let team = insert_new_team_in_pg(writer_client.clone(), None).await?;
+            let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+            let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await?;
             let project_id = team.project_id;
             inserted_project_ids.push(project_id);
             setup_test_cohort(writer_client.clone(), team.id, None).await?;
@@ -195,7 +195,8 @@ mod tests {
             "Cache size should be equal to max_capacity"
         );
 
-        let new_team = insert_new_team_in_pg(writer_client.clone(), None).await?;
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let new_team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await?;
         let new_project_id = new_team.project_id;
         let new_team_id = new_team.id;
         setup_test_cohort(writer_client.clone(), new_team_id, None).await?;
@@ -228,7 +229,7 @@ mod tests {
     async fn test_get_cohorts() -> Result<(), anyhow::Error> {
         let writer_client = setup_pg_writer_client(None).await;
         let reader_client = setup_pg_reader_client(None).await;
-        let team = setup_test_team(writer_client.clone()).await?;
+        let team = setup_test_team().await?;
         let project_id = team.project_id;
         let team_id = team.id;
         let _cohort = setup_test_cohort(writer_client.clone(), team_id, None).await?;

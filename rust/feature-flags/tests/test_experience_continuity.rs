@@ -8,7 +8,7 @@ use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::flags::flag_models::FeatureFlagRow;
 use feature_flags::utils::test_utils::{
     insert_flag_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
-    setup_pg_reader_client, setup_pg_writer_client,
+    setup_dual_pg_writers, setup_pg_reader_client, setup_pg_writer_client,
 };
 
 #[tokio::test]
@@ -22,7 +22,8 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
     let pg_writer = setup_pg_writer_client(None).await;
 
     // Insert a new team
-    let team = insert_new_team_in_pg(pg_reader.clone(), None)
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, None)
         .await
         .expect("Failed to insert team");
 
@@ -46,7 +47,7 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
     // Create a person with false_eval_user (this ID evaluates to false for 50% rollout)
     let user_id = "false_eval_user";
     insert_person_for_team_in_pg(
-        pg_reader.clone(),
+        persons_writer.clone(),
         team.id,
         user_id.to_string(),
         Some(json!({"email": "false_eval_user@example.com", "name": "Test User"})),
@@ -147,7 +148,8 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
     let pg_reader = setup_pg_reader_client(None).await;
     let pg_writer = setup_pg_writer_client(None).await;
 
-    let team = insert_new_team_in_pg(pg_reader.clone(), None)
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, None)
         .await
         .expect("Failed to insert team");
 
@@ -171,7 +173,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
     // Create initial person with an ID that evaluates to false
     let initial_id = "false_eval_initial";
     let person_id = insert_person_for_team_in_pg(
-        pg_reader.clone(),
+        persons_writer,
         team.id,
         initial_id.to_string(),
         Some(json!({"email": "initial@example.com"})),

@@ -98,7 +98,7 @@ mod tests {
     use super::*;
     use crate::utils::test_utils::{
         insert_flag_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
-        setup_pg_reader_client, setup_redis_client,
+        setup_dual_pg_writers, setup_pg_reader_client, setup_redis_client,
     };
 
     #[test]
@@ -401,7 +401,8 @@ mod tests {
         let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -497,7 +498,8 @@ mod tests {
         let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -639,7 +641,8 @@ mod tests {
         let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -730,7 +733,8 @@ mod tests {
         let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -834,7 +838,8 @@ mod tests {
         let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -934,7 +939,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
 
         // Test malformed JSON in Redis
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -961,7 +967,8 @@ mod tests {
         let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1035,7 +1042,8 @@ mod tests {
         let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1112,7 +1120,8 @@ mod tests {
         let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1207,7 +1216,8 @@ mod tests {
         let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1313,7 +1323,8 @@ mod tests {
         let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team in pg");
 

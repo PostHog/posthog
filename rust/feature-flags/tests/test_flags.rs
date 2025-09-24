@@ -15,7 +15,8 @@ use feature_flags::config::{FlexBool, TeamIdCollection, DEFAULT_TEST_CONFIG};
 use feature_flags::utils::test_utils::{
     create_group_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
     insert_new_team_in_redis, insert_person_for_team_in_pg, insert_suppression_rule_in_pg,
-    setup_pg_reader_client, setup_redis_client, update_team_autocapture_exceptions,
+    setup_dual_pg_writers, setup_pg_reader_client, setup_redis_client,
+    update_team_autocapture_exceptions,
 };
 
 pub mod common;
@@ -29,7 +30,8 @@ async fn it_handles_get_requests_with_minimal_response() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -79,11 +81,12 @@ async fn it_gets_legacy_response_for_v1_or_invalid_version(
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -152,11 +155,12 @@ async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -241,11 +245,12 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -326,11 +331,12 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -366,10 +372,11 @@ async fn it_accepts_empty_distinct_id() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
     let distinct_id = "user_distinct_id".to_string();
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
     let server = ServerHandle::for_config(config).await;
@@ -490,7 +497,8 @@ async fn it_handles_base64_auto_detection_fallback() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -543,7 +551,8 @@ async fn it_handles_disable_flags_without_distinct_id() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -661,10 +670,11 @@ async fn it_handles_multivariate_flags() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -752,10 +762,11 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
     let flag_json = json!([{
@@ -853,7 +864,8 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let team = insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    let team = insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
     let token = team.api_token;
@@ -970,7 +982,8 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
         .unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -1053,13 +1066,14 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team_id = rand::thread_rng().gen_range(1..10_000_000);
-    let team = insert_new_team_in_pg(pg_client.clone(), Some(team_id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team_id))
         .await
         .unwrap();
 
     // need this for the test to work, since we look up the dinstinct_id <-> person_id in from the DB at the beginning
     // of the flag evaluation process
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None).await?;
+    insert_person_for_team_in_pg(persons_writer.clone(), team.id, distinct_id.clone(), None).await?;
 
     let token = team.api_token;
 
@@ -1231,10 +1245,11 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -1306,10 +1321,11 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -1456,8 +1472,9 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
-    let team = insert_new_team_in_pg(pg_client.clone(), None).await?;
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, None).await?;
+    insert_person_for_team_in_pg(persons_writer.clone(), team.id, distinct_id.clone(), None)
         .await
         .unwrap();
     let token = team.api_token;
@@ -1599,7 +1616,8 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(redis_client.clone()).await?;
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id)).await?;
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id)).await?;
     let token = team.api_token;
 
     // Insert person with just their stored properties from the DB
@@ -1710,7 +1728,8 @@ async fn test_flag_matches_with_no_person_profile() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -1840,10 +1859,11 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -1912,10 +1932,11 @@ async fn test_config_basic_fields() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -1982,10 +2003,11 @@ async fn test_config_analytics_enabled() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2022,10 +2044,11 @@ async fn test_config_analytics_enabled_by_default() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2061,10 +2084,11 @@ async fn test_config_analytics_disabled_debug_mode() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2098,10 +2122,11 @@ async fn test_config_capture_performance_combinations() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2135,10 +2160,11 @@ async fn test_config_autocapture_exceptions() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2172,10 +2198,11 @@ async fn test_config_optional_team_features() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2217,10 +2244,11 @@ async fn test_config_site_apps_empty_by_default() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2254,10 +2282,11 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2341,11 +2370,12 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
         .unwrap();
 
     // Insert team in PG
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2453,11 +2483,12 @@ async fn test_config_session_recording_with_rrweb_script() -> Result<()> {
         .unwrap();
 
     // Insert team in PG
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2524,11 +2555,12 @@ async fn test_config_session_recording_team_not_allowed_for_script() -> Result<(
         .unwrap();
 
     // Insert team in PG
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2606,10 +2638,11 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2776,10 +2809,11 @@ async fn test_config_comprehensive_minimal_team() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2882,10 +2916,11 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2990,10 +3025,11 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3068,10 +3104,11 @@ async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3157,10 +3194,11 @@ async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3219,10 +3257,11 @@ async fn test_config_error_tracking_disabled() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3268,11 +3307,12 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3340,11 +3380,12 @@ async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3411,11 +3452,12 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3484,11 +3526,12 @@ async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3573,11 +3616,12 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3661,11 +3705,12 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3736,11 +3781,12 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team_id = rand::thread_rng().gen_range(1..10_000_000);
-    let team = insert_new_team_in_pg(pg_client.clone(), Some(team_id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team_id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None).await?;
+    insert_person_for_team_in_pg(persons_writer.clone(), team.id, distinct_id.clone(), None).await?;
 
     let token = team.api_token;
 
@@ -3911,7 +3957,8 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -4105,7 +4152,8 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -4244,7 +4292,8 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -4429,11 +4478,12 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -4568,7 +4618,8 @@ async fn test_group_key_property_matching() -> Result<()> {
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let team = insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    let team = insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
     let token = team.api_token;
@@ -4698,7 +4749,8 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -4914,11 +4966,12 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5147,11 +5200,12 @@ async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5274,11 +5328,12 @@ async fn it_handles_empty_query_parameters() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5325,11 +5380,12 @@ async fn it_handles_boolean_query_params_as_truthy() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5407,7 +5463,8 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -5691,7 +5748,8 @@ async fn test_empty_distinct_id_flag_matching() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -5965,7 +6023,8 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 
@@ -6206,7 +6265,8 @@ async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
         .unwrap();
     let token = team.api_token;
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+    insert_new_team_in_pg(persons_writer, non_persons_writer, Some(team.id))
         .await
         .unwrap();
 

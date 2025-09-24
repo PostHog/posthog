@@ -37,14 +37,16 @@ pub async fn get_suppression_rules(
 mod tests {
     use super::*;
     use crate::utils::test_utils::{
-        insert_new_team_in_pg, insert_suppression_rule_in_pg, setup_pg_reader_client,
+        insert_new_team_in_pg, insert_suppression_rule_in_pg, setup_dual_pg_writers,
+        setup_pg_reader_client,
     };
     use serde_json::json;
 
     #[tokio::test]
     async fn test_get_suppression_rules_empty() {
         let client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
 
         let result = get_suppression_rules(client, &team).await.unwrap();
 
@@ -54,7 +56,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_suppression_rules_with_data() {
         let client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
 
         let filter1 = json!({"errorType": "TypeError", "message": "Cannot read property"});
         let filter2 = json!({"stackTrace": {"contains": "node_modules"}});
@@ -76,8 +79,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_suppression_rules_filters_by_team() {
         let client = setup_pg_reader_client(None).await;
-        let team1 = insert_new_team_in_pg(client.clone(), None).await.unwrap();
-        let team2 = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team1 = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
+        let team2 = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
 
         let filter1 = json!({"errorType": "TypeError"});
         let filter2 = json!({"errorType": "ReferenceError"});

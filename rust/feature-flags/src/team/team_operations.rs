@@ -136,8 +136,8 @@ mod tests {
 
     use super::*;
     use crate::utils::test_utils::{
-        insert_new_team_in_pg, insert_new_team_in_redis, random_string, setup_pg_reader_client,
-        setup_redis_client,
+        insert_new_team_in_pg, insert_new_team_in_redis, random_string, setup_dual_pg_writers,
+        setup_pg_reader_client, setup_redis_client,
     };
 
     #[tokio::test]
@@ -253,9 +253,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_from_pg() {
+        let (persons_client, non_persons_client) = setup_dual_pg_writers(None).await;
         let client = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(client.clone(), None)
+        let team = insert_new_team_in_pg(persons_client, non_persons_client, None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -289,7 +290,8 @@ mod tests {
         let client = setup_pg_reader_client(None).await;
 
         // Insert a team with NULL elements in the array
-        let team = insert_new_team_in_pg(client.clone(), None)
+        let (persons_client, non_persons_client) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_client, non_persons_client, None)
             .await
             .expect("Failed to insert team in pg");
 

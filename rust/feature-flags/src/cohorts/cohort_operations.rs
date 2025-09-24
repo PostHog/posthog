@@ -400,8 +400,8 @@ mod tests {
         cohorts::cohort_models::{CohortPropertyType, CohortValues},
         properties::property_models::PropertyType,
         utils::test_utils::{
-            insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
-            setup_pg_writer_client,
+            insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_dual_pg_writers,
+            setup_pg_reader_client, setup_pg_writer_client,
         },
     };
     use serde_json::json;
@@ -411,7 +411,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team");
 
@@ -486,7 +487,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team");
 

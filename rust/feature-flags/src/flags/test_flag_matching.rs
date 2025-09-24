@@ -26,7 +26,8 @@ mod tests {
         utils::test_utils::{
             add_person_to_cohort, create_group_in_pg, create_test_flag,
             get_person_id_by_distinct_id, insert_cohort_for_team_in_pg, insert_new_team_in_pg,
-            insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
+            insert_person_for_team_in_pg, setup_dual_pg_writers, setup_pg_reader_client,
+            setup_pg_writer_client,
         },
     };
 
@@ -36,18 +37,19 @@ mod tests {
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
         let distinct_id = "user_distinct_id".to_string();
-        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+        insert_person_for_team_in_pg(persons_writer.clone(), team.id, distinct_id.clone(), None)
             .await
             .expect("Failed to insert person");
 
         let not_matching_distinct_id = "not_matching_distinct_id".to_string();
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer,
             team.id,
             not_matching_distinct_id.clone(),
             Some(json!({ "email": "a@x.com"})),
@@ -164,7 +166,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -231,7 +234,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -327,7 +331,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let leaf_flag = create_test_flag_with_property(
             23,
@@ -447,7 +452,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let leaf_flag = create_test_flag(
             Some(2),
@@ -615,9 +621,10 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
         let _person_id = insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user_distinct_id".to_string(),
             Some(json!({ "email": "email-in-db@example.com", "is-cool": true })),
@@ -739,7 +746,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let leaf_flag = create_test_flag_with_property(
             23,
@@ -896,7 +904,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let leaf_flag = create_test_flag(
             Some(3),
@@ -1084,7 +1093,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let flag = create_test_flag_with_variants(team.id);
 
@@ -1279,7 +1289,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -1365,7 +1376,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
         let flag = Arc::new(create_test_flag(
             None,
             Some(team.id),
@@ -1429,7 +1441,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -1471,7 +1484,7 @@ mod tests {
         );
 
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"email": "user@example@domain.com", "age": 30})),
@@ -1680,10 +1693,11 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a person without properties
-        insert_person_for_team_in_pg(reader.clone(), team.id, "test_user".to_string(), None)
+        insert_person_for_team_in_pg(persons_writer.clone(), team.id, "test_user".to_string(), None)
             .await
             .unwrap();
 
@@ -1741,11 +1755,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a person with malformed properties
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"age": "not_a_number"})),
@@ -1858,7 +1873,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             Some(1),
@@ -1904,7 +1920,7 @@ mod tests {
         );
 
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"email": "user2@example.com", "age": 35})),
@@ -1942,11 +1958,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a cohort with complex conditions
         let cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
+            non_persons_writer.clone(),
             team.id,
             None,
             json!({
@@ -2031,7 +2048,7 @@ mod tests {
 
         // Test case 1: Should match - posthog.com email (AND condition)
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user_1".to_string(),
             Some(json!({
@@ -2044,7 +2061,7 @@ mod tests {
 
         // Test case 2: Should match - fuziontech@gmail.com (AND condition)
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user_2".to_string(),
             Some(json!({
@@ -2057,7 +2074,7 @@ mod tests {
 
         // Test case 3: Should match - specific distinct_id (AND condition)
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc".to_string(),
             Some(json!({
@@ -2070,7 +2087,7 @@ mod tests {
 
         // Test case 4: Should match - neil@posthog.com (OR condition)
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user_4".to_string(),
             Some(json!({
@@ -2083,7 +2100,7 @@ mod tests {
 
         // Test case 5: Should match - @leads.io email (OR condition with regex)
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user_5".to_string(),
             Some(json!({
@@ -2096,7 +2113,7 @@ mod tests {
 
         // Test case 6: Should NOT match - random email
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user_6".to_string(),
             Some(json!({
@@ -2183,7 +2200,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             Some(1),
@@ -2245,7 +2263,7 @@ mod tests {
         );
 
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_id".to_string(),
             Some(json!({"email": "test@posthog.com", "is_enabled": true})),
@@ -2253,11 +2271,11 @@ mod tests {
         .await
         .unwrap();
 
-        insert_person_for_team_in_pg(reader.clone(), team.id, "lil_id".to_string(), None)
+        insert_person_for_team_in_pg(persons_writer.clone(), team.id, "lil_id".to_string(), None)
             .await
             .unwrap();
 
-        insert_person_for_team_in_pg(reader.clone(), team.id, "another_id".to_string(), None)
+        insert_person_for_team_in_pg(persons_writer.clone(), team.id, "another_id".to_string(), None)
             .await
             .unwrap();
 
@@ -2329,10 +2347,11 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_id".to_string(),
             Some(json!({"email": "test@posthog.com", "is_enabled": "true"})),
@@ -2432,10 +2451,11 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_id".to_string(),
             Some(json!({"email": "test@posthog.com", "is_enabled": true})),
@@ -2443,11 +2463,11 @@ mod tests {
         .await
         .unwrap();
 
-        insert_person_for_team_in_pg(reader.clone(), team.id, "another_id".to_string(), None)
+        insert_person_for_team_in_pg(persons_writer.clone(), team.id, "another_id".to_string(), None)
             .await
             .unwrap();
 
-        insert_person_for_team_in_pg(reader.clone(), team.id, "lil_id".to_string(), None)
+        insert_person_for_team_in_pg(persons_writer.clone(), team.id, "lil_id".to_string(), None)
             .await
             .unwrap();
 
@@ -2592,11 +2612,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a cohort with the condition that matches the test user's properties
         let cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
+            non_persons_writer.clone(),
             team.id,
             None,
             json!({
@@ -2621,7 +2642,7 @@ mod tests {
 
         // Insert a person with properties that match the cohort condition
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"$browser_version": 126})),
@@ -2690,11 +2711,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a cohort with a condition that does not match the test user's properties
         let cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
+            non_persons_writer.clone(),
             team.id,
             None,
             json!({
@@ -2719,7 +2741,7 @@ mod tests {
 
         // Insert a person with properties that do not match the cohort condition
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"$browser_version": 126})),
@@ -2788,11 +2810,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a cohort with a condition that matches the test user's properties
         let cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
+            non_persons_writer.clone(),
             team.id,
             None,
             json!({
@@ -2817,7 +2840,7 @@ mod tests {
 
         // Insert a person with properties that match the cohort condition
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"$browser_version": 126})),
@@ -2882,11 +2905,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a base cohort
         let base_cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
+            non_persons_writer.clone(),
             team.id,
             None,
             json!({
@@ -2936,7 +2960,7 @@ mod tests {
 
         // Insert a person with properties that match the base cohort condition
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"$browser_version": 126})),
@@ -3005,11 +3029,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a cohort with a condition that does not match the test user's properties
         let cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
+            non_persons_writer.clone(),
             team.id,
             None,
             json!({
@@ -3034,7 +3059,7 @@ mod tests {
 
         // Insert a person with properties that do not match the cohort condition
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"$browser_version": 125})),
@@ -3104,11 +3129,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a static cohort
         let cohort = insert_cohort_for_team_in_pg(
-            reader.clone(),
+            non_persons_writer.clone(),
             team.id,
             Some("Static Cohort".to_string()),
             json!({}), // Static cohorts don't have property filters
@@ -3120,7 +3146,7 @@ mod tests {
         // Insert a person
         let distinct_id = "static_user".to_string();
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "static@user.com"})),
@@ -3129,12 +3155,12 @@ mod tests {
         .unwrap();
 
         // Retrieve the person's ID
-        let person_id = get_person_id_by_distinct_id(reader.clone(), team.id, &distinct_id)
+        let person_id = get_person_id_by_distinct_id(persons_writer.clone(), team.id, &distinct_id)
             .await
             .unwrap();
 
         // Associate the person with the static cohort
-        add_person_to_cohort(reader.clone(), person_id, cohort.id)
+        add_person_to_cohort(persons_writer.clone(), person_id, cohort.id)
             .await
             .unwrap();
 
@@ -3202,11 +3228,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a static cohort
         let cohort = insert_cohort_for_team_in_pg(
-            reader.clone(),
+            non_persons_writer.clone(),
             team.id,
             Some("Another Static Cohort".to_string()),
             json!({}), // Static cohorts don't have property filters
@@ -3218,7 +3245,7 @@ mod tests {
         // Insert a person
         let distinct_id = "non_static_user".to_string();
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "nonstatic@user.com"})),
@@ -3287,11 +3314,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a static cohort
         let cohort = insert_cohort_for_team_in_pg(
-            reader.clone(),
+            non_persons_writer.clone(),
             team.id,
             Some("Static Cohort NotIn".to_string()),
             json!({}), // Static cohorts don't have property filters
@@ -3303,7 +3331,7 @@ mod tests {
         // Insert a person
         let distinct_id = "not_in_static_user".to_string();
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "notinstatic@user.com"})),
@@ -3377,11 +3405,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a static cohort
         let cohort = insert_cohort_for_team_in_pg(
-            reader.clone(),
+            non_persons_writer.clone(),
             team.id,
             Some("Static Cohort NotIn User In".to_string()),
             json!({}), // Static cohorts don't have property filters
@@ -3393,7 +3422,7 @@ mod tests {
         // Insert a person
         let distinct_id = "in_not_in_static_user".to_string();
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "innotinstatic@user.com"})),
@@ -3402,12 +3431,12 @@ mod tests {
         .unwrap();
 
         // Retrieve the person's ID
-        let person_id = get_person_id_by_distinct_id(reader.clone(), team.id, &distinct_id)
+        let person_id = get_person_id_by_distinct_id(persons_writer.clone(), team.id, &distinct_id)
             .await
             .unwrap();
 
         // Associate the person with the static cohort
-        add_person_to_cohort(reader.clone(), person_id, cohort.id)
+        add_person_to_cohort(persons_writer.clone(), person_id, cohort.id)
             .await
             .unwrap();
 
@@ -3470,12 +3499,13 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
         let distinct_id = "user3".to_string();
 
         // Insert person
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "user3@example.com"})),
@@ -3579,11 +3609,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
         let distinct_id = "user4".to_string();
 
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "user4@example.com"})),
@@ -3665,11 +3696,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
         let distinct_id = "user5".to_string();
 
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "user5@example.com"})),
@@ -3808,12 +3840,13 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
         let distinct_id = "test_user".to_string();
 
         // Insert a person with properties that will match our condition
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "test@example.com"})),
@@ -3960,11 +3993,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // example_id is outside 70% holdout
         let _person1 = insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "example_id".to_string(),
             Some(json!({"$some_prop": 5})),
@@ -3974,7 +4008,7 @@ mod tests {
 
         // example_id2 is within 70% holdout
         let _person2 = insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "example_id2".to_string(),
             Some(json!({"$some_prop": 5})),
@@ -4198,7 +4232,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let flag = FeatureFlag {
             id: 1,
@@ -4332,11 +4367,12 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         // Insert a static cohort
         let cohort = insert_cohort_for_team_in_pg(
-            reader.clone(),
+            non_persons_writer.clone(),
             team.id,
             Some("Static Cohort".to_string()),
             json!({}), // Static cohorts don't have property filters
@@ -4348,7 +4384,7 @@ mod tests {
         // Insert a person
         let distinct_id = "static_user".to_string();
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "static@user.com"})),
@@ -4357,10 +4393,10 @@ mod tests {
         .unwrap();
 
         // Get person ID and add to cohort
-        let person_id = get_person_id_by_distinct_id(reader.clone(), team.id, &distinct_id)
+        let person_id = get_person_id_by_distinct_id(persons_writer.clone(), team.id, &distinct_id)
             .await
             .unwrap();
-        add_person_to_cohort(reader.clone(), person_id, cohort.id)
+        add_person_to_cohort(persons_writer.clone(), person_id, cohort.id)
             .await
             .unwrap();
 
@@ -4428,7 +4464,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -4502,7 +4539,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -4654,7 +4692,8 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let flag = create_test_flag(
             None,
@@ -4729,7 +4768,7 @@ mod tests {
 
         // Test case 1: User with super condition property set to true
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "super_user".to_string(),
             Some(json!({
@@ -4742,7 +4781,7 @@ mod tests {
 
         // Test case 2: User with matching email but no super condition
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "posthog_user".to_string(),
             Some(json!({
@@ -4755,7 +4794,7 @@ mod tests {
 
         // Test case 3: User with neither super condition nor matching email
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "regular_user".to_string(),
             Some(json!({
@@ -4861,12 +4900,13 @@ mod tests {
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
         let distinct_id = "user_distinct_id".to_string();
-        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+        insert_person_for_team_in_pg(persons_writer.clone(), team.id, distinct_id.clone(), None)
             .await
             .expect("Failed to insert person");
 
@@ -4929,13 +4969,14 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let distinct_id = "test_user".to_string();
 
         // Insert person with specific properties in DB that would match condition 1
         insert_person_for_team_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({
@@ -5187,18 +5228,19 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
 
         let distinct_id = "test_user".to_string();
 
         // Insert person (required for group flag evaluation)
-        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+        insert_person_for_team_in_pg(persons_writer.clone(), team.id, distinct_id.clone(), None)
             .await
             .expect("Failed to insert person");
 
         // Create a group with specific properties in DB that would match condition 1
         create_group_in_pg(
-            reader.clone(),
+            persons_writer.clone(),
             team.id,
             "organization",
             "test_org_123",
@@ -5516,7 +5558,8 @@ mod tests {
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
             .await
             .expect("Failed to insert team");
 
