@@ -188,25 +188,7 @@ export interface SurveyDateRange {
     date_to: string | null
 }
 
-function generateUniqueSurveyName(baseName: string, existingSurveys: Survey[]): string {
-    const existingNames = new Set(existingSurveys.map((s) => s.name))
-
-    const copyName = `${baseName} (copy)`
-    if (!existingNames.has(copyName)) {
-        return copyName
-    }
-
-    let counter = 2
-    let uniqueName = `${baseName} (copy ${counter})`
-    while (existingNames.has(uniqueName)) {
-        counter++
-        uniqueName = `${baseName} (copy ${counter})`
-    }
-
-    return uniqueName
-}
-
-function duplicateExistingSurvey(survey: Survey | NewSurvey, existingSurveys: Survey[]): Partial<Survey> {
+function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     return {
         ...survey,
         questions: survey.questions.map((question) => ({
@@ -214,7 +196,7 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey, existingSurveys: Su
             id: undefined,
         })),
         id: NEW_SURVEY.id,
-        name: generateUniqueSurveyName(survey.name, existingSurveys),
+        name: `${survey.name} (duplicated at ${dayjs().format('YYYY-MM-DD HH:mm:ss')})`,
         archived: false,
         start_date: null,
         end_date: null,
@@ -694,8 +676,7 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         duplicatedSurvey: {
             duplicateSurvey: async () => {
-                const { survey, data } = values
-                const payload = duplicateExistingSurvey(survey, data.surveys)
+                const payload = duplicateExistingSurvey(values.survey)
                 try {
                     const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
 
