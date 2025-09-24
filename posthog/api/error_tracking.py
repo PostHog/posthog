@@ -768,6 +768,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
             raise
 
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_uploaded",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id},
+        )
+
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 
 
