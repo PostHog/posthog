@@ -6,6 +6,7 @@ import { LemonButton, LemonDialog, LemonDropdown, LemonTag } from '@posthog/lemo
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { urls } from 'scenes/urls'
@@ -93,6 +94,8 @@ export const MetricHeader = ({
     experiment: Experiment
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
 }): JSX.Element => {
+    const showBreakdownFilter = useFeatureFlag('EXPERIMENTS_BREAKDOWN_FILTER')
+
     /**
      * This is a bit overkill, since primary and secondary metric dialogs are
      * identical.
@@ -210,20 +213,22 @@ export const MetricHeader = ({
                     )}
                 </div>
             </div>
-            <div className="flex justify-end items-end">
-                <AddBreakdownButton
-                    experiment={experiment}
-                    onChange={(breakdown) => {
-                        /**
-                         * TODO: Handle the breakdown selection
-                         * this is to please the eslint gods
-                         */
-                        if (breakdown) {
-                            return
-                        }
-                    }}
-                />
-            </div>
+            {showBreakdownFilter && (
+                <div className="flex justify-end items-end">
+                    <AddBreakdownButton
+                        experiment={experiment}
+                        onChange={(breakdown) => {
+                            /**
+                             * TODO: Handle the breakdown selection
+                             * this is to please the eslint gods
+                             */
+                            if (breakdown) {
+                                return
+                            }
+                        }}
+                    />
+                </div>
+            )}
         </div>
     )
 }
