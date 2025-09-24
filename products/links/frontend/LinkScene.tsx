@@ -159,7 +159,6 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                                     },
                                                 })
                                             }}
-                                            size="small"
                                         >
                                             Delete
                                         </LemonButton>
