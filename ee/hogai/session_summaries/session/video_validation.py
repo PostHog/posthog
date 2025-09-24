@@ -206,8 +206,6 @@ class SessionSummaryVideoValidator:
         ]
         return moments_input
 
-    # TODO: Add more specific instructions on updates
-    # - when to update the event description, or keep it if it matches, or extend it with new info, if possible
     def _generate_video_validation_prompts(
         self,
         description_results: list[SessionMomentOutput],
