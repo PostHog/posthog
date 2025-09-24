@@ -1,5 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useEffect } from 'react'
 
 import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
@@ -33,6 +34,14 @@ export function SampledSessionsModal({
 }: SampledSessionsModalProps): JSX.Element {
     const logic = sampledSessionsModalLogic({ sessionData })
     const { recordingAvailability, recordingAvailabilityLoading } = useValues(logic)
+    const { checkRecordingAvailability } = useActions(logic)
+
+    // Trigger recording availability check when modal opens
+    useEffect(() => {
+        if (isOpen && sessionData.length > 0) {
+            checkRecordingAvailability()
+        }
+    }, [isOpen, sessionData.length, checkRecordingAvailability])
 
     // Helper function to get events URL for a session ID
     const getEventsUrlForSession = (sessionId: string): string => {
