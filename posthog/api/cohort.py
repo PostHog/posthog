@@ -312,9 +312,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
-            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
-
-            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+            cohort.enqueue_calculation(initiating_user=request.user)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -610,16 +608,11 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
-            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
-
-            if cohort.is_static:
+            if cohort.is_static and request.FILES.get("csv"):
                 # You can't update a static cohort using the trend/stickiness thing
-                if request.FILES.get("csv"):
-                    self._calculate_static_by_csv(request.FILES["csv"], cohort)
-                else:
-                    increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+                self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+                cohort.enqueue_calculation(initiating_user=request.user)
 
         report_user_action(
             request.user,
