@@ -57,6 +57,8 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
             }
         },
         createQueryEndpointSuccess: () => {
+            actions.setQueryEndpointName('')
+            actions.setQueryEndpointDescription('')
             lemonToast.success(
                 <>
                     Query endpoint created successfully!
