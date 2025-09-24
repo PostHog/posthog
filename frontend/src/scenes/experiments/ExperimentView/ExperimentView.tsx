@@ -253,7 +253,7 @@ export function ExperimentView(): JSX.Element {
                                 onSave={(metric, context) => {
                                     const newOrderingArray = appendMetricToOrderingArray(
                                         experiment,
-                                        metric.uuid || '',
+                                        metric.uuid!, //at this point metrics should always have a uuid
                                         context.type === 'secondary'
                                     )
 
@@ -266,7 +266,7 @@ export function ExperimentView(): JSX.Element {
                                     closeExperimentMetricModal()
                                 }}
                                 onDelete={(metric, context) => {
-                                    //bail if we don't delete a metric
+                                    //bail if the metric has no uuid
                                     if (!metric.uuid) {
                                         return
                                     }
