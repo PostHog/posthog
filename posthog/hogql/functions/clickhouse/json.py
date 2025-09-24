@@ -13,8 +13,8 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=IntegerType(),  # Returns 1 or 0
-            min_paths=1,  # Requires at least 1 path
-            max_paths=5,  # Up to 5 path levels
+            min_paths=1,
+            max_paths=5,
         ),
     ),
     "JSONLength": HogQLFunctionMeta(
@@ -24,8 +24,8 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=IntegerType(),  # Returns length as integer
-            min_paths=0,  # Can work without paths (root length)
-            max_paths=5,  # Up to 5 path levels
+            min_paths=0,
+            max_paths=5,
         ),
     ),
     "JSONArrayLength": HogQLFunctionMeta(
@@ -35,8 +35,8 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=IntegerType(),  # Returns array length as integer
-            min_paths=0,  # Can work without paths (root array)
-            max_paths=5,  # Up to 5 path levels
+            min_paths=0,
+            max_paths=5,
         ),
     ),
     "JSONType": HogQLFunctionMeta(
@@ -46,8 +46,8 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=StringType(),  # Returns type name as string
-            min_paths=0,  # Can work without paths (root type)
-            max_paths=5,  # Up to 5 path levels
+            min_paths=0,
+            max_paths=5,
         ),
     ),
     "JSONExtract": HogQLFunctionMeta(
@@ -58,8 +58,8 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             fixed_types=[StringType()],  # JSON parameter
             suffix_types=[StringType()],  # ClickHouse data type as string
             return_type=StringType(),  # Returns type name as string
-            min_paths=0,  # Can work without paths (root type)
-            max_paths=5,  # Up to 5 path levels
+            min_paths=0,
+            max_paths=5,
         ),
     ),
     "JSONExtractUInt": HogQLFunctionMeta(
@@ -69,8 +69,8 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=IntegerType(),  # Returns unsigned integer
-            min_paths=1,  # Requires at least 1 path
-            max_paths=5,  # Up to 4 path levels
+            min_paths=1,
+            max_paths=5,
         ),
     ),
     "JSONExtractInt": HogQLFunctionMeta(
@@ -80,8 +80,8 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=IntegerType(),  # Returns signed integer
-            min_paths=1,  # Requires at least 1 path
-            max_paths=5,  # Up to 4 path levels
+            min_paths=1,
+            max_paths=5,
         ),
     ),
     "JSONExtractFloat": HogQLFunctionMeta(
@@ -91,8 +91,8 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=FloatType(),  # Returns float
-            min_paths=1,  # Requires at least 1 path
-            max_paths=5,  # Up to 4 path levels
+            min_paths=1,
+            max_paths=5,
         ),
     ),
     "JSONExtractBool": HogQLFunctionMeta(
@@ -102,8 +102,8 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=BooleanType(),  # Returns boolean
-            min_paths=1,  # Requires at least 1 path
-            max_paths=5,  # Up to 4 path levels
+            min_paths=1,
+            max_paths=5,
         ),
     ),
     "JSONExtractString": HogQLFunctionMeta(
@@ -113,8 +113,8 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=StringType(),  # Returns string
-            min_paths=1,  # Requires at least 1 path
-            max_paths=5,  # Up to 4 path levels
+            min_paths=1,
+            max_paths=5,
         ),
     ),
     "JSONExtractKeys": HogQLFunctionMeta(
@@ -146,8 +146,8 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=StringType(),  # Returns raw JSON array as string
-            min_paths=1,  # Requires at least 1 path
-            max_paths=5,  # Up to 4 path levels
+            min_paths=1,
+            max_paths=5,
         ),
     ),
     "JSONExtractKeysAndValues": HogQLFunctionMeta(
