@@ -31,7 +31,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                         }}
                         placeholder="All time"
                         data-attr="audit-logs-date-filter"
-                        className="h-8 flex items-center"
+                        className="h-[24px] flex items-center"
                     />
                 </div>
 
@@ -52,7 +52,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                         placeholder="All users"
                         allowCustomValues={false}
                         data-attr="audit-logs-user-filter"
-                        className="min-w-50 min-h-10"
+                        size="small"
+                        className="min-w-50"
                     />
                 </div>
 
@@ -73,7 +74,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                         placeholder="All scopes"
                         allowCustomValues={false}
                         data-attr="audit-logs-scope-filter"
-                        className="min-w-50 min-h-10"
+                        size="small"
+                        className="min-w-50"
                     />
                 </div>
 
@@ -94,7 +96,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                         placeholder="All actions"
                         allowCustomValues={false}
                         data-attr="audit-logs-action-filter"
-                        className="min-w-50 min-h-10"
+                        size="small"
+                        className="min-w-50"
                     />
                 </div>
 
@@ -102,6 +105,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                     <div className="relative">
                         <LemonButton
                             type="tertiary"
+                            size="small"
                             icon={showMoreFilters ? <IconCollapse /> : <IconExpand />}
                             onClick={() => setShowMoreFilters(!showMoreFilters)}
                             data-attr="audit-logs-more-filters-toggle"
@@ -144,7 +148,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 ]}
                                 placeholder="All"
                                 data-attr="audit-logs-was-impersonated-filter"
-                                className="min-w-50 min-h-10"
+                                size="small"
+                                className="min-w-50"
                             />
                         </div>
 
@@ -167,7 +172,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 ]}
                                 placeholder="All"
                                 data-attr="audit-logs-is-system-filter"
-                                className="min-w-50 min-h-10"
+                                size="small"
+                                className="min-w-50"
                             />
                         </div>
 
@@ -188,7 +194,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 placeholder="Enter item IDs"
                                 allowCustomValues={true}
                                 data-attr="audit-logs-item-ids-filter"
-                                className="min-w-50 min-h-10"
+                                size="small"
+                                className="min-w-50"
                             />
                         </div>
                     </div>
