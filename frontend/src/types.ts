@@ -3042,6 +3042,16 @@ export enum SurveyPartialResponses {
     No = 'false',
 }
 
+export interface SurveyEventsWithProperties {
+    name: string
+    propertyFilters?: {
+        [propertyName: string]: {
+            values: string[]
+            operator: PropertyMatchType
+        }
+    }
+}
+
 export interface SurveyDisplayConditions {
     url?: string
     selector?: string
@@ -3058,15 +3068,7 @@ export interface SurveyDisplayConditions {
     } | null
     events: {
         repeatedActivation?: boolean
-        values: {
-            name: string
-            propertyFilters?: {
-                [propertyName: string]: {
-                    values: string[]
-                    operator: PropertyMatchType
-                }
-            }
-        }[]
+        values: SurveyEventsWithProperties[]
     } | null
 }
 

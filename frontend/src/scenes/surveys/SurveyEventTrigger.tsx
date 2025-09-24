@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { PropertyMatchType } from 'posthog-js'
 import { useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
@@ -10,19 +11,15 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
-import { AnyPropertyFilter, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    EventPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+    SurveyEventsWithProperties,
+} from '~/types'
 
 import { surveyLogic } from './surveyLogic'
-
-interface EventWithProperties {
-    name: string
-    propertyFilters?: {
-        [propertyName: string]: {
-            values: string[]
-            operator: any // PropertyMatchType from posthog-js
-        }
-    }
-}
 
 export function SurveyEventTrigger(): JSX.Element {
     const { survey, surveyRepeatedActivationAvailable } = useValues(surveyLogic)
@@ -44,9 +41,9 @@ export function SurveyEventTrigger(): JSX.Element {
         'lte',
     ] as PropertyOperator[]
 
-    const events: EventWithProperties[] = survey.conditions?.events?.values || []
+    const events: SurveyEventsWithProperties[] = survey.conditions?.events?.values || []
 
-    const updateEventAtIndex = (index: number, updatedEvent: EventWithProperties): void => {
+    const updateEventAtIndex = (index: number, updatedEvent: SurveyEventsWithProperties): void => {
         const newEvents = [...events]
         newEvents[index] = updatedEvent
         setSurveyValue('conditions', {
@@ -70,19 +67,18 @@ export function SurveyEventTrigger(): JSX.Element {
     }
 
     const addEvent = (eventName: string): void => {
-        const newEvent: EventWithProperties = { name: eventName }
         setSurveyValue('conditions', {
             ...survey.conditions,
             events: {
                 ...survey.conditions?.events,
-                values: [...events, newEvent],
+                values: [...events, { name: eventName }],
             },
         })
     }
 
     const convertPropertyFiltersToArray = (
-        propertyFilters?: EventWithProperties['propertyFilters']
-    ): AnyPropertyFilter[] => {
+        propertyFilters?: SurveyEventsWithProperties['propertyFilters']
+    ): EventPropertyFilter[] => {
         if (!propertyFilters) {
             return []
         }
@@ -90,22 +86,24 @@ export function SurveyEventTrigger(): JSX.Element {
         return Object.entries(propertyFilters).map(([key, filter]) => ({
             key,
             value: filter.values,
-            operator: filter.operator,
-            type: 'event' as const,
+            operator: filter.operator as PropertyOperator,
+            type: PropertyFilterType.Event,
         }))
     }
 
-    const convertArrayToPropertyFilters = (filters: AnyPropertyFilter[]): EventWithProperties['propertyFilters'] => {
+    const convertArrayToPropertyFilters = (
+        filters: AnyPropertyFilter[]
+    ): SurveyEventsWithProperties['propertyFilters'] => {
         if (filters.length === 0) {
             return undefined
         }
 
-        const propertyFilters: EventWithProperties['propertyFilters'] = {}
+        const propertyFilters: SurveyEventsWithProperties['propertyFilters'] = {}
         filters.forEach((filter) => {
-            if (filter.key) {
+            if (filter.key && 'operator' in filter) {
                 propertyFilters[filter.key] = {
-                    values: Array.isArray(filter.value) ? filter.value : [filter.value],
-                    operator: filter.operator,
+                    values: Array.isArray(filter.value) ? filter.value.map(String) : [String(filter.value)],
+                    operator: filter.operator as PropertyMatchType,
                 }
             }
         })
@@ -174,7 +172,7 @@ export function SurveyEventTrigger(): JSX.Element {
                                                             event.propertyFilters
                                                         )}
                                                         onChange={(filters: AnyPropertyFilter[]) => {
-                                                            const updatedEvent: EventWithProperties = {
+                                                            const updatedEvent: SurveyEventsWithProperties = {
                                                                 ...event,
                                                                 propertyFilters: convertArrayToPropertyFilters(filters),
                                                             }
@@ -200,7 +198,7 @@ export function SurveyEventTrigger(): JSX.Element {
                 {surveyRepeatedActivationAvailable && (
                     <LemonCheckbox
                         label="Display the survey every time events occur, instead of only once per user"
-                        checked={survey.conditions?.events?.repeatedActivation}
+                        checked={survey.conditions?.events?.repeatedActivation || false}
                         onChange={(checked) => {
                             setSurveyValue('conditions', {
                                 ...survey.conditions,
