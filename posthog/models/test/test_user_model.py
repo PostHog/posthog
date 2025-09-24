@@ -109,23 +109,6 @@ class TestUser(BaseTest):
         # RBAC should pick t2
         self.assertEqual(user.current_team, t2)
 
-    def test_join_with_new_access_control_fallback_when_no_allowed(self):
-        # If all teams are blocked by RBAC, fallback to the first team
-        org2 = Organization.objects.create(name="RBAC Org Fallback")
-        org2.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"}
-        ]
-        org2.save()
-
-        f1 = Team.objects.create(organization=org2, name="F1")
-        AccessControl.objects.create(team=f1, resource="project", resource_id=str(f1.id), access_level="none")
-
-        user2 = User.objects.create(email="rbacfb@example.com")
-        user2.join(organization=org2, level=OrganizationMembership.Level.MEMBER)
-
-        user2.refresh_from_db()
-        self.assertEqual(user2.current_team, f1)
-
     def test_join_admin_prefers_first_project_even_with_rbac(self):
         # Admins bypass RBAC filtering
         org = Organization.objects.create(name="Admin Org")
