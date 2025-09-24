@@ -617,6 +617,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
                 })
             },
+            { resultEqualityCheck: objectsEqual },
         ],
         numericalColumns: [
             (s) => [s.columns],

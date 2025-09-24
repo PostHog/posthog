@@ -27,6 +27,7 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
                     key: 'EarlyAccessFeatures',
                     name: 'Early access features',
                     path: urls.earlyAccessFeatures(),
+                    iconType: 'early_access_feature',
                 },
             ],
         ],

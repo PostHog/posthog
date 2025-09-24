@@ -52,6 +52,7 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
                     {
                         key: [Scene.Messaging, tab],
                         name: capitalizeFirstLetter(tab.replaceAll('_', ' ')),
+                        iconType: 'messaging',
                     },
                 ]
             },
