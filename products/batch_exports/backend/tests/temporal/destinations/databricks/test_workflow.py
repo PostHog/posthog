@@ -111,10 +111,7 @@ class DatabricksDestinationTest(BaseDestinationTest):
         """Provide invalid test configuration for Databricks destination."""
         return (
             {
-                "server_hostname": "invalid",
                 "http_path": "invalid",
-                "client_id": "invalid",
-                "client_secret": "invalid",
                 "catalog": "invalid",
                 "schema": "invalid",
                 "table_name": "invalid",
