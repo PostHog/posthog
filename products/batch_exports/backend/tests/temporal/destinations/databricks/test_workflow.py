@@ -39,7 +39,6 @@ from products.batch_exports.backend.tests.temporal.destinations.base_destination
     CommonWorkflowTests,
     RetryableTestException,
     assert_clickhouse_records_in_destination,
-    run_workflow,
 )
 
 REQUIRED_ENV_VARS = (
@@ -276,8 +275,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             **batch_export_for_destination.destination.config,
         )
 
-        run = await run_workflow(
-            destination_test=destination_test,
+        run = await destination_test.run_workflow(
             batch_export_id=batch_export_for_destination.id,
             inputs=inputs,
         )
@@ -318,8 +316,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             )
 
         # run the workflow again
-        run = await run_workflow(
-            destination_test=destination_test,
+        run = await destination_test.run_workflow(
             batch_export_id=batch_export_for_destination.id,
             inputs=inputs,
         )
@@ -399,8 +396,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             use_automatic_schema_evolution=use_automatic_schema_evolution,
         )
 
-        run = await run_workflow(
-            destination_test=destination_test,
+        run = await destination_test.run_workflow(
             batch_export_id=batch_export_for_destination.id,
             inputs=inputs,
         )

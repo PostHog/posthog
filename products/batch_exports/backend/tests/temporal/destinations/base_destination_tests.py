@@ -148,55 +148,54 @@ class BaseDestinationTest(ABC):
         """Assert that no data was written to the destination."""
         pass
 
+    async def run_workflow(
+        self,
+        batch_export_id: uuid.UUID,
+        inputs,
+        expect_workflow_failure: bool = False,
+    ):
+        """Helper function to run the destination workflow"""
 
-async def run_workflow(
-    destination_test: BaseDestinationTest,
-    batch_export_id: uuid.UUID,
-    inputs,
-    expect_workflow_failure: bool = False,
-):
-    """Helper function to run the destination workflow"""
+        workflow_id = str(uuid.uuid4())
 
-    workflow_id = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                workflows=[self.workflow_class],
+                activities=[
+                    start_batch_export_run,
+                    insert_into_internal_stage_activity,
+                    self.main_activity,
+                    finish_batch_export_run,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                if expect_workflow_failure:
+                    with pytest.raises(WorkflowFailureError):
+                        await activity_environment.client.execute_workflow(
+                            self.workflow_class.run,  # type: ignore[attr-defined]
+                            inputs,
+                            id=workflow_id,
+                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                            execution_timeout=dt.timedelta(minutes=5),
+                        )
+                else:
+                    with fail_on_application_error():
+                        await activity_environment.client.execute_workflow(
+                            self.workflow_class.run,  # type: ignore[attr-defined]
+                            inputs,
+                            id=workflow_id,
+                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                            execution_timeout=dt.timedelta(minutes=5),
+                        )
 
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
-            activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-            workflows=[destination_test.workflow_class],
-            activities=[
-                start_batch_export_run,
-                insert_into_internal_stage_activity,
-                destination_test.main_activity,
-                finish_batch_export_run,
-            ],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            if expect_workflow_failure:
-                with pytest.raises(WorkflowFailureError):
-                    await activity_environment.client.execute_workflow(
-                        destination_test.workflow_class.run,  # type: ignore[attr-defined]
-                        inputs,
-                        id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(minutes=5),
-                    )
-            else:
-                with fail_on_application_error():
-                    await activity_environment.client.execute_workflow(
-                        destination_test.workflow_class.run,  # type: ignore[attr-defined]
-                        inputs,
-                        id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(minutes=5),
-                    )
-
-    runs = await afetch_batch_export_runs(batch_export_id=batch_export_id)
-    assert len(runs)
-    run = runs[0]
-    return run
+        runs = await afetch_batch_export_runs(batch_export_id=batch_export_id)
+        assert len(runs)
+        run = runs[0]
+        return run
 
 
 async def _get_records_from_clickhouse(
@@ -423,6 +422,7 @@ class CommonWorkflowTests:
         self, ateam, destination_data, temporal_client, interval
     ) -> AsyncGenerator[BatchExport, None]:
         """Manage BatchExport model (and associated Temporal Schedule) for tests"""
+
         batch_export_data = {
             "name": "my-production-destination-export",
             "destination": destination_data,
@@ -489,8 +489,7 @@ class CommonWorkflowTests:
             **batch_export_for_destination.destination.config,
         )
 
-        run = await run_workflow(
-            destination_test=destination_test,
+        run = await destination_test.run_workflow(
             batch_export_id=batch_export_for_destination.id,
             inputs=inputs,
         )
@@ -533,8 +532,7 @@ class CommonWorkflowTests:
             **batch_export_for_destination.destination.config,
         )
 
-        run = await run_workflow(
-            destination_test=destination_test,
+        run = await destination_test.run_workflow(
             batch_export_id=batch_export_for_destination.id,
             inputs=inputs,
         )
@@ -570,8 +568,7 @@ class CommonWorkflowTests:
             **batch_export_for_destination.destination.config,
         )
 
-        run = await run_workflow(
-            destination_test=destination_test,
+        run = await destination_test.run_workflow(
             batch_export_id=batch_export_for_destination.id,
             inputs=inputs,
             # We expect the workflow to fail as in our tests we don't retry activities that fail.
@@ -608,8 +605,7 @@ class CommonWorkflowTests:
             **invalid_destination_config,
         )
 
-        run = await run_workflow(
-            destination_test=destination_test,
+        run = await destination_test.run_workflow(
             batch_export_id=batch_export_for_destination.id,
             inputs=inputs,
         )
