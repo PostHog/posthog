@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
+import { pipelineLastStepCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from '../../worker/ingestion/pipeline-helpers'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { PipelineResult, isDlqResult, isDropResult, isOkResult, isRedirectResult } from './results'
@@ -37,6 +38,12 @@ export class ResultHandlingPipeline<TInput, TOutput> {
         const processedResults: TOutput[] = []
 
         for (const resultWithContext of results) {
+            // Report last step for all results (success and failure)
+            const lastStep = resultWithContext.context.lastStep
+            if (lastStep) {
+                pipelineLastStepCounter.labels(lastStep).inc()
+            }
+
             if (isOkResult(resultWithContext.result)) {
                 const value = resultWithContext.result.value as TOutput
                 processedResults.push(value)

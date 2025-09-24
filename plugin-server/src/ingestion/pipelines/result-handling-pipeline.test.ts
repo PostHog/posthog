@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
+import { pipelineLastStepCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from '../../worker/ingestion/pipeline-helpers'
 import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { createNewBatchPipeline } from './helpers'
@@ -15,9 +16,19 @@ jest.mock('../../worker/ingestion/pipeline-helpers', () => ({
     sendMessageToDLQ: jest.fn(),
 }))
 
+// Mock the metrics
+jest.mock('../../worker/ingestion/event-pipeline/metrics', () => ({
+    pipelineLastStepCounter: {
+        labels: jest.fn().mockReturnValue({
+            inc: jest.fn(),
+        }),
+    },
+}))
+
 const mockLogDroppedMessage = logDroppedMessage as jest.MockedFunction<typeof logDroppedMessage>
 const mockRedirectMessageToTopic = redirectMessageToTopic as jest.MockedFunction<typeof redirectMessageToTopic>
 const mockSendMessageToDLQ = sendMessageToDLQ as jest.MockedFunction<typeof sendMessageToDLQ>
+const mockPipelineLastStepCounter = pipelineLastStepCounter as jest.Mocked<typeof pipelineLastStepCounter>
 
 describe('ResultHandlingPipeline', () => {
     let mockKafkaProducer: KafkaProducerWrapper
@@ -230,6 +241,68 @@ describe('ResultHandlingPipeline', () => {
                 'result_handler',
                 'test-dlq'
             )
+        })
+    })
+
+    describe('last step reporting', () => {
+        it('should report last steps for all results including failed messages', async () => {
+            const messages: Message[] = [
+                { value: Buffer.from('success'), topic: 'test', partition: 0, offset: 1 } as Message,
+                { value: Buffer.from('drop'), topic: 'test', partition: 0, offset: 2 } as Message,
+                { value: Buffer.from('redirect'), topic: 'test', partition: 0, offset: 3 } as Message,
+                { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 4 } as Message,
+            ]
+
+            // Create batch results with different lastStep values
+            const batchResults: BatchPipelineResultWithContext<any> = [
+                { result: ok({ processed: 'success' }), context: { message: messages[0], lastStep: 'validationStep' } },
+                { result: drop('dropped item'), context: { message: messages[1], lastStep: 'filterStep' } },
+                {
+                    result: redirect('redirected item', 'overflow-topic'),
+                    context: { message: messages[2], lastStep: 'routingStep' },
+                },
+                {
+                    result: dlq('dlq item', new Error('processing error')),
+                    context: { message: messages[3], lastStep: 'processingStep' },
+                },
+            ]
+
+            const pipeline = createNewBatchPipeline()
+            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            resultPipeline.feed(batchResults)
+            const results = await resultPipeline.next()
+
+            expect(results).toEqual([{ processed: 'success' }])
+
+            // Verify all last steps were reported
+            expect(mockPipelineLastStepCounter.labels).toHaveBeenCalledWith('validationStep')
+            expect(mockPipelineLastStepCounter.labels).toHaveBeenCalledWith('filterStep')
+            expect(mockPipelineLastStepCounter.labels).toHaveBeenCalledWith('routingStep')
+            expect(mockPipelineLastStepCounter.labels).toHaveBeenCalledWith('processingStep')
+
+            // Verify inc() was called for each step
+            expect(mockPipelineLastStepCounter.labels().inc).toHaveBeenCalledTimes(4)
+        })
+
+        it('should not report last step when context has no lastStep', async () => {
+            const messages: Message[] = [
+                { value: Buffer.from('success'), topic: 'test', partition: 0, offset: 1 } as Message,
+            ]
+
+            // Create batch results without lastStep
+            const batchResults: BatchPipelineResultWithContext<any> = [
+                { result: ok({ processed: 'success' }), context: { message: messages[0] } },
+            ]
+
+            const pipeline = createNewBatchPipeline()
+            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            resultPipeline.feed(batchResults)
+            const results = await resultPipeline.next()
+
+            expect(results).toEqual([{ processed: 'success' }])
+
+            // Verify no last step was reported
+            expect(mockPipelineLastStepCounter.labels).not.toHaveBeenCalled()
         })
     })
 
