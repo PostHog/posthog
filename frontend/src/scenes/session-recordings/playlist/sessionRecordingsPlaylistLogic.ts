@@ -1202,7 +1202,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     urlToAction(({ actions, values, props }) => {
-        const urlToAction = (_: any, params: ReplayURLSearchParams): void => {
+        const urlToAction = (_: any, params: ReplayURLSearchParamTypes): void => {
             if (!props.updateSearchParams) {
                 return
             }
