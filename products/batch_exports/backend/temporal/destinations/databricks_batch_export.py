@@ -102,7 +102,6 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
         columns will be dropped from the target table).
     table_partition_field: the field to partition the table by.
         If None, we will use the default partition by field for the model (if exists)
-        If the field is not in the table, we will raise a DatabricksInvalidPartitionFieldError.
     """
 
     # TODO - some of this will go in the integration model once ready
@@ -200,6 +199,19 @@ class DatabricksClient:
         return self._connection
 
     def get_credential_provider(self):
+        """Get the credential provider for the Databricks connection.
+
+        This callable is required by the Databricks connector for machine-to-machine OAuth.
+
+        NOTE: When initializing the Config object, Databricks tries to fetch the OIDC endpoints for the workspace. When
+        performing this request, Databricks uses an unconfigurable timeout of 5 minutes, which means we can end up
+        waiting for a long time.  I have opened an issue with Databricks to make this timeout configurable:
+        https://github.com/databricks/databricks-sdk-py/issues/1046
+
+        Therefore, this method should only be called in a separate thread to avoid blocking the event loop in the main
+        thread.
+        """
+
         config = Config(
             host=f"https://{self.server_hostname}",
             client_id=self.client_id,
