@@ -155,7 +155,7 @@ class MailjetProvider:
             response = requests.post(url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS)
             response.raise_for_status()
             validation_response = MailjetValidationResponse(**response.json())
-            return validation_response.errors["DNSValidationError"] is None
+            return validation_response.errors.get("DNSValidationError") is None
         except requests.exceptions.RequestException as e:
             logger.exception(f"Mailjet API error checking DNS records: {e}")
             raise

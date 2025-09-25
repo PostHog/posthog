@@ -51,7 +51,7 @@ class TestMailjetProvider(TestCase):
         )
 
         self.assertEqual(status, "pending")
-        self.assertEqual(len(records), 2)
+        self.assertEqual(len(records), 3)
 
         dkim_record = next((r for r in records if r["type"] == "dkim"), {})
         spf_record = next((r for r in records if r["type"] == "spf"), {})
