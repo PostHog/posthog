@@ -2,11 +2,46 @@
 Type signature generator utilities for HogQL functions with variadic arguments.
 """
 
+from collections.abc import Callable
 from itertools import product
 from typing import Optional
 
-from posthog.hogql.ast import IntegerType, StringType
+from posthog.hogql.ast import (
+    ArrayType,
+    BooleanType,
+    DateTimeType,
+    DateType,
+    DecimalType,
+    FloatType,
+    IntegerType,
+    IntervalType,
+    StringType,
+    UUIDType,
+)
+from posthog.hogql.base import UnknownType
 from posthog.hogql.functions.core import AnyConstantType
+
+
+def gen_all_types() -> tuple[AnyConstantType, ...]:
+    return (
+        StringType(),
+        BooleanType(),
+        DateType(),
+        DateTimeType(),
+        UUIDType(),
+        ArrayType(),
+        DecimalType(),
+        UnknownType(),
+        IntegerType(),
+        FloatType(),
+        IntervalType(),
+    )
+
+
+def for_all_types(
+    gen: Callable[[type], tuple[tuple[AnyConstantType, ...], AnyConstantType]],
+) -> list[tuple[tuple[AnyConstantType, ...], AnyConstantType]]:
+    return [gen(t) for t in gen_all_types()]
 
 
 def generate_variadic_signatures(
