@@ -91,9 +91,8 @@ where
             .create_with_context(BatchConsumerContext {})
             .context("Failed to create Kafka consumer")?;
 
-        consumer
-            .context(&format!("Failed to subscribe to topic: {topic}"))?;
-            .context("Failed to subscribe to topic: {topic}")?;
+        let err_msg = format!("Failed to subscribe to topic: {topic}");
+        consumer.subscribe(&[topic]).context(err_msg)?;
 
         Ok(Self {
             consumer,
