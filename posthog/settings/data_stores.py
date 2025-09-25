@@ -120,9 +120,11 @@ if read_host:
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
 # For local development, default to the persons_db container if no URL is provided
 persons_db_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
-if not persons_db_writer_url and (DEBUG or TEST):
+if not persons_db_writer_url and DEBUG:
     # Default to local persons_db container in development/test mode
     # This matches the docker-compose.dev.yml configuration
+    # A default is needed for generate_demo_data to properly populate the correct databases
+    # with the demo data
     persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5434/posthog_persons"
 
 if persons_db_writer_url:
