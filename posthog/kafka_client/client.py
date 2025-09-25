@@ -195,7 +195,7 @@ def can_connect():
     insignificant, even if it is occuring from, say, 30 separate pods, say,
     every 10 seconds.
     """
-    if settings.DEBUG:
+    if settings.DEBUG and not settings.TEST:
         return True  # Skip check in development - assume Kafka is "good enough"
 
     try:
@@ -225,7 +225,7 @@ def build_kafka_consumer(
     auto_offset_reset="latest",
     test=False,
     group_id=None,
-    consumer_timeout_ms=5000 if settings.DEBUG else float("inf"),
+    consumer_timeout_ms=5000 if (settings.DEBUG and not settings.TEST) else float("inf"),
 ):
     if settings.TEST:
         test = True  # Set at runtime so that overriden settings.TEST is supported
