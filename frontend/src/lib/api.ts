@@ -681,6 +681,10 @@ export class ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('add_persons_to_static_cohort')
     }
 
+    public cohortsRemovePersonFromStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('remove_person_from_static_cohort')
+    }
+
     public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
     }
@@ -2283,6 +2287,10 @@ const api = {
         },
         async addPersonsToStaticCohort(cohortId: CohortType['id'], ids: string[]): Promise<{ success: boolean }> {
             return await new ApiRequest().cohortsAddPersonsToStatic(cohortId).update({ data: { person_ids: ids } })
+        },
+        async removePersonFromCohort(cohortId: CohortType['id'], personId: string): Promise<{ success: boolean }> {
+            const payload = { person_id: personId }
+            return await new ApiRequest().cohortsRemovePersonFromStatic(cohortId).update({ data: payload })
         },
     },
 
