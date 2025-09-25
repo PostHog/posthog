@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.schema import BaseMathType, ConversionGoalFilter1, ConversionGoalFilter2, DateRange, NodeKind
 
 from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -216,16 +217,10 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
 
-        # Use pretty_print_in_tests like other snapshot tests in the codebase
-        # Convert AST to SQL string for snapshot testing
-        from posthog.hogql.context import HogQLContext
-        from posthog.hogql.printer import print_ast
+        # Execute the query to get properly formatted SQL like other snapshot tests
+        response = execute_hogql_query(query=cte.expr, team=self.team)
 
-        # Convert the CTE expression to a SQL string
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        sql_query = print_ast(cte.expr, context=context, dialect="hogql")
-
-        assert pretty_print_in_tests(sql_query, self.team.pk) == self.snapshot
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     def test_generate_unified_cte_ast_structure_validation(self):
         """Test unified CTE AST structure validation without executing the query"""
@@ -493,15 +488,10 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         additional_conditions_getter = self._create_mock_additional_conditions_getter()
         cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
 
-        # Generate SQL snapshot for complex multi-goal scenario
-        from posthog.hogql.context import HogQLContext
-        from posthog.hogql.printer import print_ast
+        # Execute the query to get properly formatted SQL like other snapshot tests
+        response = execute_hogql_query(query=cte.expr, team=self.team)
 
-        # Convert the CTE expression to a SQL string
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        sql_query = print_ast(cte.expr, context=context, dialect="hogql")
-
-        assert pretty_print_in_tests(sql_query, self.team.pk) == self.snapshot
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     def test_integration_simple_aggregation_ast_validation(self):
         """Integration test with simple aggregation and AST validation"""
