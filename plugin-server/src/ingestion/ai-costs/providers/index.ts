@@ -8,13 +8,12 @@ import type { ModelRow } from './types'
 export const primaryCostsByModel: Record<string, ModelRow> = {}
 export const primaryCostsList: ModelRow[] = [...primaryCosts, ...manualCosts]
 
-for (const cost of primaryCosts) {
+for (const cost of primaryCostsList) {
     primaryCostsByModel[cost.model.toLowerCase()] = cost
 }
 
 // Backup costs from backup-llm-provider-costs.json plus manual and embedding costs
 export const backupCostsByModel: Record<string, ModelRow> = {}
-export const backupCostsList: ModelRow[] = [...backupCosts, ...manualCosts, ...embeddingCosts]
 
 for (const cost of [...backupCosts, ...manualCosts, ...embeddingCosts]) {
     backupCostsByModel[cost.model.toLowerCase()] = cost
