@@ -123,15 +123,12 @@ class DatabricksDestinationTest(BaseDestinationTest):
         """Provide invalid test configuration for Databricks destination."""
         return (
             {
-                "server_hostname": "invalid",
-                "client_id": "invalid",
-                "client_secret": "invalid",
                 "http_path": "invalid",
                 "catalog": "invalid",
                 "schema": "invalid",
                 "table_name": "invalid",
             },
-            "DatabricksConnectionError: Invalid host: invalid",
+            "DatabricksConnectionError: Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid.",
         )
 
     async def get_inserted_records(
@@ -299,7 +296,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             interval=interval,
             batch_export_model=batch_export_model,
             batch_export_schema=None,
-            **batch_export_for_destination.destination.config,
+            batch_export=batch_export_for_destination,
         )
 
         run = await destination_test.run_workflow(
@@ -423,7 +420,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             interval=interval,
             batch_export_model=batch_export_model,
             batch_export_schema=None,
-            **batch_export_for_destination.destination.config,
+            batch_export=batch_export_for_destination,
             use_automatic_schema_evolution=use_automatic_schema_evolution,
         )
 

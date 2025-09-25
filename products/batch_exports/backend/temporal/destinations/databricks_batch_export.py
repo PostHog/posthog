@@ -127,6 +127,8 @@ class DatabricksClient:
     # How often to poll for query status. This is a trade-off between responsiveness and number of
     # queries we make to Databricks. 1 second has been chosen rather arbitrarily.
     DEFAULT_POLL_INTERVAL = 1.0
+    # Timeout to use for initializing the Databricks connection.
+    CONNECT_TIMEOUT = 5
 
     def __init__(
         self,
@@ -213,11 +215,11 @@ class DatabricksClient:
                     enable_telemetry=False,
                     _socket_timeout=60,  # 1 minute
                 ),
-                timeout=10,  # 10 seconds
+                timeout=self.CONNECT_TIMEOUT,
             )
         except TimeoutError:
             raise DatabricksConnectionError(
-                f"Timed out while trying to connect to Databricks host '{self.server_hostname}'. Please check that the host is valid."
+                f"Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
         except OperationalError as err:
             raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err

@@ -4,7 +4,6 @@ This module provides a common test interface that can be implemented by each
 destination to ensure consistent behavior and error handling across all destinations.
 """
 
-import copy
 import json
 import uuid
 import typing as t
@@ -97,10 +96,11 @@ class BaseDestinationTest(ABC):
         batch_export_id: str,
         data_interval_end: dt.datetime,
         interval: str,
+        batch_export: BatchExport,
         batch_export_model: BatchExportModel | None = None,
         batch_export_schema: BatchExportSchema | None = None,
         backfill_details: BackfillDetails | None = None,
-        **config,
+        **override_config,
     ):
         """Create workflow inputs for the destination."""
         return self.batch_export_inputs_class(
@@ -111,7 +111,8 @@ class BaseDestinationTest(ABC):
             batch_export_model=batch_export_model,
             batch_export_schema=batch_export_schema,
             backfill_details=backfill_details,
-            **config,
+            integration_id=batch_export.destination.integration_id,
+            **{**batch_export.destination.config, **override_config},
         )
 
     @abstractmethod
@@ -417,31 +418,20 @@ class CommonWorkflowTests:
     ]
 
     @pytest.fixture
-    def destination_data(self, destination_test, ateam, exclude_events):
-        """Provide test configuration for destination."""
-        destination_config = destination_test.get_destination_config(ateam.pk)
-        destination_data = {
-            "type": destination_test.destination_type,
-            "config": {
-                **destination_config,
-                "exclude_events": exclude_events,
-            },
-        }
-        return destination_data
-
-    @pytest.fixture
     async def batch_export_for_destination(
-        self, ateam, destination_data, temporal_client, interval, integration
+        self, ateam, temporal_client, interval, integration, destination_test, exclude_events
     ) -> AsyncGenerator[BatchExport, None]:
         """Manage BatchExport model (and associated Temporal Schedule) for tests"""
-        # add integration_id to destination data if integration exists
-        destination_config = copy.deepcopy(destination_data)
-        if integration:
-            destination_config["config"]["integration_id"] = integration.pk
+        destination_config = {**destination_test.get_destination_config(ateam.pk), "exclude_events": exclude_events}
+        destination_data = {
+            "type": destination_test.destination_type,
+            "config": destination_config,
+            "integration_id": integration.pk if integration else None,
+        }
 
         batch_export_data = {
             "name": "my-production-destination-export",
-            "destination": destination_config,
+            "destination": destination_data,
             "interval": interval,
         }
 
@@ -522,9 +512,9 @@ class CommonWorkflowTests:
             batch_export_id=str(batch_export_for_destination.id),
             data_interval_end=data_interval_end,
             interval=interval,
+            batch_export=batch_export_for_destination,
             batch_export_schema=batch_export_schema,
             batch_export_model=batch_export_model,
-            **batch_export_for_destination.destination.config,
         )
 
         run = await destination_test.run_workflow(
@@ -570,7 +560,7 @@ class CommonWorkflowTests:
             data_interval_end=data_interval_end,
             interval="hour",
             batch_export_model=BatchExportModel(name="events", schema=None),
-            **batch_export_for_destination.destination.config,
+            batch_export=batch_export_for_destination,
         )
 
         run = await destination_test.run_workflow(
@@ -609,7 +599,7 @@ class CommonWorkflowTests:
             data_interval_end=data_interval_end,
             interval="hour",
             batch_export_model=BatchExportModel(name="events", schema=None),
-            **batch_export_for_destination.destination.config,
+            batch_export=batch_export_for_destination,
         )
 
         run = await destination_test.run_workflow(
@@ -648,6 +638,7 @@ class CommonWorkflowTests:
             data_interval_end=data_interval_end,
             interval="hour",
             batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export=batch_export_for_destination,
             **invalid_destination_config,
         )
 

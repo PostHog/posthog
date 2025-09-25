@@ -699,6 +699,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     # This assignment should be removed after updating all existing exports to use
                     # `batch_export_model` instead.
                     batch_export_schema=None,
+                    integration_id=batch_export.destination.integration_id,
                     **destination_config,
                 )
             ),

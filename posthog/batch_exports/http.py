@@ -183,9 +183,13 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
+    integration_id = serializers.PrimaryKeyRelatedField(
+        write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
+    )
+
     class Meta:
         model = BatchExportDestination
-        fields = ["type", "config"]
+        fields = ["type", "config", "integration", "integration_id"]
 
     def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
@@ -413,13 +417,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise PermissionDenied("The Databricks destination is not enabled for this team.")
 
             # validate the Integration is valid (this is mandatory for Databricks batch exports)
-            config = destination_attrs["config"]
-            if config.get("integration_id") is None:
-                raise serializers.ValidationError("integration_id is required for Databricks batch exports")
-            try:
-                integration = Integration.objects.get(id=config.get("integration_id"), team_id=team_id)
-            except Integration.DoesNotExist:
-                raise serializers.ValidationError("Integration not found")
+            integration: Integration | None = destination_attrs.get("integration")
+            if integration is None:
+                raise serializers.ValidationError("integration is required for Databricks batch exports")
+            if integration.team_id != team_id:
+                raise serializers.ValidationError("Integration does not belong to this team.")
+            if integration.kind != Integration.IntegrationKind.DATABRICKS:
+                raise serializers.ValidationError("Integration is not a Databricks integration.")
             # try instantiate the integration to check if it's valid
             try:
                 DatabricksIntegration(integration)

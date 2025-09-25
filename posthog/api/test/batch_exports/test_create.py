@@ -45,6 +45,7 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
             "aws_secret_access_key": "secret",
             "use_virtual_style_addressing": True,
         },
+        "integration": None,
     }
 
     batch_export_data = {
@@ -678,8 +679,8 @@ def test_creating_databricks_batch_export_using_integration(
             "catalog": "my-catalog",
             "schema": "my-schema",
             "table_name": "my-table-name",
-            "integration_id": databricks_integration.id,
         },
+        "integration": databricks_integration.id,
     }
 
     batch_export_data = {
@@ -698,6 +699,8 @@ def test_creating_databricks_batch_export_using_integration(
     assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     data = response.json()
+    assert data["destination"] == destination_data
+
     schedule = describe_schedule(temporal, data["id"])
     intervals = schedule.schedule.spec.intervals
 
@@ -719,8 +722,8 @@ def test_creating_databricks_batch_export_fails_if_feature_flag_is_not_enabled(
             "catalog": "my-catalog",
             "schema": "my-schema",
             "table_name": "my-table-name",
-            "integration_id": databricks_integration.id,
         },
+        "integration": databricks_integration.id,
     }
 
     batch_export_data = {
@@ -756,7 +759,6 @@ def test_creating_databricks_batch_export_fails_if_integration_is_missing(
             "catalog": "my-catalog",
             "schema": "my-schema",
             "table_name": "my-table-name",
-            "integration_id": None,
         },
     }
 
@@ -777,7 +779,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_missing(
     assert response.json() == {
         "type": "validation_error",
         "code": "invalid_input",
-        "detail": "integration_id is required for Databricks batch exports",
+        "detail": "integration is required for Databricks batch exports",
         "attr": "destination",
     }
 
@@ -809,8 +811,8 @@ def test_creating_databricks_batch_export_fails_if_integration_is_invalid(
             "catalog": "my-catalog",
             "schema": "my-schema",
             "table_name": "my-table-name",
-            "integration_id": integration.pk,
         },
+        "integration": integration.pk,
     }
 
     batch_export_data = {
@@ -827,3 +829,94 @@ def test_creating_databricks_batch_export_fails_if_integration_is_invalid(
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == "Databricks integration is not valid: 'client_secret' missing"
+
+
+def test_creating_databricks_batch_export_fails_if_integration_does_not_exist(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+):
+    """Test that creating a Databricks batch export fails if the integration does not exist in the database.
+
+    Using integrations is the preferred way to handle credentials for batch exports going forward.
+    """
+
+    destination_data = {
+        "type": "Databricks",
+        "config": {
+            "http_path": "my-http-path",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+        },
+        "integration": 999,
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    assert response.json() == {
+        "type": "validation_error",
+        "code": "does_not_exist",
+        "detail": 'Invalid pk "999" - object does not exist.',
+        "attr": "destination__integration",
+    }
+
+
+def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correct_type(
+    client: HttpClient, temporal, organization, team, user, enable_databricks
+):
+    """Test that creating a Databricks batch export fails if the integration is not the correct type.
+
+    Using integrations is the preferred way to handle credentials for batch exports going forward.
+
+    In this case, the integration is not a Databricks integration.
+    """
+
+    integration = Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.SLACK,
+        integration_id=str(team.pk),
+        config={"server_hostname": "my-server-hostname"},
+        sensitive_config={"client_id": "my-client-id"},
+        created_by=user,
+    )
+
+    destination_data = {
+        "type": "Databricks",
+        "config": {
+            "http_path": "my-http-path",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+        },
+        "integration": integration.pk,
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Integration is not a Databricks integration."

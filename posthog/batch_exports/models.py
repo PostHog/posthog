@@ -64,7 +64,13 @@ class BatchExportDestination(UUIDTModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExportDestination was last updated.",
     )
-    # TODO: add a new field for integration id or just stick it in config?
+    integration = models.ForeignKey(
+        "Integration",
+        on_delete=models.SET_NULL,
+        help_text="The integration for this destination.",
+        null=True,
+        blank=True,
+    )
 
 
 class BatchExportRun(UUIDTModel):
