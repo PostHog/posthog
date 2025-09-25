@@ -18,6 +18,7 @@ import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -28,6 +29,7 @@ import { queryExportContext } from '~/queries/query'
 import {
     DataVisualizationNode,
     DatabaseSchemaViewTable,
+    FileSystemIconType,
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
@@ -721,6 +723,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 query: values.sourceQuery,
                 saved: true,
             })
+            const logic = insightLogic({
+                dashboardItemId: insight.short_id,
+                doNotLoad: true,
+            })
+            const umount = logic.mount()
+            logic.actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
+            window.setTimeout(() => umount(), 1000 * 10) // keep mounted for 10 seconds while we redirect
 
             lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
 
@@ -745,6 +754,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     ...values.activeTab,
                     insight: savedInsight,
                 })
+            }
+            const loadedLogic = insightLogic.findMounted({
+                dashboardItemId: values.editingInsight.short_id,
+                dashboardId: undefined,
+            })
+            if (loadedLogic) {
+                loadedLogic.actions.setInsight(savedInsight, { overrideQuery: true, fromPersistentApi: true })
             }
 
             lemonToast.info(`You're now viewing ${savedInsight.name || savedInsight.derived_name || name}`)
@@ -987,6 +1003,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     key: Scene.SQLEditor,
                     name: 'SQL query',
                     to: urls.sqlEditor(),
+                    iconType: 'sql_editor' as FileSystemIconType,
                 }
                 if (view) {
                     return [
@@ -995,6 +1012,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             key: view.id,
                             name: view.name,
                             path: urls.sqlEditor(undefined, view.id),
+                            iconType: 'sql_editor',
                         },
                     ]
                 } else if (insight) {
@@ -1004,6 +1022,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             key: insight.id,
                             name: insight.name || insight.derived_name || 'Untitled',
                             path: urls.sqlEditor(undefined, undefined, insight.short_id),
+                            iconType: 'sql_editor',
                         },
                     ]
                 } else if (draft) {
@@ -1013,6 +1032,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             key: draft.id,
                             name: draft.name || 'Untitled',
                             path: urls.sqlEditor(undefined, undefined, undefined, draft.id),
+                            iconType: 'sql_editor',
                         },
                     ]
                 }
@@ -1124,6 +1144,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     if (insight.query) {
                         actions.setSourceQuery(insight.query as DataVisualizationNode)
                     }
+                    actions.setActiveTab(OutputTab.Visualization)
 
                     // Only run the query if the results aren't already cached locally and we're not using the open_query search param
                     if (
