@@ -21,7 +21,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-13 12:00:00.000000', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('2025-09-03 12:00:00.000000', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-24 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-09-03 23:59:59.000000', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING ifNull(greater(active_seconds, 8.0), 0)
+  HAVING greater(active_seconds, 8.0)
   ORDER BY start_time DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -95,7 +95,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-13 12:00:00.000000', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('2025-09-03 12:00:00.000000', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-27 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-31 23:59:59.000000', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING ifNull(greater(active_seconds, 7.0), 0)
+  HAVING greater(active_seconds, 7.0)
   ORDER BY start_time DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -159,7 +159,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              HAVING 1
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC))))
   GROUP BY s.session_id
-  HAVING ifNull(greater(active_seconds, 6.0), 0)
+  HAVING greater(active_seconds, 6.0)
   ORDER BY start_time DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
