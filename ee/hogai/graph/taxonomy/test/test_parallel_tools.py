@@ -49,17 +49,6 @@ class TestTaxonomyToolkit(BaseTest):
 
     # Entities
 
-    # @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
-    # def test_retrieve_entity_properties_person(self, mock_property_definition):
-    #     mock_property_definition.objects.filter.return_value.values_list.return_value = [
-    #         ("email", "String"),
-    #         ("name", "String"),
-    #     ]
-
-    #     result = self.toolkit.retrieve_entity_properties("person")
-    #     self.assertIn("email", result)
-    #     self.assertIn("String", result)
-
     @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
@@ -391,7 +380,7 @@ class TestTaxonomyToolkit(BaseTest):
         mock_prop_city = Mock()
         mock_prop_city.name = "city"
         mock_prop_city.property_type = "String"
-        
+
         return [mock_prop_browser, mock_prop_device_type, mock_prop_name, mock_prop_address, mock_prop_city]
 
     @patch("ee.hogai.graph.taxonomy.toolkit.EventTaxonomyQueryRunner")
@@ -442,28 +431,30 @@ class TestTaxonomyToolkit(BaseTest):
             "The property does_not_exist does not exist in the taxonomy for entity event test_event", result_str
         )
 
-
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_multiple_entity_properties_with_invalid_entity(self, mock_group_mapping, mock_property_definition):
+    def test_retrieve_multiple_entity_properties_with_invalid_entity(
+        self, mock_group_mapping, mock_property_definition
+    ):
         """Test retrieving properties for multiple entities when one is invalid."""
         mock_prop_queryset = Mock()
         mock_prop_queryset.values_list.return_value = [("email", "String"), ("name", "String")]
         mock_property_definition.objects.filter.return_value = mock_prop_queryset
-        
+
         mock_group = Mock()
         mock_group.group_type = "group"
         mock_group.group_type_index = 0
-        
+
         mock_queryset = Mock()
         mock_queryset.order_by.return_value = [mock_group]
         mock_group_mapping.objects.filter.return_value = mock_queryset
-        
+
         result = self.toolkit.retrieve_entity_properties(["person", "invalid_entity", "session"])
 
         # Should contain error message for invalid entity
         self.assertIn("Entity invalid_entity not found", result["invalid_entity"])
         self.assertIn("email", result["person"])
+        self.assertIn("name", result["person"])
         assert "person" in result
         assert "session" in result
 
@@ -471,15 +462,15 @@ class TestTaxonomyToolkit(BaseTest):
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     def test_retrieve_single_entity_property(self, mock_property_definition, mock_group_mapping):
         mock_group_mapping.objects.filter.return_value.order_by.return_value = []
-        
+
         mock_prop_queryset = Mock()
         mock_prop_queryset.values_list.return_value = []
         mock_property_definition.objects.filter.return_value = mock_prop_queryset
-        
+
         mock_group = Mock()
         mock_group.group_type = "group"
         mock_group.group_type_index = 0
-        
+
         mock_queryset = Mock()
         mock_queryset.order_by.return_value = [mock_group]
         mock_group_mapping.objects.filter.return_value = mock_queryset
@@ -492,7 +483,9 @@ class TestTaxonomyToolkit(BaseTest):
     @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_entity_multiple_properties_less_results(self, mock_group_mapping, mock_property_definition, mock_runner_class):
+    def test_retrieve_entity_multiple_properties_less_results(
+        self, mock_group_mapping, mock_property_definition, mock_runner_class
+    ):
         mock_group_mapping.objects.filter.return_value.order_by.return_value = []
         mock_property_definition.objects.filter.return_value = self._get_mock_property_definition()
 
