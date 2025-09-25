@@ -395,6 +395,9 @@ class SnowflakeClient:
         This enables asynchronous execution of queries to release the event loop to execute other tasks
         while we poll for a query to be done. For example, the event loop may use this time for heartbeating.
 
+        The main advantage of using execute_async and polling for the result is that we don't need to maintain a network
+        connection to the Snowflake server, which could timeout or be interrupted.
+
         Args:
             connection: A SnowflakeConnection object as produced by snowflake.connector.connect.
             query: A query string to run asynchronously.
@@ -701,7 +704,7 @@ class SnowflakeClient:
         update_key: collections.abc.Iterable[str],
         update_when_matched: collections.abc.Iterable[SnowflakeField],
     ):
-        """Merge two identical person model tables in Snowflake."""
+        """Merge two identical model tables in Snowflake."""
 
         # handle the case where the final table doesn't contain all the fields present in the stage table
         # (for example, if we've added new fields to the person model)
