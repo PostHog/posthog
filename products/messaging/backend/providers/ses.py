@@ -17,10 +17,6 @@ class SESProvider:
         self.region = self.get_region()
         self.endpoint_url = self.get_endpoint_url()
 
-        logger.info(
-            f"Initializing SES client with access key id: {self.access_key_id}, region: {self.region}, endpoint url: {self.endpoint_url}"
-        )
-
         # Initialize SES client
         self.client = boto3.client(
             "ses",
@@ -52,125 +48,16 @@ class SESProvider:
     def get_endpoint_url(cls) -> str | None:
         return settings.SES_ENDPOINT
 
-    def _format_dns_records(self, domain_attributes: dict) -> tuple[str, list[dict]]:
-        """
-        Format DNS records for domain verification status
-        """
-        formatted_dns_records = []
-
-        # Check domain verification status
-        domain_verification_status = domain_attributes.get("VerificationStatus", "NotStarted")
-
-        # Check DKIM verification status
-        dkim_tokens = domain_attributes.get("DkimTokens", [])
-        dkim_verification_status = domain_attributes.get("DkimVerificationStatus", "NotStarted")
-        dkim_enabled = domain_attributes.get("DkimEnabled", False)
-
-        # Check SPF verification status
-        spf_verification_status = domain_attributes.get("SpfVerificationStatus", "NotStarted")
-
-        # Overall status - domain must be verified, and either DKIM or SPF should be successful
-        # For SES, domain verification is the primary requirement
-        overall_status = "success"
-
-        if (
-            domain_verification_status == "Success"
-            and dkim_enabled
-            and dkim_verification_status == "Success"
-            and spf_verification_status == "Success"
-        ):
-            overall_status = "success"
-        else:
-            overall_status = "pending"
-
-        # Add domain verification record if not verified
-        if domain_verification_status != "Success":
-            overall_status = "pending"
-            verification_token = domain_attributes.get("VerificationToken")
-            if verification_token:
-                formatted_dns_records.append(
-                    {
-                        "type": "domain_verification",
-                        "recordType": "TXT",
-                        "recordHostname": "_amazonses",
-                        "recordValue": verification_token,
-                        "status": "pending",
-                    }
-                )
-
-        # Add DKIM records if DKIM is enabled
-        if dkim_enabled and dkim_tokens:
-            for token in dkim_tokens:
-                formatted_dns_records.append(
-                    {
-                        "type": "dkim",
-                        "recordType": "CNAME",
-                        "recordHostname": f"{token}._domainkey",
-                        "recordValue": f"{token}.dkim.amazonses.com",
-                        "status": "success" if dkim_verification_status == "Success" else "pending",
-                    }
-                )
-
-        # Add SPF record
-        formatted_dns_records.append(
-            {
-                "type": "spf",
-                "recordType": "TXT",
-                "recordHostname": "@",
-                "recordValue": "v=spf1 include:amazonses.com ~all",
-                "status": "success" if spf_verification_status == "Success" else "pending",
-            }
-        )
-
-        return overall_status, formatted_dns_records
-
     def create_email_domain(self, domain: str, team_id: int):
-        """
-        Create a new verified domain in SES
+        # NOTE: For sesv1 creation is done through verification
+        self.client.verify_domain_identity(Domain=domain)
 
-        Reference: https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ses.html#SES.Client.verify_domain_identity
-        """
+    def verify_email_domain(self, domain: str, team_id: int):
         # Validate the domain contains valid characters for a domain name
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
             raise exceptions.ValidationError("Please enter a valid domain or subdomain name.")
 
-        self.client.verify_domain_identity(Domain=domain)
-
-    def enable_dkim_for_domain(self, domain: str):
-        """
-        Enable DKIM for a domain in SES
-
-        Reference: https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ses.html#SES.Client.put_identity_dkim_attributes
-        """
-        try:
-            response = self.client.put_identity_dkim_attributes(Identity=domain, DkimEnabled=True)
-            logger.info(f"DKIM enabled for domain {domain}")
-            return response
-        except ClientError as e:
-            logger.exception(f"SES API error enabling DKIM for domain: {e}")
-            raise
-        except BotoCoreError as e:
-            logger.exception(f"SES API error enabling DKIM for domain: {e}")
-            raise
-
-    def verify_email_domain(self, domain: str, team_id: int):
-        """
-        Ensure SES v1 domain identity + DKIM for the email's domain and return a response like:
-
-        {
-            "status": "pending",
-            "dnsRecords": [
-                {
-                    "type": "spf",
-                    "recordType": "TXT",
-                    "recordHostname": "@",
-                    "recordValue": "v=spf1 include:amazonses.com ~all",
-                    "status": "pending",
-                }
-            ],
-        }
-        """
         dns_records = []
 
         # Start/ensure domain verification (TXT at _amazonses.domain) ---
