@@ -450,7 +450,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' }}
               run: |
                   echo "Checking that products/* only contain backend/, frontend/, or shared/ as Python code roots..."
-                  BAD_FILES=$(find products -maxdepth 2 -type f -name "*.py" ! -path "*/backend/*" -o -maxdepth 2 -type d -name "migrations" ! -path "*/backend/*")
+                  BAD_FILES=$(find products -maxdepth 2 -type f -name "*.py" ! -path "*/backend/*" ! -name "__init__.py" ! -name "conftest.py" -o -maxdepth 2 -type d -name "migrations" ! -path "*/backend/*")
                   if [ -n "$BAD_FILES" ]; then
                     echo "❌ Found Python code or migrations outside backend/:"
                     echo "$BAD_FILES"
