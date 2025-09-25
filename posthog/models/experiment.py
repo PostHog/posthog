@@ -174,6 +174,7 @@ class ExperimentMetricResult(models.Model):
 
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     metric_uuid = models.CharField(max_length=255)
+    fingerprint = models.CharField(max_length=64, null=True, blank=True)  # SHA256 hash is 64 chars
     query_from = models.DateTimeField()
     query_to = models.DateTimeField()
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
@@ -185,9 +186,9 @@ class ExperimentMetricResult(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ["experiment", "metric_uuid", "query_to"]
+        unique_together = ["experiment", "metric_uuid", "fingerprint", "query_to"]
         indexes = [
-            models.Index(fields=["experiment", "metric_uuid", "query_to"]),
+            models.Index(fields=["experiment", "metric_uuid", "fingerprint", "query_to"]),
         ]
 
     def __str__(self):

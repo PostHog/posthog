@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
@@ -27,16 +27,16 @@ export function TimeseriesModal({
 }: TimeseriesModalProps): JSX.Element {
     const logic = experimentTimeseriesLogic({ experimentId: experiment.id })
     const { loadTimeseries, clearTimeseries } = useActions(logic)
-    const { timeseries, chartData, timeseriesStatus } = useValues(logic)
+    const { chartData, progressMessage, hasTimeseriesData } = useValues(logic)
 
     useEffect(() => {
-        if (isOpen && metric.uuid) {
-            loadTimeseries({ metricUuid: metric.uuid })
+        if (isOpen && metric.uuid && (metric as ExperimentMetric).fingerprint) {
+            loadTimeseries({ metric })
         }
         return () => {
             clearTimeseries()
         }
-    }, [isOpen, metric.uuid, clearTimeseries, loadTimeseries])
+    }, [isOpen, metric])
 
     const processedChartData = chartData(variantResult.key)
     const variantName =
@@ -55,43 +55,22 @@ export function TimeseriesModal({
                 </LemonButton>
             }
         >
-            <div style={{ padding: '16px' }}>
-                {timeseries ? (
+            <div>
+                {hasTimeseriesData ? (
                     <div>
-                        {timeseriesStatus && (
-                            <div style={{ marginBottom: '16px' }}>
-                                <LemonBanner type="warning">{timeseriesStatus}</LemonBanner>
-                            </div>
-                        )}
-                        {(timeseries.status === 'completed' ||
-                            timeseries.status === 'partial' ||
-                            timeseries.status === 'pending') &&
-                        timeseries.timeseries ? (
-                            <>
-                                {processedChartData ? (
-                                    <VariantTimeseriesChart chartData={processedChartData} />
-                                ) : (
-                                    <div
-                                        style={{
-                                            padding: '40px',
-                                            textAlign: 'center',
-                                            color: '#666',
-                                        }}
-                                    >
-                                        No timeseries data available for {variantName}
-                                    </div>
-                                )}
-                            </>
-                        ) : timeseries.status === 'failed' ? (
-                            <div style={{ color: 'red', marginTop: '10px' }}>
-                                Error: Failed to compute timeseries for all days
-                            </div>
+                        {progressMessage && <div className="text-xs text-muted mt-2 mb-4">{progressMessage}</div>}
+                        {processedChartData ? (
+                            <VariantTimeseriesChart chartData={processedChartData} />
                         ) : (
-                            <div style={{ marginTop: '10px' }}>Timeseries computation is pending...</div>
+                            <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
+                                No timeseries data available for {variantName}
+                            </div>
                         )}
                     </div>
                 ) : (
-                    <div>Loading timeseries data...</div>
+                    <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
+                        No timeseries data available
+                    </div>
                 )}
             </div>
         </LemonModal>
