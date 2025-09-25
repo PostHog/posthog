@@ -72,10 +72,10 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     path(['scenes', 'billing', 'billingSpendLogic']),
     props({} as BillingSpendLogicProps),
     key(({ dashboardItemId }) => dashboardItemId || 'global_spend'),
-    connect({
+    connect(() => ({
         values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing', 'billingPeriodUTC']],
         actions: [eventUsageLogic, ['reportBillingSpendInteraction']],
-    }),
+    })),
     actions({
         setFilters: (filters: Partial<BillingFilters>, shouldDebounce: boolean = true) => ({
             filters,

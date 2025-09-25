@@ -10,11 +10,10 @@ import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoic
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { NewTabScene } from 'scenes/new-tab/NewTabScene'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -61,8 +60,13 @@ function HomePageContent(): JSX.Element {
                 </span>
             )}
 
-            {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && <PosthogStoriesContainer />}
-            <SceneDivider />
+            {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && (
+                <>
+                    <PosthogStoriesContainer />
+                    <SceneDivider />
+                </>
+            )}
+
             <SceneTitleSection
                 name={dashboard?.name ?? 'Project Homepage'}
                 resourceType={{
@@ -127,16 +131,5 @@ export function ProjectHomepage(): JSX.Element {
     if (dashboardLogicProps?.id) {
         return <HomePageContent />
     }
-    return (
-        <SceneContent className="ProjectHomepage">
-            <SceneTitleSection
-                name="Loading homepage"
-                resourceType={{
-                    type: 'project',
-                    forceIcon: <Spinner />,
-                }}
-            />
-            <LemonSkeleton repeat={3} />
-        </SceneContent>
-    )
+    return <NewTabScene source="homepage" />
 }

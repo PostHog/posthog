@@ -4,8 +4,8 @@ import { DB } from '~/utils/db/db'
 import { TeamManager } from '~/utils/team-manager'
 
 import { createResolveTeamStep } from '../../../src/ingestion/event-preprocessing/resolve-team'
+import { drop, ok } from '../../../src/ingestion/pipelines/results'
 import { EventHeaders, Hub, IncomingEvent, Team } from '../../../src/types'
-import { drop, success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 import { getMetricValues, resetMetrics } from '../../helpers/metrics'
 
 const pipelineEvent = {
@@ -116,7 +116,7 @@ describe('createResolveTeamStep()', () => {
         }
         const response = await step(input)
         expect(response).toEqual(
-            success({
+            ok({
                 ...input,
                 eventWithTeam: {
                     event: { ...pipelineEvent, token: teamTwoToken },
@@ -162,7 +162,7 @@ describe('createResolveTeamStep()', () => {
         }
         const response = await step(input)
         expect(response).toEqual(
-            success({
+            ok({
                 ...input,
                 eventWithTeam: {
                     event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
