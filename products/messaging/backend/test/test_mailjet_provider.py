@@ -68,7 +68,7 @@ class TestMailjetProvider(TestCase):
         self.assertEqual(spf_record["status"], "pending")
 
         self.assertEqual(ownership_record["recordType"], "TXT")
-        self.assertEqual(ownership_record["recordHostname"], self.mock_dns_response["OwnerShipRecordName"])
+        self.assertEqual(ownership_record["recordHostname"], self.mock_dns_response["OwnerShipTokenRecordName"])
         self.assertEqual(ownership_record["recordValue"], self.mock_dns_response["OwnerShipToken"])
         self.assertEqual(ownership_record["status"], "pending")
 
