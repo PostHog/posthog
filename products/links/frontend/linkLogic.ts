@@ -114,10 +114,12 @@ export const linkLogic = kea<linkLogicType>([
                     key: 'Link',
                     name: 'Link Management',
                     path: urls.links(),
+                    iconType: 'link',
                 },
                 {
                     key: ['Link', link.id || 'new'],
                     name: `${link.short_code} (${link.redirect_url})`,
+                    iconType: 'link',
                 },
             ],
         ],

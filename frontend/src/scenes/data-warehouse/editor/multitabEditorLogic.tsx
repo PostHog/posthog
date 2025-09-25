@@ -29,6 +29,7 @@ import { queryExportContext } from '~/queries/query'
 import {
     DataVisualizationNode,
     DatabaseSchemaViewTable,
+    FileSystemIconType,
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
@@ -1002,6 +1003,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     key: Scene.SQLEditor,
                     name: 'SQL query',
                     to: urls.sqlEditor(),
+                    iconType: 'sql_editor' as FileSystemIconType,
                 }
                 if (view) {
                     return [
@@ -1010,6 +1012,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             key: view.id,
                             name: view.name,
                             path: urls.sqlEditor(undefined, view.id),
+                            iconType: 'sql_editor',
                         },
                     ]
                 } else if (insight) {
@@ -1019,6 +1022,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             key: insight.id,
                             name: insight.name || insight.derived_name || 'Untitled',
                             path: urls.sqlEditor(undefined, undefined, insight.short_id),
+                            iconType: 'sql_editor',
                         },
                     ]
                 } else if (draft) {
@@ -1028,6 +1032,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             key: draft.id,
                             name: draft.name || 'Untitled',
                             path: urls.sqlEditor(undefined, undefined, undefined, draft.id),
+                            iconType: 'sql_editor',
                         },
                     ]
                 }
