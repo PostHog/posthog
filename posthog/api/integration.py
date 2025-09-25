@@ -3,6 +3,7 @@ import json
 from typing import Any
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.shortcuts import redirect
@@ -35,7 +36,7 @@ from posthog.models.integration import (
 class NativeEmailIntegrationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     name = serializers.CharField()
-    provider = serializers.ChoiceField(choices=["ses", "mailjet"])
+    provider = serializers.ChoiceField(choices=["ses", "mailjet", "maildev"] if settings.DEBUG else ["ses", "mailjet"])
 
 
 class IntegrationSerializer(serializers.ModelSerializer):

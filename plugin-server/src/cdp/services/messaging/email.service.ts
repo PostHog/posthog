@@ -1,3 +1,5 @@
+import AWS from 'aws-sdk'
+
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -9,7 +11,16 @@ import { addTrackingToEmail, generateEmailTrackingCode } from './email-tracking.
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 
 export class EmailService {
-    constructor(private hub: Hub) {}
+    ses: AWS.SES
+
+    constructor(private hub: Hub) {
+        this.ses = new AWS.SES({
+            accessKeyId: this.hub.SES_ACCESS_KEY_ID,
+            secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
+            region: this.hub.SES_REGION,
+            endpoint: this.hub.SES_ENDPOINT || undefined,
+        })
+    }
 
     // Send email
     public async executeSendEmail(
@@ -40,12 +51,15 @@ export class EmailService {
 
             this.validateEmailDomain(integration, params)
 
-            switch (this.getEmailDeliveryMode()) {
+            switch (integration.config.provider ?? 'mailjet') {
                 case 'maildev':
                     await this.sendEmailWithMaildev(result, params)
                     break
                 case 'mailjet':
                     await this.sendEmailWithMailjet(result, params)
+                    break
+                case 'ses':
+                    await this.sendEmailWithSES(result, params)
                     break
                 case 'unsupported':
                     throw new Error('Email delivery mode not supported')
@@ -92,17 +106,6 @@ export class EmailService {
 
         params.from.email = integration.config.email
         params.from.name = integration.config.name
-    }
-
-    private getEmailDeliveryMode(): 'mailjet' | 'maildev' | 'unsupported' {
-        if (this.hub.MAILJET_PUBLIC_KEY && this.hub.MAILJET_SECRET_KEY) {
-            return 'mailjet'
-        }
-
-        if (mailDevTransport) {
-            return 'maildev'
-        }
-        return 'unsupported'
     }
 
     private async sendEmailWithMailjet(
@@ -167,5 +170,46 @@ export class EmailService {
         }
 
         result.logs.push(logEntry('debug', `Email sent to your local maildev server: ${mailDevWebUrl}`))
+    }
+
+    private async sendEmailWithSES(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): Promise<void> {
+        const trackingCode = generateEmailTrackingCode(result.invocation)
+        const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
+
+        const sendEmailParams = {
+            Source: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+            Destination: {
+                ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
+            },
+            Message: {
+                Subject: {
+                    Data: params.subject,
+                    Charset: 'UTF-8',
+                },
+                Body: {
+                    Html: {
+                        Data: htmlWithTracking,
+                        Charset: 'UTF-8',
+                    },
+                    Text: {
+                        Data: params.text,
+                        Charset: 'UTF-8',
+                    },
+                },
+            },
+            Tags: [{ Name: 'ph_id', Value: trackingCode }],
+        }
+
+        try {
+            const response = await this.ses.sendEmail(sendEmailParams).promise()
+            if (!response.MessageId) {
+                throw new Error('No messageId returned from SES')
+            }
+        } catch (error) {
+            throw new Error(`Failed to send email via SES: ${error.message}`)
+        }
     }
 }
