@@ -17,22 +17,14 @@ import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
 const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
     const [debouncedLoading, setDebouncedLoading] = useState(false)
-    const [hasSetTrueOnce, setHasSetTrueOnce] = useState(false)
 
     useEffect(() => {
-        if (loading && !hasSetTrueOnce) {
-            // First time setting to true - do it immediately
-            setDebouncedLoading(true)
-            setHasSetTrueOnce(true)
-            return
-        }
-
         const timer = setTimeout(() => {
             setDebouncedLoading(loading)
         }, delay)
 
         return () => clearTimeout(timer)
-    }, [loading, delay, hasSetTrueOnce])
+    }, [loading, delay])
 
     return debouncedLoading
 }
