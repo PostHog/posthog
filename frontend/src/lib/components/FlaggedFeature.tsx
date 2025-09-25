@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { FeatureFlagKey } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export type PostHogFeatureProps = {
@@ -16,11 +17,24 @@ export type PostHogFeatureProps = {
 export function FlaggedFeature({ flag, match, children, fallback }: PostHogFeatureProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const showFlaggedFeature = useFeatureFlag('FLAGGED_FEATURE_INDICATOR')
     const flagValue = featureFlags[flag] || false
     const doesFlagMatch = match === undefined ? !!flagValue : flagValue === match
 
     if (doesFlagMatch) {
-        return typeof children === 'function' ? children(flagValue) : children
+        const childContent = typeof children === 'function' ? children(flagValue) : children
+        if (showFlaggedFeature) {
+            // NOTE: this isn't perfect adding a div as it makes it an inpure wrapper but for debugging in most cases its good enough for now
+            return (
+                <div className="relative outline-2 outline-offset-2 outline-dashed outline-red-200 rounded group">
+                    <div className="absolute right-0 -top-8 bg-red-200 text-red-800 p-1 rounded text-xs font-medium opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none group-hover:pointer-events-auto">
+                        Flagged feature: {flag} - {doesFlagMatch ? 'match' : 'no match'}
+                    </div>
+                    {childContent}
+                </div>
+            )
+        }
+        return childContent
     } else if (fallback) {
         return <>{fallback}</>
     }

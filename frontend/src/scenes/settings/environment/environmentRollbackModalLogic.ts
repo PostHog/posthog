@@ -16,7 +16,6 @@ import type { environmentRollbackModalLogicType } from './environmentRollbackMod
 export interface Team {
     id: number
     name: string
-    access_control: boolean
     project_id: number
 }
 
@@ -105,7 +104,6 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
                         project.environments.push({
                             id: team.id,
                             name: team.name,
-                            access_control: team.access_control,
                             project_id: team.project_id,
                         })
                     }
