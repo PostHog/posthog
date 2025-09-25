@@ -1,3 +1,5 @@
+import AWS from 'aws-sdk'
+
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -47,6 +49,9 @@ export class EmailService {
                 case 'mailjet':
                     await this.sendEmailWithMailjet(result, params)
                     break
+                case 'ses':
+                    await this.sendEmailWithSES(result, params)
+                    break
                 case 'unsupported':
                     throw new Error('Email delivery mode not supported')
             }
@@ -94,9 +99,13 @@ export class EmailService {
         params.from.name = integration.config.name
     }
 
-    private getEmailDeliveryMode(): 'mailjet' | 'maildev' | 'unsupported' {
+    private getEmailDeliveryMode(): 'mailjet' | 'maildev' | 'ses' | 'unsupported' {
         if (this.hub.MAILJET_PUBLIC_KEY && this.hub.MAILJET_SECRET_KEY) {
             return 'mailjet'
+        }
+
+        if (this.hub.SES_ACCESS_KEY_ID && this.hub.SES_SECRET_ACCESS_KEY) {
+            return 'ses'
         }
 
         if (mailDevTransport) {
@@ -167,5 +176,56 @@ export class EmailService {
         }
 
         result.logs.push(logEntry('debug', `Email sent to your local maildev server: ${mailDevWebUrl}`))
+    }
+
+    private async sendEmailWithSES(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): Promise<void> {
+        const ses = new AWS.SES({
+            accessKeyId: this.hub.SES_ACCESS_KEY_ID,
+            secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
+            region: this.hub.SES_REGION,
+            endpoint: this.hub.SES_ENDPOINT || undefined,
+        })
+
+        const trackingCode = generateEmailTrackingCode(result.invocation)
+        const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
+
+        const params_ses = {
+            Source: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+            Destination: {
+                ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
+            },
+            Message: {
+                Subject: {
+                    Data: params.subject,
+                    Charset: 'UTF-8',
+                },
+                Body: {
+                    Html: {
+                        Data: htmlWithTracking,
+                        Charset: 'UTF-8',
+                    },
+                    Text: {
+                        Data: params.text,
+                        Charset: 'UTF-8',
+                    },
+                },
+            },
+            Tags: [
+                {
+                    Name: 'PostHogTrackingCode',
+                    Value: trackingCode,
+                },
+            ],
+        }
+
+        try {
+            const response = await ses.sendEmail(params_ses).promise()
+            result.logs.push(logEntry('debug', `Email sent via SES with MessageId: ${response.MessageId}`))
+        } catch (error) {
+            throw new Error(`Failed to send email via SES: ${error.message}`)
+        }
     }
 }

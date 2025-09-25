@@ -33,8 +33,7 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
 
-from products.messaging.backend.providers import MailjetProvider, TwilioProvider
-from products.messaging.backend.providers.ses import SESProvider
+from products.messaging.backend.providers import MailjetProvider, SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -1094,6 +1093,8 @@ class EmailIntegration:
         elif provider == "mailjet":
             mailjet = MailjetProvider()
             mailjet.create_email_domain(domain, team_id=team_id)
+        elif provider == "maildev" and settings.DEBUG:
+            pass
         else:
             raise ValueError(f"Invalid provider: must be either 'ses' or 'mailjet'")
 
@@ -1107,7 +1108,7 @@ class EmailIntegration:
                     "domain": domain,
                     "name": name,
                     "provider": provider,
-                    "verified": False,
+                    "verified": True if provider == "maildev" else False,
                 },
                 "created_by": created_by,
             },
@@ -1151,8 +1152,15 @@ class EmailIntegration:
         # Use the appropriate provider for verification
         if provider == "ses":
             verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
-        else:
+        elif provider == "mailjet":
             verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+        elif provider == "maildev":
+            verification_result = {
+                "status": "success",
+                "dnsRecords": [],
+            }
+        else:
+            raise ValueError(f"Invalid provider: {provider}")
 
         if verification_result.get("status") == "success":
             # We can validate all other integrations with the same domain and provider
