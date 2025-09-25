@@ -613,7 +613,6 @@ def web_analytics_team_selection_v2_has_data(context: AssetCheckExecutionContext
 
 
 @asset_check(
-    asset="web_pre_aggregated_bounces",
     name="web_pre_aggregated_bounces_has_data",
     description="Check if web_pre_aggregated_bounces table has data",
 )
@@ -622,7 +621,6 @@ def web_pre_aggregated_bounces_has_data(context: AssetCheckExecutionContext) -> 
 
 
 @asset_check(
-    asset="web_pre_aggregated_stats",
     name="web_pre_aggregated_stats_has_data",
     description="Check if web_pre_aggregated_stats table has data",
 )
@@ -631,13 +629,11 @@ def web_pre_aggregated_stats_has_data(context: AssetCheckExecutionContext) -> As
 
 
 @asset_check(
-    asset="web_pre_aggregated_bounces",
     name="web_analytics_v2_accuracy_check",
     description="Validates that v2 pre-aggregated web analytics data matches regular queries within tolerance",
     blocking=False,
 )
 def web_analytics_v2_accuracy_check(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    """Data quality check: validates v2 pre-aggregated tables match regular WebOverview queries within tolerance."""
     return run_accuracy_check_for_version(context, "web_analytics_v2_accuracy_check", "v2", use_v2_tables=True)
 
 
