@@ -613,6 +613,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_simple_json(self):
+        query = """
+            select JSONExtractInt(properties, 'field') as field
+            from events
+            where timestamp > yesterday()
+            limit 10
+        """
+        response = execute_hogql_query(query, team=self.team, pretty=False)
+        self.assertEqual(response.results, [])
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_unnecessary_ifnull(self):
         # https://github.com/PostHog/posthog/issues/23077
         query = """
