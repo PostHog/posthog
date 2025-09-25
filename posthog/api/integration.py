@@ -121,6 +121,10 @@ class IntegrationSerializer(serializers.ModelSerializer):
             if not (server_hostname and client_id and client_secret):
                 raise ValidationError("Server hostname, client ID, and client secret must be provided")
 
+            # ensure all fields are strings
+            if not all(isinstance(value, str) for value in [server_hostname, client_id, client_secret]):
+                raise ValidationError("Server hostname, client ID, and client secret must be strings")
+
             instance = DatabricksIntegration.integration_from_config(
                 team_id=team_id,
                 server_hostname=server_hostname,

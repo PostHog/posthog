@@ -789,7 +789,8 @@ def test_creating_databricks_batch_export_fails_if_integration_is_invalid(
 
     Using integrations is the preferred way to handle credentials for batch exports going forward.
 
-    In this case, the integration is missing the client_secret.
+    In this case, the integration is missing the client_secret. In theory, this shouldn't happen, as we validate the
+    integration when creating it via the API.
     """
 
     integration = Integration.objects.create(
