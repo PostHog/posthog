@@ -44,7 +44,7 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import get_dependent_cohorts
+from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlagDashboards, get_all_feature_flags, get_user_blast_radius
 from posthog.models.feature_flag.flag_analytics import increment_request_count
@@ -328,8 +328,8 @@ class FeatureFlagSerializer(
                         initial_cohort: Cohort = Cohort.objects.get(
                             pk=prop.value, team__project_id=self.context["project_id"]
                         )
-                        dependent_cohorts = get_dependent_cohorts(initial_cohort)
-                        for cohort in [initial_cohort, *dependent_cohorts]:
+                        dependency_cohorts = get_all_cohort_dependencies(initial_cohort)
+                        for cohort in [initial_cohort, *dependency_cohorts]:
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
                                 raise serializers.ValidationError(
                                     detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
