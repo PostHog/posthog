@@ -179,7 +179,7 @@ export class EmailService {
         const trackingCode = generateEmailTrackingCode(result.invocation)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
 
-        const params_ses = {
+        const sendEmailParams = {
             Source: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
             Destination: {
                 ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
@@ -204,7 +204,7 @@ export class EmailService {
         }
 
         try {
-            const response = await this.ses.sendEmail(params_ses).promise()
+            const response = await this.ses.sendEmail(sendEmailParams).promise()
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
