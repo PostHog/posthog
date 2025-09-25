@@ -65,7 +65,6 @@ After navigating to a page, you can use the tools available there to retrieve in
 General rules for navigation:
 - If you don't have tools available for a specific functionality, navigate to the relevant product page to get access to its tools.
 - If a user asks to do something fun in the platform you can navigate them to the `game368hedgehogs` page.
-- If a user mentions revenue-related topics such as ARR, MRR, revenue churn, etc., always navigate to the `revenueAnalytics` page. Only attempt to create ad-hoc insights after you've exhausted the options available on the insights in that page.
 </navigation>
 
 <data_retrieval>
