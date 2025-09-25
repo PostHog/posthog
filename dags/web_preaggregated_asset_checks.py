@@ -612,31 +612,6 @@ def web_analytics_team_selection_v2_has_data(context: AssetCheckExecutionContext
         )
 
 
-@asset_check(
-    name="web_pre_aggregated_bounces_has_data",
-    description="Check if web_pre_aggregated_bounces table has data",
-)
-def web_pre_aggregated_bounces_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    return table_has_data("web_pre_aggregated_bounces", dagster_tags(context), context)
-
-
-@asset_check(
-    name="web_pre_aggregated_stats_has_data",
-    description="Check if web_pre_aggregated_stats table has data",
-)
-def web_pre_aggregated_stats_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    return table_has_data("web_pre_aggregated_stats", dagster_tags(context), context)
-
-
-@asset_check(
-    name="web_analytics_v2_accuracy_check",
-    description="Validates that v2 pre-aggregated web analytics data matches regular queries within tolerance",
-    blocking=False,
-)
-def web_analytics_v2_accuracy_check(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    return run_accuracy_check_for_version(context, "web_analytics_v2_accuracy_check", "v2", use_v2_tables=True)
-
-
 web_analytics_data_quality_job = dagster.define_asset_job(
     name="web_analytics_data_quality_job",
     selection=dagster.AssetSelection.checks_for_assets(
@@ -683,28 +658,6 @@ def web_analytics_weekly_data_quality_schedule(context: dagster.ScheduleEvaluati
             }
         },
         tags={"trigger": "weekly_schedule"},
-    )
-
-
-@dagster.schedule(
-    cron_schedule="0 3 * * 0",
-    job=web_analytics_v2_data_quality_job,
-    execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-)
-def web_analytics_v2_weekly_data_quality_schedule(context: dagster.ScheduleEvaluationContext):
-    return dagster.RunRequest(
-        run_config={
-            "ops": {
-                "web_analytics_v2_accuracy_check": {
-                    "config": {
-                        "tolerance_pct": DEFAULT_TOLERANCE_PCT,
-                        "days_back": DEFAULT_DAYS_BACK,
-                    }
-                }
-            }
-        },
-        tags={"trigger": "weekly_schedule_v2"},
     )
 
 
