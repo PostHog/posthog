@@ -1,5 +1,5 @@
+import generatedCosts from './backup-llm-provider-costs.json'
 import { embeddingCosts } from './embeddings'
-import generatedCosts from './generated-providers.json'
 import { manualCosts } from './manual-providers'
 import type { ModelRow } from './types'
 
