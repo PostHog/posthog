@@ -1,3 +1,4 @@
+import { defaultConfig } from '../config/config'
 import { LazyLoader } from './lazy-loader'
 import { delay } from './utils'
 
@@ -337,6 +338,17 @@ describe('LazyLoader', () => {
     })
 
     describe('TTL eviction', () => {
+        let originalEvictionEnabled: boolean
+
+        beforeAll(() => {
+            originalEvictionEnabled = defaultConfig.LAZY_LOADER_EVICTION_ENABLED
+            ;(defaultConfig as any).LAZY_LOADER_EVICTION_ENABLED = true
+        })
+
+        afterAll(() => {
+            ;(defaultConfig as any).LAZY_LOADER_EVICTION_ENABLED = originalEvictionEnabled
+        })
+
         it('should evict entries based on last access time', async () => {
             const customLoader = new LazyLoader({
                 name: 'test',
