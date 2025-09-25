@@ -25,7 +25,7 @@ class HogQLSchema:
 
     def add_pyarrow_record_batch(self, record_batch: pa.RecordBatch) -> None:
         for field in record_batch.schema:
-            self.add_field(field, pa.ChunkedArray([record_batch.column(field.name)]))
+            self.add_field(field, pa.chunked_array([record_batch.column(field.name)]))
 
     def add_field(self, field: pa.Field, column: pa.ChunkedArray) -> None:
         existing_type = self.schema.get(field.name)
