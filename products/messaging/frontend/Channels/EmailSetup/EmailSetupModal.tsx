@@ -97,16 +97,16 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                             <div className="flex gap-1 items-center">
                                                 <IconWarning className="size-6 text-warning" /> Not present
                                             </div>
-                                        ) : record.status === 'unknown' ? (
+                                        ) : record.status === 'success' ? (
+                                            <div className="flex gap-1 items-center">
+                                                <IconCheckCircle className="size-6 text-success" /> Verified
+                                            </div>
+                                        ) : (
                                             <Tooltip title="We are unable to verify this record at the moment">
                                                 <div className="flex gap-1 items-center">
                                                     <IconQuestion className="size-6 text-muted" /> Unknown
                                                 </div>
                                             </Tooltip>
-                                        ) : (
-                                            <div className="flex gap-1 items-center">
-                                                <IconCheckCircle className="size-6 text-success" /> Verified
-                                            </div>
                                         )}
                                     </td>
                                 </tr>
