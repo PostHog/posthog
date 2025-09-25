@@ -41,15 +41,17 @@ function useSurveyAnalysisMaxTool(): ReturnType<typeof useMaxTool> {
                 product_type: ProductKey.SURVEYS,
                 intent_context: ProductIntentContext.SURVEY_ANALYZED,
                 metadata: {
-                    survey_id: toolOutput.survey_id,
+                    survey_id: survey.id,
                 },
             })
 
-            if (toolOutput?.error || !toolOutput?.survey_id) {
+            if (toolOutput?.error) {
                 posthog.captureException(
                     toolOutput?.error || 'Undefined error when analyzing survey responses with Max',
                     {
                         action: 'max-ai-survey-analysis-failed',
+                        survey_id: survey.id,
+                        ...toolOutput,
                     }
                 )
             }
