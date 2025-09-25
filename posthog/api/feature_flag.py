@@ -25,7 +25,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
@@ -39,14 +39,20 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads,
 )
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, Tag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.experiment import Experiment
-from posthog.models.feature_flag import FeatureFlagDashboards, get_all_feature_flags, get_user_blast_radius
+from posthog.models.feature_flag import (
+    FeatureFlagDashboards,
+    FeatureFlagEvaluationTag,
+    get_all_feature_flags,
+    get_user_blast_radius,
+    set_feature_flags_for_team_in_cache,
+)
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
 from posthog.models.feature_flag.flag_status import FeatureFlagStatus, FeatureFlagStatusChecker
@@ -153,7 +159,9 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
 
             # Normalize both lists using tagify for consistent comparison
             # tagify handles case normalization and special characters
-            normalized_tags = {tagify(t) for t in tags} if tags else set()
+            # NB: this _does_ make flag updates more expensive whenever we update flags with tags.
+            # It's a small use case, but wanted to call it out as a potential (but unlikely bottleneck)
+            normalized_tags = {tagify(t) for t in tags or []}
             normalized_eval_tags = {tagify(t) for t in evaluation_tags}
 
             # Evaluation tags must be a subset of organizational tags
@@ -175,13 +183,9 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if not obj or evaluation_tags is None:
             return
 
-        from posthog.api.tagged_item import tagify
-        from posthog.models import Tag
-        from posthog.models.feature_flag import FeatureFlagEvaluationTag, set_feature_flags_for_team_in_cache
-
         # Normalize and dedupe tags (same as TaggedItemSerializerMixin does)
         # evaluation_tags=[] is valid and means "clear all evaluation tags"
-        deduped_tags = list({tagify(t) for t in evaluation_tags}) if evaluation_tags else []
+        deduped_tags = list({tagify(t) for t in evaluation_tags or []})
 
         # Get current evaluation tags from the database
         # We fetch the tag names directly to avoid loading full objects
@@ -193,8 +197,9 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
 
         # Calculate the diff: what needs to be added vs removed
         # This minimizes database operations and activity log noise
-        tags_to_add = set(deduped_tags) - current_eval_tags
-        tags_to_remove = current_eval_tags - set(deduped_tags)
+        deduped_tags_set = set(deduped_tags)
+        tags_to_add = deduped_tags_set - current_eval_tags
+        tags_to_remove = current_eval_tags - deduped_tags_set
 
         # Remove evaluation tags that are no longer needed
         if tags_to_remove:
