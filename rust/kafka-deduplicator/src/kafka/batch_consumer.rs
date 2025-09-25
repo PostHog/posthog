@@ -92,7 +92,7 @@ where
             .context("Failed to create Kafka consumer")?;
 
         consumer
-            .subscribe(&[topic])
+            .context(&format!("Failed to subscribe to topic: {topic}"))?;
             .context("Failed to subscribe to topic: {topic}")?;
 
         Ok(Self {
