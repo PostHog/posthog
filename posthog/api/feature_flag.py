@@ -214,7 +214,8 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if tags_to_add or tags_to_remove:
             try:
                 set_feature_flags_for_team_in_cache(obj.team.project_id)
-            except Exception:
+            except Exception as e:
+                capture_exception(e)
                 pass  # Don't fail if cache invalidation fails
 
     def to_representation(self, obj):
