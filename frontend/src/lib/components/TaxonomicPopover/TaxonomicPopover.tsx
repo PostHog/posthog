@@ -6,6 +6,8 @@ import { IconX } from '@posthog/icons'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     DataWarehousePopoverField,
+    ExcludedProperties,
+    SelectedProperties,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
@@ -34,7 +36,9 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     schemaColumns?: DatabaseSchemaField[]
     allowClear?: boolean
     style?: React.CSSProperties
-    excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
+    closeOnChange?: boolean
+    excludedProperties?: ExcludedProperties
+    selectedProperties?: SelectedProperties
     metadataSource?: AnyDataNode
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
@@ -67,7 +71,9 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         placeholder = 'Please select',
         placeholderClass,
         allowClear = false,
+        closeOnChange = true,
         excludedProperties,
+        selectedProperties,
         metadataSource,
         schemaColumns,
         showNumericalPropsOnly,
@@ -110,13 +116,16 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     filter={filter}
                     onChange={({ type }, payload, item) => {
                         onChange?.(payload as ValueType, type, item)
-                        setVisible(false)
+                        if (closeOnChange) {
+                            setVisible(false)
+                        }
                     }}
                     taxonomicGroupTypes={groupTypes ?? [groupType]}
                     eventNames={eventNames}
                     schemaColumns={schemaColumns}
                     metadataSource={metadataSource}
                     excludedProperties={excludedProperties}
+                    selectedProperties={selectedProperties}
                     showNumericalPropsOnly={showNumericalPropsOnly}
                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                     maxContextOptions={maxContextOptions}
@@ -152,5 +161,5 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         </LemonDropdown>
     )
 }) as <ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>(
-    p: TaxonomicPopoverProps<ValueType> & { ref?: Ref<HTMLButtonElement> }
+    props: TaxonomicPopoverProps<ValueType> & { ref?: Ref<HTMLButtonElement> }
 ) => JSX.Element

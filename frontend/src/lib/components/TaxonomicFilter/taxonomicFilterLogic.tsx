@@ -12,6 +12,7 @@ import {
     DataWarehousePopoverField,
     ExcludedProperties,
     ListStorage,
+    SelectedProperties,
     SimpleOption,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -205,6 +206,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => (excludedProperties ?? {}) as ExcludedProperties,
+        ],
+        selectedProperties: [
+            () => [(_, props) => props.selectedProperties],
+            (selectedProperties) => (selectedProperties ?? {}) as SelectedProperties,
         ],
         propertyAllowList: [
             () => [(_, props) => props.propertyAllowList],
