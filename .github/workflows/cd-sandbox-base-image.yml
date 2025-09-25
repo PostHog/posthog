@@ -13,6 +13,8 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine if sandbox image needs to be built
+        permissions:
+            contents: read
         outputs:
             sandbox_image: ${{ steps.filter.outputs.sandbox_image }}
         steps:
