@@ -68,6 +68,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--schedule",
             action="store_true",
+            default=False,
             help="Schedule the workflow to run periodically instead of running once",
         )
         parser.add_argument(
