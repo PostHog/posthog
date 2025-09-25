@@ -126,7 +126,8 @@ const fetchHeliconeCosts = async (): Promise<ModelRow[]> => {
 
         const modelRow: ModelRow = {
             model: heliconeModel.model,
-            provider: heliconeModel.provider.toLowerCase(),
+            provider:
+                heliconeModel.provider.toLowerCase() === 'google' ? 'gemini' : heliconeModel.provider.toLowerCase(),
             cost: {
                 // Convert from cost per million to cost per token using bigDecimal for precision
                 prompt_token: parseFloat(

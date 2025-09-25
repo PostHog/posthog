@@ -570,6 +570,22 @@
         }
     },
     {
+        "model": "gemini-2.5-flash-lite-preview-09-2025",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 4e-7
+        }
+    },
+    {
+        "model": "gemini-2.5-flash-preview-09-2025",
+        "cost": {
+            "prompt_token": 3e-7,
+            "completion_token": 0.0000025,
+            "cache_read_token": 7.5e-8,
+            "cache_write_token": 3.833e-7
+        }
+    },
+    {
         "model": "gemini-2.5-pro",
         "cost": {
             "prompt_token": 0.00000125,
@@ -722,8 +738,8 @@
     {
         "model": "glm-4.5",
         "cost": {
-            "prompt_token": 4.1e-7,
-            "completion_token": 0.00000165
+            "prompt_token": 4e-7,
+            "completion_token": 0.0000016
         }
     },
     {
@@ -1029,6 +1045,14 @@
             "prompt_token": 0.000003,
             "completion_token": 0.000015,
             "cache_read_token": 7.5e-7
+        }
+    },
+    {
+        "model": "grok-4-fast",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 5e-7,
+            "cache_read_token": 5e-8
         }
     },
     {
