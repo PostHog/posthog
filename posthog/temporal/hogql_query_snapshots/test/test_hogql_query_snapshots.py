@@ -1,5 +1,4 @@
 import uuid
-import functools
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,7 +7,6 @@ from unittest.mock import patch
 from django.conf import settings
 
 import pyarrow as pa
-import aioboto3
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy
@@ -38,46 +36,7 @@ from posthog.warehouse.models.snapshot_config import DataWarehouseSnapshotConfig
 from posthog.warehouse.models.snapshot_job import DataWarehouseSnapshotJob
 from posthog.warehouse.models.table import DataWarehouseTable
 
-BUCKET_NAME = "test-hogql-snapshots"
-SESSION = aioboto3.Session()
-create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
-
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def minio_client():
-    """Manage an S3 client to interact with a MinIO bucket.
-
-    Yields the client after creating a bucket. Upon resuming, we delete
-    the contents and the bucket itself.
-    """
-    async with create_test_client(
-        "s3",
-        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    ) as minio_client:
-        try:
-            await minio_client.head_bucket(Bucket=BUCKET_NAME)
-        except:
-            await minio_client.create_bucket(Bucket=BUCKET_NAME)
-
-        yield minio_client
-
-        # Cleanup
-        try:
-            # Delete all objects in the bucket first
-            paginator = minio_client.get_paginator("list_objects_v2")
-            async for page in paginator.paginate(Bucket=BUCKET_NAME):
-                if "Contents" in page:
-                    objects_to_delete = [{"Key": obj["Key"]} for obj in page["Contents"]]
-                    if objects_to_delete:
-                        await minio_client.delete_objects(Bucket=BUCKET_NAME, Delete={"Objects": objects_to_delete})
-
-            # Then delete the bucket
-            await minio_client.delete_bucket(Bucket=BUCKET_NAME)
-        except Exception:
-            pass  # Ignore cleanup errors
 
 
 @pytest_asyncio.fixture
@@ -135,7 +94,7 @@ async def saved_query(ateam, auser, credential):
 
 
 @pytest.mark.asyncio
-async def test_create_snapshot_job_activity(ateam, saved_query, snapshots_worker):
+async def test_create_snapshot_job_activity(ateam, saved_query):
     """Test the create_snapshot_job_activity creates a job correctly."""
 
     inputs = CreateSnapshotJobInputs(
@@ -148,7 +107,7 @@ async def test_create_snapshot_job_activity(ateam, saved_query, snapshots_worker
         mock_info.return_value.workflow_id = "test-workflow-123"
         mock_info.return_value.workflow_run_id = "test-run-456"
 
-        job_id = await create_snapshot_job_activity(inputs)
+        job_id, _ = await create_snapshot_job_activity(inputs)
 
     # Verify job was created
     assert job_id is not None
@@ -160,7 +119,7 @@ async def test_create_snapshot_job_activity(ateam, saved_query, snapshots_worker
 
 
 @pytest.mark.asyncio
-async def test_run_snapshot_activity_success(ateam, saved_query, snapshots_worker, minio_client):
+async def test_run_snapshot_activity_success(ateam, saved_query):
     """Test the run_snapshot_activity creates a snapshot successfully."""
 
     inputs = RunSnapshotActivityInputs(
@@ -223,7 +182,7 @@ async def test_run_snapshot_activity_success(ateam, saved_query, snapshots_worke
 
 
 @pytest.mark.asyncio
-async def test_finish_snapshot_job_activity_success(ateam, saved_query, auser, snapshots_worker):
+async def test_finish_snapshot_job_activity_success(ateam, saved_query, auser):
     """Test the finish_snapshot_job_activity completes successfully."""
 
     # Create a snapshot job
@@ -253,6 +212,7 @@ async def test_finish_snapshot_job_activity_success(ateam, saved_query, auser, s
         error=None,
         snapshot_ts=snapshot_ts,
         snapshot_table_id=str(snapshot_table.id),
+        saved_query_id=str(saved_query.id),
     )
     with patch(
         "posthog.warehouse.models.datawarehouse_saved_query.DataWarehouseSavedQuery.get_columns"
@@ -278,7 +238,7 @@ async def test_finish_snapshot_job_activity_success(ateam, saved_query, auser, s
 
 
 @pytest.mark.asyncio
-async def test_finish_snapshot_job_activity_with_error(ateam, saved_query, auser, snapshots_worker):
+async def test_finish_snapshot_job_activity_with_error(ateam, saved_query, auser):
     """Test the finish_snapshot_job_activity handles errors correctly."""
 
     # Create a snapshot job
@@ -299,6 +259,7 @@ async def test_finish_snapshot_job_activity_with_error(ateam, saved_query, auser
         error=error_message,
         snapshot_ts=None,
         snapshot_table_id=None,
+        saved_query_id=str(saved_query.id),
     )
 
     await finish_snapshot_job_activity(inputs)
@@ -311,7 +272,7 @@ async def test_finish_snapshot_job_activity_with_error(ateam, saved_query, auser
 
 
 @pytest.mark.asyncio
-async def test_full_workflow_success(ateam, saved_query, snapshots_worker, minio_client):
+async def test_full_workflow_success(ateam, saved_query):
     """Test the complete end-to-end workflow execution."""
 
     # Mock the HogQL execution to return test data
@@ -458,7 +419,7 @@ async def test_full_workflow_success(ateam, saved_query, snapshots_worker, minio
 
 
 @pytest.mark.asyncio
-async def test_workflow_failure_handling(ateam, saved_query, snapshots_worker, temporal_client):
+async def test_workflow_failure_handling(ateam, saved_query):
     """Test workflow handles failures correctly."""
 
     # Mock HogQL execution to raise an exception
@@ -510,7 +471,7 @@ async def test_workflow_failure_handling(ateam, saved_query, snapshots_worker, t
 
 
 @pytest.mark.asyncio
-async def test_snapshot_incremental_updates(ateam, saved_query, snapshots_worker, minio_client):
+async def test_snapshot_incremental_updates(ateam, saved_query):
     """Test that incremental snapshots work correctly with deltas."""
 
     # First snapshot with initial data
@@ -605,7 +566,7 @@ async def test_snapshot_incremental_updates(ateam, saved_query, snapshots_worker
 
 
 @pytest.mark.asyncio
-async def test_create_backup_snapshot_job_activity(ateam, saved_query, snapshots_worker):
+async def test_create_backup_snapshot_job_activity(ateam, saved_query):
     """Test the create_backup_snapshot_job_activity creates a backup correctly."""
 
     inputs = CreateBackupSnapshotJobInputs(
@@ -624,7 +585,7 @@ async def test_create_backup_snapshot_job_activity(ateam, saved_query, snapshots
 
 
 @pytest.mark.asyncio
-async def test_restore_from_backup_activity(ateam, saved_query, snapshots_worker):
+async def test_restore_from_backup_activity(ateam, saved_query):
     """Test the restore_from_backup_activity restores from backup correctly."""
 
     inputs = RestoreFromBackupInputs(
@@ -643,7 +604,7 @@ async def test_restore_from_backup_activity(ateam, saved_query, snapshots_worker
 
 
 @pytest.mark.asyncio
-async def test_backup_lifecycle_workflow_failure_and_restore(ateam, saved_query, snapshots_worker, minio_client):
+async def test_backup_lifecycle_workflow_failure_and_restore(ateam, saved_query):
     """Test that backup files are created and restored on workflow failure."""
 
     # Track backup operations
@@ -874,7 +835,7 @@ async def test_backup_lifecycle_workflow_failure_and_restore(ateam, saved_query,
 
 
 @pytest.mark.asyncio
-async def test_backup_lifecycle_multiple_workflow_runs(ateam, saved_query, snapshots_worker, minio_client):
+async def test_backup_lifecycle_multiple_workflow_runs(ateam, saved_query):
     """Test backup lifecycle across multiple workflow runs."""
 
     # Mock the HogQL execution to return test data
@@ -1010,7 +971,7 @@ async def test_backup_lifecycle_multiple_workflow_runs(ateam, saved_query, snaps
 
 
 @pytest.mark.asyncio
-async def test_validate_snapshot_schema(ateam, saved_query, credential):
+async def test_validate_snapshot_schema(ateam, saved_query):
     """Test schema validation and table creation."""
 
     schema_dict = {
