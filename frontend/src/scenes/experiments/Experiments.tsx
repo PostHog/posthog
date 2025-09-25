@@ -7,7 +7,6 @@ import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@postho
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
@@ -394,20 +393,17 @@ export function Experiments(): JSX.Element {
 
     return (
         <SceneContent>
-            <PageHeader
-                buttons={
-                    <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
-                        New experiment
-                    </LemonButton>
-                }
-                tabbedPage={true}
-            />
             <SceneTitleSection
                 name="Experiments"
                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                 resourceType={{
                     type: 'experiment',
                 }}
+                actions={
+                    <LemonButton size="small" type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
+                        New experiment
+                    </LemonButton>
+                }
             />
             <SceneDivider />
             <LemonTabs

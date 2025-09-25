@@ -1,5 +1,6 @@
 import { LogicWrapper } from 'kea'
 
+import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SettingSectionId } from './settings/types'
@@ -118,6 +119,7 @@ export enum Scene {
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     EmbeddedAnalytics = 'EmbeddedAnalytics',
+    QueryEndpoints = 'QueryEndpoints',
     Wizard = 'Wizard',
 }
 
@@ -154,6 +156,7 @@ export interface SceneTab {
     title: string
     active: boolean
     customTitle?: string
+    iconType: FileSystemIconType | 'loading' | 'blank'
 
     sceneId?: string
     sceneKey?: string
@@ -204,6 +207,8 @@ export interface SceneConfig {
     defaultDocsPath?: string | (() => string) | (() => Promise<string>)
     /** Component import, used only in manifests */
     import?: () => Promise<any>
+    /** Custom icon for the tabs */
+    iconType?: FileSystemIconType
 }
 
 // Map scenes to their access control resource types

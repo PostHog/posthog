@@ -8,6 +8,7 @@ import { IconPlus, IconSearch, IconShare, IconX } from '@posthog/icons'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from 'lib/ui/HoverCard/HoverCard'
@@ -16,7 +17,9 @@ import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -219,6 +222,13 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 className
             )}
         >
+            {tab.iconType === 'blank' ? (
+                <></>
+            ) : tab.iconType === 'loading' ? (
+                <Spinner />
+            ) : (
+                iconForType(tab.iconType as FileSystemIconType)
+            )}
             <div
                 className={cn(
                     'scene-tab-title flex-grow text-left max-w-[200px] truncate',

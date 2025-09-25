@@ -22,13 +22,12 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
 from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
-from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
+from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, CohortPeople
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
-    GET_STATIC_COHORT_SIZE_SQL,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
 )
@@ -286,20 +285,23 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
 
 
-def get_static_cohort_size(*, cohort_id: int, team_id: int) -> Optional[int]:
-    tag_queries(cohort_id=cohort_id, team_id=team_id, name="get_static_cohort_size", feature=Feature.COHORT)
-    count_result = sync_execute(
-        GET_STATIC_COHORT_SIZE_SQL,
+def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
+    """Remove a person from a static cohort in ClickHouse."""
+    tag_queries(cohort_id=cohort_id, team_id=team_id, name="remove_person_from_static_cohort", feature=Feature.COHORT)
+    sync_execute(
+        f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s",
         {
+            "person_id": str(person_uuid),
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
     )
 
-    if count_result and len(count_result) and len(count_result[0]):
-        return count_result[0][0]
-    else:
-        return None
+
+def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
+    count = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id).count()
+
+    return count
 
 
 def recalculate_cohortpeople(

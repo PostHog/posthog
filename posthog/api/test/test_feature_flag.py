@@ -28,7 +28,6 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.constants import AvailableFeature
 from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
@@ -4869,21 +4868,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(len(feature_flag["rollback_conditions"]), 1)
 
-    def test_feature_flag_can_edit(self):
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
-        self.assertEqual(
-            (
-                AvailableFeature.ROLE_BASED_ACCESS
-                in [feature["key"] for feature in self.organization.available_product_features or []]
-            ),
-            False,
-        )
-        user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
-        FeatureFlag.objects.create(team=self.team, created_by=user_a, key="blue_button")
-        res = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
-        self.assertEqual(res.json()["results"][0]["can_edit"], True)
-        self.assertEqual(res.json()["results"][1]["can_edit"], True)
-
     def test_get_flags_dont_return_survey_targeting_flags(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         survey = self.client.post(
@@ -6509,7 +6493,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(23):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(24):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6563,7 +6547,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(35):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(37):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -6574,7 +6558,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(21):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -6638,7 +6622,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(20):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(21):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -6655,7 +6639,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(20):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(21):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -6749,7 +6733,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(37):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(38):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
