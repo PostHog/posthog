@@ -3828,7 +3828,9 @@
       pageviews_count_state AggregateFunction(sum, UInt64),
       bounces_count_state AggregateFunction(sum, UInt64),
       total_session_duration_state AggregateFunction(sum, Int64),
-      total_session_count_state AggregateFunction(sum, UInt64)
+      total_session_count_state AggregateFunction(sum, UInt64),
+      session_duration_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+      session_bounce_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(UInt64)))
   
       ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_bounces_daily', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
@@ -3898,7 +3900,9 @@
       pageviews_count_state AggregateFunction(sum, UInt64),
       bounces_count_state AggregateFunction(sum, UInt64),
       total_session_duration_state AggregateFunction(sum, Int64),
-      total_session_count_state AggregateFunction(sum, UInt64)
+      total_session_count_state AggregateFunction(sum, UInt64),
+      session_duration_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+      session_bounce_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(UInt64)))
   
       ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_bounces_hourly', '{replica}-{shard}')
       ORDER BY (
@@ -3969,7 +3973,9 @@
       pageviews_count_state AggregateFunction(sum, UInt64),
       bounces_count_state AggregateFunction(sum, UInt64),
       total_session_duration_state AggregateFunction(sum, Int64),
-      total_session_count_state AggregateFunction(sum, UInt64)
+      total_session_count_state AggregateFunction(sum, UInt64),
+      session_duration_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+      session_bounce_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(UInt64)))
   
       ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_pre_aggregated_bounces', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
@@ -5912,7 +5918,9 @@
       pageviews_count_state AggregateFunction(sum, UInt64),
       bounces_count_state AggregateFunction(sum, UInt64),
       total_session_duration_state AggregateFunction(sum, Int64),
-      total_session_count_state AggregateFunction(sum, UInt64)
+      total_session_count_state AggregateFunction(sum, UInt64),
+      session_duration_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+      session_bounce_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(UInt64)))
   
       ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_bounces_daily', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
@@ -5982,7 +5990,9 @@
       pageviews_count_state AggregateFunction(sum, UInt64),
       bounces_count_state AggregateFunction(sum, UInt64),
       total_session_duration_state AggregateFunction(sum, Int64),
-      total_session_count_state AggregateFunction(sum, UInt64)
+      total_session_count_state AggregateFunction(sum, UInt64),
+      session_duration_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+      session_bounce_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(UInt64)))
   
       ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_bounces_hourly', '{replica}-{shard}')
       ORDER BY (
@@ -6053,7 +6063,9 @@
       pageviews_count_state AggregateFunction(sum, UInt64),
       bounces_count_state AggregateFunction(sum, UInt64),
       total_session_duration_state AggregateFunction(sum, Int64),
-      total_session_count_state AggregateFunction(sum, UInt64)
+      total_session_count_state AggregateFunction(sum, UInt64),
+      session_duration_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+      session_bounce_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(UInt64)))
   
       ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_pre_aggregated_bounces', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
