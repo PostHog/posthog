@@ -280,6 +280,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         fallback_columns = aggregator.get_coalesce_fallback_columns()
         campaign_column = fallback_columns[self.config.campaign_column_alias]
+        assert isinstance(campaign_column, ast.Alias)
 
         first_arg = campaign_column.expr.args[0]
         assert isinstance(first_arg, ast.Call)
@@ -380,7 +381,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
             self.config.get_conversion_goal_column_name(1),
             self.config.get_conversion_goal_column_name(2),
         ]
-        actual_names = [col.alias for col in conversion_columns]
+        actual_names = [col.alias for col in conversion_columns if isinstance(col, ast.Alias)]
         assert actual_names == expected_names
 
     def test_empty_goal_name(self):
@@ -411,6 +412,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
         conversion_column = final_query.select[2]
+        assert isinstance(conversion_column, ast.Alias)
         assert conversion_column.alias == self.config.get_conversion_goal_column_name(999)
 
     def test_duplicate_goal_names(self):
