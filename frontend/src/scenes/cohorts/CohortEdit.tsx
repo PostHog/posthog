@@ -6,7 +6,6 @@ import { IconCopy, IconMinusSmall, IconPlusSmall, IconTrash, IconWarning } from 
 import { LemonBanner, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -24,7 +23,12 @@ import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -100,42 +104,15 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     return (
         <div className="cohort">
             <AddPersonToCohortModal id={id} />
-            <PageHeader
-                buttons={
-                    <div className="flex items-center gap-2">
-                        {isNewCohort ? (
-                            <LemonButton
-                                data-attr="cancel-cohort"
-                                type="secondary"
-                                onClick={() => {
-                                    router.actions.push(urls.cohorts())
-                                }}
-                                disabled={cohortLoading}
-                            >
-                                Cancel
-                            </LemonButton>
-                        ) : null}
-                        <LemonButton
-                            type="primary"
-                            data-attr="save-cohort"
-                            htmlType="submit"
-                            loading={cohortLoading || cohort.is_calculating}
-                            form="cohort"
-                        >
-                            Save
-                        </LemonButton>
-                    </div>
-                }
-            />
 
             <ScenePanel>
-                <ScenePanelMetaInfo>
+                <ScenePanelInfoSection>
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
-                </ScenePanelMetaInfo>
+                </ScenePanelInfoSection>
 
                 <ScenePanelDivider />
 
-                <ScenePanelActions>
+                <ScenePanelActionsSection>
                     <SceneAddToNotebookDropdownMenu
                         dataAttrKey={RESOURCE_TYPE}
                         disabledReasons={{
@@ -166,9 +143,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     >
                         <IconCopy /> Duplicate as static cohort
                     </ButtonPrimitive>
-
-                    <ScenePanelDivider />
-
+                </ScenePanelActionsSection>
+                <ScenePanelDivider />
+                <ScenePanelActionsSection>
                     <ButtonPrimitive
                         onClick={() => {
                             deleteCohort()
@@ -180,7 +157,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         <IconTrash />
                         Delete
                     </ButtonPrimitive>
-                </ScenePanelActions>
+                </ScenePanelActionsSection>
             </ScenePanel>
 
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
@@ -202,6 +179,33 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             }}
                             canEdit
                             forceEdit={isNewCohort}
+                            actions={
+                                <>
+                                    {isNewCohort ? (
+                                        <LemonButton
+                                            data-attr="cancel-cohort"
+                                            type="secondary"
+                                            onClick={() => {
+                                                router.actions.push(urls.cohorts())
+                                            }}
+                                            size="small"
+                                            disabled={cohortLoading}
+                                        >
+                                            Cancel
+                                        </LemonButton>
+                                    ) : null}
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="save-cohort"
+                                        htmlType="submit"
+                                        loading={cohortLoading || cohort.is_calculating}
+                                        form="cohort"
+                                        size="small"
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </>
+                            }
                         />
                     </LemonField>
 
