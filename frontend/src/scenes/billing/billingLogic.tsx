@@ -163,7 +163,7 @@ export const billingLogic = kea<billingLogicType>([
         setCreditBrackets: (creditBrackets: any[]) => ({ creditBrackets }),
         scrollToProduct: (productType: string) => ({ productType }),
     }),
-    connect({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -184,7 +184,7 @@ export const billingLogic = kea<billingLogicType>([
             lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }),
             ['resetDismissKey as resetUsageLimitApproachingKey'],
         ],
-    }),
+    })),
     reducers({
         billingAlert: [
             null as BillingAlertConfig | null,
@@ -786,7 +786,7 @@ export const billingLogic = kea<billingLogicType>([
                 actions.setBillingAlert({
                     status: 'error',
                     title: 'Usage limit exceeded',
-                    message: `You have exceeded the usage limit for ${productOverLimit.name}. Please 
+                    message: `You have exceeded the usage limit for ${productOverLimit.name}. Please
                         ${productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'}
                         or ${
                             productOverLimit.name === 'Data warehouse'
