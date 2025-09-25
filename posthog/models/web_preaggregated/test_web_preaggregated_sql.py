@@ -412,3 +412,123 @@ class TestCentralizedFilters:
         assert "SETTINGS max_threads=4" in stats_sql  # settings_clause
         assert "toIntervalHour(25)" in stats_sql  # extended session range
         assert "period_bucket >= toDateTime('2024-01-01', 'UTC')" in stats_sql  # outer filter
+
+
+class TestMapAggregationFunctions:
+    """Test the Map-based session metrics aggregation functions."""
+
+    def test_bounces_insert_sql_contains_map_columns(self):
+        """Verify that WEB_BOUNCES_INSERT_SQL contains the new Map columns."""
+        bounces_sql = WEB_BOUNCES_INSERT_SQL(
+            date_start="2024-01-01",
+            date_end="2024-01-02",
+            team_ids=[123],
+            table_name="web_pre_aggregated_bounces",
+        )
+
+        # Check that Map columns are in the column list
+        expected_columns = get_web_bounces_insert_columns()
+        assert "session_duration_map_state" in expected_columns
+        assert "session_bounce_map_state" in expected_columns
+
+        # Verify columns appear in the SQL
+        assert "session_duration_map_state" in bounces_sql
+        assert "session_bounce_map_state" in bounces_sql
+
+    def test_map_tuple_creation_in_inner_query(self):
+        """Test that Map tuples are correctly created in the inner query."""
+        bounces_sql = WEB_BOUNCES_INSERT_SQL(
+            date_start="2024-01-01",
+            date_end="2024-01-02",
+            team_ids=[123],
+            table_name="web_pre_aggregated_bounces",
+        )
+
+        # Check session duration tuple creation
+        assert (
+            "([events__session.session_id], [any(events__session.session_duration)]) AS session_duration_tuple"
+            in bounces_sql
+        )
+
+        # Check session bounce tuple creation
+        assert (
+            "([events__session.session_id], [toUInt64(ifNull(any(events__session.is_bounce), 0))]) AS session_bounce_tuple"
+            in bounces_sql
+        )
+
+    def test_map_aggregation_in_outer_query(self):
+        """Test that Map aggregations are correctly used in the outer query."""
+        bounces_sql = WEB_BOUNCES_INSERT_SQL(
+            date_start="2024-01-01",
+            date_end="2024-01-02",
+            team_ids=[123],
+            table_name="web_pre_aggregated_bounces",
+        )
+
+        # Check sumMapState aggregations
+        assert "sumMapState(session_duration_tuple) AS session_duration_map_state" in bounces_sql
+        assert "sumMapState(session_bounce_tuple) AS session_bounce_map_state" in bounces_sql
+
+    def test_backward_compatibility_columns_preserved(self):
+        """Ensure existing columns are still present for backward compatibility."""
+        bounces_sql = WEB_BOUNCES_INSERT_SQL(
+            date_start="2024-01-01",
+            date_end="2024-01-02",
+            team_ids=[123],
+            table_name="web_pre_aggregated_bounces",
+        )
+
+        # Old columns should still exist
+        assert "total_session_duration_state" in bounces_sql
+        assert "total_session_count_state" in bounces_sql
+        assert "bounces_count_state" in bounces_sql
+
+        # Old aggregations should still work
+        assert "sumState(session_duration) AS total_session_duration_state" in bounces_sql
+        assert "sumState(total_session_count_state) AS total_session_count_state" in bounces_sql
+        assert "sumState(toUInt64(ifNull(is_bounce, 0))) AS bounces_count_state" in bounces_sql
+
+    def test_map_data_types_in_column_definitions(self):
+        """Test that Map columns have correct ClickHouse data types."""
+        from posthog.models.web_preaggregated.sql import WEB_BOUNCES_COLUMNS, WEB_BOUNCES_V2_PRODUCTION_COLUMNS
+
+        # Check column definitions contain correct Map types
+        assert (
+            "session_duration_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(Int64)))"
+            in WEB_BOUNCES_COLUMNS
+        )
+        assert (
+            "session_bounce_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(UInt64)))"
+            in WEB_BOUNCES_COLUMNS
+        )
+
+        # Check production columns too
+        assert (
+            "session_duration_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(Int64)))"
+            in WEB_BOUNCES_V2_PRODUCTION_COLUMNS
+        )
+        assert (
+            "session_bounce_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(UInt64)))"
+            in WEB_BOUNCES_V2_PRODUCTION_COLUMNS
+        )
+
+    def test_session_id_key_consistency(self):
+        """Test that session_id is used consistently as the Map key in both tuples."""
+        bounces_sql = WEB_BOUNCES_INSERT_SQL(
+            date_start="2024-01-01",
+            date_end="2024-01-02",
+            team_ids=[123],
+            table_name="web_pre_aggregated_bounces",
+        )
+
+        # Both tuples should use events__session.session_id as the key
+        assert "([events__session.session_id], [any(events__session.session_duration)])" in bounces_sql
+        assert "([events__session.session_id], [toUInt64(ifNull(any(events__session.is_bounce), 0))])" in bounces_sql
+
+    def test_column_order_map_columns_at_end(self):
+        """Test that Map columns are appended at the end to maintain compatibility."""
+        expected_columns = get_web_bounces_insert_columns()
+
+        # Map columns should be the last two columns
+        assert expected_columns[-2] == "session_duration_map_state"
+        assert expected_columns[-1] == "session_bounce_map_state"
