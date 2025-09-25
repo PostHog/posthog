@@ -45,11 +45,19 @@ describe('EmailService', () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: 1,
                 kind: 'email',
-                config: { email: 'test@posthog.com', name: 'Test User', domain: 'posthog.com', verified: true },
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'mailjet',
+                },
             })
             invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
             invocation.id = 'invocation-1'
-            invocation.state.vmState = { stack: [] } as any
+            invocation.state.vmState = {
+                stack: [],
+            } as any
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
         })
         describe('integration validation', () => {
@@ -131,7 +139,7 @@ describe('EmailService', () => {
                     [
                       "https://api.mailjet.com/v3.1/send",
                       {
-                        "body": "{"Messages":[{"From":{"Email":"test@posthog.com","Name":"Test User"},"To":[{"Email":"test@example.com","Name":"Test User"}],"Subject":"Test Subject","TextPart":"Test Text","HTMLPart":"Test HTML","EventPayload":"ph_fn_id=function-1&ph_inv_id=invocation-1"}]}",
+                        "body": "{"Messages":[{"From":{"Email":"test@posthog.com","Name":"Test User"},"To":[{"Email":"test@example.com","Name":"Test User"}],"Subject":"Test Subject","TextPart":"Test Text","HTMLPart":"Test HTML","EventPayload":"ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE"}]}",
                         "headers": {
                           "Authorization": "Basic bWFpbGpldC1wdWJsaWMta2V5Om1haWxqZXQtc2VjcmV0LWtleQ==",
                           "Content-Type": "application/json",
@@ -144,10 +152,9 @@ describe('EmailService', () => {
             })
         })
     })
-    describe('native email sending', () => {
+    describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction
         const mailDevAPI = new MailDevAPI()
-
         beforeEach(async () => {
             const actualFetch = jest.requireActual('~/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
@@ -158,41 +165,36 @@ describe('EmailService', () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: 1,
                 kind: 'email',
-                config: { email: 'test@posthog.com', name: 'Test User', domain: 'posthog.com', verified: true },
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'maildev',
+                },
             })
             invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
             invocation.id = 'invocation-1'
-            invocation.state.vmState = { stack: [] } as any
+            invocation.state.vmState = {
+                stack: [],
+            } as any
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
             await mailDevAPI.clearEmails()
         })
-
         it('should send an email', async () => {
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
             expect(emails[0]).toMatchObject({
-                from: [
-                    {
-                        address: 'test@posthog.com',
-                        name: 'Test User',
-                    },
-                ],
+                from: [{ address: 'test@posthog.com', name: 'Test User' }],
                 html: 'Test HTML',
                 subject: 'Test Subject',
                 text: 'Test Text',
-                to: [
-                    {
-                        address: 'test@example.com',
-                        name: 'Test User',
-                    },
-                ],
+                to: [{ address: 'test@example.com', name: 'Test User' }],
             })
         })
-
         it('should include tracking code in the email', async () => {
             invocation.queueParameters = createEmailParams({
                 html: '<body>Hi! <a href="https://example.com">Click me</a></body>',
@@ -202,8 +204,74 @@ describe('EmailService', () => {
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
             expect(emails[0].html).toEqual(
-                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_fn_id=function-1&ph_inv_id=invocation-1&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_fn_id=function-1&ph_inv_id=invocation-1" style="display: none;" /></body>`
+                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE" style="display: none;" /></body>`
             )
+        })
+    })
+    describe('native email sending with ses', () => {
+        let invocation: CyclotronJobInvocationHogFunction
+        let sendEmailSpy: jest.SpyInstance
+        beforeEach(async () => {
+            const actualFetch = jest.requireActual('~/utils/request').fetch as jest.Mock
+            mockFetch.mockImplementation((...args: any[]): Promise<any> => {
+                return actualFetch(...args) as any
+            })
+            hub.MAILJET_PUBLIC_KEY = ''
+            hub.MAILJET_SECRET_KEY = ''
+            await insertIntegration(hub.postgres, team.id, {
+                id: 1,
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'ses',
+                },
+            })
+            invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
+            invocation.id = 'invocation-1'
+            invocation.state.vmState = {
+                stack: [],
+            } as any
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
+            sendEmailSpy = jest.spyOn(service.ses, 'sendEmail')
+        })
+        it('should send an email', async () => {
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(sendEmailSpy.mock.calls[0][0]).toMatchInlineSnapshot(`
+                {
+                  "Destination": {
+                    "ToAddresses": [
+                      ""Test User" <test@example.com>",
+                    ],
+                  },
+                  "Message": {
+                    "Body": {
+                      "Html": {
+                        "Charset": "UTF-8",
+                        "Data": "Test HTML",
+                      },
+                      "Text": {
+                        "Charset": "UTF-8",
+                        "Data": "Test Text",
+                      },
+                    },
+                    "Subject": {
+                      "Charset": "UTF-8",
+                      "Data": "Test Subject",
+                    },
+                  },
+                  "Source": ""Test User" <test@posthog.com>",
+                  "Tags": [
+                    {
+                      "Name": "ph_id",
+                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE",
+                    },
+                  ],
+                }
+            `)
         })
     })
 })

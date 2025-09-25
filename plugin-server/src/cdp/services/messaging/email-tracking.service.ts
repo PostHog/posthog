@@ -39,12 +39,30 @@ const emailTrackingErrorsCounter = new Counter({
     labelNames: ['error_type', 'source'],
 })
 
-export const parseEmailTrackingCode = (customId: string): { functionId: string; invocationId: string } | null => {
+function toBase64UrlSafe(input: string) {
+    // Encode to normal base64
+    const b64 = Buffer.from(input, 'utf8').toString('base64')
+    // Make URL safe and strip padding
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function fromBase64UrlSafe(b64url: string) {
+    // Restore base64 from URL-safe variant
+    let b64 = b64url.replace(/-/g, '+').replace(/_/g, '/')
+    // Pad to length multiple of 4
+    while (b64.length % 4) {
+        b64 += '='
+    }
+    return Buffer.from(b64, 'base64').toString('utf8')
+}
+
+export const parseEmailTrackingCode = (
+    encodedTrackingCode: string
+): { functionId: string; invocationId: string } | null => {
     // customId  is like ph_fn_id=function-1&ph_inv_id=invocation-1
+    const decodedTrackingCode = fromBase64UrlSafe(encodedTrackingCode)
     try {
-        const params = new URLSearchParams(customId)
-        const functionId = params.get('ph_fn_id')
-        const invocationId = params.get('ph_inv_id')
+        const [functionId, invocationId] = decodedTrackingCode.split(':')
         if (!functionId || !invocationId) {
             return null
         }
@@ -57,20 +75,21 @@ export const parseEmailTrackingCode = (customId: string): { functionId: string; 
 export const generateEmailTrackingCode = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>
 ): string => {
-    return `ph_fn_id=${invocation.functionId}&ph_inv_id=${invocation.id}`
+    // Generate a base64 encoded string free of equal signs
+    return toBase64UrlSafe(`${invocation.functionId}:${invocation.id}`)
 }
 
 export const generateEmailTrackingPixelUrl = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>
 ): string => {
-    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/pixel?${generateEmailTrackingCode(invocation)}`
+    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/pixel?ph_id=${generateEmailTrackingCode(invocation)}`
 }
 
 export const generateTrackingRedirectUrl = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>,
     targetUrl: string
 ): string => {
-    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?${generateEmailTrackingCode(invocation)}&target=${encodeURIComponent(targetUrl)}`
+    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation)}&target=${encodeURIComponent(targetUrl)}`
 }
 
 export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
