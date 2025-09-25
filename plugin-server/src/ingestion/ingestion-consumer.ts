@@ -239,10 +239,10 @@ export class IngestionConsumer {
             )
             .pipe(createParseKafkaMessageStep())
             .pipe(createDropExceptionEventsStep())
-            .pipeAsync(createResolveTeamStep(this.hub))
-            .pipeAsync(createValidateEventPropertiesStep(this.hub))
+            .pipe(createResolveTeamStep(this.hub))
+            .pipe(createValidateEventPropertiesStep(this.hub))
             .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
-            .pipeAsync(createValidateEventUuidStep(this.hub))
+            .pipe(createValidateEventUuidStep(this.hub))
 
         const batchPipeline = createNewBatchPipeline()
             .pipeConcurrently(preprocessingPipeline)
@@ -262,7 +262,7 @@ export class IngestionConsumer {
         const eventPipelineStep = createEventPipelineRunnerV1Step(this.hub, this.hogTransformer)
 
         const eventProcessingPipeline = createRetryingPipeline(
-            createNewPipeline<PreprocessedEventWithStores>().pipeAsync(eventPipelineStep),
+            createNewPipeline<PreprocessedEventWithStores>().pipe(eventPipelineStep),
             {
                 tries: 3,
                 sleepMs: 100,

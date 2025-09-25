@@ -5,7 +5,7 @@ import { EventPipelineResult } from '../../worker/ingestion/event-pipeline/runne
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { PipelineResult } from '../pipelines/results'
-import { AsyncProcessingStep } from '../pipelines/steps'
+import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerV1StepInput {
     eventWithTeam: IncomingEventWithTeam
@@ -21,7 +21,7 @@ export interface PreprocessedEventWithStores extends IncomingEventWithTeam {
 export function createEventPipelineRunnerV1Step(
     hub: Hub,
     hogTransformer: HogTransformerService
-): AsyncProcessingStep<PreprocessedEventWithStores, EventPipelineResult> {
+): ProcessingStep<PreprocessedEventWithStores, EventPipelineResult> {
     return async function eventPipelineRunnerV1Step(
         input: PreprocessedEventWithStores
     ): Promise<PipelineResult<EventPipelineResult>> {

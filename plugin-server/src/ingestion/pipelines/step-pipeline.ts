@@ -1,7 +1,7 @@
 import { instrumentFn } from '../../common/tracing/tracing-utils'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, isOkResult } from './results'
-import { AsyncProcessingStep, SyncProcessingStep } from './steps'
+import { ProcessingStep } from './steps'
 
 export class StepPipeline<TInput, TIntermediate, TOutput> implements Pipeline<TInput, TOutput> {
     private stepName: string
@@ -13,11 +13,7 @@ export class StepPipeline<TInput, TIntermediate, TOutput> implements Pipeline<TI
         this.stepName = currentStep.name || 'anonymousStep'
     }
 
-    pipe<U>(step: SyncProcessingStep<TOutput, U>): StepPipeline<TInput, TOutput, U> {
-        return new StepPipeline<TInput, TOutput, U>((value) => Promise.resolve(step(value)), this)
-    }
-
-    pipeAsync<U>(step: AsyncProcessingStep<TOutput, U>): StepPipeline<TInput, TOutput, U> {
+    pipe<U>(step: ProcessingStep<TOutput, U>): StepPipeline<TInput, TOutput, U> {
         return new StepPipeline<TInput, TOutput, U>(step, this)
     }
 

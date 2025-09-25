@@ -26,7 +26,7 @@ describe('RetryingPipeline', () => {
                 return Promise.resolve(ok({ processed: value }))
             })
 
-            const innerPipeline = createNewPipeline().pipeAsync(mockProcessStep)
+            const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const retryingPipeline = createRetryingPipeline(innerPipeline)
             const message: Message = {
                 value: Buffer.from('test'),
@@ -69,7 +69,7 @@ describe('RetryingPipeline', () => {
                 return ok({ processed: value })
             })
 
-            const innerPipeline = createNewPipeline().pipeAsync(mockProcessStep)
+            const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 3, sleepMs: 150 })
             const message: Message = {
                 value: Buffer.from('test'),
@@ -106,7 +106,7 @@ describe('RetryingPipeline', () => {
                 return Promise.reject(error)
             })
 
-            const innerPipeline = createNewPipeline().pipeAsync(mockProcessStep)
+            const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 3, sleepMs: 200 })
             const message: Message = {
                 value: Buffer.from('test'),
@@ -138,7 +138,7 @@ describe('RetryingPipeline', () => {
                 return Promise.reject(error)
             })
 
-            const innerPipeline = createNewPipeline().pipeAsync(mockProcessStep)
+            const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 5, sleepMs: 50 })
             const message: Message = {
                 value: Buffer.from('test'),
@@ -181,7 +181,7 @@ describe('RetryingPipeline', () => {
                 return Promise.resolve(ok({ processed: value }))
             })
 
-            const innerPipeline = createNewPipeline().pipeAsync(mockProcessStep)
+            const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 2, sleepMs: 75 })
             const message: Message = {
                 value: Buffer.from('test'),
@@ -216,7 +216,7 @@ describe('RetryingPipeline', () => {
                 return Promise.resolve(dlq('DLQ reason', new Error('test error')))
             })
 
-            const innerPipeline = createNewPipeline().pipeAsync(mockProcessStep)
+            const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 4, sleepMs: 300 })
             const message: Message = {
                 value: Buffer.from('test'),
@@ -254,7 +254,7 @@ describe('RetryingPipeline', () => {
                 return Promise.resolve(ok({ processed: value }))
             })
 
-            const innerPipeline = createNewPipeline().pipeAsync(mockProcessStep)
+            const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 1, sleepMs: 25 })
             expect(retryingPipeline).toBeInstanceOf(RetryingPipeline)
 
@@ -292,7 +292,7 @@ describe('RetryingPipeline', () => {
                 return Promise.reject(error)
             })
 
-            const innerPipeline = createNewPipeline().pipeAsync(mockProcessStep)
+            const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const options: RetryingPipelineOptions = { tries: 2, sleepMs: 80 }
             const retryingPipeline = createRetryingPipeline(innerPipeline, options)
             const message: Message = {
@@ -324,7 +324,7 @@ describe('RetryingPipeline', () => {
                 return Promise.reject(error)
             })
 
-            const innerPipeline = createNewPipeline().pipeAsync(mockProcessStep)
+            const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const options: RetryingPipelineOptions = { tries: 2, sleepMs: 50 }
             const retryingPipeline = createRetryingPipeline(innerPipeline, options)
             const message: Message = {
@@ -356,7 +356,7 @@ describe('RetryingPipeline', () => {
                 return Promise.reject(error)
             })
 
-            const innerPipeline = createNewPipeline().pipeAsync(mockProcessStep)
+            const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const retryingPipeline = createRetryingPipeline(innerPipeline) // No options - uses defaults
             const message: Message = {
                 value: Buffer.from('test'),
@@ -387,7 +387,7 @@ describe('RetryingPipeline', () => {
                 return Promise.reject(error)
             })
 
-            const innerPipeline = createNewPipeline().pipeAsync(mockProcessStep)
+            const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const options: RetryingPipelineOptions = { tries: 2, sleepMs: 120 }
             const retryingPipeline = createRetryingPipeline(innerPipeline, options)
             expect(retryingPipeline).toBeInstanceOf(RetryingPipeline)

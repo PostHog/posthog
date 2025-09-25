@@ -49,7 +49,9 @@ describe('ConcurrentBatchProcessingPipeline', () => {
 
     describe('constructor', () => {
         it('should create instance with processor and previous pipeline', () => {
-            const processor = createNewPipeline<string>().pipe((input: string) => ok(input.toUpperCase()))
+            const processor = createNewPipeline<string>().pipe((input: string) =>
+                Promise.resolve(ok(input.toUpperCase()))
+            )
             const previousPipeline = createNewBatchPipeline<string>()
 
             const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
@@ -60,7 +62,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
 
     describe('feed', () => {
         it('should delegate to previous pipeline', () => {
-            const processor = createNewPipeline<string>().pipe((input: string) => ok(input))
+            const processor = createNewPipeline<string>().pipe((input: string) => Promise.resolve(ok(input)))
             const previousPipeline = createNewBatchPipeline<string>()
             const spy = jest.spyOn(previousPipeline, 'feed')
 
@@ -75,7 +77,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
 
     describe('next', () => {
         it('should return null when no results available', async () => {
-            const processor = createNewPipeline<string>().pipe((input: string) => ok(input))
+            const processor = createNewPipeline<string>().pipe((input: string) => Promise.resolve(ok(input)))
             const previousPipeline = createNewBatchPipeline<string>()
 
             const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
@@ -85,7 +87,9 @@ describe('ConcurrentBatchProcessingPipeline', () => {
         })
 
         it('should process successful results concurrently', async () => {
-            const processor = createNewPipeline<string>().pipe((input: string) => ok(input.toUpperCase()))
+            const processor = createNewPipeline<string>().pipe((input: string) =>
+                Promise.resolve(ok(input.toUpperCase()))
+            )
             const previousPipeline = createNewBatchPipeline<string>()
 
             // Feed some test data
@@ -107,7 +111,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
         })
 
         it('should preserve non-success results without processing', async () => {
-            const processor = createNewPipeline<string>().pipe((input: string) => ok(input))
+            const processor = createNewPipeline<string>().pipe((input: string) => Promise.resolve(ok(input)))
             const dropResult = drop<string>('test drop')
             const dlqResult = dlq<string>('test dlq', new Error('test error'))
             const redirectResult = redirect<string>('test redirect', 'test-topic')
@@ -136,7 +140,9 @@ describe('ConcurrentBatchProcessingPipeline', () => {
         })
 
         it('should handle mixed success and non-success results', async () => {
-            const processor = createNewPipeline<string>().pipe((input: string) => ok(input.toUpperCase()))
+            const processor = createNewPipeline<string>().pipe((input: string) =>
+                Promise.resolve(ok(input.toUpperCase()))
+            )
             const dropResult = drop<string>('test drop')
 
             const previousPipeline = createNewBatchPipeline<string>()
@@ -161,7 +167,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
         })
 
         it('should handle async processing delays correctly', async () => {
-            const processor = createNewPipeline<string>().pipeAsync(async (input: string) => {
+            const processor = createNewPipeline<string>().pipe(async (input: string) => {
                 // Simulate async delay
                 await new Promise((resolve) => setTimeout(resolve, 10))
                 return ok(input.toUpperCase())
@@ -188,7 +194,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
         })
 
         it('should handle processor errors gracefully', async () => {
-            const processor = createNewPipeline<string>().pipeAsync((_input: string) => {
+            const processor = createNewPipeline<string>().pipe((_input: string) => {
                 return Promise.reject(new Error('Processor error'))
             })
 
@@ -202,7 +208,9 @@ describe('ConcurrentBatchProcessingPipeline', () => {
         })
 
         it('should process multiple batches sequentially', async () => {
-            const processor = createNewPipeline<string>().pipe((input: string) => ok(input.toUpperCase()))
+            const processor = createNewPipeline<string>().pipe((input: string) =>
+                Promise.resolve(ok(input.toUpperCase()))
+            )
 
             const previousPipeline = createNewBatchPipeline<string>()
             const batch1: BatchPipelineResultWithContext<string> = [{ result: ok('batch1'), context: context1 }]
@@ -226,7 +234,9 @@ describe('ConcurrentBatchProcessingPipeline', () => {
         })
 
         it('should maintain promise queue state between calls', async () => {
-            const processor = createNewPipeline<string>().pipe((input: string) => ok(input.toUpperCase()))
+            const processor = createNewPipeline<string>().pipe((input: string) =>
+                Promise.resolve(ok(input.toUpperCase()))
+            )
 
             const previousPipeline = createNewBatchPipeline<string>()
             const testBatch: BatchPipelineResultWithContext<string> = [
@@ -258,7 +268,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
 
     describe('gather', () => {
         it('should return GatheringBatchPipeline instance', () => {
-            const processor = createNewPipeline<string>().pipe((input: string) => ok(input))
+            const processor = createNewPipeline<string>().pipe((input: string) => Promise.resolve(ok(input)))
             const previousPipeline = createNewBatchPipeline<string>()
 
             const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
@@ -272,7 +282,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
     describe('concurrent processing behavior', () => {
         it('should process items concurrently within a batch', async () => {
             const processingOrder: string[] = []
-            const processor = createNewPipeline<string>().pipeAsync(async (input: string) => {
+            const processor = createNewPipeline<string>().pipe(async (input: string) => {
                 processingOrder.push(`start-${input}`)
                 // Simulate different processing times
                 const delay = input === 'slow' ? 50 : 10

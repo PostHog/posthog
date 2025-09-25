@@ -106,7 +106,7 @@ describe('ResultHandlingPipeline', () => {
             const results = await resultPipeline.next()
 
             expect(results).toEqual([{ processed: 'test1' }, { processed: 'test3' }])
-            expect(mockLogDroppedMessage).toHaveBeenCalledWith(messages[1], 'test drop reason', 'result_handler')
+            expect(mockLogDroppedMessage).toHaveBeenCalledWith(messages[1], 'test drop reason', 'unknown')
         })
 
         it('should filter out redirected results and redirect them', async () => {
@@ -134,7 +134,7 @@ describe('ResultHandlingPipeline', () => {
                 mockPromiseScheduler,
                 messages[1],
                 'overflow-topic',
-                'result_handler',
+                'unknown',
                 true,
                 false
             )
@@ -165,7 +165,7 @@ describe('ResultHandlingPipeline', () => {
                 mockKafkaProducer,
                 messages[1],
                 testError,
-                'result_handler',
+                'unknown',
                 'test-dlq'
             )
         })
@@ -190,7 +190,7 @@ describe('ResultHandlingPipeline', () => {
                 mockKafkaProducer,
                 messages[0],
                 expect.any(Error),
-                'result_handler',
+                'unknown',
                 'test-dlq'
             )
 
@@ -224,13 +224,13 @@ describe('ResultHandlingPipeline', () => {
             expect(results).toEqual([{ processed: 'success1' }, { processed: 'success2' }])
 
             // Verify all non-success results were handled
-            expect(mockLogDroppedMessage).toHaveBeenCalledWith(messages[1], 'dropped item', 'result_handler')
+            expect(mockLogDroppedMessage).toHaveBeenCalledWith(messages[1], 'dropped item', 'unknown')
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 mockPromiseScheduler,
                 messages[3],
                 'overflow-topic',
-                'result_handler',
+                'unknown',
                 true,
                 true
             )
@@ -238,7 +238,7 @@ describe('ResultHandlingPipeline', () => {
                 mockKafkaProducer,
                 messages[4],
                 expect.any(Error),
-                'result_handler',
+                'unknown',
                 'test-dlq'
             )
         })
@@ -352,7 +352,7 @@ describe('ResultHandlingPipeline', () => {
                 mockPromiseScheduler,
                 messages[0],
                 'overflow-topic',
-                'result_handler',
+                'unknown',
                 true, // default preserveKey
                 true // default awaitAck
             )
@@ -435,7 +435,7 @@ describe('Integration tests', () => {
             mockKafkaProducer,
             messages[0],
             expect.any(Error),
-            'result_handler',
+            'unknown',
             'test-dlq'
         )
     })

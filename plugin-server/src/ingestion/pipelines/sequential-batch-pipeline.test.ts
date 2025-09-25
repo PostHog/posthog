@@ -40,7 +40,7 @@ describe('SequentialBatchPipeline', () => {
                 return ok({ processed: value })
             })
 
-            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipeAsync(mockProcessStep), rootPipeline)
+            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -61,7 +61,7 @@ describe('SequentialBatchPipeline', () => {
                 return ok(input)
             })
 
-            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipeAsync(mockProcessStep), rootPipeline)
+            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
 
             pipeline.feed([])
             const results = await pipeline.next()
@@ -117,7 +117,7 @@ describe('SequentialBatchPipeline', () => {
                 return ok({ count: value * 2 })
             })
 
-            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipeAsync(mockProcessStep), rootPipeline)
+            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -200,10 +200,7 @@ describe('SequentialBatchPipeline', () => {
                 return ok({ count: input.count * 2 })
             })
 
-            const secondPipeline = new SequentialBatchPipeline(
-                createNewPipeline().pipeAsync(mockProcessStep),
-                firstPipeline
-            )
+            const secondPipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), firstPipeline)
 
             secondPipeline.feed(batch)
             const results = await secondPipeline.next()
@@ -244,7 +241,7 @@ describe('SequentialBatchPipeline', () => {
                 throw new Error('Pipeline processing failed')
             })
 
-            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipeAsync(mockProcessStep), rootPipeline)
+            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
 
             pipeline.feed(batch)
             await expect(pipeline.next()).rejects.toThrow('Pipeline processing failed')
@@ -298,7 +295,7 @@ describe('SequentialBatchPipeline', () => {
                 return ok({ processed: value })
             })
 
-            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipeAsync(mockProcessStep), rootPipeline)
+            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
 
             pipeline.feed(batch)
             await expect(pipeline.next()).rejects.toThrow('Individual item failed')

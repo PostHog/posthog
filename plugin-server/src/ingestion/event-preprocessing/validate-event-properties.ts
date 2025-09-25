@@ -2,11 +2,11 @@ import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { Hub, IncomingEventWithTeam } from '../../types'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { drop, ok } from '../pipelines/results'
-import { AsyncProcessingStep } from '../pipelines/steps'
+import { ProcessingStep } from '../pipelines/steps'
 
 export function createValidateEventPropertiesStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
     hub: Hub
-): AsyncProcessingStep<T, T> {
+): ProcessingStep<T, T> {
     return async function validateEventPropertiesStep(input) {
         const { eventWithTeam } = input
         const { event, team } = eventWithTeam
