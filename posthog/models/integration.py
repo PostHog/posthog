@@ -34,6 +34,7 @@ from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
 
 from products.messaging.backend.providers import MailjetProvider, TwilioProvider
+from products.messaging.backend.providers.ses import SESProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -1075,16 +1076,26 @@ class EmailIntegration:
     def mailjet_provider(self) -> MailjetProvider:
         return MailjetProvider()
 
+    @property
+    def ses_provider(self) -> SESProvider:
+        return SESProvider()
+
     @classmethod
     def create_native_integration(cls, config: dict, team_id: int, created_by: User | None = None) -> Integration:
         email_address: str = config["email"]
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
+        provider: str = config.get("provider", "mailjet")  # Default to mailjet for backward compatibility
 
-        mailjet = MailjetProvider()
-
-        # TODO: Look for integration belonging to the team with the same domain
-        mailjet.create_email_domain(domain, team_id=team_id)
+        # Create domain in the appropriate provider
+        if provider == "ses":
+            ses = SESProvider()
+            ses.create_email_domain(domain, team_id=team_id)
+        elif provider == "mailjet":
+            mailjet = MailjetProvider()
+            mailjet.create_email_domain(domain, team_id=team_id)
+        else:
+            raise ValueError(f"Invalid provider: must be either 'ses' or 'mailjet'")
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1095,8 +1106,8 @@ class EmailIntegration:
                     "email": email_address,
                     "domain": domain,
                     "name": name,
-                    "mailjet_verified": False,
-                    "aws_ses_verified": False,
+                    "provider": provider,
+                    "verified": False,
                 },
                 "created_by": created_by,
             },
@@ -1135,18 +1146,24 @@ class EmailIntegration:
 
     def verify(self):
         domain = self.integration.config.get("domain")
+        provider = self.integration.config.get("provider", "mailjet")
 
-        verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+        # Use the appropriate provider for verification
+        if provider == "ses":
+            verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+        else:
+            verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
 
         if verification_result.get("status") == "success":
-            # We can validate all other integrations with the same domain
+            # We can validate all other integrations with the same domain and provider
             other_integrations = Integration.objects.filter(
                 team_id=self.integration.team_id,
                 kind="email",
                 config__domain=domain,
+                config__provider=provider,
             )
             for integration in other_integrations:
-                integration.config["mailjet_verified"] = True
+                integration.config["verified"] = True
                 integration.save()
 
         return verification_result
