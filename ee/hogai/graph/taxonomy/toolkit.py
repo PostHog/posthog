@@ -351,7 +351,6 @@ class TaxonomyAgentToolkit:
     async def _parallel_entity_processing(
         self, entity_properties: dict[str, list[str]], entity_names: list[str], groups: list[GroupTypeMapping]
     ) -> dict[str, list[str]]:
-        # Limit to 6 parallel entity queries to prevent overwhelming the system
         entity_items = list(entity_properties.items())
         if len(entity_items) > self.MAX_ENTITIES_PER_BATCH:
             # Process in batches
