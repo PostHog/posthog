@@ -46,7 +46,7 @@ pub fn setup_metrics_routes(router: Router) -> Router {
 
 pub fn setup_metrics_recorder() -> PrometheusHandle {
     const BUCKETS: &[f64] = &[
-        5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
+        1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
     ];
 
     PrometheusBuilder::new()
