@@ -2,16 +2,16 @@ import { Message } from 'node-rdkafka'
 
 import { parseEventHeaders } from '../../kafka/consumer'
 import { EventHeaders } from '../../types'
-import { success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncPreprocessingStep } from '../processing-pipeline'
+import { ok } from '../pipelines/results'
+import { SyncProcessingStep } from '../pipelines/steps'
 
-export function createParseHeadersStep<T extends { message: Pick<Message, 'headers'> }>(): SyncPreprocessingStep<
+export function createParseHeadersStep<T extends { message: Pick<Message, 'headers'> }>(): SyncProcessingStep<
     T,
     T & { headers: EventHeaders }
 > {
-    return (input) => {
+    return function parseHeadersStep(input) {
         const { message } = input
         const parsedHeaders = parseEventHeaders(message.headers)
-        return success({ ...input, headers: parsedHeaders })
+        return ok({ ...input, headers: parsedHeaders })
     }
 }
