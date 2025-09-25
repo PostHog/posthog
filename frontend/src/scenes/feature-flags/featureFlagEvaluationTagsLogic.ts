@@ -16,6 +16,7 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
         setSelectedTags: (tags: string[]) => ({ tags }),
         setSelectedEvaluationTags: (evaluationTags: string[]) => ({ evaluationTags }),
         resetSelectionsToProps: true,
+        updatePropsAndReset: (newTags: string[], newEvaluationTags: string[]) => ({ newTags, newEvaluationTags }),
     }),
     reducers(({ props }) => ({
         editingTags: [false as boolean, { setEditingTags: (_, { editing }) => editing }],
@@ -46,6 +47,13 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
             if (editing) {
                 actions.setSelectedTags([...(props.tags || [])])
                 actions.setSelectedEvaluationTags([...(props.evaluationTags || [])])
+            }
+        },
+        updatePropsAndReset: ({ newTags, newEvaluationTags }) => {
+            // Update the props and reset selections if not currently editing
+            if (!values.editingTags) {
+                actions.setSelectedTags([...newTags])
+                actions.setSelectedEvaluationTags([...newEvaluationTags])
             }
         },
     })),

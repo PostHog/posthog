@@ -151,7 +151,7 @@ export function FeatureFlagFiltersSection({
                             />
                         </>
                     )}
-                    {config.tags && (
+                    {config.tags && enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
                         <>
                             <span className="ml-1">
                                 <b>Tags</b>

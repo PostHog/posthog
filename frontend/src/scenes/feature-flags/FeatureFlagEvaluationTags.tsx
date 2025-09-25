@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { IconBolt, IconPencil, IconPlus } from '@posthog/icons'
 
@@ -38,19 +37,22 @@ export function FeatureFlagEvaluationTags({
         setShowEvaluationOptions,
         setSelectedTags,
         setSelectedEvaluationTags,
-        resetSelectionsToProps,
+        updatePropsAndReset,
     } = useActions(logic)
 
     const { saveFeatureFlag } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
 
     // Keep selections fresh when props change while not editing
-    useEffect(() => {
-        if (!editingTags) {
-            resetSelectionsToProps()
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tags.join(','), evaluationTags.join(','), editingTags])
+    // Check if props have changed and update logic accordingly
+    const currentTagsString = selectedTags.join(',')
+    const currentEvalTagsString = selectedEvaluationTags.join(',')
+    const propsTagsString = tags.join(',')
+    const propsEvalTagsString = evaluationTags.join(',')
+
+    if (!editingTags && (currentTagsString !== propsTagsString || currentEvalTagsString !== propsEvalTagsString)) {
+        updatePropsAndReset(tags, evaluationTags)
+    }
 
     const handleSave = (): void => {
         if (onChange) {
