@@ -335,4 +335,48 @@ describe('LazyLoader', () => {
             expect(loader).toHaveBeenCalledTimes(1)
         })
     })
+
+    describe('TTL eviction', () => {
+        it('should evict entries after TTL expires', async () => {
+            const customLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                ttlMs: 1000 * 60 * 5, // 5 minutes TTL
+                refreshJitterMs: 0, // Simplify tests
+            })
+
+            loader.mockResolvedValueOnce({ key1: 'value1' })
+
+            await customLoader.get('key1')
+            expect(customLoader.getCache()).toEqual({ key1: 'value1' })
+
+            // Fast forward past TTL
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 6) // 6 minutes
+
+            loader.mockResolvedValueOnce({ key2: 'value2' })
+            await customLoader.get('key2')
+
+            // key1 should be evicted, only key2 should remain
+            expect(customLoader.getCache()).toEqual({ key2: 'value2' })
+        })
+
+        it('should use default TTL of 10 minutes', async () => {
+            loader.mockResolvedValueOnce({ key1: 'value1' })
+
+            await lazyLoader.get('key1')
+            expect(lazyLoader.getCache()).toEqual({ key1: 'value1' })
+
+            // Fast forward 9 minutes - should still be cached
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 9)
+            loader.mockResolvedValueOnce({ key2: 'value2' })
+            await lazyLoader.get('key2')
+            expect(lazyLoader.getCache()).toEqual({ key1: 'value1', key2: 'value2' })
+
+            // Fast forward past 10 minutes - key1 should be evicted
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 11)
+            loader.mockResolvedValueOnce({ key3: 'value3' })
+            await lazyLoader.get('key3')
+            expect(lazyLoader.getCache()).toEqual({ key2: 'value2', key3: 'value3' })
+        })
+    })
 })

@@ -56,6 +56,8 @@ export type LazyLoaderOptions<T> = {
     refreshJitterMs?: number
     /** How long to buffer loads for - if set to 0 then it will load immediately without buffering */
     bufferMs?: number
+    /** TTL for cache entries - evicted after this time regardless of use */
+    ttlMs?: number
 }
 
 type LazyLoaderMap<T> = Record<string, T | null | undefined>
@@ -66,11 +68,13 @@ export class LazyLoader<T> {
     private cacheUntil: Record<string, number | undefined>
     private backgroundRefreshAfter: Record<string, number | undefined>
     private pendingLoads: Record<string, Promise<T | null> | undefined>
+    private createdAt: Record<string, number | undefined>
 
     private refreshAgeMs: number
     private refreshNullAgeMs: number
     private refreshBackgroundAgeMs?: number
     private refreshJitterMs: number
+    private ttlMs: number
 
     private buffer:
         | {
@@ -85,11 +89,13 @@ export class LazyLoader<T> {
         this.cacheUntil = {}
         this.backgroundRefreshAfter = {}
         this.pendingLoads = {}
+        this.createdAt = {}
 
         this.refreshAgeMs = this.options.refreshAgeMs ?? 1000 * 60 * 5 // 5 minutes
         this.refreshNullAgeMs = this.options.refreshNullAgeMs ?? this.refreshAgeMs
         this.refreshBackgroundAgeMs = this.options.refreshBackgroundAgeMs
         this.refreshJitterMs = this.options.refreshJitterMs ?? this.refreshAgeMs / 5
+        this.ttlMs = this.options.ttlMs ?? 1000 * 60 * 10 // 10 minutes
 
         if (this.refreshBackgroundAgeMs && this.refreshBackgroundAgeMs > this.refreshAgeMs) {
             throw new Error('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
@@ -120,6 +126,7 @@ export class LazyLoader<T> {
         this.lastUsed = {}
         this.cacheUntil = {}
         this.backgroundRefreshAfter = {}
+        this.createdAt = {}
         // this.pendingLoads = {} // NOTE: We don't clear this
     }
 
@@ -128,6 +135,10 @@ export class LazyLoader<T> {
             this.cache[key] = value ?? null
             // Always update the lastUsed time
             this.lastUsed[key] = Date.now()
+            // Set creation time if not already set
+            if (!this.createdAt[key]) {
+                this.createdAt[key] = Date.now()
+            }
             const valueOrNull = value ?? null
             const jitter = Math.floor(Math.random() * this.refreshJitterMs)
             this.cacheUntil[key] =
@@ -149,6 +160,8 @@ export class LazyLoader<T> {
      */
     private async loadViaCache(keys: string[]): Promise<Record<string, T | null>> {
         return await instrumentFn(`lazyLoader.loadViaCache`, async () => {
+            this.evictExpiredEntries()
+
             const results: Record<string, T | null> = {}
             const keysToLoad = new Set<string>()
 
@@ -270,5 +283,24 @@ export class LazyLoader<T> {
         this.setValues(mappedResults)
 
         return mappedResults
+    }
+
+    private evictExpiredEntries(): void {
+        const now = Date.now()
+        const keysToEvict: string[] = []
+
+        for (const [key, createdTime] of Object.entries(this.createdAt)) {
+            if (createdTime && now - createdTime > this.ttlMs) {
+                keysToEvict.push(key)
+            }
+        }
+
+        for (const key of keysToEvict) {
+            delete this.cache[key]
+            delete this.lastUsed[key]
+            delete this.cacheUntil[key]
+            delete this.backgroundRefreshAfter[key]
+            delete this.createdAt[key]
+        }
     }
 }
