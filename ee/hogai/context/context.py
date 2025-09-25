@@ -53,6 +53,38 @@ SUPPORTED_QUERY_MODEL_BY_KIND: dict[str, type[AnyAssistantSupportedQuery]] = {
 class AssistantContextManager(AssistantContextMixin):
     """Manager that provides context formatting capabilities."""
 
+    async def aget_state_messages_with_context(self, state: BaseStateWithMessages) -> Sequence[AssistantMessageUnion]:
+        if context_prompts := await self._get_context_prompts(state):
+            # Insert context messages BEFORE the start human message, so they're properly cached and the context is retained.
+            updated_messages = self._inject_context_messages(state, context_prompts)
+            return updated_messages
+        return state.messages
+
+    def get_ui_context(self, state: BaseStateWithMessages) -> MaxUIContext | None:
+        """
+        Extracts the UI context from the latest human message.
+        """
+        message = find_start_message(state.messages)
+        if isinstance(message, HumanMessage) and message.ui_context is not None:
+            return message.ui_context
+        return None
+
+    def has_awaitable_context(self, state: BaseStateWithMessages) -> bool:
+        ui_context = self.get_ui_context(state)
+        if ui_context and (ui_context.dashboards or ui_context.insights):
+            return True
+        return False
+
+    def get_contextual_tools(self) -> dict[str, dict[str, Any]]:
+        """
+        Extracts contextual tools from the runnable config, returning a mapping of available contextual tool names to context.
+        """
+        contextual_tools = (self._config.get("configurable") or {}).get("contextual_tools") or {}
+        if not isinstance(contextual_tools, dict):
+            return {}
+
+        return contextual_tools
+
     def __init__(self, team: Team, user: User, config: RunnableConfig):
         self._team = team
         self._user = user
@@ -301,15 +333,6 @@ class AssistantContextManager(AssistantContextMixin):
             ui_context_actions=actions_context,
         ).to_string()
 
-    def get_ui_context(self, state: BaseStateWithMessages) -> MaxUIContext | None:
-        """
-        Extracts the UI context from the latest human message.
-        """
-        message = find_start_message(state.messages)
-        if isinstance(message, HumanMessage) and message.ui_context is not None:
-            return message.ui_context
-        return None
-
     async def _get_context_prompts(self, state: BaseStateWithMessages) -> list[str]:
         prompts: list[str] = []
         if contextual_tools := self._get_contextual_tools_prompt():
@@ -338,16 +361,6 @@ class AssistantContextManager(AssistantContextMixin):
         human_messages = {message.content for message in state.messages if isinstance(message, ContextMessage)}
         return [prompt for prompt in context_prompts if prompt not in human_messages]
 
-    def get_contextual_tools(self) -> dict[str, dict[str, Any]]:
-        """
-        Extracts contextual tools from the runnable config, returning a mapping of available contextual tool names to context.
-        """
-        contextual_tools = (self._config.get("configurable") or {}).get("contextual_tools") or {}
-        if not isinstance(contextual_tools, dict):
-            raise ValueError("Contextual tools must be a dictionary of tool names to tool context")
-
-        return contextual_tools
-
     def _inject_context_messages(
         self, state: BaseStateWithMessages, context_prompts: list[str]
     ) -> list[AssistantMessageUnion]:
@@ -357,16 +370,3 @@ class AssistantContextManager(AssistantContextMixin):
         # Insert context messages right before the start message
         start_idx = find_start_message_idx(state.messages, state.start_id)
         return [*state.messages[:start_idx], *context_messages, *state.messages[start_idx:]]
-
-    async def aget_state_messages_with_context(self, state: BaseStateWithMessages) -> Sequence[AssistantMessageUnion]:
-        if context_prompts := await self._get_context_prompts(state):
-            # Insert context messages BEFORE the start human message, so they're properly cached and the context is retained.
-            updated_messages = self._inject_context_messages(state, context_prompts)
-            return updated_messages
-        return state.messages
-
-    def has_awaitable_context(self, state: BaseStateWithMessages) -> bool:
-        ui_context = self.get_ui_context(state)
-        if ui_context and (ui_context.dashboards or ui_context.insights):
-            return True
-        return False

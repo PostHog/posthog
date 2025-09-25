@@ -21,9 +21,9 @@ from posthog.schema import AssistantToolCallMessage, VisualizationMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 
+from ee.hogai.context import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
-from ee.hogai.utils.context import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName

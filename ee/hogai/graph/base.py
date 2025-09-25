@@ -15,8 +15,8 @@ from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin, ReasoningNodeMixin
-from ee.hogai.utils.context import AssistantContextManager
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.state import LangGraphState
