@@ -369,8 +369,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.268.3
-        version: 1.268.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.268.4
+        version: 1.268.4(@rrweb/types@2.0.0-alpha.17)
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -823,8 +823,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.268.3
-        version: 1.268.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.268.4
+        version: 1.268.4(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -1792,8 +1792,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.268.3
-        version: 1.268.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.268.4
+        version: 1.268.4(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2129,8 +2129,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.268.3
-        version: 1.268.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.268.4
+        version: 1.268.4(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2376,8 +2376,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.268.3
-        version: 1.268.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.268.4
+        version: 1.268.4(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -5754,8 +5754,8 @@ packages:
       webpack-plugin-serve:
         optional: true
 
-  '@posthog/core@1.2.0':
-    resolution: {integrity: sha512-JuVWgEiOeEfjNtxKg3Kxvt/YWbZCilZUnezUCSAUPQoKxM0VAzMYklh6u/+wxwWybSQ9NaStcNhkxnSU4OxqWA==}
+  '@posthog/core@1.2.1':
+    resolution: {integrity: sha512-zNw96BipqM5/Tf161Q8/K5zpwGY3ezfb2wz+Yc3fIT5OQHW8eEzkQldPgtFKMUkqImc73ukEa2IdUpS6vEGH7w==}
 
   '@posthog/icons@0.30.0':
     resolution: {integrity: sha512-V3QBSLwcEeSitNetafrGYqzXG2uWXzoNAc0z6yvQ7UBMPx/DFOxTfRoIaRb1m6GnAhXzR8fbprhJDmqKZB2D6w==}
@@ -15136,8 +15136,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.268.3:
-    resolution: {integrity: sha512-1F5MA9YPNKHkCodPi9VOv83dSDRf7xQpeOIjP0ww9isE+hlK7ogqoC/ZgO3bks4Du5yYazr4Tu7tlZDbkDCXfg==}
+  posthog-js@1.268.4:
+    resolution: {integrity: sha512-kbE8SeH4Hi6uETEzO4EVANULz1ncw+PXC/SMfDdByf4Qt0a/AKoxjlGCZwHuZuflQmBfTwwQcjHeQxnmIxti1A==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -23605,7 +23605,7 @@ snapshots:
       type-fest: 4.41.0
       webpack-hot-middleware: 2.25.4
 
-  '@posthog/core@1.2.0': {}
+  '@posthog/core@1.2.1': {}
 
   '@posthog/icons@0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
@@ -35493,9 +35493,9 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.268.3(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.268.4(@rrweb/types@2.0.0-alpha.17):
     dependencies:
-      '@posthog/core': 1.2.0
+      '@posthog/core': 1.2.1
       core-js: 3.45.1
       fflate: 0.4.8
       preact: 10.27.2
