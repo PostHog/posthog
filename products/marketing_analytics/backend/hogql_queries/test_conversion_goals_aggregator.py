@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
@@ -23,7 +25,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
             date_range=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             team=self.team,
             interval=None,
-            now=None,
+            now=datetime(2023, 1, 31, 23, 59, 59),
         )
 
     def _create_test_conversion_goal(
@@ -121,7 +123,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert isinstance(cte.expr, ast.SelectQuery)
 
         final_query = cte.expr
+        assert isinstance(final_query, ast.SelectQuery)
         assert len(final_query.select) == 3
+        assert final_query.group_by is not None
         assert len(final_query.group_by) == 2
 
         conversion_column = final_query.select[2]
@@ -144,7 +148,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert cte.name == "unified_conversion_goals"
 
         final_query = cte.expr
+        assert isinstance(final_query, ast.SelectQuery)
         assert len(final_query.select) == 5
+        assert final_query.group_by is not None
         assert len(final_query.group_by) == 2
 
         conversion_columns = final_query.select[2:]
@@ -185,7 +191,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert isinstance(cte.expr, ast.SelectQuery)
 
         final_query = cte.expr
+        assert isinstance(final_query, ast.SelectQuery)
         assert len(final_query.select) == 4
+        assert final_query.group_by is not None
         assert len(final_query.group_by) == 2
         assert isinstance(final_query.select_from, ast.JoinExpr)
         assert isinstance(final_query.select_from.table, ast.SelectSetQuery)
@@ -323,6 +331,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert isinstance(cte, ast.CTE)
 
         final_query = cte.expr
+        assert isinstance(final_query, ast.SelectQuery)
         assert len(final_query.select) == 5
 
         columns = aggregator.get_conversion_goal_columns()
@@ -360,7 +369,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert cte.name == "unified_conversion_goals"
 
         final_query = cte.expr
+        assert isinstance(final_query, ast.SelectQuery)
         assert len(final_query.select) == 5
+        assert final_query.group_by is not None
         assert len(final_query.group_by) == 2
 
         conversion_columns = final_query.select[2:]
@@ -398,6 +409,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert isinstance(cte, ast.CTE)
 
         final_query = cte.expr
+        assert isinstance(final_query, ast.SelectQuery)
         conversion_column = final_query.select[2]
         assert conversion_column.alias == self.config.get_conversion_goal_column_name(999)
 
@@ -425,6 +437,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert isinstance(cte, ast.CTE)
 
         final_query = cte.expr
+        assert isinstance(final_query, ast.SelectQuery)
         assert len(final_query.select) == 12
 
         columns = aggregator.get_conversion_goal_columns()
