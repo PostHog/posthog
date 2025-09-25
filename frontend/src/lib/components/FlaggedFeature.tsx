@@ -28,7 +28,7 @@ export function FlaggedFeature({ flag, match, children, fallback }: PostHogFeatu
             return (
                 <div className="relative outline-2 outline-offset-2 outline-dashed outline-red-200 rounded group">
                     <div className="absolute right-0 -top-8 bg-red-200 text-red-800 p-1 rounded text-xs font-medium opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none group-hover:pointer-events-auto">
-                        Flagged feature: {flag}
+                        Flagged feature: {flag} - {doesFlagMatch ? 'match' : 'no match'}
                     </div>
                     {childContent}
                 </div>
