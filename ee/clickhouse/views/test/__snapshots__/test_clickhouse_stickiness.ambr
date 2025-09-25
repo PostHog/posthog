@@ -23,7 +23,7 @@
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-02-15 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
               GROUP BY aggregation_target,
                        start_of_interval
-              HAVING ifNull(greater(count(), 0), 0))
+              HAVING greater(count(), 0))
            GROUP BY aggregation_target)
         GROUP BY num_intervals
         ORDER BY num_intervals ASC)
@@ -174,7 +174,7 @@
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
-              HAVING ifNull(greater(count(), 0), 0))
+              HAVING greater(count(), 0))
            GROUP BY aggregation_target)
         GROUP BY num_intervals
         ORDER BY num_intervals ASC)
@@ -223,7 +223,7 @@
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
-              HAVING ifNull(greater(count(), 0), 0))
+              HAVING greater(count(), 0))
            GROUP BY aggregation_target)
         GROUP BY num_intervals
         ORDER BY num_intervals ASC)
@@ -280,7 +280,7 @@
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-02-15 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(e__group_0.properties___industry, 'technology'), 0))
               GROUP BY aggregation_target,
                        start_of_interval
-              HAVING ifNull(greater(count(), 0), 0))
+              HAVING greater(count(), 0))
            GROUP BY aggregation_target)
         GROUP BY num_intervals
         ORDER BY num_intervals ASC)
@@ -460,7 +460,7 @@
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
-              HAVING ifNull(greater(count(), 0), 0))
+              HAVING greater(count(), 0))
            GROUP BY aggregation_target)
         GROUP BY num_intervals
         ORDER BY num_intervals ASC)
@@ -531,7 +531,7 @@
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
-              HAVING ifNull(greater(count(), 0), 0))
+              HAVING greater(count(), 0))
            GROUP BY aggregation_target)
         GROUP BY num_intervals
         ORDER BY num_intervals ASC)
@@ -591,7 +591,7 @@
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalHour(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 20:00:00', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
-              HAVING ifNull(greater(count(), 0), 0))
+              HAVING greater(count(), 0))
            GROUP BY aggregation_target)
         GROUP BY num_intervals
         ORDER BY num_intervals ASC)
@@ -745,7 +745,7 @@
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
-              HAVING ifNull(greater(count(), 0), 0))
+              HAVING greater(count(), 0))
            GROUP BY aggregation_target)
         GROUP BY num_intervals
         ORDER BY num_intervals ASC)
