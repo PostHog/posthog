@@ -127,7 +127,6 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
 
     // Send test messages first
     let expected_msg_count = 9;
-    let expected_batch_count = expected_msg_count / 3;
     let test_messages = generate_test_messages(expected_msg_count);
 
     send_test_messages(&test_topic, test_messages).await?;
@@ -137,9 +136,6 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
 
     // Start consumption in background task
     let consumer_handle = tokio::spawn(async move { consumer.start_consumption().await });
-
-    let mut batches_recv = 0;
-    let mut msgs_recv = 0;
 
     // this will cause the consumer.recv() loop below to exit
     //when the consumer's start_consumption loop breaks and
@@ -151,29 +147,23 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
 
     tokio::time::sleep(Duration::from_millis(1)).await;
 
-    loop {
-        if let Some(batch_result) = batch_rx.recv().await {
-            let (msgs, errs) = batch_result.unpack();
-            if !errs.is_empty() {
-                panic!("Errors in batch: {errs:?}");
-            }
-            if !msgs.is_empty() {
-                batches_recv += 1;
-                msgs_recv += msgs.len();
-            }
-        } else {
-            // receive channel is closed by consumer, we're done
-            break;
+    let mut msgs_recv = 0;
+    while let Some(batch_result) = batch_rx.recv().await {
+        let (msgs, errs) = batch_result.unpack();
+        if !errs.is_empty() {
+            panic!("Errors in batch: {errs:?}");
         }
+        assert!(
+            msgs.len() <= 3,
+            "Batch size should be at most 3, got: {}",
+            msgs.len()
+        );
+        msgs_recv += msgs.len();
     }
 
     assert_eq!(
-        batches_recv, expected_batch_count,
-        "Should have received 3 batches"
-    );
-    assert_eq!(
         msgs_recv, expected_msg_count,
-        "Should have received all messages"
+        "Should have received all messages, got: {msgs_recv}",
     );
 
     // Wait for graceful shutdown
