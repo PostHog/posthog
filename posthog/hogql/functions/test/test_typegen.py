@@ -114,12 +114,17 @@ class TestTypegen(BaseTest):
         self.assertEqual(len(signatures), 14)
 
         # Group by input length
-        by_length: dict[int, list[tuple[list[AnyConstantType], AnyConstantType]]] = {}
+        by_length: dict[int, list[tuple[tuple[AnyConstantType], AnyConstantType]]] = {}
         for inputs, output in signatures:
             length = len(inputs)
             if length not in by_length:
                 by_length[length] = []
-            by_length[length].append((inputs, output))
+            by_length[length].append(
+                (
+                    inputs,
+                    output,
+                )
+            )
 
         # Check we have the right number for each length
         self.assertEqual(len(by_length[2]), 2)  # 1 path argument
