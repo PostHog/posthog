@@ -59,7 +59,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                 {
                     key: 'home',
                     name: 'Home',
-                    iconType: 'dashboard',
+                    iconType: 'home',
                 },
             ],
         ],

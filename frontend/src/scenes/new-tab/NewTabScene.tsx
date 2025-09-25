@@ -2,8 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { IconSearch, IconSidePanel } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
+import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -12,7 +14,7 @@ import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/T
 import { cn } from 'lib/utils/css-classes'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -33,7 +35,7 @@ const getCategoryDisplayName = (category: string): string => {
     return displayNames[category] || category
 }
 
-export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
+export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
     const { filteredItemsGrid, search, selectedItem, categories, selectedCategory } = useValues(
@@ -43,6 +45,9 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { setQuestion, focusInput } = useActions(maxLogic)
     const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { showSceneDashboardChoiceModal } = useActions(
+        sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
+    )
 
     // scroll it to view
     useEffect(() => {
@@ -139,6 +144,20 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                     {category.label}
                                 </TabsPrimitiveTrigger>
                             ))}
+                            {source === 'homepage' ? (
+                                <>
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="small"
+                                        data-attr="project-home-customize-homepage"
+                                        className="ml-auto"
+                                        onClick={showSceneDashboardChoiceModal}
+                                    >
+                                        Customize homepage
+                                    </LemonButton>
+                                    <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
+                                </>
+                            ) : null}
                         </div>
                     </TabsPrimitiveList>
                 </TabsPrimitive>
