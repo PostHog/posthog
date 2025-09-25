@@ -1179,6 +1179,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (iframeContentWindow) {
                     // Clean up any previous listeners before adding new ones
                     cache.iframeErrorListenerCleanup?.()
+                    cache.iframeErrorListenerCleanup = undefined
 
                     cache.iframeErrorListenerCleanup = registerErrorListeners({
                         iframeWindow: iframeContentWindow,
@@ -1556,6 +1557,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: () => {
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
+                cache.timer = undefined
             }
         },
         pauseIframePlayback: () => {
@@ -1827,13 +1829,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         cache.hasInitialized = false
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
+        cache.fullScreenListener = undefined
         cache.pausedMediaElements = []
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
 
         if (cache.playerTimeTrackingTimer) {
             clearTimeout(cache.playerTimeTrackingTimer)
+            cache.playerTimeTrackingTimer = undefined
         }
+
+        cache.iframeErrorListenerCleanup?.()
+        cache.iframeErrorListenerCleanup = undefined
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
@@ -1862,6 +1869,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     clearTimeout(timer)
                 }
             })
+            cache.consoleDebounceTimers = undefined
         }
         ;(window as any)[`__posthog_player_logs`] = undefined
         ;(window as any)[`__posthog_player_warnings`] = undefined
