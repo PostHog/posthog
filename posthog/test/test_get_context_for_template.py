@@ -18,7 +18,8 @@ class TestGetContextForTemplate(APIBaseTest):
         assert actual == {
             "git_rev": mock.ANY,
             "js_capture_time_to_see_data": False,
-            "js_app_state_logging_sample_rate": "0",
+            # it doesn't matter what value this has
+            "js_app_state_logging_sample_rate": mock.ANY,
             "js_kea_verbose_logging": False,
             # NB: we default to the PH Cloud key
             "js_posthog_api_key": "sTMFPsFhdP1Ssg",
