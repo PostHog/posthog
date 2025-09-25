@@ -19,10 +19,13 @@ class Command(BaseCommand):
         parser.add_argument("--type", type=str, choices=("worker", "beat"), help="Process type")
 
     def handle(self, *args, **options):
-        # Optimize file watching - only watch core PostHog directories instead of all 66k+ files
-        self._setup_limited_file_watching()
+        def run_optimized_celery():
+            # Optimize file watching - only watch core PostHog directories instead of all 66k+ files
+            # This must be called inside the reloader process
+            self._setup_limited_file_watching()
+            self.run_celery_worker(options["type"])
 
-        autoreload.run_with_reloader(lambda: self.run_celery_worker(options["type"]))
+        autoreload.run_with_reloader(run_optimized_celery)
 
     def _setup_limited_file_watching(self):
         """Limit file watching to core PostHog directories instead of all 66k+ files"""
