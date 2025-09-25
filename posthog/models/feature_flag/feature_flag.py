@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import DatabaseError, models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest
@@ -198,7 +198,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
         try:
             return [et.tag.name for et in self.evaluation_tags.select_related("tag").all()]
-        except Exception:
+        except (AttributeError, DatabaseError):
             return None
 
     def get_filters(self) -> dict:
@@ -520,8 +520,9 @@ def set_feature_flags_for_team_in_cache(
         for _flag in all_feature_flags:
             try:
                 _flag._evaluation_tag_names = getattr(_flag, "evaluation_tag_names_agg", None)
-            except Exception:
-                pass
+            except AttributeError:
+                # evaluation_tag_names_agg field missing from aggregation query
+                _flag._evaluation_tag_names = None
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
