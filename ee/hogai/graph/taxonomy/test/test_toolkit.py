@@ -92,7 +92,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
             ("ask_user_for_help", {"request": "Help needed"}, "Help needed"),
         ]
     )
-    @patch.object(DummyToolkit, "retrieve_entity_properties", return_value="mocked")
+    @patch.object(DummyToolkit, "retrieve_entity_properties", return_value={"person": "mocked"})
     @patch.object(DummyToolkit, "retrieve_entity_property_values", return_value={"person": ["mocked"]})
     @patch.object(DummyToolkit, "retrieve_event_or_action_properties", return_value="mocked")
     @patch.object(DummyToolkit, "retrieve_event_or_action_property_values", return_value={"test_event": ["mocked"]})
