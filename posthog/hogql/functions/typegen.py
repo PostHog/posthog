@@ -66,7 +66,7 @@ def generate_json_path_signatures(
     Returns:
         List of complete signature tuples: ((input_types...), return_type)
     """
-    path_types = [StringType(), IntegerType()]
+    path_types: list[AnyConstantType] = [StringType(), IntegerType()]
     suffix_types = suffix_types or []
     input_signatures = generate_variadic_signatures(fixed_types, path_types, suffix_types, min_paths, max_paths)
 
