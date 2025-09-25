@@ -6,6 +6,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentView } from './ExperimentView/ExperimentView'
 import { ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
+import { ExperimentView as LegacyExperimentView } from './legacy/ExperimentView'
+import { isLegacyExperiment } from './utils'
 
 export const scene: SceneExport<ExperimentLogicProps> = {
     component: Experiment,
@@ -17,7 +19,7 @@ export const scene: SceneExport<ExperimentLogicProps> = {
 }
 
 export function Experiment(): JSX.Element {
-    const { formMode, experimentMissing } = useValues(experimentLogic)
+    const { formMode, experimentMissing, experiment } = useValues(experimentLogic)
 
     if (experimentMissing) {
         return <NotFound object="experiment" />
@@ -25,6 +27,8 @@ export function Experiment(): JSX.Element {
 
     return ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
         <ExperimentForm />
+    ) : isLegacyExperiment(experiment) ? (
+        <LegacyExperimentView experiment={experiment} />
     ) : (
         <ExperimentView />
     )
