@@ -79,9 +79,11 @@ class AssistantContextManager(AssistantContextMixin):
         """
         Extracts contextual tools from the runnable config, returning a mapping of available contextual tool names to context.
         """
-        contextual_tools = (self._config.get("configurable") or {}).get("contextual_tools") or {}
-        if not isinstance(contextual_tools, dict):
+        contextual_tools = (self._config.get("configurable") or {}).get("contextual_tools")
+        if contextual_tools is None:
             return {}
+        if not isinstance(contextual_tools, dict):
+            raise ValueError("Contextual tools must be a dictionary of tool names to tool context")
 
         return contextual_tools
 
