@@ -50,7 +50,7 @@ class SESProvider:
 
     def create_email_domain(self, domain: str, team_id: int):
         # NOTE: For sesv1 creation is done through verification
-        self.client.verify_domain_identity(Domain=domain)
+        self.verify_email_domain(domain, team_id)
 
     def verify_email_domain(self, domain: str, team_id: int):
         # Validate the domain contains valid characters for a domain name

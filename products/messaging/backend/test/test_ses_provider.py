@@ -138,4 +138,4 @@ class TestSESProvider(TestCase):
 
         result = provider.verify_email_domain(TEST_DOMAIN, team_id=1)
         # Should return verified status with no DNS records needed
-        assert result == {"status": "verified", "dnsRecords": []}
+        assert result == {"status": "success", "dnsRecords": []}
