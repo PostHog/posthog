@@ -366,6 +366,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                 ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": None},
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
                     "id": "stripe.posthog_test",
@@ -401,6 +402,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                 ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": "New"},
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
                     "id": "New | stripe.posthog_test",
@@ -436,6 +438,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                 ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": "Expansion"},
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
                     "id": "Expansion | stripe.posthog_test",
@@ -471,6 +474,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                 ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": "Contraction"},
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
                     "id": "Contraction | stripe.posthog_test",
@@ -506,6 +510,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                 ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": "Churn"},
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
                     "id": "Churn | stripe.posthog_test",
@@ -551,6 +556,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("2334.7980720099"),
                     Decimal("2334.7980720099"),
                 ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": None},
                 "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
             },
         )
@@ -572,6 +578,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": a_lot_of_anys,
                 "labels": a_lot_of_anys,
                 "data": a_lot_of_anys,
+                "breakdown": {"property": "stripe.posthog_test", "kind": None},
                 "action": {"days": a_lot_of_anys, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
             },
         )
@@ -930,6 +937,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, Decimal("33.474"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0],
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": None},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "revenue_analytics.events.purchase",
@@ -945,6 +953,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, Decimal("33.474"), Decimal("5.5629321819"), 0, 0, 0],
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "New"},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "New | revenue_analytics.events.purchase",
@@ -960,6 +969,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, 0, 0, Decimal("31.4370353536"), 0, 0],
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Expansion"},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "Expansion | revenue_analytics.events.purchase",
@@ -975,6 +985,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, 0, Decimal("-13.549"), 0, 0, 0],
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Contraction"},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "Contraction | revenue_analytics.events.purchase",
@@ -990,6 +1001,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, 0, 0, Decimal("-19.925"), Decimal("-36.9999675355"), 0],
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Churn"},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "Churn | revenue_analytics.events.purchase",
@@ -1031,6 +1043,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, 0, 0, 0, 0, 0],  # No MRR data because events aren"t recurring/got no subscription
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": None},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "revenue_analytics.events.purchase",
