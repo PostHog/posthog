@@ -173,10 +173,10 @@ export class SesWebhookHandler {
         }
 
         if (this.certCache[url]) {
-            return await this.certCache[url]
+            return await this.certCache[url]!
         }
         this.certCache[url] = this.fetchText(url)
-        return await this.certCache[url]
+        return this.certCache[url]!
     }
 
     private isValidSnsCertUrl(url: string): boolean {

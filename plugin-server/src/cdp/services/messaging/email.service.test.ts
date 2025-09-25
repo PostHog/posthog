@@ -242,6 +242,7 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(sendEmailSpy.mock.calls[0][0]).toMatchInlineSnapshot(`
                 {
+                  "ConfigurationSetName": "posthog-messaging",
                   "Destination": {
                     "ToAddresses": [
                       ""Test User" <test@example.com>",
