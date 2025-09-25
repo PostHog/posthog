@@ -299,9 +299,9 @@ class TaxonomyAgentToolkit:
         Retrieve properties for an entity or multiple entities like person, session, or one of the groups.
         """
         if isinstance(entity, str):
-            return self._bulk_get_entity_properties([entity], max_properties)
-        else:
-            return self._bulk_get_entity_properties(entity, max_properties)
+            entity = list[entity]
+
+        return self._bulk_get_entity_properties(entity, max_properties)
 
     def _bulk_get_entity_properties(self, entities: list[str], max_properties: int = 500) -> dict[str, str]:
         result = {}
@@ -398,7 +398,6 @@ class TaxonomyAgentToolkit:
             group_type_index=group_type_index,
         )
         return {prop.name: prop for prop in property_definitions}
-
 
     def retrieve_entity_property_values(self, entity_properties: dict[str, list[str]]) -> dict[str, list[str]]:
         result = async_to_sync(self._parallel_entity_processing)(entity_properties, self._entity_names, self._groups)
