@@ -731,7 +731,6 @@ pub struct TestContext {
 }
 
 impl TestContext {
-    /// Create a new TestContext with the given configuration
     pub async fn new(config: Option<&Config>) -> Self {
         let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
 
@@ -746,7 +745,6 @@ impl TestContext {
         }
     }
 
-    /// Create a PostgresRouter instance from this context
     pub fn create_postgres_router(&self) -> crate::database::PostgresRouter {
         crate::database::PostgresRouter::new(
             self.persons_reader.clone(),
@@ -756,7 +754,6 @@ impl TestContext {
         )
     }
 
-    /// Insert a new team into the database
     pub async fn insert_new_team(&self, team_id: Option<i32>) -> Result<Team, Error> {
         insert_new_team_in_pg(
             self.persons_writer.clone(),
@@ -766,7 +763,6 @@ impl TestContext {
         .await
     }
 
-    /// Insert a feature flag for a team
     pub async fn insert_flag(
         &self,
         team_id: i32,
@@ -775,7 +771,6 @@ impl TestContext {
         insert_flag_for_team_in_pg(self.non_persons_writer.clone(), team_id, flag).await
     }
 
-    /// Insert a person for a team
     pub async fn insert_person(
         &self,
         team_id: i32,
@@ -791,7 +786,6 @@ impl TestContext {
         .await
     }
 
-    /// Insert a cohort for a team
     pub async fn insert_cohort(
         &self,
         team_id: i32,
@@ -809,7 +803,6 @@ impl TestContext {
         .await
     }
 
-    /// Insert a static cohort membership
     pub async fn add_person_to_cohort(
         &self,
         cohort_id: CohortId,
@@ -823,7 +816,6 @@ impl TestContext {
         .await
     }
 
-    /// Get hash key overrides for feature flags
     pub async fn get_feature_flag_hash_key_overrides(
         &self,
         team_id: i32,
@@ -837,17 +829,14 @@ impl TestContext {
         .await
     }
 
-    /// Get a connection to the persons database (for direct SQL operations)
     pub async fn get_persons_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
         self.persons_writer.get_connection().await
     }
 
-    /// Get a connection to the non-persons database (for direct SQL operations)
     pub async fn get_non_persons_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
         self.non_persons_writer.get_connection().await
     }
 
-    /// Create a group for a team
     pub async fn create_group(
         &self,
         team_id: i32,
@@ -865,7 +854,6 @@ impl TestContext {
         .await
     }
 
-    /// Insert a suppression rule for error tracking
     pub async fn insert_suppression_rule(
         &self,
         team_id: i32,
@@ -879,7 +867,6 @@ impl TestContext {
         .await
     }
 
-    /// Update autocapture exceptions setting for a team
     pub async fn update_team_autocapture_exceptions(
         &self,
         team_id: i32,
@@ -893,7 +880,6 @@ impl TestContext {
         .await
     }
 
-    /// Get person ID by distinct ID
     pub async fn get_person_id_by_distinct_id(
         &self,
         team_id: i32,
