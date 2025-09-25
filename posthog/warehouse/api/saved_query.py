@@ -668,7 +668,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         saved_query = self.get_object()
 
         if not saved_query.datawarehousesnapshotconfig:
-            raise response.Response({"error": f"Snapshot config does not exist"}, status=status.HTTP_400_BAD_REQUEST)
+            return response.Response({"error": "Snapshot config does not exist"}, status=status.HTTP_400_BAD_REQUEST)
 
         saved_query.datawarehousesnapshotconfig.config = {
             **saved_query.datawarehousesnapshotconfig.config,

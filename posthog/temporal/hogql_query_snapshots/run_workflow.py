@@ -63,7 +63,7 @@ class CreateBackupSnapshotJobInputs:
 
 
 @temporalio.activity.defn
-async def create_backup_snapshot_job_activity(inputs: CreateBackupSnapshotJobInputs) -> str:
+async def create_backup_snapshot_job_activity(inputs: CreateBackupSnapshotJobInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -194,7 +194,6 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
 
     stringified_hashed_columns = [f"toString({column})" for column in delta_snapshot.columns]
 
-    partition_settings = None
     partition_settings = calculate_partition_settings(saved_query)
 
     # TODO: remove this once we have a way to get the partition settings from config
@@ -231,7 +230,7 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
         )
 
         if partition_settings is not None:
-            batch, _, _ = append_partition_key_to_table(
+            result = append_partition_key_to_table(
                 batch,
                 partition_settings.partition_count,
                 partition_settings.partition_size,
@@ -240,10 +239,14 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
                 None,
                 logger,
             )
+            if result is not None:
+                batch, _, _ = result
 
         delta_snapshot.snapshot(batch)
-        snapshot_table_uri = delta_snapshot.get_delta_table()
-        file_uris = snapshot_table_uri.file_uris()
+        snapshot_table = delta_snapshot.get_delta_table()
+        file_uris = []
+        if snapshot_table is not None:
+            file_uris = snapshot_table.file_uris()
 
     prepare_s3_files_for_querying(saved_query.snapshot_folder_path, saved_query.normalized_name, file_uris)
 
@@ -365,7 +368,7 @@ def validate_snapshot_schema(
     saved_query: DataWarehouseSavedQuery,
     logger: FilteringBoundLogger,
     table_schema_dict: typing.Optional[dict[str, str]] = None,
-) -> str:
+) -> str | None:
     """
 
     Validates the schemas of data that has been synced from saved query snapshot.

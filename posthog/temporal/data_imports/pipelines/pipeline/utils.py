@@ -6,7 +6,7 @@ import hashlib
 import datetime
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
 import numpy as np
 import orjson
@@ -347,15 +347,18 @@ def setup_partitioning(
     return pa_table
 
 
+TArrow = TypeVar("TArrow", pa.Table, pa.RecordBatch)
+
+
 def append_partition_key_to_table(
-    table_or_batch: Union[pa.Table, pa.RecordBatch],
+    table_or_batch: TArrow,
     partition_count: Optional[int],
     partition_size: Optional[int],
     partition_keys: list[str],
     partition_mode: PartitionMode | None,
     partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
-) -> None | tuple[Union[pa.Table, pa.RecordBatch], PartitionMode, list[str]]:
+) -> None | tuple[TArrow, PartitionMode, list[str]]:
     """
     Partitions the pyarrow table or record batch via one of three methods:
     - md5: Hashes the primary keys into a fixed number of buckets, the least efficient method of partitioning
@@ -376,7 +379,7 @@ def append_partition_key_to_table(
     """
 
     is_record_batch = isinstance(table_or_batch, pa.RecordBatch)
-    data_source = table_or_batch
+    data_source: TArrow = table_or_batch
 
     normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
     mode: PartitionMode | None = partition_mode
@@ -412,7 +415,11 @@ def append_partition_key_to_table(
 
     partition_array: list[str] = []
 
-    batches = [table_or_batch] if is_record_batch else table_or_batch.to_batches()
+    batches: list[pa.RecordBatch] | list[pa.Table]
+    if is_record_batch:
+        batches = [cast(pa.RecordBatch, table_or_batch)]
+    else:
+        batches = cast(pa.Table, table_or_batch).to_batches()
 
     for batch in batches:
         for row in batch.to_pylist():
@@ -460,8 +467,8 @@ def append_partition_key_to_table(
     new_column = pa.array(partition_array, type=pa.string())
     logger.debug(f"append_partition_key_to_table: Partition key added with mode={mode}")
 
-    result_with_partition = table_or_batch.append_column(PARTITION_KEY, new_column)
-    return result_with_partition, mode, normalized_partition_keys
+    result_with_partition = data_source.append_column(PARTITION_KEY, new_column)
+    return cast(TArrow, result_with_partition), mode, normalized_partition_keys
 
 
 def _convert_uuid_to_string(row: dict) -> dict:

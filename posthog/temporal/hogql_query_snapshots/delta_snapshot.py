@@ -117,8 +117,7 @@ class DeltaSnapshot:
         delta_table = self.get_delta_table()
         self.schema.add_pyarrow_record_batch(data)
 
-        if PARTITION_KEY in data.column_names:
-            use_partitioning = True
+        use_partitioning = PARTITION_KEY in data.column_names
 
         if delta_table is None:
             delta_table = deltalake.DeltaTable.create(
@@ -181,17 +180,22 @@ class DeltaSnapshot:
 def calculate_partition_settings(saved_query: DataWarehouseSavedQuery) -> PartitionSettings | None:
     view_table = saved_query.table
 
+    if view_table is None:
+        return None
+
     total_rows = view_table.row_count
     total_size_mib = view_table.size_in_s3_mib
 
-    if total_rows is None or total_size_mib is None:
+    if total_rows is None or total_size_mib is None or total_size_mib == 0:
         return None
 
-    partition_size = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES / (total_size_mib / total_rows)
-    partition_count = math.floor(total_rows / partition_size)
+    # Calculate approximate rows per partition based on target size; cast to int for PartitionSettings
+    partition_size_float = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES / (total_size_mib / total_rows)
+    partition_size = int(partition_size_float)
+    partition_count = math.floor(total_rows / max(1, partition_size))
 
-    if partition_count == 0:
-        return PartitionSettings(partition_count=1, partition_size=partition_size)
+    if partition_count <= 0:
+        return PartitionSettings(partition_count=1, partition_size=int(max(1, partition_size)))
 
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 

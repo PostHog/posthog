@@ -692,10 +692,10 @@ def create_hogql_database(
                     warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
                 if table.type == DataWarehouseTable.Type.SNAPSHOT:
-                    table_chain: list[str] = [SNAPSHOTS_TABLE_GROUP_NAME]
-                    table_chain.append(table.name)
-                    create_nested_table_group(table_chain, warehouse_tables, s3_table)
-                    joined_table_chain = ".".join(table_chain)
+                    snapshot_table_chain: list[str] = [SNAPSHOTS_TABLE_GROUP_NAME]
+                    snapshot_table_chain.append(table.name)
+                    create_nested_table_group(snapshot_table_chain, warehouse_tables, s3_table)
+                    joined_table_chain = ".".join(snapshot_table_chain)
                     s3_table.name = joined_table_chain
                     warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
