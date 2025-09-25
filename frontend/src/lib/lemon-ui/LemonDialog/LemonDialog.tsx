@@ -200,7 +200,7 @@ export const LemonFormDialog = ({
                 props.shouldAwaitSubmit
                     ? async (e: React.KeyboardEvent<HTMLFormElement>): Promise<void> => {
                           if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
-                              void onSubmit(form)
+                              await onSubmit(form)
                               ref?.current?.closeDialog()
                           }
                       }
