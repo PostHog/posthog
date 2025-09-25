@@ -96,7 +96,7 @@ export function CampaignsTable(): JSX.Element {
             },
         },
         {
-            title: 'Actions',
+            title: 'Dispatches',
             width: 0,
             render: (_, item) => {
                 return <CampaignActionsSummary campaign={item} />

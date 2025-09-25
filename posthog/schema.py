@@ -314,6 +314,7 @@ class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
 class Display(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
     BOLD_NUMBER = "BoldNumber"
@@ -527,6 +528,7 @@ class ChartDisplayCategory(StrEnum):
 class ChartDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
@@ -1367,6 +1369,8 @@ class FileSystemIconType(StrEnum):
     INSIGHT_LIFECYCLE = "insight/lifecycle"
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
+    TEAM_ACTIVITY = "team_activity"
+    HOME = "home"
 
 
 class FileSystemImport(BaseModel):
@@ -2411,6 +2415,15 @@ class SessionAttributionGroupBy(StrEnum):
     AD_IDS = "AdIds"
     REFERRING_DOMAIN = "ReferringDomain"
     INITIAL_URL = "InitialURL"
+
+
+class SessionData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event_uuid: str
+    person_id: str
+    session_id: str
 
 
 class SessionEventsItem(BaseModel):
@@ -3818,6 +3831,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
@@ -3835,6 +3849,8 @@ class ExperimentStatsBase(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
 
@@ -3848,6 +3864,8 @@ class ExperimentStatsBaseValidated(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3866,6 +3884,8 @@ class ExperimentVariantResultBayesian(BaseModel):
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
     significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3884,6 +3904,8 @@ class ExperimentVariantResultFrequentist(BaseModel):
     numerator_denominator_sum_product: Optional[float] = None
     p_value: Optional[float] = None
     significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -11777,6 +11799,7 @@ class ExperimentRatioMetric(BaseModel):
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["ratio"] = "ratio"
@@ -11939,6 +11962,9 @@ class MarketingAnalyticsTableQuery(BaseModel):
         default=None, description="Draft conversion goal that can be set in the UI without saving"
     )
     filterTestAccounts: Optional[bool] = Field(default=None, description="Filter test accounts")
+    includeAllConversions: Optional[bool] = Field(
+        default=None, description="Include conversion goal rows even when they don't match campaign costs table"
+    )
     includeRevenue: Optional[bool] = None
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
     limit: Optional[int] = Field(default=None, description="Number of rows to return")
@@ -12640,6 +12666,7 @@ class ExperimentFunnelMetric(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    fingerprint: Optional[str] = None
     funnel_order_type: Optional[StepOrderValue] = None
     goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
@@ -12657,6 +12684,7 @@ class ExperimentMeanMetric(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     lower_bound_percentile: Optional[float] = None

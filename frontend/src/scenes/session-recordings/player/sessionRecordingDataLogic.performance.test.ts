@@ -39,11 +39,6 @@ describe('sessionRecordingDataLogic performance', () => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
-                    } else if (req.url.searchParams.get('source') === 'realtime') {
-                        if (req.params.id === 'has-only-empty-realtime') {
-                            return res(ctx.json([]))
-                        }
-                        return res(ctx.text(snapshotsAsJSONLines()))
                     } else if (req.url.searchParams.get('source') === 'blob_v2') {
                         const key = req.url.searchParams.get('blob_key')
                         const contents = key === '0' ? keyZero : keyOne

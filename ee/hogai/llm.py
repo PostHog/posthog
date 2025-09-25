@@ -46,7 +46,7 @@ class MaxChatMixin(BaseModel):
         adjusted_dt = self.conversation_start_dt or datetime.datetime.now()
         project_datetime = adjusted_dt.astimezone(tz=pytz.timezone(project_timezone))
 
-        region = CLOUD_DEPLOYMENT or "us"
+        region = CLOUD_DEPLOYMENT or "US"
         if region in ["US", "EU"]:
             region = region.lower()
         else:

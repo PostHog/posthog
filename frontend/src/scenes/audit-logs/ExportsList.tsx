@@ -35,7 +35,9 @@ export function ExportsList(): JSX.Element {
             key: 'filters',
             render: (_: any, exportAsset: ExportedAsset) => (
                 <Tooltip title={getFilterTooltip(exportAsset)}>
-                    <span className="text-muted text-xs cursor-help">{getFilterSummary(exportAsset)}</span>
+                    <div className="text-muted text-xs cursor-help truncate max-w-48">
+                        {getFilterSummary(exportAsset)}
+                    </div>
                 </Tooltip>
             ),
         },
