@@ -12545,7 +12545,8 @@
                 "insight/lifecycle",
                 "insight/stickiness",
                 "insight/hog",
-                "team_activity"
+                "team_activity",
+                "home"
             ],
             "type": "string"
         },
