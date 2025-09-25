@@ -1,9 +1,13 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+
+import { ProductKey } from '~/types'
 
 const NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL = 5
 
@@ -32,6 +36,24 @@ function useSurveyAnalysisMaxTool(): ReturnType<typeof useMaxTool> {
         context: maxToolContext,
         active: shouldShowMaxAnalysisTool,
         initialMaxPrompt: `Analyze the survey responses for the survey "${survey.name}"`,
+        callback(toolOutput) {
+            addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_ANALYZED,
+                metadata: {
+                    survey_id: toolOutput.survey_id,
+                },
+            })
+
+            if (toolOutput?.error || !toolOutput?.survey_id) {
+                posthog.captureException(
+                    toolOutput?.error || 'Undefined error when analyzing survey responses with Max',
+                    {
+                        action: 'max-ai-survey-analysis-failed',
+                    }
+                )
+            }
+        },
     })
 }
 
