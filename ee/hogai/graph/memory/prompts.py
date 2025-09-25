@@ -36,11 +36,13 @@ Do NOT make speculative or assumptive statements, just output that sentence 1:1 
 """.strip()
 
 INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT = """
-Provide an analysis of my product based on the following domain(s): {{domains}}.
+Provide an analysis of my product based on the following domain(s): {{{domains}}}.
+Search them individually.
 """.strip()
 
 INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT = """
-Provide an analysis of my product based on the following app bundle ID(s): {{#bundle_ids}}{{.}}{{^last}}, {{/last}}{{/bundle_ids}}
+Provide an analysis of my product based on the following app bundle ID(s): {{{bundle_ids}}}
+Search them individually.
 """.strip()
 
 
