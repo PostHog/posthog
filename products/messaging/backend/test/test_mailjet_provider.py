@@ -198,7 +198,7 @@ class TestMailjetProvider(TestCase):
         mock_check_dns.return_value = verified_dns_response
 
         provider = MailjetProvider()
-        result = provider.verify_email_domain(self.domain, self.team.id)
+        result = provider.verify_email_domain(self.domain)
 
         mock_check_dns.assert_called_once_with(self.domain)
         mock_get_dns.assert_called_once_with(self.domain)
@@ -217,7 +217,7 @@ class TestMailjetProvider(TestCase):
         mock_check_dns.return_value = self.mock_dns_response
 
         provider = MailjetProvider()
-        result = provider.verify_email_domain(self.domain, self.team.id)
+        result = provider.verify_email_domain(self.domain)
 
         mock_check_dns.assert_called_once_with(self.domain)
         mock_get_dns.assert_called_once_with(self.domain)
