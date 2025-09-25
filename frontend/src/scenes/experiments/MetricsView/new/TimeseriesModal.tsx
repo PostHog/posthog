@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { experimentTimeseriesLogic } from '../../experimentTimeseriesLogic'
@@ -13,7 +13,7 @@ import { VariantTimeseriesChart } from './VariantTimeseriesChart'
 interface TimeseriesModalProps {
     isOpen: boolean
     onClose: () => void
-    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentMetric
     variantResult: ExperimentVariantResult
     experiment: Experiment
 }
@@ -30,7 +30,7 @@ export function TimeseriesModal({
     const { chartData, progressMessage, hasTimeseriesData } = useValues(logic)
 
     useEffect(() => {
-        if (isOpen && metric.uuid && (metric as ExperimentMetric).fingerprint) {
+        if (isOpen && metric.uuid && metric.fingerprint) {
             loadTimeseries({ metric })
         }
         return () => {
