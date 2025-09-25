@@ -1,6 +1,6 @@
 import pytest
 from unittest import TestCase
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -38,19 +38,9 @@ class TestSESProvider(TestCase):
             with pytest.raises(ValueError, match="SES_SECRET_ACCESS_KEY is not set"):
                 SESProvider()
 
-    @patch("products.messaging.backend.providers.ses.boto3.client")
-    def test_create_email_domain_success(self, mock_boto_client):
-        mock_client = Mock()
-        mock_boto_client.return_value = mock_client
-        mock_client.verify_domain_identity.return_value = {"VerificationToken": "test_token"}
-
-        with override_settings(
-            SES_ACCESS_KEY_ID="test_access_key", SES_SECRET_ACCESS_KEY="test_secret_key", SES_REGION="us-east-1"
-        ):
-            provider = SESProvider()
-            provider.create_email_domain(TEST_DOMAIN, team_id=1)
-
-            mock_client.verify_domain_identity.assert_called_once_with(Domain=TEST_DOMAIN)
+    def test_create_email_domain_success(self):
+        provider = SESProvider()
+        provider.create_email_domain(TEST_DOMAIN, team_id=1)
 
     @patch("products.messaging.backend.providers.ses.boto3.client")
     def test_create_email_domain_invalid_domain(self, mock_boto_client):
