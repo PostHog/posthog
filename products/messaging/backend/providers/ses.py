@@ -137,25 +137,7 @@ class SESProvider:
         if not re.match(DOMAIN_REGEX, domain):
             raise exceptions.ValidationError("Please enter a valid domain or subdomain name.")
 
-        try:
-            # Verify domain identity - this will return the verification token
-            self.client.create_email_identity(
-                EmailIdentity=domain,
-                DkimSigningAttributes={"SigningAttributesOrigin": "AWS_SES"},  # Easy DKIM
-            )
-
-        except ClientError as e:
-            error_code = e.response["Error"]["Code"]
-            if error_code == "AlreadyExistsException":
-                # Domain already exists, we can continue
-                logger.info(f"Domain {domain} already exists in SES")
-                return
-            else:
-                logger.exception(f"SES API error creating domain: {e}")
-                raise
-        except BotoCoreError as e:
-            logger.exception(f"SES API error creating domain: {e}")
-            raise
+        self.client.verify_domain_identity(Domain=domain)
 
     def enable_dkim_for_domain(self, domain: str):
         """

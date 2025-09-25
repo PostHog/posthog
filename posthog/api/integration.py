@@ -35,6 +35,7 @@ from posthog.models.integration import (
 class NativeEmailIntegrationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     name = serializers.CharField()
+    provider = serializers.ChoiceField(choices=["ses", "mailjet"])
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
