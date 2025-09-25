@@ -137,17 +137,18 @@ services:
             - --advertise-rpc-addr kafka:33145
             - --mode dev-container
             - --smp 3
-            - --memory 2G
-            - --reserve-memory 200M
+            - --memory 3G
+            - --reserve-memory 500M
             - --overprovisioned
             - --set redpanda.auto_create_topics_enabled=true
             - --set redpanda.log_segment_size=134217728
-            - --set redpanda.log_compaction_interval_ms=60000
+            - --set redpanda.log_compaction_interval_ms=300000
             - --set redpanda.delete_retention_ms=86400000
             - --set redpanda.compaction_ctrl_p_coeff=8
             - --set redpanda.compaction_ctrl_i_coeff=0
             - --set redpanda.compaction_ctrl_d_coeff=0
             - --set redpanda.partition_autobalancing_mode=off
+            - --set redpanda.reactor_stall_min_time_ms=500
         volumes:
             - redpanda-data:/var/lib/redpanda/data
         environment:
