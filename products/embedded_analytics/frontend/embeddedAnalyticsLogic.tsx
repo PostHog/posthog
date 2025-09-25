@@ -1,33 +1,25 @@
-import { actions, kea, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import {
-    dateStringToDayJs,
-    getDefaultInterval,
-    isValidRelativeOrAbsoluteDate,
-    updateDatesWithInterval,
-} from 'lib/utils'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { dateStringToDayJs } from 'lib/utils'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { Breadcrumb, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
+import { Breadcrumb, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import {
     EmbeddedAnalyticsTileId,
-    EmbeddedQueryTile,
-    EmbeddedTab,
     INITIAL_DATE_FROM,
     INITIAL_DATE_TO,
-    INITIAL_INTERVAL,
     INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED,
+    UsageQueryTile,
 } from './common'
 import type { embeddedAnalyticsLogicType } from './embeddedAnalyticsLogicType'
 import {
@@ -44,31 +36,50 @@ import {
 } from './queries'
 
 export interface EmbeddedAnalyticsLogicProps {
-    tabId?: string
+    tabId: string
 }
 
 export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
-    path(['scenes', 'embedded-analytics', 'embeddedAnalyticsLogic']),
-    tabAwareScene(),
+    path(['products', 'embedded_analytics', 'frontend', 'embeddedAnalyticsLogic']),
     props({} as EmbeddedAnalyticsLogicProps),
+    key((props) => props.tabId),
+    connect(() => ({
+        values: [sceneLogic, ['sceneKey']],
+    })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setInterval: (interval: IntervalType) => ({ interval }),
-        setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval?: IntervalType) => ({
-            dateFrom,
-            dateTo,
-            interval,
-        }),
-        setRequestNameBreakdownEnabled: (enabled: boolean) => ({ enabled }),
-        setRequestNameFilter: (requestNames: string[]) => ({ requestNames }),
-        ensureAllRequestNamesLoaded: true,
-        loadRequestNames: true,
+        setRequestNameFilter: (requestNameFilter: string[]) => ({ requestNameFilter }),
+        setRequestNameBreakdownEnabled: (requestNameBreakdownEnabled: boolean) => ({ requestNameBreakdownEnabled }),
         setSearch: (search: string) => ({ search }),
-        setActiveTab: (tab: EmbeddedTab) => ({ tab }),
     }),
 
-    loaders(({}) => ({
+    reducers({
+        dateFilter: [
+            {
+                dateFrom: INITIAL_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+            } as { dateFrom: string | null; dateTo: string | null },
+            {
+                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+            },
+        ],
+        requestNameFilter: [
+            [] as string[],
+            {
+                setRequestNameFilter: (_, { requestNameFilter }) => requestNameFilter,
+            },
+        ],
+        requestNameBreakdownEnabled: [
+            INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED as boolean,
+            {
+                setRequestNameBreakdownEnabled: (_, { requestNameBreakdownEnabled }) => requestNameBreakdownEnabled,
+            },
+        ],
+        search: ['', { setSearch: (_, { search }) => search }],
+    }),
+
+    loaders({
         requestNames: [
             [] as string[],
             {
@@ -90,81 +101,22 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                 },
             },
         ],
-    })),
-    reducers({
-        dateFilter: [
-            {
-                dateFrom: INITIAL_DATE_FROM,
-                dateTo: INITIAL_DATE_TO,
-                interval: INITIAL_INTERVAL,
-            } as { dateFrom: string | null; dateTo: string | null; interval: IntervalType },
-            {
-                setDates: (_, { dateTo, dateFrom }) => {
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateTo,
-                        dateFrom: dateFrom || INITIAL_DATE_FROM,
-                        interval: getDefaultInterval(dateFrom, dateTo),
-                    }
-                },
-                setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
-                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
-                    return {
-                        dateTo,
-                        dateFrom: dateFrom || INITIAL_DATE_FROM,
-                        interval,
-                    }
-                },
-                setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
-                    if (!dateFrom && !dateTo) {
-                        dateFrom = INITIAL_DATE_FROM
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateTo,
-                        dateFrom: dateFrom || INITIAL_DATE_FROM,
-                        interval: interval || getDefaultInterval(dateFrom, dateTo),
-                    }
-                },
-            },
-        ],
-        requestNameBreakdownEnabled: [
-            INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED as boolean,
-            {
-                setRequestNameBreakdownEnabled: (_, { enabled }) => enabled,
-            },
-        ],
-        requestNameFilter: [
-            [] as string[],
-            {
-                setRequestNameFilter: (_, { requestNames }) => requestNames,
-            },
-        ],
-        search: ['', { setSearch: (_, { search }) => search }],
-        activeTab: [
-            EmbeddedTab.QUERY_ENDPOINTS as EmbeddedTab,
-            {
-                setActiveTab: (_, { tab }) => tab,
-            },
-        ],
     }),
 
     selectors({
+        activeTab: [
+            (s) => [s.sceneKey],
+            (sceneKey: string) => {
+                if (sceneKey === 'embeddedAnalyticsUsage') {
+                    return 'usage'
+                }
+                return 'query-endpoints'
+            },
+        ],
         tiles: [
             (s) => [s.dateFilter, s.requestNameBreakdownEnabled, s.requestNameFilter, s.activeTab],
-            (dateFilter, requestNameBreakdownEnabled, requestNameFilter, activeTab): EmbeddedQueryTile[] => {
-                if (activeTab === EmbeddedTab.QUERY_ENDPOINTS) {
+            (dateFilter, requestNameBreakdownEnabled, requestNameFilter, activeTab): UsageQueryTile[] => {
+                if (activeTab === 'query-endpoints') {
                     return []
                 }
 
@@ -410,16 +362,21 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                 ]
             },
         ],
+
         breadcrumbs: [
             (s) => [s.activeTab],
             (): Breadcrumb[] => [
                 {
-                    key: EmbeddedTab.QUERY_ENDPOINTS,
+                    key: 'EmbeddedAnalytics',
                     name: 'Embedded analytics',
                     iconType: 'embedded_analytics',
                 },
             ],
         ],
+    }),
+
+    afterMount(({ actions }) => {
+        actions.loadRequestNames()
     }),
 
     tabAwareActionToUrl(({ values }) => {
@@ -428,10 +385,10 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             requestNameBreakdownEnabled = values.requestNameBreakdownEnabled,
             requestNameFilter = values.requestNameFilter,
         }): [string, Record<string, any> | undefined, string | undefined] | undefined => {
-            const { dateFrom, dateTo, interval } = dateFilter
+            const { dateFrom, dateTo } = dateFilter
             const searchParams = { ...router.values.searchParams }
 
-            if (values.activeTab === EmbeddedTab.USAGE) {
+            if (values.activeTab == 'usage') {
                 if (dateFrom !== INITIAL_DATE_FROM) {
                     searchParams.dateFrom = dateFrom
                 } else {
@@ -442,12 +399,6 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                     searchParams.dateTo = dateTo
                 } else {
                     delete searchParams.dateTo
-                }
-
-                if (interval !== INITIAL_INTERVAL) {
-                    searchParams.interval = interval
-                } else {
-                    delete searchParams.interval
                 }
 
                 if (requestNameBreakdownEnabled !== INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED) {
@@ -464,7 +415,6 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             } else {
                 delete searchParams.dateFrom
                 delete searchParams.dateTo
-                delete searchParams.interval
                 delete searchParams.requestNameBreakdownEnabled
                 delete searchParams.requestNameFilter
             }
@@ -473,31 +423,20 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
         }
 
         return {
-            setActiveTab: actionToUrl,
             setDates: actionToUrl,
-            setDatesAndInterval: actionToUrl,
             setRequestNameBreakdownEnabled: actionToUrl,
             setRequestNameFilter: actionToUrl,
         }
     }),
 
     tabAwareUrlToAction(({ actions }) => ({
-        [urls.embeddedAnalytics(':tab')]: (path, searchParams) => {
-            actions.setActiveTab(path.tab as EmbeddedTab)
-            if (path.tab === EmbeddedTab.USAGE) {
-                const { dateFrom, dateTo, interval, requestNameBreakdownEnabled, requestNameFilter } = searchParams
-                actions.setDatesAndInterval(
-                    dateFrom ?? INITIAL_DATE_FROM,
-                    dateTo ?? INITIAL_DATE_TO,
-                    interval ?? INITIAL_INTERVAL
-                )
-                actions.setRequestNameBreakdownEnabled(
-                    requestNameBreakdownEnabled ?? INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED
-                )
-                actions.setRequestNameFilter(requestNameFilter ? requestNameFilter.split(',') : [])
-            }
+        [urls.embeddedAnalyticsUsage()]: (_, searchParams) => {
+            const { dateFrom, dateTo, requestNameBreakdownEnabled, requestNameFilter } = searchParams
+            actions.setDates(dateFrom ?? INITIAL_DATE_FROM, dateTo ?? INITIAL_DATE_TO)
+            actions.setRequestNameBreakdownEnabled(
+                requestNameBreakdownEnabled ?? INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED
+            )
+            actions.setRequestNameFilter(requestNameFilter ? requestNameFilter.split(',') : [])
         },
     })),
-
-    permanentlyMount(),
 ])

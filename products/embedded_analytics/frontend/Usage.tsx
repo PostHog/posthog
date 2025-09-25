@@ -1,17 +1,30 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 
 import { Query } from '~/queries/Query/Query'
 
-import { EmbeddedAnalyticsTile, EmbeddedQueryTile } from './common'
+import { UsageFilters } from './UsageFilters'
+import { UsageQueryTile } from './common'
+import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
 
-export const EmbeddedTiles = (props: { tiles: EmbeddedAnalyticsTile[] }): JSX.Element => {
+export function Usage({ tabId }: { tabId: string }): JSX.Element {
+    const { tiles } = useValues(embeddedAnalyticsLogic({ tabId }))
+
+    return (
+        <>
+            <UsageFilters tabId={tabId} />
+            <UsageTiles tiles={tiles} />
+        </>
+    )
+}
+
+const UsageTiles = (props: { tiles: UsageQueryTile[] }): JSX.Element => {
     const { tiles } = props
-
     return (
         <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-x-4 gap-y-8">
             {tiles.map((tile, i) => {
                 if (tile.kind === 'query') {
-                    return <EmbeddedQueryTileItem key={i} tile={tile} />
+                    return <UsageQueryTileItem key={i} tile={tile} />
                 }
                 return null
             })}
@@ -19,7 +32,7 @@ export const EmbeddedTiles = (props: { tiles: EmbeddedAnalyticsTile[] }): JSX.El
     )
 }
 
-const EmbeddedQueryTileItem = ({ tile }: { tile: EmbeddedQueryTile }): JSX.Element => {
+const UsageQueryTileItem = ({ tile }: { tile: UsageQueryTile }): JSX.Element => {
     const { query, title, layout } = tile
 
     return (

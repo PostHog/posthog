@@ -1,18 +1,11 @@
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
-import { getDefaultInterval } from 'lib/utils'
 
 import { QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 export const INITIAL_DATE_FROM = '-7d' as string
 export const INITIAL_DATE_TO = null as string | null
-export const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
-export const INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED = false
-
-export enum EmbeddedTab {
-    USAGE = 'usage',
-    QUERY_ENDPOINTS = 'query-endpoints',
-}
+export const INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED = false as boolean
 
 export interface EmbeddedTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -56,7 +49,7 @@ export interface EmbeddedDocs {
     description: string | JSX.Element
 }
 
-export interface EmbeddedQueryTile extends EmbeddedBaseTile {
+export interface UsageQueryTile extends EmbeddedBaseTile {
     kind: 'query'
     title?: string
     query: QuerySchema
@@ -66,5 +59,3 @@ export interface EmbeddedQueryTile extends EmbeddedBaseTile {
     canOpenModal?: boolean
     canOpenInsight?: boolean
 }
-
-export type EmbeddedAnalyticsTile = EmbeddedQueryTile

@@ -47,8 +47,6 @@ class AdvancedActivityLogFieldDiscovery:
             "users": self._get_available_users(queryset),
             "scopes": self._get_available_scopes(queryset),
             "activities": self._get_available_activities(queryset),
-            "was_impersonated": self._get_available_was_impersonated(queryset),
-            "is_system": self._get_available_is_system(queryset),
         }
 
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
@@ -194,11 +192,3 @@ class AdvancedActivityLogFieldDiscovery:
                 field_types = ["any"]
             result.append(("General", field_name, field_types))
         return result
-
-    def _get_available_was_impersonated(self, queryset: QuerySet) -> list[dict[str, str]]:
-        was_impersonated_values = queryset.values_list("was_impersonated", flat=True).distinct()
-        return [{"value": str(value).lower(), "label": "Yes" if value else "No"} for value in was_impersonated_values]
-
-    def _get_available_is_system(self, queryset: QuerySet) -> list[dict[str, str]]:
-        is_system_values = queryset.values_list("is_system", flat=True).distinct()
-        return [{"value": str(value).lower(), "label": "Yes" if value else "No"} for value in is_system_values]
