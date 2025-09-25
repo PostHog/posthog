@@ -75,7 +75,7 @@ class MailjetProvider:
         dkim_status = dns_status_response.get("DKIMStatus", "Not checked")
         # SPF status possible values: "Not checked", "Not found", "OK", "Error"
         spf_status = dns_status_response.get("SPFStatus", "Not checked")
-        overall_status = "success" if dkim_status == "OK" and spf_status == "OK" else "pending" and is_mailjet_validated
+        overall_status = "success" if dkim_status == "OK" and spf_status == "OK" and is_mailjet_validated else "pending"
 
         if "DKIMRecordName" in required_dns_records and "DKIMRecordValue" in required_dns_records:
             formatted_dns_records.append(
