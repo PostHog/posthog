@@ -107,7 +107,7 @@ where
 
     /// Start consuming messages in a loop with graceful shutdown support
     pub async fn start_consumption(self) -> Result<()> {
-        info!("Starting stateful Kafka message consumption");
+        info!("Starting batch Kafka message consumption...");
 
         let batch_timeout = self.batch_timeout;
         let batch_size = self.batch_size;
@@ -151,7 +151,6 @@ where
                         Err(e) => {
                             metrics::counter!(BATCH_CONSUMER_KAFKA_ERRORS).increment(1);
                             error!("Error consuming Batch from stream: {e}");
-                            tokio::time::sleep(Duration::from_millis(100)).await;
                         }
                     }
                 }
