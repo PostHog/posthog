@@ -117,7 +117,7 @@ export function FilterPanel(): JSX.Element {
         heatmapDataLogic({ context: 'in-app' })
     )
 
-    const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false, inStorybookTestRunner() ? 1 : 200)
+    const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false, inStorybookTestRunner() ? 0 : 200)
 
     return (
         <>
