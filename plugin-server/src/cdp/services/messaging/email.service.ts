@@ -42,7 +42,7 @@ export class EmailService {
 
             this.validateEmailDomain(integration, params)
 
-            switch (this.getEmailDeliveryMode()) {
+            switch (integration.config.provider ?? 'mailjet') {
                 case 'maildev':
                     await this.sendEmailWithMaildev(result, params)
                     break
@@ -97,21 +97,6 @@ export class EmailService {
 
         params.from.email = integration.config.email
         params.from.name = integration.config.name
-    }
-
-    private getEmailDeliveryMode(): 'mailjet' | 'maildev' | 'ses' | 'unsupported' {
-        if (this.hub.MAILJET_PUBLIC_KEY && this.hub.MAILJET_SECRET_KEY) {
-            return 'mailjet'
-        }
-
-        if (this.hub.SES_ACCESS_KEY_ID && this.hub.SES_SECRET_ACCESS_KEY) {
-            return 'ses'
-        }
-
-        if (mailDevTransport) {
-            return 'maildev'
-        }
-        return 'unsupported'
     }
 
     private async sendEmailWithMailjet(
