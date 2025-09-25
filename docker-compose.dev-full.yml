@@ -258,6 +258,13 @@ services:
             file: docker-compose.base.yml
             service: jaeger
 
+    localstack:
+        extends:
+            file: docker-compose.base.yml
+            service: localstack
+        ports:
+            - '4566:4566'
+
 networks:
     otel_network:
         driver: bridge
