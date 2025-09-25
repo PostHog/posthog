@@ -69,3 +69,6 @@ pub const ISSUE_PROCESSING_TIME: &str = "cymbal_issue_processing_time";
 pub const FRAME_BATCH_TIME: &str = "cymbal_frame_batch_time";
 pub const FINGERPRINT_BATCH_TIME: &str = "cymbal_fingerprint_batch_time";
 pub const GROUP_TYPE_MAPPING_TIME: &str = "cymbal_group_type_mapping_time";
+pub const TRANSFORMATION_TIME: &str = "cymbal_transformation_time";
+pub const TRANSFORMATION_OUTCOME: &str = "cymbal_transformation_outcome";
+pub const TRANSFORMATION_EVENTS_DROPPED: &str = "cymbal_transformation_events_dropped";

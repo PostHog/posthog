@@ -158,6 +158,8 @@ pub enum EventError {
     FailedToDeserialize(Box<CapturedEvent>, String),
     #[error("Filtered by team id")]
     FilteredByTeamId,
+    #[error("Event dropped by transformation")]
+    DroppedByTransformation,
 }
 
 impl From<JsResolveErr> for ResolveError {

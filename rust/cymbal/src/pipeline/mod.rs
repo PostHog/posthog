@@ -22,9 +22,9 @@ use crate::{
     metric_consts::{
         BILLING_LIMITS_TIME, CLEAN_PROPS_TIME, EMIT_INGESTION_WARNINGS_TIME,
         EXCEPTION_PROCESSING_TIME, GEOIP_TIME, GROUP_TYPE_MAPPING_TIME, PERSON_PROCESSING_TIME,
-        PREPARE_EVENTS_TIME, TEAM_LOOKUP_TIME,
+        PREPARE_EVENTS_TIME, TEAM_LOOKUP_TIME, TRANSFORMATION_TIME,
     },
-    pipeline::group::map_group_types,
+    pipeline::{group::map_group_types, transformations::apply_transformations},
     teams::do_team_lookups,
 };
 
@@ -117,6 +117,11 @@ pub async fn handle_batch(
         .map_err(log_err)
         .unwrap();
     person_time.label("outcome", "success").fin();
+    assert_eq!(start_count, buffer.len());
+
+    let transform_time = common_metrics::timing_guard(TRANSFORMATION_TIME, &[]);
+    let buffer = apply_transformations(buffer, context.clone()).await?;
+    transform_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
     // We choose to panic if this fails, because failure to emit ingestion warnings implies a kafka problem
