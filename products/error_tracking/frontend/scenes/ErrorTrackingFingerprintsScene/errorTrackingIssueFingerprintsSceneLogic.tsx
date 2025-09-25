@@ -41,9 +41,9 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
         }),
     }),
 
-    connect({
+    connect(() => ({
         actions: [issueActionsLogic, ['splitIssue']],
-    }),
+    })),
 
     defaults({
         issue: null as ErrorTrackingRelationalIssue | null,
