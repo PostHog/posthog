@@ -40,6 +40,7 @@ import {
     createParseHeadersStep,
     createParseKafkaMessageStep,
     createResolveTeamStep,
+    createValidateEventPropertiesStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
 import {
@@ -239,6 +240,7 @@ export class IngestionConsumer {
             .pipe(createParseKafkaMessageStep())
             .pipe(createDropExceptionEventsStep())
             .pipeAsync(createResolveTeamStep(this.hub))
+            .pipeAsync(createValidateEventPropertiesStep(this.hub))
             .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
             .pipeAsync(createValidateEventUuidStep(this.hub))
 

@@ -29,7 +29,6 @@ export class RetryingPipeline<TInput, TOutput> implements Pipeline<TInput, TOutp
             )
             return result
         } catch (error) {
-            console.log('error', error)
             logger.error('🔥', `Error processing message`, {
                 stack: error.stack,
                 error: error,

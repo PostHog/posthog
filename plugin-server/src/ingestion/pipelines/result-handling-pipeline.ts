@@ -49,8 +49,10 @@ export class ResultHandlingPipeline<TInput, TOutput> {
                 processedResults.push(value)
             } else {
                 // For non-success results, get the message from context
+                const result = resultWithContext.result
                 const originalMessage = resultWithContext.context.message
-                await this.handleNonSuccessResult(resultWithContext.result, originalMessage, 'result_handler')
+                const lastStep = resultWithContext.context.lastStep || 'unknown'
+                await this.handleNonSuccessResult(result, originalMessage, lastStep)
             }
         }
 

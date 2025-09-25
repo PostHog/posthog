@@ -19,6 +19,7 @@ import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
+import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
 import { IngestionConsumer } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
@@ -31,6 +32,11 @@ jest.mock('../utils/posthog', () => {
         captureException: jest.fn(),
     }
 })
+
+// Mock the event pipeline runner v1 step for error testing
+jest.mock('./event-processing/event-pipeline-runner-v1-step', () => ({
+    createEventPipelineRunnerV1Step: jest.fn(),
+}))
 
 let offsetIncrementer = 0
 
@@ -151,12 +157,17 @@ describe('IngestionConsumer', () => {
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
+
+        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((hub, hogTransformer) => {
+            const original = jest.requireActual('./event-processing/event-pipeline-runner-v1-step')
+            return original.createEventPipelineRunnerV1Step(hub, hogTransformer)
+        })
+
+        ingester = await createIngestionConsumer(hub)
     })
 
     afterEach(async () => {
-        if (ingester) {
-            await ingester.stop()
-        }
+        await ingester.stop()
         await closeHub(hub)
     })
 
@@ -165,10 +176,6 @@ describe('IngestionConsumer', () => {
     })
 
     describe('general', () => {
-        beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
-        })
-
         it('should have the correct config', () => {
             expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-consumer-events_plugin_ingestion_test"`)
             expect(ingester['groupId']).toMatchInlineSnapshot(`"events-ingestion-consumer"`)
@@ -288,14 +295,16 @@ describe('IngestionConsumer', () => {
             })
 
             describe('force overflow', () => {
-                beforeEach(async () => {
-                    // Reset ingester with force overflow token:distinct_id pair
+                let ingester: IngestionConsumer
+
+                afterEach(async () => {
                     await ingester.stop()
-                    hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:team1-user`
-                    ingester = await createIngestionConsumer(hub)
                 })
 
                 it('should force events with matching token:distinct_id to overflow', async () => {
+                    hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:team1-user`
+                    ingester = await createIngestionConsumer(hub)
+
                     const events = [
                         createEvent({ token: team.api_token, distinct_id: 'team1-user' }), // should overflow
                         createEvent({ token: team.api_token, distinct_id: 'team1-other' }), // should not overflow (different distinct_id)
@@ -329,8 +338,6 @@ describe('IngestionConsumer', () => {
                 })
 
                 it('should handle multiple token:distinct_id pairs in force overflow setting', async () => {
-                    // Reset ingester with multiple force overflow token:distinct_id pairs
-                    await ingester.stop()
                     hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:user1,${team2.api_token}:user2`
                     ingester = await createIngestionConsumer(hub)
 
@@ -378,7 +385,6 @@ describe('IngestionConsumer', () => {
 
                 describe('via headers (preprocessing)', () => {
                     it('forces overflow using headers even if payload token/distinct_id differ', async () => {
-                        await ingester.stop()
                         hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
                         ingester = await createIngestionConsumer(hub)
 
@@ -404,7 +410,6 @@ describe('IngestionConsumer', () => {
 
                     it('preserves partition locality when not skipping person; drops key when skipping person', async () => {
                         // Not skipping person -> key preserved
-                        await ingester.stop()
                         hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
                         hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = ''
                         hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = true
@@ -684,14 +689,11 @@ describe('IngestionConsumer', () => {
     describe('error handling', () => {
         let messages: Message[]
 
-        beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
+        beforeEach(() => {
             // Simulate some sort of error happening by mocking out the runner
             messages = createKafkaMessages([createEvent()])
             jest.spyOn(logger, 'error').mockImplementation(() => {})
         })
-
-        afterEach(() => {})
 
         it('should handle explicitly non retriable errors by sending to DLQ', async () => {
             // NOTE: I don't think this makes a lot of sense but currently is just mimicing existing behavior for the migration
@@ -699,12 +701,15 @@ describe('IngestionConsumer', () => {
 
             const error: any = new Error('test')
             error.isRetriable = false
-            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
-                runEventPipeline: () => {
-                    throw error
-                },
+
+            // Mock the event pipeline runner v1 step to throw the error
+            jest.mocked(createEventPipelineRunnerV1Step).mockImplementation(() => {
+                return async function eventPipelineRunnerV1Step() {
+                    return Promise.reject(error)
+                }
             })
 
+            const ingester = await createIngestionConsumer(hub)
             await ingester.handleKafkaBatch(messages)
 
             expect(jest.mocked(logger.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
@@ -715,12 +720,15 @@ describe('IngestionConsumer', () => {
         it.each([undefined, true])('should throw if isRetriable is set to %s', async (isRetriable) => {
             const error: any = new Error('test')
             error.isRetriable = isRetriable
-            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
-                runEventPipeline: () => {
-                    throw error
-                },
+
+            // Mock the event pipeline runner v1 step to throw the error
+            jest.mocked(createEventPipelineRunnerV1Step).mockImplementation(() => {
+                return async function eventPipelineRunnerV1Step() {
+                    return Promise.reject(error)
+                }
             })
 
+            const ingester = await createIngestionConsumer(hub)
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
         })
     })

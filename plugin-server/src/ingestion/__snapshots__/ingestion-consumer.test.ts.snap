@@ -5,6 +5,11 @@ exports[`IngestionConsumer error handling should handle explicitly non retriable
   {
     "headers": {
       "event-id": "<REPLACED-UUID-0>",
+      "distinct_id": "user-1",
+      "dlq-reason": "test",
+      "dlq-step": "unknown",
+      "dlq-timestamp": "2025-01-01T00:00:00.000Z",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
     "topic": "events_plugin_ingestion_dlq_test",
