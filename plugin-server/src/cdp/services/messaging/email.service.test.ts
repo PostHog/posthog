@@ -45,7 +45,7 @@ describe('EmailService', () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: 1,
                 kind: 'email',
-                config: { email: 'test@posthog.com', name: 'Test User', domain: 'posthog.com', mailjet_verified: true },
+                config: { email: 'test@posthog.com', name: 'Test User', domain: 'posthog.com', verified: true },
             })
             invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
             invocation.id = 'invocation-1'
@@ -61,7 +61,7 @@ describe('EmailService', () => {
                         email: 'test@other-domain.com',
                         name: 'Test User',
                         domain: 'other-domain.com',
-                        mailjet_verified: false,
+                        verified: false,
                     },
                 })
                 await insertIntegration(hub.postgres, team.id, {
@@ -158,7 +158,7 @@ describe('EmailService', () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: 1,
                 kind: 'email',
-                config: { email: 'test@posthog.com', name: 'Test User', domain: 'posthog.com', mailjet_verified: true },
+                config: { email: 'test@posthog.com', name: 'Test User', domain: 'posthog.com', verified: true },
             })
             invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
             invocation.id = 'invocation-1'

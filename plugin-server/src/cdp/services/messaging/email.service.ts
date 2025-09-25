@@ -82,7 +82,7 @@ export class EmailService {
     ): void {
         // Currently we enforce using the name and email set on the integration
 
-        if (!integration.config.mailjet_verified) {
+        if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
         }
 

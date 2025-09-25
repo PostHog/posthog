@@ -243,7 +243,7 @@ class SESProvider:
 
         # Normalize overall status
         if verification_status == "Success" and dkim_status == "Success":
-            overall = "verified"
+            overall = "success"
         elif "Failed" in (verification_status, dkim_status):
             overall = "failed"
         else:
@@ -255,17 +255,17 @@ class SESProvider:
         if verification_status == "Success":
             for r in dns_records:
                 if r["type"] == "verification":
-                    r["status"] = "verified"
+                    r["status"] = "success"
         if dkim_status == "Success":
             for r in dns_records:
                 if r["type"] == "dkim":
-                    r["status"] = "verified"
+                    r["status"] = "success"
 
         # If MAIL FROM attrs said Success earlier, MX already marked verified
 
         return {
             "status": overall,
-            "dnsRecords": dns_records if overall != "verified" else [],
+            "dnsRecords": dns_records if overall != "success" else [],
         }
 
     def delete_identity(self, identity: str):
