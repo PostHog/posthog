@@ -814,13 +814,11 @@ impl TestContext {
         &self,
         cohort_id: CohortId,
         person_id: PersonId,
-        team_id: i32,
     ) -> Result<(), Error> {
         add_person_to_cohort(
-            self.non_persons_writer.clone(),
+            self.persons_writer.clone(),
             person_id,
             cohort_id,
-            team_id,
         )
         .await
     }
@@ -830,7 +828,7 @@ impl TestContext {
         &self,
         team_id: i32,
         distinct_ids: Vec<String>,
-    ) -> Result<Vec<(String, String)>, Error> {
+    ) -> Result<std::collections::HashMap<String, String>, super::super::api::errors::FlagError> {
         super::super::flags::flag_matching_utils::get_feature_flag_hash_key_overrides(
             self.persons_reader.clone(),
             team_id,
@@ -847,5 +845,65 @@ impl TestContext {
     /// Get a connection to the non-persons database (for direct SQL operations)
     pub async fn get_non_persons_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
         self.non_persons_writer.get_connection().await
+    }
+
+    /// Create a group for a team
+    pub async fn create_group(
+        &self,
+        team_id: i32,
+        group_type: &str,
+        group_key: &str,
+        group_properties: Value,
+    ) -> Result<Group, Error> {
+        create_group_in_pg(
+            self.persons_writer.clone(),
+            team_id,
+            group_type,
+            group_key,
+            group_properties,
+        )
+        .await
+    }
+
+    /// Insert a suppression rule for error tracking
+    pub async fn insert_suppression_rule(
+        &self,
+        team_id: i32,
+        filters: serde_json::Value,
+    ) -> Result<uuid::Uuid, Error> {
+        insert_suppression_rule_in_pg(
+            self.non_persons_writer.clone(),
+            team_id,
+            filters,
+        )
+        .await
+    }
+
+    /// Update autocapture exceptions setting for a team
+    pub async fn update_team_autocapture_exceptions(
+        &self,
+        team_id: i32,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        update_team_autocapture_exceptions(
+            self.non_persons_writer.clone(),
+            team_id,
+            enabled,
+        )
+        .await
+    }
+
+    /// Get person ID by distinct ID
+    pub async fn get_person_id_by_distinct_id(
+        &self,
+        team_id: i32,
+        distinct_id: &str,
+    ) -> Result<PersonId, Error> {
+        get_person_id_by_distinct_id(
+            self.persons_reader.clone(),
+            team_id,
+            distinct_id,
+        )
+        .await
     }
 }

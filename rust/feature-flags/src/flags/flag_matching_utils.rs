@@ -935,22 +935,19 @@ mod tests {
     use crate::{
         flags::flag_models::{FeatureFlagRow, FlagFilters},
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-        utils::test_utils::{
-            create_test_flag, insert_flag_for_team_in_pg, insert_new_team_in_pg,
-            insert_person_for_team_in_pg, setup_dual_pg_writers,
-        },
+        utils::test_utils::{create_test_flag, TestContext},
     };
 
     use super::*;
 
     #[tokio::test]
     async fn test_set_feature_flag_hash_key_overrides_success() {
-        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
         let distinct_id = "user2".to_string();
 
         // Insert person
-        insert_person_for_team_in_pg(persons_writer.clone(), team.id, distinct_id.clone(), None)
+        context.insert_person(team.id, distinct_id.clone(), None)
             .await
             .unwrap();
 
@@ -988,17 +985,12 @@ mod tests {
         };
 
         // Insert the feature flag into the database
-        insert_flag_for_team_in_pg(non_persons_writer.clone(), team.id, Some(flag_row))
+        context.insert_flag(team.id, Some(flag_row))
             .await
             .unwrap();
 
         // Set hash key override
-        let router = crate::database::PostgresRouter::new(
-            persons_writer.clone(),
-            persons_writer.clone(),
-            non_persons_writer.clone(),
-            non_persons_writer.clone(),
-        );
+        let router = context.create_postgres_router();
         set_feature_flag_hash_key_overrides(
             &router,
             team.id,
@@ -1011,7 +1003,7 @@ mod tests {
 
         // Retrieve hash key overrides
         let overrides =
-            get_feature_flag_hash_key_overrides(persons_writer.clone(), team.id, vec![distinct_id.clone()])
+            context.get_feature_flag_hash_key_overrides(team.id, vec![distinct_id.clone()])
                 .await
                 .unwrap();
 
@@ -1024,14 +1016,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_feature_flag_hash_key_overrides_with_multiple_persons() {
-        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
         // Create 3 persons
-        let person1_id = insert_person_for_team_in_pg(
-            persons_writer.clone(),
+        let person1_id = context.insert_person(
             team.id,
             "batch_user1".to_string(),
             Some(json!({"email": "user1@example.com"})),
@@ -1039,8 +1030,7 @@ mod tests {
         .await
         .expect("Failed to insert person1");
 
-        let _person2_id = insert_person_for_team_in_pg(
-            persons_writer.clone(),
+        let _person2_id = context.insert_person(
             team.id,
             "batch_user2".to_string(),
             Some(json!({"email": "user2@example.com"})),
@@ -1048,8 +1038,7 @@ mod tests {
         .await
         .expect("Failed to insert person2");
 
-        let _person3_id = insert_person_for_team_in_pg(
-            persons_writer.clone(),
+        let _person3_id = context.insert_person(
             team.id,
             "batch_user3".to_string(),
             Some(json!({"email": "user3@example.com"})),
@@ -1058,8 +1047,7 @@ mod tests {
         .expect("Failed to insert person3");
 
         // Add additional distinct_id for person1 to test multiple distinct_ids per person
-        let mut conn = persons_writer.clone()
-            .get_connection()
+        let mut conn = context.get_persons_connection()
             .await
             .expect("Failed to get connection");
         let mut transaction = conn.begin().await.expect("Failed to begin transaction");
@@ -1094,7 +1082,7 @@ mod tests {
                 version: Some(1),
                 evaluation_runtime: None,
             };
-            insert_flag_for_team_in_pg(non_persons_writer.clone(), team.id, Some(flag_row))
+            context.insert_flag(team.id, Some(flag_row))
                 .await
                 .unwrap_or_else(|_| panic!("Failed to insert flag {i}"));
         }
@@ -1108,12 +1096,7 @@ mod tests {
         ];
         let hash_key = "batch_hash_key".to_string();
 
-        let router = crate::database::PostgresRouter::new(
-            persons_writer.clone(),
-            persons_writer.clone(),
-            non_persons_writer.clone(),
-            non_persons_writer.clone(),
-        );
+        let router = context.create_postgres_router();
         let result = set_feature_flag_hash_key_overrides(
             &router,
             team.id,
@@ -1129,8 +1112,7 @@ mod tests {
         // Verify all combinations were created correctly
         // Should create overrides for all distinct_ids
         for distinct_id in &distinct_ids {
-            let overrides = get_feature_flag_hash_key_overrides(
-                persons_writer.clone(),
+            let overrides = context.get_feature_flag_hash_key_overrides(
                 team.id,
                 vec![distinct_id.clone()],
             )
@@ -1155,8 +1137,7 @@ mod tests {
 
         // Verify the actual count in the database
         // batch_user1 and batch_user1_alt map to same person, so 3 persons * 4 flags = 12 overrides
-        let mut conn = persons_writer.clone()
-            .get_connection()
+        let mut conn = context.get_persons_connection()
             .await
             .expect("Failed to get connection");
         let count: i64 = sqlx::query_scalar(
@@ -1177,14 +1158,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_feature_flag_hash_key_overrides_with_with_existing_overrides() {
-        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
         // Create 2 persons
-        let person1_id = insert_person_for_team_in_pg(
-            persons_writer.clone(),
+        let person1_id = context.insert_person(
             team.id,
             "existing_user1".to_string(),
             Some(json!({"email": "existing1@example.com"})),
@@ -1192,8 +1172,7 @@ mod tests {
         .await
         .expect("Failed to insert person1");
 
-        let _person2_id = insert_person_for_team_in_pg(
-            persons_writer.clone(),
+        let _person2_id = context.insert_person(
             team.id,
             "existing_user2".to_string(),
             Some(json!({"email": "existing2@example.com"})),
@@ -1215,14 +1194,13 @@ mod tests {
                 version: Some(1),
                 evaluation_runtime: None,
             };
-            insert_flag_for_team_in_pg(non_persons_writer.clone(), team.id, Some(flag_row))
+            context.insert_flag(team.id, Some(flag_row))
                 .await
                 .unwrap_or_else(|_| panic!("Failed to insert flag {i}"));
         }
 
         // Manually insert some existing overrides
-        let mut conn = non_persons_writer.clone()
-            .get_connection()
+        let mut conn = context.get_persons_connection()
             .await
             .expect("Failed to get connection");
         let mut transaction = conn.begin().await.expect("Failed to begin transaction");
@@ -1249,12 +1227,7 @@ mod tests {
         let distinct_ids = vec!["existing_user1".to_string(), "existing_user2".to_string()];
         let new_hash = "new_batch_hash".to_string();
 
-        let router = crate::database::PostgresRouter::new(
-            persons_writer.clone(),
-            persons_writer.clone(),
-            non_persons_writer.clone(),
-            non_persons_writer.clone(),
-        );
+        let router = context.create_postgres_router();
         let result = set_feature_flag_hash_key_overrides(
             &router,
             team.id,
@@ -1268,8 +1241,7 @@ mod tests {
         assert!(result, "Should have written new overrides");
 
         // Verify existing overrides are preserved
-        let overrides1 = get_feature_flag_hash_key_overrides(
-            persons_writer.clone(),
+        let overrides1 = context.get_feature_flag_hash_key_overrides(
             team.id,
             vec!["existing_user1".to_string()],
         )
@@ -1293,8 +1265,7 @@ mod tests {
         );
 
         // Verify the count - should have 6 total (2 existing + 4 new)
-        let mut conn = persons_writer.clone()
-            .get_connection()
+        let mut conn = context.get_persons_connection()
             .await
             .expect("Failed to get connection");
         let count: i64 = sqlx::query_scalar(
@@ -1313,14 +1284,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_overrides_filters_inactive_and_deleted_flags() {
-        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
         // Create a person
-        insert_person_for_team_in_pg(
-            persons_writer.clone(),
+        context.insert_person(
             team.id,
             "filter_test_user".to_string(),
             Some(json!({"email": "filter@example.com"})),
@@ -1381,26 +1351,21 @@ mod tests {
             evaluation_runtime: None,
         };
 
-        insert_flag_for_team_in_pg(non_persons_writer.clone(), team.id, Some(active_flag))
+        context.insert_flag(team.id, Some(active_flag))
             .await
             .expect("Failed to insert active flag");
-        insert_flag_for_team_in_pg(non_persons_writer.clone(), team.id, Some(inactive_flag))
+        context.insert_flag(team.id, Some(inactive_flag))
             .await
             .expect("Failed to insert inactive flag");
-        insert_flag_for_team_in_pg(non_persons_writer.clone(), team.id, Some(deleted_flag))
+        context.insert_flag(team.id, Some(deleted_flag))
             .await
             .expect("Failed to insert deleted flag");
-        insert_flag_for_team_in_pg(non_persons_writer.clone(), team.id, Some(no_continuity_flag))
+        context.insert_flag(team.id, Some(no_continuity_flag))
             .await
             .expect("Failed to insert no continuity flag");
 
         // Set overrides
-        let router = crate::database::PostgresRouter::new(
-            persons_writer.clone(),
-            persons_writer.clone(),
-            non_persons_writer.clone(),
-            non_persons_writer.clone(),
-        );
+        let router = context.create_postgres_router();
         let result = set_feature_flag_hash_key_overrides(
             &router,
             team.id,
@@ -1414,8 +1379,7 @@ mod tests {
         assert!(result, "Should have written override for active flag");
 
         // Verify only the active flag with experience continuity got an override
-        let overrides = get_feature_flag_hash_key_overrides(
-            persons_writer.clone(),
+        let overrides = context.get_feature_flag_hash_key_overrides(
             team.id,
             vec!["filter_test_user".to_string()],
         )
@@ -1446,14 +1410,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_should_write_hash_key_override() {
-        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
         // Create a person
-        insert_person_for_team_in_pg(
-            persons_writer.clone(),
+        context.insert_person(
             team.id,
             "should_write_user".to_string(),
             Some(json!({"email": "should_write@example.com"})),
@@ -1474,17 +1437,12 @@ mod tests {
             version: Some(1),
             evaluation_runtime: None,
         };
-        insert_flag_for_team_in_pg(non_persons_writer.clone(), team.id, Some(flag_row))
+        context.insert_flag(team.id, Some(flag_row))
             .await
             .expect("Failed to insert flag");
 
         // Test 1: Should return true when no overrides exist
-        let router = crate::database::PostgresRouter::new(
-            persons_writer.clone(),
-            persons_writer.clone(),
-            non_persons_writer.clone(),
-            non_persons_writer.clone(),
-        );
+        let router = context.create_postgres_router();
         let should_write = should_write_hash_key_override(
             &router,
             team.id,
@@ -1498,12 +1456,7 @@ mod tests {
         assert!(should_write, "Should write when no overrides exist");
 
         // Now set an override
-        let router = crate::database::PostgresRouter::new(
-            persons_writer.clone(),
-            persons_writer.clone(),
-            non_persons_writer.clone(),
-            non_persons_writer.clone(),
-        );
+        let router = context.create_postgres_router();
         set_feature_flag_hash_key_overrides(
             &router,
             team.id,
@@ -1515,12 +1468,7 @@ mod tests {
         .expect("Failed to set override");
 
         // Test 2: Should return false when override exists
-        let router = crate::database::PostgresRouter::new(
-            persons_writer.clone(),
-            persons_writer.clone(),
-            non_persons_writer.clone(),
-            non_persons_writer.clone(),
-        );
+        let router = context.create_postgres_router();
         let should_write = should_write_hash_key_override(
             &router,
             team.id,
@@ -1537,12 +1485,7 @@ mod tests {
         );
 
         // Test 3: Should return false for non-existent person
-        let router = crate::database::PostgresRouter::new(
-            persons_writer.clone(),
-            persons_writer.clone(),
-            non_persons_writer.clone(),
-            non_persons_writer.clone(),
-        );
+        let router = context.create_postgres_router();
         let should_write = should_write_hash_key_override(
             &router,
             team.id,
@@ -1558,8 +1501,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_overrides_with_no_persons() {
-        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
@@ -1576,17 +1519,12 @@ mod tests {
             version: Some(1),
             evaluation_runtime: None,
         };
-        insert_flag_for_team_in_pg(non_persons_writer.clone(), team.id, Some(flag_row))
+        context.insert_flag(team.id, Some(flag_row))
             .await
             .expect("Failed to insert flag");
 
         // Try to set overrides for non-existent distinct_ids
-        let router = crate::database::PostgresRouter::new(
-            persons_writer.clone(),
-            persons_writer.clone(),
-            non_persons_writer.clone(),
-            non_persons_writer.clone(),
-        );
+        let router = context.create_postgres_router();
         let result = set_feature_flag_hash_key_overrides(
             &router,
             team.id,
@@ -1603,8 +1541,7 @@ mod tests {
         assert!(!result, "Should return false when no persons found");
 
         // Verify no overrides were created
-        let mut conn = persons_writer.clone()
-            .get_connection()
+        let mut conn = context.get_persons_connection()
             .await
             .expect("Failed to get connection");
         let count: i64 = sqlx::query_scalar(

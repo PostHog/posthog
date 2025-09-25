@@ -20,8 +20,8 @@ use crate::{
     },
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     utils::test_utils::{
-        insert_flags_for_team_in_redis, insert_new_team_in_pg, insert_person_for_team_in_pg,
-        setup_dual_pg_writers, setup_pg_reader_client, setup_pg_writer_client, setup_redis_client,
+        insert_flags_for_team_in_redis, setup_pg_reader_client, setup_pg_writer_client,
+        setup_redis_client, TestContext,
     },
 };
 use axum::http::HeaderMap;
@@ -132,10 +132,8 @@ async fn test_evaluate_feature_flags() {
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
     let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-    let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, None)
-        .await
-        .expect("Failed to insert team in pg");
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.expect("Failed to insert team in pg");
     let flag = FeatureFlag {
         name: Some("Test Flag".to_string()),
         id: 1,
@@ -208,16 +206,11 @@ async fn test_evaluate_feature_flags() {
 #[tokio::test]
 async fn test_evaluate_feature_flags_with_errors() {
     // Set up test dependencies
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+    let context = TestContext::new(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+    let team = context.insert_new_team(None).await.expect("Failed to insert team in pg");
 
-    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-    let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, None)
-        .await
-        .expect("Failed to insert team in pg");
-
-    insert_person_for_team_in_pg(persons_writer, team.id, "user123".to_string(), None)
+    context.insert_person(team.id, "user123".to_string(), None)
         .await
         .expect("Failed to insert person");
 
@@ -262,10 +255,10 @@ async fn test_evaluate_feature_flags_with_errors() {
         project_id: team.project_id,
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
-        persons_reader: reader.clone(),
-        persons_writer: writer.clone(),
-        non_persons_reader: reader.clone(),
-        non_persons_writer: writer,
+        persons_reader: context.persons_reader.clone(),
+        persons_writer: context.persons_writer.clone(),
+        non_persons_reader: context.non_persons_reader.clone(),
+        non_persons_writer: context.non_persons_writer.clone(),
         cohort_cache,
         person_property_overrides: Some(HashMap::new()),
         group_property_overrides: None,
@@ -593,13 +586,11 @@ async fn test_evaluate_feature_flags_multiple_flags() {
     let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
-    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-    let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, None)
-        .await
-        .expect("Failed to insert team in pg");
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.expect("Failed to insert team in pg");
 
     let distinct_id = "user_distinct_id".to_string();
-    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
+    context.insert_person(team.id, distinct_id.clone(), None)
         .await
         .expect("Failed to insert person");
 
@@ -694,10 +685,10 @@ async fn test_evaluate_feature_flags_details() {
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
     let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-    let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, None).await.unwrap();
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
     let distinct_id = "user123".to_string();
-    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
+    context.insert_person(team.id, distinct_id.clone(), None)
         .await
         .expect("Failed to insert person");
 
@@ -854,11 +845,9 @@ fn test_flag_error_request_decoding() {
 
 #[tokio::test]
 async fn test_evaluate_feature_flags_with_overrides() {
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-    let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
+    let context = TestContext::new(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+    let team = context.insert_new_team(None).await.unwrap();
 
     let flag = FeatureFlag {
         name: Some("Test Flag".to_string()),
@@ -906,10 +895,10 @@ async fn test_evaluate_feature_flags_with_overrides() {
         project_id: team.project_id,
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
-        persons_reader: reader.clone(),
-        persons_writer: writer.clone(),
-        non_persons_reader: reader.clone(),
-        non_persons_writer: writer,
+        persons_reader: context.persons_reader.clone(),
+        persons_writer: context.persons_writer.clone(),
+        non_persons_reader: context.non_persons_reader.clone(),
+        non_persons_writer: context.non_persons_writer.clone(),
         cohort_cache,
         person_property_overrides: None,
         group_property_overrides: Some(group_property_overrides),
@@ -951,13 +940,11 @@ async fn test_evaluate_feature_flags_with_overrides() {
 async fn test_long_distinct_id() {
     // distinct_id is CHAR(400)
     let long_id = "a".repeat(400);
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-    let team = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer, None).await.unwrap();
+    let context = TestContext::new(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+    let team = context.insert_new_team(None).await.unwrap();
     let distinct_id = long_id.to_string();
-    insert_person_for_team_in_pg(persons_writer, team.id, distinct_id.clone(), None)
+    context.insert_person(team.id, distinct_id.clone(), None)
         .await
         .expect("Failed to insert person");
     let flag = FeatureFlag {
@@ -991,10 +978,10 @@ async fn test_long_distinct_id() {
         project_id: team.project_id,
         distinct_id: long_id,
         feature_flags: feature_flag_list,
-        persons_reader: reader.clone(),
-        persons_writer: writer.clone(),
-        non_persons_reader: reader.clone(),
-        non_persons_writer: writer,
+        persons_reader: context.persons_reader.clone(),
+        persons_writer: context.persons_writer.clone(),
+        non_persons_reader: context.non_persons_reader.clone(),
+        non_persons_writer: context.non_persons_writer.clone(),
         cohort_cache,
         person_property_overrides: None,
         group_property_overrides: None,
@@ -1133,8 +1120,8 @@ async fn test_fetch_and_filter_flags() {
         redis_writer_client.clone(),
         reader.clone(),
     );
-    let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-    let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
 
     // Create a mix of survey and non-survey flags
     let flags = vec![
