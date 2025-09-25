@@ -24,32 +24,22 @@ from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
     AssistantToolCallMessage,
+    ContextMessage,
     FailureMessage,
-    FunnelsQuery,
-    HogQLQuery,
     HumanMessage,
-    MaxInsightContext,
-    MaxUIContext,
     ReasoningMessage,
-    RetentionQuery,
-    TrendsQuery,
 )
 
-from posthog.hogql_queries.apply_dashboard_filters import (
-    apply_dashboard_filters_to_dict,
-    apply_dashboard_variables_to_dict,
-)
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
-from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
-from ee.hogai.utils.helpers import find_last_ui_context, find_start_message, find_start_message_idx
+from ee.hogai.utils.helpers import find_start_message, insert_messages_before_start
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
     AssistantNodeName,
@@ -63,32 +53,17 @@ from ee.hogai.utils.types import (
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
-    CONTEXTUAL_TOOLS_REMINDER_PROMPT,
     MAX_PERSONALITY_PROMPT,
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
     ROOT_CONVERSATION_SUMMARY_PROMPT,
-    ROOT_DASHBOARD_CONTEXT_PROMPT,
-    ROOT_DASHBOARDS_CONTEXT_PROMPT,
     ROOT_HARD_LIMIT_REACHED_PROMPT,
-    ROOT_INSIGHT_CONTEXT_PROMPT,
-    ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_SYSTEM_PROMPT,
-    ROOT_UI_CONTEXT_PROMPT,
     SESSION_SUMMARIZATION_PROMPT_BASE,
     SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT,
     SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT,
 )
-
-# Map query kinds to their respective full UI query classes
-# NOTE: Update this and SupportedQueryTypes when adding new query types
-MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
-    "TrendsQuery": TrendsQuery,
-    "FunnelsQuery": FunnelsQuery,
-    "RetentionQuery": RetentionQuery,
-    "HogQLQuery": HogQLQuery,
-}
 
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
@@ -106,216 +81,11 @@ RouteName = Literal[
 ]
 
 
-RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
+RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 
-class RootNodeUIContextMixin(AssistantNode):
-    """Mixin that provides UI context formatting capabilities for root nodes."""
-
-    async def _format_ui_context(self, ui_context: MaxUIContext | None, config: RunnableConfig) -> str | None:
-        """
-        Format UI context into template variables for the prompt.
-
-        Args:
-            ui_context: UI context data or None
-
-        Returns:
-            Dict of context variables for prompt template
-        """
-        if not ui_context:
-            return ""
-
-        query_runner = AssistantQueryExecutor(self._team, self._utc_now_datetime)
-
-        # Format dashboard context with insights
-        dashboard_context = ""
-        if ui_context.dashboards:
-            dashboard_contexts = []
-
-            for dashboard in ui_context.dashboards:
-                dashboard_insights = ""
-                if dashboard.insights:
-                    insight_texts = []
-                    for insight in dashboard.insights:
-                        # Get formatted insight
-                        dashboard_filters = (
-                            dashboard.filters.model_dump()
-                            if hasattr(dashboard, "filters") and dashboard.filters
-                            else None
-                        )
-                        formatted_insight = await self._arun_and_format_insight(
-                            config,
-                            insight,
-                            query_runner,
-                            dashboard_filters,
-                            heading="####",
-                        )
-                        if formatted_insight:
-                            insight_texts.append(formatted_insight)
-
-                    dashboard_insights = "\n\n".join(insight_texts)
-
-                # Use the dashboard template
-                dashboard_text = (
-                    PromptTemplate.from_template(ROOT_DASHBOARD_CONTEXT_PROMPT, template_format="mustache")
-                    .format_prompt(
-                        name=dashboard.name or f"Dashboard {dashboard.id}",
-                        description=dashboard.description if dashboard.description else None,
-                        insights=dashboard_insights,
-                    )
-                    .to_string()
-                )
-                dashboard_contexts.append(dashboard_text)
-
-            if dashboard_contexts:
-                joined_dashboards = "\n\n".join(dashboard_contexts)
-                # Use the dashboards template
-                dashboard_context = (
-                    PromptTemplate.from_template(ROOT_DASHBOARDS_CONTEXT_PROMPT, template_format="mustache")
-                    .format_prompt(dashboards=joined_dashboards)
-                    .to_string()
-                )
-
-        # Format standalone insights context
-        insights_context = ""
-        if ui_context.insights:
-            insights_results = []
-            for insight in ui_context.insights:
-                result = await self._arun_and_format_insight(config, insight, query_runner, None, heading="##")
-                if result:
-                    insights_results.append(result)
-
-            if insights_results:
-                joined_results = "\n\n".join(insights_results)
-                # Use the insights template
-                insights_context = (
-                    PromptTemplate.from_template(ROOT_INSIGHTS_CONTEXT_PROMPT, template_format="mustache")
-                    .format_prompt(insights=joined_results)
-                    .to_string()
-                )
-
-        # Format events and actions context
-        events_context = self._format_entity_context(ui_context.events, "events", "Event")
-        actions_context = self._format_entity_context(ui_context.actions, "actions", "Action")
-
-        if dashboard_context or insights_context or events_context or actions_context:
-            return self._render_user_context_template(
-                dashboard_context, insights_context, events_context, actions_context
-            )
-        return None
-
-    async def _arun_and_format_insight(
-        self,
-        config: RunnableConfig,
-        insight: MaxInsightContext,
-        query_runner: AssistantQueryExecutor,
-        dashboard_filters: Optional[dict] = None,
-        heading: Optional[str] = None,
-    ) -> str | None:
-        """
-        Run and format a single insight for AI consumption.
-
-        Args:
-            insight: Insight object with query and metadata
-            query_runner: AssistantQueryExecutor instance for execution
-            dashboard_filters: Optional dashboard filters to apply to the query
-
-        Returns:
-            Formatted insight string or empty string if failed
-        """
-        try:
-            query_kind = cast(str | None, getattr(insight.query, "kind", None))
-            serialized_query = insight.query.model_dump_json(exclude_none=True)
-
-            if not query_kind or query_kind not in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
-                return None  # Skip unsupported query types
-
-            query_obj = cast(SupportedQueryTypes, insight.query)
-
-            if dashboard_filters or insight.filtersOverride or insight.variablesOverride:
-                query_dict = insight.query.model_dump(mode="json")
-                if dashboard_filters:
-                    query_dict = await database_sync_to_async(apply_dashboard_filters_to_dict)(
-                        query_dict, dashboard_filters, self._team
-                    )
-                if insight.filtersOverride:
-                    query_dict = await database_sync_to_async(apply_dashboard_filters_to_dict)(
-                        query_dict, insight.filtersOverride.model_dump(mode="json"), self._team
-                    )
-                if insight.variablesOverride:
-                    variables_overrides = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
-                    query_dict = await database_sync_to_async(apply_dashboard_variables_to_dict)(
-                        query_dict, variables_overrides, self._team
-                    )
-
-                QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
-                query_obj = QueryModel.model_validate(query_dict)
-
-            raw_results, _ = await query_runner.arun_and_format_query(query_obj)
-
-            result = (
-                PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
-                .format_prompt(
-                    heading=heading or "",
-                    name=insight.name or f"ID {insight.id}",
-                    description=insight.description,
-                    query_schema=serialized_query,
-                    query=raw_results,
-                )
-                .to_string()
-            )
-            return result
-
-        except Exception as err:
-            # Skip insights that fail to run
-            capture_exception(
-                err, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
-            )
-            return None
-
-    def _format_entity_context(self, entities, context_tag: str, entity_type: str) -> str:
-        """
-        Format entity context (events or actions) into XML context string.
-
-        Args:
-            entities: List of entities (events or actions) or None
-            context_tag: XML tag name (e.g., "events" or "actions")
-            entity_type: Entity type for display (e.g., "Event" or "Action")
-
-        Returns:
-            Formatted context string or empty string if no entities
-        """
-        if not entities:
-            return ""
-
-        entity_details = []
-        for entity in entities:
-            name = entity.name or f"{entity_type} {entity.id}"
-            entity_detail = f'"{name}'
-            if entity.description:
-                entity_detail += f": {entity.description}"
-            entity_detail += '"'
-            entity_details.append(entity_detail)
-
-        if entity_details:
-            return f"<{context_tag}_context>{entity_type} names the user is referring to:\n{', '.join(entity_details)}\n</{context_tag}_context>"
-        return ""
-
-    def _render_user_context_template(
-        self, dashboard_context: str, insights_context: str, events_context: str, actions_context: str
-    ) -> str:
-        """Render the user context template with the provided context strings."""
-        template = PromptTemplate.from_template(ROOT_UI_CONTEXT_PROMPT, template_format="mustache")
-        return template.format_prompt(
-            ui_context_dashboard=dashboard_context,
-            ui_context_insights=insights_context,
-            ui_context_events=events_context,
-            ui_context_actions=actions_context,
-        ).to_string()
-
-
-class RootNode(RootNodeUIContextMixin):
+class RootNode(AssistantNode):
     MAX_TOOL_CALLS = 4
     """
     Determines the maximum number of tool calls allowed in a single generation.
@@ -343,14 +113,12 @@ class RootNode(RootNodeUIContextMixin):
         )
 
         # Add context messages on start of the conversation.
-        messages_to_replace: list[AssistantMessageUnion] = []
-        if self._is_first_turn(state) and (context_prompts := await self._get_context_prompts(state, config)):
-            context_messages = [
-                HumanMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts
-            ]
-            messages_to_replace = self._insert_messages_before_start(
-                state.messages, context_messages, start_id=state.start_id
-            )
+        messages_to_replace: Sequence[AssistantMessageUnion] = []
+        if self._is_first_turn(state) and (
+            updated_messages := await self.context_manager.aget_state_messages_with_context(state)
+        ):
+            # Check if context was actually added by comparing lengths
+            messages_to_replace = updated_messages
 
         # Calculate the initial window.
         langchain_messages = self._construct_messages(
@@ -368,7 +136,7 @@ class RootNode(RootNodeUIContextMixin):
             )
 
             # Insert the summary message before the last human message
-            messages_to_replace = self._insert_messages_before_start(
+            messages_to_replace = insert_messages_before_start(
                 messages_to_replace or state.messages, [summary_message], start_id=state.start_id
             )
 
@@ -380,7 +148,7 @@ class RootNode(RootNodeUIContextMixin):
         system_prompt_template = ROOT_SYSTEM_PROMPT
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
-            context = self._render_session_summarization_context(config)
+            context = self._render_session_summarization_context()
             # Inject session summarization context
             system_prompt_template = re.sub(
                 r"\n?<session_summarization></session_summarization>", context, system_prompt_template, flags=re.DOTALL
@@ -404,17 +172,11 @@ class RootNode(RootNodeUIContextMixin):
         system_prompts = ChatPromptTemplate.from_messages(
             [
                 ("system", system_prompt_template),
-                (
-                    "system",
-                    CORE_MEMORY_PROMPT
-                    + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
-                    + " If users ask to save, update, or delete the core memory, say you have done it."
-                    + " If the '/remember [information]' command is used, the information gets appended verbatim to core memory.",
-                ),
             ],
             template_format="mustache",
         ).format_messages(
             personality_prompt=MAX_PERSONALITY_PROMPT,
+            core_memory_prompt=CORE_MEMORY_PROMPT,
             core_memory=core_memory,
             billing_context=billing_context_prompt,
         )
@@ -435,10 +197,8 @@ class RootNode(RootNodeUIContextMixin):
     async def get_reasoning_message(
         self, input: BaseState, default_message: Optional[str] = None
     ) -> ReasoningMessage | None:
-        if not isinstance(input, BaseStateWithMessages):
-            return None
-        ui_context = find_last_ui_context(input.messages)
-        if ui_context and (ui_context.dashboards or ui_context.insights):
+        input = cast(AssistantState, input)
+        if self.context_manager.has_awaitable_context(input):
             return ReasoningMessage(content="Calculating context")
         return None
 
@@ -572,7 +332,7 @@ class RootNode(RootNodeUIContextMixin):
         available_tools.append(create_dashboard)
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
-        tool_names = self._get_contextual_tools(config).keys()
+        tool_names = self.context_manager.get_contextual_tools().keys()
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         if not is_editing_insight:
             # This is the default tool, which can be overriden by the MaxTool based tool with the same name
@@ -587,52 +347,6 @@ class RootNode(RootNodeUIContextMixin):
             available_tools.append(retrieve_billing_information)
 
         return available_tools
-
-    def _get_assistant_messages_in_window(
-        self, messages: Sequence[AssistantMessageUnion], window_start_id: str | None = None
-    ) -> list[RootMessageUnion]:
-        filtered_conversation = [message for message in messages if isinstance(message, RootMessageUnion)]
-        if window_start_id is not None:
-            filtered_conversation = self._get_conversation_window(filtered_conversation, window_start_id)
-        return filtered_conversation
-
-    async def _get_context_prompts(self, state: AssistantState, config: RunnableConfig) -> list[str]:
-        prompts: list[str] = []
-        if contextual_tools := self._get_contextual_tools_prompt(config):
-            prompts.append(contextual_tools)
-        if ui_context := await self._format_ui_context(self._get_ui_context(state), config):
-            prompts.append(ui_context)
-        return self._deduplicate_context_messages(state, prompts)
-
-    def _get_contextual_tools_prompt(self, config: RunnableConfig) -> str | None:
-        from ee.hogai.tool import get_contextual_tool_class
-
-        contextual_tools_prompt = [
-            f"<{tool_name}>\n"
-            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
-            f"</{tool_name}>"
-            for tool_name, tool_context in self._get_contextual_tools(config).items()
-            if get_contextual_tool_class(tool_name) is not None
-        ]
-        if contextual_tools_prompt:
-            tools = "\n".join(contextual_tools_prompt)
-            return CONTEXTUAL_TOOLS_REMINDER_PROMPT.format(tools=tools)
-        return None
-
-    def _deduplicate_context_messages(self, state: AssistantState, context_prompts: list[str]) -> list[str]:
-        """Naive deduplication of context messages by content."""
-        human_messages = {message.content for message in state.messages if isinstance(message, HumanMessage)}
-        return [prompt for prompt in context_prompts if prompt not in human_messages]
-
-    def _insert_messages_before_start(
-        self,
-        messages: Sequence[AssistantMessageUnion],
-        new_messages: Sequence[AssistantMessageUnion],
-        start_id: str | None = None,
-    ) -> list[AssistantMessageUnion]:
-        # -1 to make the messages appear before the start message
-        start_idx = find_start_message_idx(messages, start_id) - 1
-        return [*messages[:start_idx], *new_messages, *messages[start_idx:]]
 
     def _construct_messages(
         self,
@@ -668,7 +382,28 @@ class RootNode(RootNodeUIContextMixin):
                 maybe_content_arr[-1]["cache_control"] = {"type": "ephemeral"}
                 break
 
+        # Append a single cache control to the last human message or last tool message,
+        # so we cache the full prefix of the conversation.
+        for i in range(len(history) - 1, -1, -1):
+            maybe_content_arr = history[i].content
+            if (
+                isinstance(history[i], LangchainHumanMessage | LangchainAIMessage)
+                and isinstance(maybe_content_arr, list)
+                and len(maybe_content_arr) > 0
+                and isinstance(maybe_content_arr[-1], dict)
+            ):
+                maybe_content_arr[-1]["cache_control"] = {"type": "ephemeral"}
+                break
+
         return history
+
+    def _get_assistant_messages_in_window(
+        self, messages: Sequence[AssistantMessageUnion], window_start_id: str | None = None
+    ) -> list[RootMessageUnion]:
+        filtered_conversation = [message for message in messages if isinstance(message, RootMessageUnion)]
+        if window_start_id is not None:
+            filtered_conversation = self._get_conversation_window(filtered_conversation, window_start_id)
+        return filtered_conversation
 
     def _is_hard_limit_reached(self, tool_calls_count: int | None) -> bool:
         return tool_calls_count is not None and tool_calls_count >= self.MAX_TOOL_CALLS
@@ -699,9 +434,9 @@ class RootNode(RootNodeUIContextMixin):
                 return messages[idx:]
         return messages
 
-    def _render_session_summarization_context(self, config: RunnableConfig) -> str:
+    def _render_session_summarization_context(self) -> str:
         """Render the user context template with the provided context strings."""
-        search_session_recordings_context = self._get_contextual_tools(config).get("search_session_recordings")
+        search_session_recordings_context = self.context_manager.get_contextual_tools().get("search_session_recordings")
         if (
             not search_session_recordings_context
             or not isinstance(search_session_recordings_context, dict)
@@ -771,7 +506,7 @@ class RootNodeTools(AssistantNode):
         if len(tools_calls) != 1:
             raise ValueError("Expected exactly one tool call.")
 
-        tool_names = self._get_contextual_tools(config).keys()
+        tool_names = self.context_manager.get_contextual_tools().keys()
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         tool_call = tools_calls[0]
 

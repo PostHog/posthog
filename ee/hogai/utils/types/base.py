@@ -18,6 +18,7 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    ContextMessage,
     FailureMessage,
     FunnelsQuery,
     HogQLQuery,
@@ -46,7 +47,7 @@ AIMessageUnion = Union[
     TaskExecutionMessage,
     MultiVisualizationMessage,
 ]
-AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage]
+AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
 AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
@@ -57,6 +58,7 @@ AssistantOutput = (
 AnyAssistantGeneratedQuery = (
     AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 )
+# NOTE: This needs to be kept in sync with context.py
 AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
 # We define this since AssistantMessageUnion is a type and wouldn't work with isinstance()
 ASSISTANT_MESSAGE_TYPES = (
@@ -70,6 +72,7 @@ ASSISTANT_MESSAGE_TYPES = (
     PlanningMessage,
     TaskExecutionMessage,
     MultiVisualizationMessage,
+    ContextMessage,
 )
 
 

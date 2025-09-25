@@ -134,6 +134,9 @@ Follow these guidelines when creating a dashboard:
 </dashboard_creation>
 
 {{{billing_context}}}
+
+{{{core_memory_prompt}}}
+New memories will automatically be added to the core memory as the conversation progresses. If users ask to save, update, or delete the core memory, say you have done it. If the '/remember [information]' command is used, the information gets appended verbatim to core memory.
 """.strip()
 
 SESSION_SUMMARIZATION_PROMPT_BASE = """
@@ -240,64 +243,6 @@ The SQL insights have the following features:
 
 ROOT_HARD_LIMIT_REACHED_PROMPT = """
 You have reached the maximum number of iterations, a security measure to prevent infinite loops. Now, summarize the conversation so far and answer my question if you can. Then, ask me if I'd like to continue what you were doing.
-""".strip()
-
-ROOT_UI_CONTEXT_PROMPT = """
-<attached_context>
-{{{ui_context_dashboard}}}
-{{{ui_context_insights}}}
-{{{ui_context_events}}}
-{{{ui_context_actions}}}
-</attached_context>
-<system_reminder>
-The user can provided additional context in the <attached_context> tag.
-If the user's request is ambiguous, use the context to direct your answer as much as possible.
-If the user's provided context has nothing to do with previous interactions, ignore any past interaction and use this new context instead. The user probably wants to change topic.
-You can acknowledge that you are using this context to answer the user's request.
-</system_reminder>
-""".strip()
-
-ROOT_DASHBOARDS_CONTEXT_PROMPT = """
-# Dashboards
-The user has provided the following dashboards.
-
-{{{dashboards}}}
-""".strip()
-
-ROOT_DASHBOARD_CONTEXT_PROMPT = """
-## Dashboard: {{{name}}}
-{{#description}}
-
-Description: {{.}}
-{{/description}}
-
-### Dashboard insights:
-
-{{{insights}}}
-""".strip()
-
-ROOT_INSIGHTS_CONTEXT_PROMPT = """
-# Insights
-The user has provided the following insights, which may be relevant to the question at hand:
-{{{insights}}}
-""".strip()
-
-ROOT_INSIGHT_CONTEXT_PROMPT = """
-{{{heading}}} Insight: {{{name}}}
-{{#description}}
-
-Description: {{.}}
-{{/description}}
-
-Query schema:
-```json
-{{{query_schema}}}
-```
-
-Results:
-```
-{{{query}}}
-```
 """.strip()
 
 ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT = """

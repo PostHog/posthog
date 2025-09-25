@@ -20,26 +20,12 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
-    DashboardFilter,
-    EntityType,
-    EventsNode,
-    FunnelsQuery,
-    HogQLQuery,
+    ContextMessage,
     HumanMessage,
-    LifecycleQuery,
-    MaxActionContext,
     MaxBillingContext,
     MaxBillingContextSettings,
     MaxBillingContextSubscriptionLevel,
     MaxBillingContextTrial,
-    MaxDashboardContext,
-    MaxEventContext,
-    MaxInsightContext,
-    MaxUIContext,
-    RetentionEntity,
-    RetentionFilter,
-    RetentionQuery,
-    TrendsQuery,
 )
 
 from posthog.models.organization import OrganizationMembership
@@ -50,7 +36,6 @@ from ee.hogai.graph.root.prompts import (
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
 )
-from ee.hogai.tool import retrieve_billing_information
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
@@ -363,20 +348,51 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             mock_chat_openai.return_value = mock_model
 
             node = RootNode(self.team, self.user)
-            state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
+            # Set the config on the node so context_manager can access it
             config = RunnableConfig(
                 configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}}
             )
+            node.config = config
+            # Clear any cached context manager to force recreation with new config
+            node._context_manager = None
 
-            tools = await node._get_tools(config)
-            node._get_model(state, tools)
+            # Mock get_contextual_tool_class to return a real tool-like class
+            with (
+                patch.object(node, "_has_insight_search_feature_flag", return_value=False),
+                patch.object(node, "_has_session_summarization_feature_flag", return_value=False),
+            ):
+                # Create a mock tool class that behaves like a real tool
+                mock_tool_class = MagicMock()
+                mock_tool_instance = MagicMock()
+                mock_tool_instance.name = "search_session_recordings"
+                mock_tool_class.return_value = mock_tool_instance
 
-            # Verify bind_tools was called (contextual tools were processed)
-            mock_model.bind_tools.assert_called_once()
-            tools = mock_model.bind_tools.call_args[0][0]
-            # Verify the search_session_recordings tool was included
-            tool_names = [getattr(tool, "name", None) or tool.__name__ for tool in tools]
-            self.assertIn("search_session_recordings", tool_names)
+                # We need to patch at the point where it's imported
+                with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool:
+                    mock_get_tool.return_value = mock_tool_class
+
+                    # Verify that context_manager has the right tools
+                    context_tools = node.context_manager.get_contextual_tools()
+                    self.assertEqual(
+                        context_tools, {"search_session_recordings": {"current_filters": {"duration": ">"}}}
+                    )
+
+                    tools = await node._get_tools(config)
+
+                    node._get_model(
+                        AssistantState(messages=[HumanMessage(content="show me long recordings")]),
+                        tools,
+                    )
+
+                    # Verify get_contextual_tool_class was called
+                    mock_get_tool.assert_called_once_with("search_session_recordings")
+
+                    # Verify bind_tools was called
+                    mock_model.bind_tools.assert_called_once()
+                    tools = mock_model.bind_tools.call_args[0][0]
+
+                    # Verify that our mock tool instance is in the list
+                    self.assertIn(mock_tool_instance, tools)
 
     async def test_node_does_not_get_contextual_tool_if_not_configured(self):
         with (
@@ -413,24 +429,24 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             mock_get_model.return_value = fake_model
 
             node = RootNode(self.team, self.user)
-            state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
+            state = AssistantState(
+                messages=[HumanMessage(content="show me long recordings", id="test-id")], start_id="test-id"
+            )
 
             # Test with contextual tools
-            result = await node.arun(
-                state,
-                {
-                    "configurable": {
-                        "contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}
-                    }
-                },
+            config = RunnableConfig(
+                configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}}
             )
+            # Set config before calling arun
+            node.config = config
+            result = await node.arun(state, config)
 
             # Verify the node ran successfully and returned a message
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(len(result.messages), 3)
             # Context message
-            self.assertIsInstance(result.messages[0], HumanMessage)
-            assert isinstance(result.messages[0], HumanMessage)
+            self.assertIsInstance(result.messages[0], ContextMessage)
+            assert isinstance(result.messages[0], ContextMessage)
             self.assertIn("search_session_recordings", result.messages[0].content)
             # Original human message
             self.assertIsInstance(result.messages[1], HumanMessage)
@@ -457,8 +473,11 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             )
 
             node = RootNode(self.team, self.user)
+            # Set config before calling arun
+            config = RunnableConfig(configurable={})
+            node.config = config
 
-            await node.arun(AssistantState(messages=[HumanMessage(content="Foo?")]), {})
+            await node.arun(AssistantState(messages=[HumanMessage(content="Foo?")]), config)
 
             # Verify _generate was called
             mock_generate.assert_called_once()
@@ -492,7 +511,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         ]
     )
     async def test_has_billing_access(
-        self, membership_level, has_billing_context, should_add_billing_tool, has_access, expected_prompt
+        self, membership_level, has_billing_context, should_add_billing_tool, expected_prompt
     ):
         # Set membership level
         membership = await self.user.organization_memberships.aget(organization=self.team.organization)
@@ -508,89 +527,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         else:
             config = RunnableConfig(configurable={})
 
-        tools = await node._get_tools(config)
-        self.assertEqual(retrieve_billing_information in tools, should_add_billing_tool)
-        self.assertEqual(await node._get_billing_prompt(config), expected_prompt)
-        self.assertEqual(await node._check_user_has_billing_access(), has_access)
-
-    async def test_deduplicate_context_messages(self):
-        """Test that context messages are deduplicated based on existing human message content"""
-        node = RootNode(self.team, self.user)
-
-        # Create state with existing human messages
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Existing message 1"),
-                AssistantMessage(content="Response"),
-                HumanMessage(content="Existing message 2"),
-            ]
-        )
-
-        # Test deduplication - should filter out matching content
-        context_prompts = [
-            "New context message",
-            "Existing message 1",  # This should be filtered out
-            "Another new message",
-            "Existing message 2",  # This should be filtered out
-        ]
-
-        result = node._deduplicate_context_messages(state, context_prompts)
-
-        expected = ["New context message", "Another new message"]
-        self.assertEqual(result, expected)
-
-    async def test_get_context_prompts_with_ui_and_contextual_tools(self):
-        """Test that context prompts are returned for both UI context and contextual tools"""
-        with (
-            patch.object(RootNode, "_get_contextual_tools_prompt") as mock_contextual_tools,
-            patch.object(RootNode, "_format_ui_context") as mock_format_ui,
-            patch.object(RootNode, "_get_ui_context") as mock_get_ui,
-            patch.object(RootNode, "_deduplicate_context_messages") as mock_dedupe,
-        ):
-            # Setup mocks
-            mock_contextual_tools.return_value = "Contextual tools prompt"
-            mock_format_ui.return_value = "UI context prompt"
-            mock_get_ui.return_value = MaxUIContext()
-            mock_dedupe.return_value = ["Contextual tools prompt", "UI context prompt"]
-
-            node = RootNode(self.team, self.user)
-            state = AssistantState(messages=[HumanMessage(content="Test")])
-            config = RunnableConfig(configurable={})
-
-            result = await node._get_context_prompts(state, config)
-
-            # Verify both prompts are included
-            self.assertEqual(result, ["Contextual tools prompt", "UI context prompt"])
-
-            # Verify methods were called
-            mock_contextual_tools.assert_called_once_with(config)
-            mock_get_ui.assert_called_once_with(state)
-            mock_format_ui.assert_called_once_with(MaxUIContext(), config)
-            mock_dedupe.assert_called_once_with(state, ["Contextual tools prompt", "UI context prompt"])
-
-    async def test_get_context_prompts_with_only_contextual_tools(self):
-        """Test that context prompts work when only contextual tools are present"""
-        with (
-            patch.object(RootNode, "_get_contextual_tools_prompt") as mock_contextual_tools,
-            patch.object(RootNode, "_format_ui_context") as mock_format_ui,
-            patch.object(RootNode, "_get_ui_context") as mock_get_ui,
-            patch.object(RootNode, "_deduplicate_context_messages") as mock_dedupe,
-        ):
-            # Setup mocks - only contextual tools, no UI context
-            mock_contextual_tools.return_value = "Contextual tools prompt"
-            mock_format_ui.return_value = None  # No UI context
-            mock_get_ui.return_value = MaxUIContext()
-            mock_dedupe.return_value = ["Contextual tools prompt"]
-
-            node = RootNode(self.team, self.user)
-            state = AssistantState(messages=[HumanMessage(content="Test")])
-            config = RunnableConfig(configurable={})
-
-            result = await node._get_context_prompts(state, config)
-
-            # Should only include contextual tools prompt
-            self.assertEqual(result, ["Contextual tools prompt"])
-            mock_dedupe.assert_called_once_with(state, ["Contextual tools prompt"])
+        self.assertEqual(await node._get_billing_info(config), (should_add_billing_tool, expected_prompt))
 
     def test_is_first_turn_true(self):
         """Test _is_first_turn returns True when last message is the start message"""
@@ -933,540 +870,3 @@ class TestRootNodeTools(BaseTest):
 
         # Should route to billing
         self.assertEqual(node.router(state), "billing")
-
-
-class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.mixin = RootNode(self.team, self.user)  # Using RootNode since it inherits from RootNodeUIContextMixin
-
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    async def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Trend results: 100 users", None))
-
-        insight = MaxInsightContext(
-            id="123",
-            name="User Trends",
-            description="Daily active users",
-            query=TrendsQuery(series=[EventsNode(event="pageview")]),
-        )
-
-        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner, heading="#")
-        expected = """# Insight: User Trends
-
-Description: Daily active users
-
-Query schema:
-```json
-{"filterTestAccounts":false,"interval":"day","kind":"TrendsQuery","properties":[],"series":[{"event":"pageview","kind":"EventsNode"}]}
-```
-
-Results:
-```
-Trend results: 100 users
-```"""
-        self.assertEqual(result, expected)
-        mock_query_runner.arun_and_format_query.assert_called_once()
-
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    async def test_run_and_format_insight_funnel_query(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Funnel results: 50% conversion", None))
-
-        insight = MaxInsightContext(
-            id="456",
-            name="Conversion Funnel",
-            description=None,
-            query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
-        )
-
-        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner, heading="#")
-
-        expected = """# Insight: Conversion Funnel
-
-Query schema:
-```json
-{"filterTestAccounts":false,"kind":"FunnelsQuery","properties":[],"series":[{"event":"sign_up","kind":"EventsNode"},{"event":"purchase","kind":"EventsNode"}]}
-```
-
-Results:
-```
-Funnel results: 50% conversion
-```"""
-        self.assertEqual(result, expected)
-
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    async def test_run_and_format_insight_retention_query(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Retention: 30% Day 7", None))
-
-        insight = MaxInsightContext(
-            id="789",
-            name=None,
-            description=None,
-            query=RetentionQuery(
-                retentionFilter=RetentionFilter(
-                    targetEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
-                    returningEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
-                )
-            ),
-        )
-
-        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner, heading="#")
-        expected = """# Insight: ID 789
-
-Query schema:
-```json
-{"filterTestAccounts":false,"kind":"RetentionQuery","properties":[],"retentionFilter":{"period":"Day","returningEntity":{"id":"$pageview","type":"events"},"targetEntity":{"id":"$pageview","type":"events"},"totalIntervals":8}}
-```
-
-Results:
-```
-Retention: 30% Day 7
-```"""
-        self.assertEqual(result, expected)
-
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    async def test_run_and_format_insight_hogql_query(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Query results: 42 events", None))
-
-        insight = MaxInsightContext(
-            id="101",
-            name="Custom Query",
-            description="HogQL analysis",
-            query=HogQLQuery(query="SELECT count() FROM events"),
-        )
-
-        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner, heading="#")
-        expected = """# Insight: Custom Query
-
-Description: HogQL analysis
-
-Query schema:
-```json
-{"kind":"HogQLQuery","query":"SELECT count() FROM events"}
-```
-
-Results:
-```
-Query results: 42 events
-```"""
-        self.assertEqual(result, expected)
-
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor", return_value=AsyncMock())
-    async def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner):
-        insight = MaxInsightContext(id="123", name="Unsupported", description=None, query=LifecycleQuery(series=[]))
-
-        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner)
-
-        self.assertEqual(result, None)
-        mock_query_runner.arun_and_format_query.assert_not_called()
-
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    async def test_run_and_format_insight_exception_handling(self, mock_query_runner):
-        mock_query_runner.arun_and_format_query = AsyncMock(side_effect=Exception("Query failed"))
-
-        insight = MaxInsightContext(
-            id="123",
-            name="Failed Query",
-            description=None,
-            query=TrendsQuery(series=[EventsNode(event="pageview")]),
-        )
-
-        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner)
-
-        self.assertEqual(result, None)
-
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    async def test_format_ui_context_with_dashboard(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Dashboard insight results", None))
-
-        # Create mock insight
-        insight = MaxInsightContext(
-            id="123",
-            name="Dashboard Insight",
-            description="Test insight",
-            query=TrendsQuery(series=[EventsNode(event="pageview")]),
-        )
-
-        # Create mock dashboard
-        dashboard = MaxDashboardContext(
-            id=456,
-            name="Test Dashboard",
-            description="Test dashboard description",
-            insights=[insight],
-            filters=DashboardFilter(),
-        )
-
-        # Create mock UI context
-        ui_context = MaxUIContext(dashboards=[dashboard], insights=None)
-
-        result = await self.mixin._format_ui_context(ui_context, {})
-
-        self.assertIsNotNone(result)
-        assert result is not None  # Type guard for mypy
-        self.assertIn("Dashboard: Test Dashboard", result)
-        self.assertIn("Description: Test dashboard description", result)
-        self.assertIn("### Dashboard insights", result)
-        self.assertIn("Insight: Dashboard Insight", result)
-        self.assertNotIn("# Insights", result)
-
-    async def test_format_ui_context_with_events(self):
-        # Create mock events
-        event1 = MaxEventContext(id="1", name="page_view")
-        event2 = MaxEventContext(id="2", name="button_click")
-
-        # Create mock UI context
-        ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
-
-        result = await self.mixin._format_ui_context(ui_context, {})
-
-        self.assertIsNotNone(result)
-        assert result is not None  # Type guard for mypy
-        self.assertIn('"page_view", "button_click"', result)
-        self.assertIn("<events_context>", result)
-
-    async def test_format_ui_context_with_events_with_descriptions(self):
-        # Create mock events with descriptions
-        event1 = MaxEventContext(id="1", name="page_view", description="User viewed a page")
-        event2 = MaxEventContext(id="2", name="button_click", description="User clicked a button")
-
-        # Create mock UI context
-        ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
-
-        result = await self.mixin._format_ui_context(ui_context, {})
-
-        self.assertIsNotNone(result)
-        assert result is not None  # Type guard for mypy
-        self.assertIn('"page_view: User viewed a page", "button_click: User clicked a button"', result)
-        self.assertIn("<events_context>", result)
-
-    async def test_format_ui_context_with_actions(self):
-        # Create mock actions
-        action1 = MaxActionContext(id=1.0, name="Sign Up")
-        action2 = MaxActionContext(id=2.0, name="Purchase")
-
-        # Create mock UI context
-        ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
-
-        result = await self.mixin._format_ui_context(ui_context, {})
-
-        self.assertIsNotNone(result)
-        assert result is not None  # Type guard for mypy
-        self.assertIn('"Sign Up", "Purchase"', result)
-        self.assertIn("<actions_context>", result)
-
-    async def test_format_ui_context_with_actions_with_descriptions(self):
-        # Create mock actions with descriptions
-        action1 = MaxActionContext(id=1.0, name="Sign Up", description="User creates account")
-        action2 = MaxActionContext(id=2.0, name="Purchase", description="User makes a purchase")
-
-        # Create mock UI context
-        ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
-
-        result = await self.mixin._format_ui_context(ui_context, {})
-
-        self.assertIsNotNone(result)
-        assert result is not None  # Type guard for mypy
-        self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
-        self.assertIn("<actions_context>", result)
-
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    async def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Standalone insight results", None))
-
-        # Create mock insight
-        insight = MaxInsightContext(
-            id="123",
-            name="Standalone Insight",
-            description="Test standalone insight",
-            query=FunnelsQuery(series=[EventsNode(event="sign_up")]),
-        )
-
-        # Create mock UI context
-        ui_context = MaxUIContext(insights=[insight])
-
-        result = await self.mixin._format_ui_context(ui_context, {})
-
-        self.assertIsNotNone(result)
-        assert result is not None  # Type guard for mypy
-        self.assertIn("Insights", result)
-        self.assertIn("Insight: Standalone Insight", result)
-        self.assertNotIn("# Dashboards", result)
-
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor", return_value=AsyncMock())
-    async def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
-        result = await self.mixin._format_ui_context(None, {})
-        self.assertEqual(result, "")
-
-        # Test with ui_context but no insights
-        ui_context = MaxUIContext(insights=None)
-        result = await self.mixin._format_ui_context(ui_context, {})
-        self.assertIsNone(result)
-
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    async def test_run_insights_from_ui_context_with_insights(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Insight execution results", None))
-
-        # Create mock insight
-        insight = MaxInsightContext(
-            id="123",
-            name="Test Insight",
-            description="Test description",
-            query=TrendsQuery(series=[EventsNode(event="pageview")]),
-        )
-
-        # Create mock UI context
-        ui_context = MaxUIContext(insights=[insight])
-
-        result = await self.mixin._format_ui_context(ui_context, {})
-
-        self.assertIsNotNone(result)
-        result = cast(str, result)  # Type cast for mypy
-        self.assertIn("# Insights", result)
-        self.assertIn("Test Insight", result)
-        self.assertIn("Test description", result)
-        self.assertIn("Insight execution results", result)
-
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    async def test_run_insights_from_ui_context_with_failed_insights(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock(side_effect=Exception("Query failed"))
-
-        # Create mock insight that will fail
-        insight = MaxInsightContext(
-            id="123",
-            name="Failed Insight",
-            description=None,
-            query=TrendsQuery(series=[]),
-        )
-
-        # Create mock UI context
-        ui_context = MaxUIContext(insights=[insight])
-
-        result = await self.mixin._format_ui_context(ui_context, {})
-
-        # Should return empty string since the insight failed to run
-        self.assertIsNone(result)
-
-    @patch("posthoganalytics.feature_enabled")
-    async def test_session_summarization_tool_included_with_feature_flag(self, mock_feature_enabled):
-        """Test that session_summarization tool is included when feature flag is enabled"""
-
-        def feature_enabled_side_effect(flag_name, *args, **kwargs):
-            if flag_name == "max-session-summarization":
-                return True
-            return False
-
-        mock_feature_enabled.side_effect = feature_enabled_side_effect
-
-        with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
-            mock_model = MagicMock()
-            mock_model.get_num_tokens_from_messages.return_value = 100
-            mock_model.bind_tools.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
-
-            node = RootNode(self.team, self.user)
-            state = AssistantState(messages=[HumanMessage(content="summarize my sessions")])
-
-            tools = await node._get_tools(RunnableConfig(configurable={}))
-            node._get_model(state, tools)
-
-            self.assertEqual(mock_feature_enabled.call_count, 2)
-
-            # Find the call for session summarization flag
-            session_summarization_calls = [
-                call for call in mock_feature_enabled.call_args_list if call[0][0] == "max-session-summarization"
-            ]
-            self.assertEqual(len(session_summarization_calls), 1)
-
-            # Verify the session summarization flag was checked with correct parameters
-            call_args, call_kwargs = session_summarization_calls[0]
-            self.assertEqual(call_args[0], "max-session-summarization")
-            self.assertEqual(call_args[1], str(self.user.distinct_id))
-            self.assertEqual(call_kwargs["groups"], {"organization": str(self.team.organization_id)})
-            self.assertEqual(call_kwargs["group_properties"], {"organization": {"id": str(self.team.organization_id)}})
-            self.assertEqual(call_kwargs["send_feature_flag_events"], False)
-
-            # Verify bind_tools was called with session_summarization
-            mock_model.bind_tools.assert_called_once()
-            tools = mock_model.bind_tools.call_args[0][0]
-            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
-            self.assertIn("session_summarization", tool_names)
-
-    @patch("posthoganalytics.feature_enabled")
-    async def test_session_summarization_tool_excluded_without_feature_flag(self, mock_feature_enabled):
-        """Test that session_summarization tool is excluded when feature flag is disabled"""
-        mock_feature_enabled.return_value = False
-        with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
-            mock_model = MagicMock()
-            mock_model.get_num_tokens_from_messages.return_value = 100
-            mock_model.bind_tools.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
-
-            node = RootNode(self.team, self.user)
-            state = AssistantState(messages=[HumanMessage(content="summarize my sessions")])
-
-            tools = await node._get_tools(RunnableConfig(configurable={}))
-            node._get_model(state, tools)
-
-            self.assertEqual(mock_feature_enabled.call_count, 2)
-            session_summarization_calls = [
-                call for call in mock_feature_enabled.call_args_list if call[0][0] == "max-session-summarization"
-            ]
-            self.assertEqual(len(session_summarization_calls), 1)
-
-            # Verify the session summarization flag was checked with correct parameters
-            call_args, call_kwargs = session_summarization_calls[0]
-            self.assertEqual(call_args[0], "max-session-summarization")
-            self.assertEqual(call_args[1], str(self.user.distinct_id))
-            self.assertEqual(call_kwargs["groups"], {"organization": str(self.team.organization_id)})
-            self.assertEqual(call_kwargs["group_properties"], {"organization": {"id": str(self.team.organization_id)}})
-            self.assertEqual(call_kwargs["send_feature_flag_events"], False)
-
-            # Verify bind_tools was called without session_summarization
-            mock_model.bind_tools.assert_called_once()
-            tools = mock_model.bind_tools.call_args[0][0]
-            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
-            self.assertNotIn("session_summarization", tool_names)
-
-    @patch("posthoganalytics.feature_enabled")
-    async def test_insight_search_tool_included_with_feature_flag(self, mock_feature_enabled):
-        """Test that search_insights tool is included when feature flag is enabled"""
-
-        def feature_enabled_side_effect(flag_name, *args, **kwargs):
-            if flag_name == "max-ai-insight-search":
-                return True
-            return False
-
-        mock_feature_enabled.side_effect = feature_enabled_side_effect
-
-        with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
-            mock_model = MagicMock()
-            mock_model.get_num_tokens_from_messages.return_value = 100
-            mock_model.bind_tools.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
-
-            node = RootNode(self.team, self.user)
-            state = AssistantState(messages=[HumanMessage(content="search for insights")])
-
-            tools = await node._get_tools(RunnableConfig(configurable={}))
-            node._get_model(state, tools)
-
-            self.assertEqual(mock_feature_enabled.call_count, 2)
-            # Find the call for insight search flag
-            insight_search_calls = [
-                call for call in mock_feature_enabled.call_args_list if call[0][0] == "max-ai-insight-search"
-            ]
-            self.assertEqual(len(insight_search_calls), 1)
-
-            # Verify the insight search flag was checked with correct parameters
-            call_args, call_kwargs = insight_search_calls[0]
-            self.assertEqual(call_args[0], "max-ai-insight-search")
-            self.assertEqual(call_args[1], str(self.user.distinct_id))
-            self.assertEqual(call_kwargs["groups"], {"organization": str(self.team.organization_id)})
-            self.assertEqual(call_kwargs["group_properties"], {"organization": {"id": str(self.team.organization_id)}})
-            self.assertEqual(call_kwargs["send_feature_flag_events"], False)
-
-            # Verify bind_tools was called with search_insights
-            mock_model.bind_tools.assert_called_once()
-            tools = mock_model.bind_tools.call_args[0][0]
-            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
-            self.assertIn("search_insights", tool_names)
-
-    @patch("posthoganalytics.feature_enabled")
-    async def test_insight_search_tool_excluded_without_feature_flag(self, mock_feature_enabled):
-        """Test that search_insights tool is excluded when feature flag is disabled"""
-        mock_feature_enabled.return_value = False
-        with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
-            mock_model = MagicMock()
-            mock_model.get_num_tokens_from_messages.return_value = 100
-            mock_model.bind_tools.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
-
-            node = RootNode(self.team, self.user)
-            state = AssistantState(messages=[HumanMessage(content="search for insights")])
-
-            tools = await node._get_tools(RunnableConfig(configurable={}))
-            node._get_model(state, tools)
-
-            self.assertEqual(mock_feature_enabled.call_count, 2)
-
-            # Find the call for insight search flag
-            insight_search_calls = [
-                call for call in mock_feature_enabled.call_args_list if call[0][0] == "max-ai-insight-search"
-            ]
-            self.assertEqual(len(insight_search_calls), 1)
-
-            # Verify the insight search flag was checked with correct parameters
-            call_args, call_kwargs = insight_search_calls[0]
-            self.assertEqual(call_args[0], "max-ai-insight-search")
-            self.assertEqual(call_args[1], str(self.user.distinct_id))
-            self.assertEqual(call_kwargs["groups"], {"organization": str(self.team.organization_id)})
-            self.assertEqual(call_kwargs["group_properties"], {"organization": {"id": str(self.team.organization_id)}})
-            self.assertEqual(call_kwargs["send_feature_flag_events"], False)
-
-            # Verify bind_tools was called without session_summarization
-            mock_model.bind_tools.assert_called_once()
-            tools = mock_model.bind_tools.call_args[0][0]
-            tool_names = [getattr(tool, "__name__", None) or tool.__name__ for tool in tools]
-            self.assertNotIn("session_summarization", tool_names)
-
-    @patch("ee.hogai.graph.root.nodes.capture_exception")
-    async def test_tool_invocation_error_handling(self, mock_capture_exception):
-        """Test that tool invocation errors are properly handled and return FailureMessage"""
-        node = RootNodeTools(self.team, self.user)
-
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Let me search for recordings",
-                    id="test-id",
-                    tool_calls=[
-                        AssistantToolCall(
-                            id="search-123",
-                            name="search_session_recordings",
-                            args={"change": "test"},
-                        )
-                    ],
-                )
-            ]
-        )
-
-        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool_class:
-            # Mock the tool class to raise an exception
-            mock_tool_class = AsyncMock()
-            mock_tool_class.ainvoke = AsyncMock(side_effect=Exception("Tool execution failed"))
-            mock_tool_class.show_tool_call_message = True
-            # Set the initial state, but when exception happens, the code should use the FailureMessage path
-            mock_tool_class._state = state
-
-            # Mock get_contextual_tool_class to return a class constructor
-            def MockToolClass(team, user, state):
-                return mock_tool_class
-
-            mock_get_tool_class.return_value = MockToolClass
-
-            result = await node.arun(state, {"configurable": {"contextual_tools": {"search_session_recordings": {}}}})
-
-            # Verify capture_exception was called
-            mock_capture_exception.assert_called_once()
-            call_args = mock_capture_exception.call_args
-            self.assertIsInstance(call_args[0][0], Exception)
-            self.assertEqual(call_args[0][0].args[0], "Tool execution failed")
-
-            # Verify result is a PartialAssistantState with FailureMessage
-            self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(len(result.messages), 1)
-            failure_message = result.messages[0]
-            assert isinstance(failure_message, AssistantToolCallMessage)
-            self.assertEqual(
-                failure_message.content,
-                "The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
-            )
-            self.assertEqual(result.root_tool_calls_count, 1)

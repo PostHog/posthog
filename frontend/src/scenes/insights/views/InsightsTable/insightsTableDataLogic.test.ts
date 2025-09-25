@@ -99,13 +99,21 @@ describe('insightsTableDataLogic', () => {
             const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
                 series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+                trendsFilter: {},
             }
 
-            insightVizDataLogic(props).actions.updateQuerySource(query)
+            // Make sure insightVizDataLogic is mounted
+            const vizLogic = insightVizDataLogic(props)
+            vizLogic.mount()
 
-            await expectLogic(logic, () => {
-                logic.actions.setAggregationType(AggregationType.Median)
-            }).toMatchValues({
+            vizLogic.actions.updateQuerySource(query)
+
+            // Wait for the async updateInsightFilter to complete
+            await expectLogic(vizLogic, () => {
+                logic.actions.setDetailedResultsAggregationType(AggregationType.Median)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
                 aggregation: AggregationType.Median,
             })
         })

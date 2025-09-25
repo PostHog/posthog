@@ -106,25 +106,6 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(node.router(state), "end")  # Ending
 
-    def test_node_filters_empty_messages(self):
-        """Test that messages with empty content are filtered out during message construction."""
-        node = InkeepDocsNode(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                HumanMessage(content=""),  # Empty message that should be filtered
-                AssistantMessage(content="Hi!"),
-                HumanMessage(content="How do I use PostHog?"),
-                AssistantMessage(content=""),  # Empty message that should be filtered
-            ]
-        )
-        messages = node._construct_messages(state)
-
-        # Should only include system message, "Hi!", and "How do I use PostHog?"
-        self.assertEqual(len(messages), 3)
-        self.assertIsInstance(messages[0], LangchainSystemMessage)
-        self.assertEqual(messages[1].content, "Hi!")
-        self.assertEqual(messages[2].content, "How do I use PostHog?")
-
     def test_tool_call_id_handling(self):
         """Test that tool_call_id is properly handled in both input and output states."""
         test_tool_call_id = str(uuid4())
@@ -176,7 +157,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             root_tool_call_id="test-id",
         )
         next_state = node._construct_messages(state)
-        self.assertEqual(len(next_state), 30)
+        self.assertEqual(len(next_state), 29)
         self.assertEqual(next_state[0].type, "system")
-        self.assertEqual(next_state[1].content, "2")
+        self.assertEqual(next_state[1].content, "3")
         self.assertEqual(next_state[-1].content, "30")

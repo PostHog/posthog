@@ -46,7 +46,7 @@ class MaxChatMixin(BaseModel):
         adjusted_dt = self.conversation_start_dt or datetime.datetime.now()
         project_datetime = adjusted_dt.astimezone(tz=pytz.timezone(project_timezone))
 
-        region = CLOUD_DEPLOYMENT or "us"
+        region = CLOUD_DEPLOYMENT or "US"
         if region in ["US", "EU"]:
             region = region.lower()
         else:
@@ -153,7 +153,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         **kwargs,
     ) -> LLMResult:
         project_org_user_variables = self._get_project_org_user_variables()
-        messages = self._enrich_messages(messages, project_org_user_variables)
+        self._enrich_messages(messages, project_org_user_variables)
         return super().generate(messages, *args, **kwargs)
 
     async def agenerate(
@@ -163,5 +163,5 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         **kwargs,
     ) -> LLMResult:
         project_org_user_variables = await self._aget_project_org_user_variables()
-        messages = self._enrich_messages(messages, project_org_user_variables)
+        self._enrich_messages(messages, project_org_user_variables)
         return await super().agenerate(messages, *args, **kwargs)

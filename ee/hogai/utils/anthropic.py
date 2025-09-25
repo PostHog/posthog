@@ -10,6 +10,7 @@ from posthog.schema import (
     AssistantMessageMetadata,
     AssistantToolCall,
     AssistantToolCallMessage,
+    ContextMessage,
     FailureMessage,
     HumanMessage,
 )
@@ -70,6 +71,10 @@ def convert_human_message_to_anthropic_message(message: HumanMessage) -> message
     return messages.HumanMessage(content=[{"type": "text", "text": message.content}])
 
 
+def convert_context_message_to_anthropic_message(message: ContextMessage) -> messages.HumanMessage:
+    return messages.HumanMessage(content=[{"type": "text", "text": message.content}])
+
+
 def convert_assistant_message_to_anthropic_message(
     message: AssistantMessage, tool_result_map: dict[str, AssistantToolCallMessage]
 ) -> list[messages.BaseMessage]:
@@ -113,6 +118,8 @@ def convert_to_anthropic_message(
 ) -> list[messages.BaseMessage]:
     if isinstance(message, HumanMessage):
         return [convert_human_message_to_anthropic_message(message)]
+    if isinstance(message, ContextMessage):
+        return [convert_context_message_to_anthropic_message(message)]
     elif isinstance(message, AssistantMessage):
         return convert_assistant_message_to_anthropic_message(message, tool_result_map)
     elif isinstance(message, FailureMessage):

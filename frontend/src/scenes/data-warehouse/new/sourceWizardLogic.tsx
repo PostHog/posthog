@@ -360,11 +360,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
                         path: urls.dataPipelines('overview'),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: [Scene.DataPipelines, 'sources'],
                         name: `Sources`,
                         path: urls.dataPipelines('sources'),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: Scene.DataWarehouseSource,
@@ -373,6 +375,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             (manualLinkingProvider
                                 ? manualConnectors.find((c) => c.type === manualLinkingProvider)?.name
                                 : 'New'),
+                        iconType: 'data_pipeline',
                     },
                 ]
             },

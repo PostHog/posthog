@@ -401,13 +401,13 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             ref={ref}
             action={action}
         >
-            {message.status === 'error' ? (
+            {message.content ? (
+                <MarkdownMessage content={message.content} id={message.id || 'in-progress'} />
+            ) : (
                 <MarkdownMessage
                     content={message.content || '*Max has failed to generate an answer. Please try again.*'}
                     id={message.id || 'error'}
                 />
-            ) : (
-                message.content && <MarkdownMessage content={message.content} id={message.id || 'in-progress'} />
             )}
         </MessageTemplate>
     )

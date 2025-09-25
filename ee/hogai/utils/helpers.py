@@ -17,11 +17,11 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     CachedTeamTaxonomyQueryResponse,
+    ContextMessage,
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
     MaxEventContext,
-    MaxUIContext,
     RetentionQuery,
     TeamTaxonomyQuery,
     TrendsQuery,
@@ -125,18 +125,10 @@ def should_output_assistant_message(candidate_message: AssistantMessageUnion) ->
         return False
 
     # Filter out context messages
-    if isinstance(candidate_message, HumanMessage) and candidate_message.visible is False:
+    if isinstance(candidate_message, ContextMessage):
         return False
 
     return True
-
-
-def find_last_ui_context(messages: Sequence[AssistantMessageUnion]) -> MaxUIContext | None:
-    """Returns the last recorded UI context from all messages."""
-    message = find_start_message(messages)
-    if isinstance(message, HumanMessage) and message.ui_context is not None:
-        return message.ui_context
-    return None
 
 
 def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -> tuple[list[dict], dict[str, str]]:
@@ -289,3 +281,11 @@ def extract_thinking_content_from_ai_message(response: BaseMessage) -> list[dict
         ):
             thinking_parts.append(content_item)
     return thinking_parts if thinking_parts else None
+
+
+def insert_messages_before_start(
+    messages: list[AssistantMessageUnion], new_messages: list[AssistantMessageUnion], start_id: str | None = None
+) -> list[AssistantMessageUnion]:
+    # Insert context messages right before the start message
+    start_idx = find_start_message_idx(messages, start_id)
+    return [*messages[:start_idx], *new_messages, *messages[start_idx:]]
