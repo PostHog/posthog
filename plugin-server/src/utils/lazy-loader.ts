@@ -1,4 +1,4 @@
-import { Counter } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
@@ -27,6 +27,12 @@ const lazyLoaderQueuedCacheHits = new Counter({
     name: 'lazy_loader_queued_cache_hits',
     help: 'The number of times we have hit the cached loading promise for a key',
     labelNames: ['name', 'hit'],
+})
+
+const lazyLoaderCacheSize = new Gauge({
+    name: 'lazy_loader_cache_size',
+    help: 'Current number of entries in the cache',
+    labelNames: ['name'],
 })
 
 /**
@@ -93,7 +99,7 @@ export class LazyLoader<T> {
         this.refreshNullAgeMs = this.options.refreshNullAgeMs ?? this.refreshAgeMs
         this.refreshBackgroundAgeMs = this.options.refreshBackgroundAgeMs
         this.refreshJitterMs = this.options.refreshJitterMs ?? this.refreshAgeMs / 5
-        this.ttlMs = this.options.ttlMs ?? 1000 * 60 * 5 // 5 minutes
+        this.ttlMs = this.options.ttlMs ?? defaultConfig.LAZY_LOADER_TTL_MS
 
         if (this.refreshBackgroundAgeMs && this.refreshBackgroundAgeMs > this.refreshAgeMs) {
             throw new Error('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
@@ -125,6 +131,7 @@ export class LazyLoader<T> {
         this.cacheUntil = {}
         this.backgroundRefreshAfter = {}
         // this.pendingLoads = {} // NOTE: We don't clear this
+        this.updateCacheSizeMetric()
     }
 
     private setValues(map: LazyLoaderMap<T>): void {
@@ -142,6 +149,7 @@ export class LazyLoader<T> {
                     Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
             }
         }
+        this.updateCacheSizeMetric()
     }
 
     /**
@@ -153,7 +161,9 @@ export class LazyLoader<T> {
      */
     private async loadViaCache(keys: string[]): Promise<Record<string, T | null>> {
         return await instrumentFn(`lazyLoader.loadViaCache`, async () => {
-            this.evictExpiredEntries()
+            if (defaultConfig.LAZY_LOADER_EVICTION_ENABLED) {
+                this.evictExpiredEntries()
+            }
 
             const results: Record<string, T | null> = {}
             const keysToLoad = new Set<string>()
@@ -294,5 +304,14 @@ export class LazyLoader<T> {
             delete this.cacheUntil[key]
             delete this.backgroundRefreshAfter[key]
         }
+
+        if (keysToEvict.length > 0) {
+            this.updateCacheSizeMetric()
+        }
+    }
+
+    private updateCacheSizeMetric(): void {
+        const cacheSize = Object.keys(this.cache).length
+        lazyLoaderCacheSize.labels({ name: this.options.name }).set(cacheSize)
     }
 }
