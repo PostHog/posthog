@@ -225,7 +225,7 @@ def build_kafka_consumer(
     auto_offset_reset="latest",
     test=False,
     group_id=None,
-    consumer_timeout_ms=5000 if (settings.DEBUG and not settings.TEST) else float("inf"),
+    consumer_timeout_ms=5000 if (settings.DEBUG and not settings.TEST) else 305000,
 ):
     if settings.TEST:
         test = True  # Set at runtime so that overriden settings.TEST is supported
