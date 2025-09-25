@@ -24,6 +24,10 @@
 
             <stream_poll_timeout_ms>50</stream_poll_timeout_ms>
 
+            <!-- Development performance optimizations -->
+            <max_threads>2</max_threads>
+            <background_merges_mutations_concurrency_ratio>1</background_merges_mutations_concurrency_ratio>
+
         </default>
 
         <!-- Profile that allows only read queries. -->
