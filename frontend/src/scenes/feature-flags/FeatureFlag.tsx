@@ -907,6 +907,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         isDraftExperiment,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const {
         distributeVariantsEqually,
         addVariant,
@@ -1044,6 +1045,25 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 <span className="mt-1">{flagTypeString}</span>
                             </div>
                         </div>
+
+                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
+                            featureFlag.tags &&
+                            featureFlag.tags.length > 0 && (
+                                <>
+                                    <span className="card-secondary mt-4">Tags</span>
+                                    <div className="mt-2">
+                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                            <FeatureFlagEvaluationTags
+                                                tags={featureFlag.tags}
+                                                evaluationTags={featureFlag.evaluation_tags || []}
+                                                staticOnly
+                                            />
+                                        ) : (
+                                            <ObjectTags tags={featureFlag.tags} staticOnly />
+                                        )}
+                                    </div>
+                                </>
+                            )}
 
                         <span className="card-secondary mt-4">Flag persistence</span>
                         <span>
