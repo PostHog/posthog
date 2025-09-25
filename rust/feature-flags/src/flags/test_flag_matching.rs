@@ -5490,4 +5490,106 @@ mod tests {
             "Should match second condition (index 1)"
         );
     }
+
+    #[tokio::test]
+    async fn test_hash_key_override_error_marks_continuity_flags_as_errors() {
+        let context = TestContext::new(None).await;
+        let router = context.create_postgres_router();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let distinct_id = "user_distinct_id".to_string();
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id,
+            team.id,
+            team.project_id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+
+        // Create flags: one with experience continuity enabled, one without
+        let flag_with_continuity = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Test Flag Continuity".to_string()),
+            Some("test-flag-continuity".to_string()),
+            None,
+            Some(false),
+            Some(true),
+            Some(true), // ensure_experience_continuity
+        );
+
+        let flag_without_continuity = create_test_flag(
+            Some(2),
+            Some(team.id),
+            Some("Test Flag Normal".to_string()),
+            Some("test-flag-normal".to_string()),
+            None,
+            Some(false),
+            Some(true),
+            Some(false), // ensure_experience_continuity
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag_with_continuity, flag_without_continuity],
+        };
+
+        // Test the scenario where hash key override reading fails
+        // This simulates the case where we have experience continuity flags but hash override reads fail
+        let overrides = crate::flags::flag_matching::FlagEvaluationOverrides {
+            person_property_overrides: None,
+            group_property_overrides: None,
+            hash_key_overrides: None, // hash_key_overrides (None simulates read failure)
+            hash_key_override_error: true, // hash_key_override_error (simulates the error occurred)
+        };
+
+        let response = matcher
+            .evaluate_flags_with_overrides(
+                flags,
+                overrides,
+                Uuid::new_v4(),
+                None, // flag_keys
+            )
+            .await;
+
+        // Should have errors_while_computing_flags set to true
+        assert!(
+            response.errors_while_computing_flags,
+            "Should have errors_while_computing_flags=true when hash override reads fail"
+        );
+
+        // The flag with experience continuity should have an error response
+        let continuity_flag_response = response
+            .flags
+            .get("test-flag-continuity")
+            .expect("Continuity flag should be present");
+        assert!(
+            !continuity_flag_response.enabled,
+            "Flag with continuity should be disabled due to error"
+        );
+        assert_eq!(
+            continuity_flag_response.reason.code, "hash_key_override_error",
+            "Should have hash_key_override_error reason"
+        );
+
+        // The flag without experience continuity should NOT have an error (should be evaluated normally)
+        let normal_flag_response = response.flags.get("test-flag-normal");
+        // The normal flag might be evaluated normally, so we just check it's not affected by the hash override error
+        if let Some(normal_response) = normal_flag_response {
+            assert_ne!(
+                normal_response.reason.code, "hash_key_override_error",
+                "Normal flag should not have hash override error"
+            );
+        }
+    }
 }
