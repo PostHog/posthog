@@ -29,25 +29,32 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_properties_from_pg_to_match() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
 
-        let team = context.insert_new_team(None)
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team in pg");
 
         let distinct_id = "user_distinct_id".to_string();
-        context.insert_person(team.id, distinct_id.clone(), None)
+        context
+            .insert_person(team.id, distinct_id.clone(), None)
             .await
             .expect("Failed to insert person");
 
         let not_matching_distinct_id = "not_matching_distinct_id".to_string();
-        context.insert_person(
-            team.id,
-            not_matching_distinct_id.clone(),
-            Some(json!({ "email": "a@x.com"})),
-        )
-        .await
-        .expect("Failed to insert person");
+        context
+            .insert_person(
+                team.id,
+                not_matching_distinct_id.clone(),
+                Some(json!({ "email": "a@x.com"})),
+            )
+            .await
+            .expect("Failed to insert person");
 
         let flag: FeatureFlag = serde_json::from_value(json!(
             {
@@ -141,7 +148,11 @@ mod tests {
     #[tokio::test]
     async fn test_person_property_overrides() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -202,7 +213,11 @@ mod tests {
     #[tokio::test]
     async fn test_group_property_overrides() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -235,7 +250,10 @@ mod tests {
         );
 
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(context.persons_reader.clone()).await.unwrap();
+        group_type_mapping_cache
+            .init(context.persons_reader.clone())
+            .await
+            .unwrap();
 
         let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
         let indexes_to_types = [(1, "organization".to_string())].into_iter().collect();
@@ -277,7 +295,10 @@ mod tests {
 
         // Debug logging for test_group_property_overrides
         println!("test_group_property_overrides result: {:?}", result);
-        println!("Errors while computing: {}", result.errors_while_computing_flags);
+        println!(
+            "Errors while computing: {}",
+            result.errors_while_computing_flags
+        );
         println!("Flags: {:?}", result.flags);
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -297,7 +318,11 @@ mod tests {
     #[tokio::test]
     async fn test_flags_that_depends_on_other_boolean_flag() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let leaf_flag = create_test_flag_with_property(
@@ -411,7 +436,11 @@ mod tests {
     #[tokio::test]
     async fn test_flags_that_depends_on_other_multivariate_flag_variant_match() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let leaf_flag = create_test_flag(
@@ -573,15 +602,20 @@ mod tests {
     #[tokio::test]
     async fn test_flags_with_deep_dependency_tree_only_calls_db_once_total() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
-        let _person_id = context.insert_person(
-            team.id,
-            "test_user_distinct_id".to_string(),
-            Some(json!({ "email": "email-in-db@example.com", "is-cool": true })),
-        )
-        .await
-        .unwrap();
+        let _person_id = context
+            .insert_person(
+                team.id,
+                "test_user_distinct_id".to_string(),
+                Some(json!({ "email": "email-in-db@example.com", "is-cool": true })),
+            )
+            .await
+            .unwrap();
 
         let leaf_flag = create_test_flag_with_property(
             23,
@@ -690,7 +724,11 @@ mod tests {
     async fn test_flags_with_dependency_cycle_and_missing_dependency_still_evaluates_independent_flags(
     ) {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let leaf_flag = create_test_flag_with_property(
@@ -841,7 +879,11 @@ mod tests {
     #[tokio::test]
     async fn test_flags_that_depends_on_other_multivariate_flag_boolean_match() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let leaf_flag = create_test_flag(
@@ -989,7 +1031,11 @@ mod tests {
     async fn test_get_matching_variant_with_cache() {
         let flag = create_test_flag_with_variants(1);
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(1);
         let group_types_to_indexes = [("group_type_1".to_string(), 1)].into_iter().collect();
         let indexes_to_types = [(1, "group_type_1".to_string())].into_iter().collect();
@@ -1017,13 +1063,20 @@ mod tests {
     #[tokio::test]
     async fn test_get_matching_variant_with_db() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag_with_variants(team.id);
 
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(context.persons_reader.clone()).await.unwrap();
+        group_type_mapping_cache
+            .init(context.persons_reader.clone())
+            .await
+            .unwrap();
 
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
@@ -1044,7 +1097,11 @@ mod tests {
     #[tokio::test]
     async fn test_is_condition_match_empty_properties() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let flag = create_test_flag(
             Some(1),
             None,
@@ -1092,7 +1149,11 @@ mod tests {
     #[tokio::test]
     async fn test_is_condition_match_flag_value_operator() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let flag = create_test_flag(
             Some(2),
             None,
@@ -1194,7 +1255,11 @@ mod tests {
     #[tokio::test]
     async fn test_overrides_avoid_db_lookups() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -1274,7 +1339,11 @@ mod tests {
     #[tokio::test]
     async fn test_concurrent_flag_evaluation() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
         let flag = Arc::new(create_test_flag(
             None,
@@ -1330,7 +1399,11 @@ mod tests {
     #[tokio::test]
     async fn test_property_operators() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -1372,13 +1445,14 @@ mod tests {
             None,
         );
 
-        context.insert_person(
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"email": "user@example@domain.com", "age": 30})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"email": "user@example@domain.com", "age": 30})),
+            )
+            .await
+            .unwrap();
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
@@ -1404,7 +1478,11 @@ mod tests {
     #[tokio::test]
     async fn test_empty_hashed_identifier() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let flag = create_test_flag(
             Some(1),
             None,
@@ -1447,7 +1525,11 @@ mod tests {
     #[tokio::test]
     async fn test_rollout_percentage() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let mut flag = create_test_flag(
             Some(1),
             None,
@@ -1495,7 +1577,11 @@ mod tests {
     #[tokio::test]
     async fn test_uneven_variant_distribution() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let mut flag = create_test_flag_with_variants(1);
 
         // Adjust variant rollout percentages to be uneven
@@ -1556,11 +1642,16 @@ mod tests {
     #[tokio::test]
     async fn test_missing_properties_in_db() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a person without properties
-        context.insert_person( team.id, "test_user".to_string(), None)
+        context
+            .insert_person(team.id, "test_user".to_string(), None)
             .await
             .unwrap();
 
@@ -1611,17 +1702,22 @@ mod tests {
     #[tokio::test]
     async fn test_malformed_property_data() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a person with malformed properties
-        context.insert_person(
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"age": "not_a_number"})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"age": "not_a_number"})),
+            )
+            .await
+            .unwrap();
 
         let flag = create_test_flag(
             None,
@@ -1671,7 +1767,11 @@ mod tests {
     #[tokio::test]
     async fn test_evaluation_reasons() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let flag = create_test_flag(
             Some(1),
             None,
@@ -1715,7 +1815,11 @@ mod tests {
     #[tokio::test]
     async fn test_complex_conditions() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -1761,13 +1865,14 @@ mod tests {
             Some(false),
         );
 
-        context.insert_person(
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"email": "user2@example.com", "age": 35})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"email": "user2@example.com", "age": 35})),
+            )
+            .await
+            .unwrap();
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
@@ -1792,164 +1897,175 @@ mod tests {
     #[tokio::test]
     async fn test_complex_cohort_conditions() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a cohort with complex conditions
-        let cohort_row = context.insert_cohort(
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": "@posthog\\.com$",
-                                "negation": false,
-                                "operator": "regex"
-                            }]
-                        },
-                        {
-                            "type": "AND",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": ["fuziontech@gmail.com"],
-                                "operator": "exact"
-                            }]
-                        },
-                        {
-                            "type": "AND",
-                            "values": [{
-                                "key": "distinct_id",
-                                "type": "person",
-                                "value": ["D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc"],
-                                "operator": "exact"
-                            }]
-                        },
-                        {
-                            "type": "OR",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": ["neil@posthog.com"],
-                                "negation": false,
-                                "operator": "exact"
-                            }]
-                        },
-                        {
-                            "type": "OR",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": ["corywatilo@gmail.com"],
-                                "negation": false,
-                                "operator": "exact"
-                            }]
-                        },
-                        {
-                            "type": "OR",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": "@leads\\.io$",
-                                "negation": false,
-                                "operator": "regex"
-                            }]
-                        },
-                        {
-                            "type": "OR",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": "@desertcart\\.io$",
-                                "negation": false,
-                                "operator": "regex"
-                            }]
-                        }
-                    ]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
+        let cohort_row = context
+            .insert_cohort(
+                team.id,
+                None,
+                json!({
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog\\.com$",
+                                    "negation": false,
+                                    "operator": "regex"
+                                }]
+                            },
+                            {
+                                "type": "AND",
+                                "values": [{
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["fuziontech@gmail.com"],
+                                    "operator": "exact"
+                                }]
+                            },
+                            {
+                                "type": "AND",
+                                "values": [{
+                                    "key": "distinct_id",
+                                    "type": "person",
+                                    "value": ["D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc"],
+                                    "operator": "exact"
+                                }]
+                            },
+                            {
+                                "type": "OR",
+                                "values": [{
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["neil@posthog.com"],
+                                    "negation": false,
+                                    "operator": "exact"
+                                }]
+                            },
+                            {
+                                "type": "OR",
+                                "values": [{
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["corywatilo@gmail.com"],
+                                    "negation": false,
+                                    "operator": "exact"
+                                }]
+                            },
+                            {
+                                "type": "OR",
+                                "values": [{
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@leads\\.io$",
+                                    "negation": false,
+                                    "operator": "regex"
+                                }]
+                            },
+                            {
+                                "type": "OR",
+                                "values": [{
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@desertcart\\.io$",
+                                    "negation": false,
+                                    "operator": "regex"
+                                }]
+                            }
+                        ]
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
 
         // Test case 1: Should match - posthog.com email (AND condition)
-        context.insert_person(
-            team.id,
-            "test_user_1".to_string(),
-            Some(json!({
-                "email": "test@posthog.com",
-                "distinct_id": "test_user_1"
-            })),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user_1".to_string(),
+                Some(json!({
+                    "email": "test@posthog.com",
+                    "distinct_id": "test_user_1"
+                })),
+            )
+            .await
+            .unwrap();
 
         // Test case 2: Should match - fuziontech@gmail.com (AND condition)
-        context.insert_person(
-            team.id,
-            "test_user_2".to_string(),
-            Some(json!({
-                "email": "fuziontech@gmail.com",
-                "distinct_id": "test_user_2"
-            })),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user_2".to_string(),
+                Some(json!({
+                    "email": "fuziontech@gmail.com",
+                    "distinct_id": "test_user_2"
+                })),
+            )
+            .await
+            .unwrap();
 
         // Test case 3: Should match - specific distinct_id (AND condition)
-        context.insert_person(
-            team.id,
-            "D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc".to_string(),
-            Some(json!({
-                "email": "other@example.com",
-                "distinct_id": "D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc"
-            })),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc".to_string(),
+                Some(json!({
+                    "email": "other@example.com",
+                    "distinct_id": "D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc"
+                })),
+            )
+            .await
+            .unwrap();
 
         // Test case 4: Should match - neil@posthog.com (OR condition)
-        context.insert_person(
-            team.id,
-            "test_user_4".to_string(),
-            Some(json!({
-                "email": "neil@posthog.com",
-                "distinct_id": "test_user_4"
-            })),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user_4".to_string(),
+                Some(json!({
+                    "email": "neil@posthog.com",
+                    "distinct_id": "test_user_4"
+                })),
+            )
+            .await
+            .unwrap();
 
         // Test case 5: Should match - @leads.io email (OR condition with regex)
-        context.insert_person(
-            team.id,
-            "test_user_5".to_string(),
-            Some(json!({
-                "email": "test@leads.io",
-                "distinct_id": "test_user_5"
-            })),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user_5".to_string(),
+                Some(json!({
+                    "email": "test@leads.io",
+                    "distinct_id": "test_user_5"
+                })),
+            )
+            .await
+            .unwrap();
 
         // Test case 6: Should NOT match - random email
-        context.insert_person(
-            team.id,
-            "test_user_6".to_string(),
-            Some(json!({
-                "email": "random@example.com",
-                "distinct_id": "test_user_6"
-            })),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user_6".to_string(),
+                Some(json!({
+                    "email": "random@example.com",
+                    "distinct_id": "test_user_6"
+                })),
+            )
+            .await
+            .unwrap();
 
         // Create a feature flag using this cohort and verify matches
         let flag = create_test_flag(
@@ -2020,7 +2136,11 @@ mod tests {
     #[tokio::test]
     async fn test_super_condition_matches_boolean() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -2082,19 +2202,22 @@ mod tests {
             None,
         );
 
-        context.insert_person(
-            team.id,
-            "test_id".to_string(),
-            Some(json!({"email": "test@posthog.com", "is_enabled": true})),
-        )
-        .await
-        .unwrap();
-
-        context.insert_person( team.id, "lil_id".to_string(), None)
+        context
+            .insert_person(
+                team.id,
+                "test_id".to_string(),
+                Some(json!({"email": "test@posthog.com", "is_enabled": true})),
+            )
             .await
             .unwrap();
 
-        context.insert_person( team.id, "another_id".to_string(), None)
+        context
+            .insert_person(team.id, "lil_id".to_string(), None)
+            .await
+            .unwrap();
+
+        context
+            .insert_person(team.id, "another_id".to_string(), None)
             .await
             .unwrap();
 
@@ -2159,16 +2282,21 @@ mod tests {
     #[tokio::test]
     async fn test_super_condition_matches_string() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        context.insert_person(
-            team.id,
-            "test_id".to_string(),
-            Some(json!({"email": "test@posthog.com", "is_enabled": "true"})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_id".to_string(),
+                Some(json!({"email": "test@posthog.com", "is_enabled": "true"})),
+            )
+            .await
+            .unwrap();
 
         let flag = create_test_flag(
             Some(1),
@@ -2255,22 +2383,29 @@ mod tests {
     #[tokio::test]
     async fn test_super_condition_matches_and_false() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        context.insert_person(
-            team.id,
-            "test_id".to_string(),
-            Some(json!({"email": "test@posthog.com", "is_enabled": true})),
-        )
-        .await
-        .unwrap();
-
-        context.insert_person( team.id, "another_id".to_string(), None)
+        context
+            .insert_person(
+                team.id,
+                "test_id".to_string(),
+                Some(json!({"email": "test@posthog.com", "is_enabled": true})),
+            )
             .await
             .unwrap();
 
-        context.insert_person( team.id, "lil_id".to_string(), None)
+        context
+            .insert_person(team.id, "another_id".to_string(), None)
+            .await
+            .unwrap();
+
+        context
+            .insert_person(team.id, "lil_id".to_string(), None)
             .await
             .unwrap();
 
@@ -2408,41 +2543,47 @@ mod tests {
     #[tokio::test]
     async fn test_basic_cohort_matching() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a cohort with the condition that matches the test user's properties
-        let cohort_row = context.insert_cohort(
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
+        let cohort_row = context
+            .insert_cohort(
+                team.id,
+                None,
+                json!({
+                    "properties": {
                         "type": "OR",
                         "values": [{
-                            "key": "$browser_version",
-                            "type": "person",
-                            "value": "125",
-                            "negation": false,
-                            "operator": "gt"
+                            "type": "OR",
+                            "values": [{
+                                "key": "$browser_version",
+                                "type": "person",
+                                "value": "125",
+                                "negation": false,
+                                "operator": "gt"
+                            }]
                         }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
 
         // Insert a person with properties that match the cohort condition
-        context.insert_person(
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"$browser_version": 126})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"$browser_version": 126})),
+            )
+            .await
+            .unwrap();
 
         // Define a flag with a cohort filter
         let flag = create_test_flag(
@@ -2498,41 +2639,47 @@ mod tests {
     #[tokio::test]
     async fn test_not_in_cohort_matching() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a cohort with a condition that does not match the test user's properties
-        let cohort_row = context.insert_cohort(
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
+        let cohort_row = context
+            .insert_cohort(
+                team.id,
+                None,
+                json!({
+                    "properties": {
                         "type": "OR",
                         "values": [{
-                            "key": "$browser_version",
-                            "type": "person",
-                            "value": "130",
-                            "negation": false,
-                            "operator": "gt"
+                            "type": "OR",
+                            "values": [{
+                                "key": "$browser_version",
+                                "type": "person",
+                                "value": "130",
+                                "negation": false,
+                                "operator": "gt"
+                            }]
                         }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
 
         // Insert a person with properties that do not match the cohort condition
-        context.insert_person(
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"$browser_version": 126})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"$browser_version": 126})),
+            )
+            .await
+            .unwrap();
 
         // Define a flag with a NotIn cohort filter
         let flag = create_test_flag(
@@ -2588,41 +2735,47 @@ mod tests {
     #[tokio::test]
     async fn test_not_in_cohort_matching_user_in_cohort() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a cohort with a condition that matches the test user's properties
-        let cohort_row = context.insert_cohort(
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
+        let cohort_row = context
+            .insert_cohort(
+                team.id,
+                None,
+                json!({
+                    "properties": {
                         "type": "OR",
                         "values": [{
-                            "key": "$browser_version",
-                            "type": "person",
-                            "value": "125",
-                            "negation": false,
-                            "operator": "gt"
+                            "type": "OR",
+                            "values": [{
+                                "key": "$browser_version",
+                                "type": "person",
+                                "value": "125",
+                                "negation": false,
+                                "operator": "gt"
+                            }]
                         }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
 
         // Insert a person with properties that match the cohort condition
-        context.insert_person(
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"$browser_version": 126})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"$browser_version": 126})),
+            )
+            .await
+            .unwrap();
 
         // Define a flag with a NotIn cohort filter
         let flag = create_test_flag(
@@ -2674,65 +2827,72 @@ mod tests {
     #[tokio::test]
     async fn test_cohort_dependent_on_another_cohort() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a base cohort
-        let base_cohort_row = context.insert_cohort(
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
+        let base_cohort_row = context
+            .insert_cohort(
+                team.id,
+                None,
+                json!({
+                    "properties": {
                         "type": "OR",
                         "values": [{
-                            "key": "$browser_version",
-                            "type": "person",
-                            "value": "125",
-                            "negation": false,
-                            "operator": "gt"
+                            "type": "OR",
+                            "values": [{
+                                "key": "$browser_version",
+                                "type": "person",
+                                "value": "125",
+                                "negation": false,
+                                "operator": "gt"
+                            }]
                         }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
 
         // Insert a dependent cohort that includes the base cohort
-        let dependent_cohort_row = context.insert_cohort(
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
+        let dependent_cohort_row = context
+            .insert_cohort(
+                team.id,
+                None,
+                json!({
+                    "properties": {
                         "type": "OR",
                         "values": [{
-                            "key": "id",
-                            "type": "cohort",
-                            "value": base_cohort_row.id,
-                            "negation": false,
-                            "operator": "in"
+                            "type": "OR",
+                            "values": [{
+                                "key": "id",
+                                "type": "cohort",
+                                "value": base_cohort_row.id,
+                                "negation": false,
+                                "operator": "in"
+                            }]
                         }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
 
         // Insert a person with properties that match the base cohort condition
-        context.insert_person(
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"$browser_version": 126})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"$browser_version": 126})),
+            )
+            .await
+            .unwrap();
 
         // Define a flag with a cohort filter that depends on another cohort
         let flag = create_test_flag(
@@ -2788,41 +2948,47 @@ mod tests {
     #[tokio::test]
     async fn test_in_cohort_matching_user_not_in_cohort() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a cohort with a condition that does not match the test user's properties
-        let cohort_row = context.insert_cohort(
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
+        let cohort_row = context
+            .insert_cohort(
+                team.id,
+                None,
+                json!({
+                    "properties": {
                         "type": "OR",
                         "values": [{
-                            "key": "$browser_version",
-                            "type": "person",
-                            "value": "130",
-                            "negation": false,
-                            "operator": "gt"
+                            "type": "OR",
+                            "values": [{
+                                "key": "$browser_version",
+                                "type": "person",
+                                "value": "130",
+                                "negation": false,
+                                "operator": "gt"
+                            }]
                         }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
 
         // Insert a person with properties that do not match the cohort condition
-        context.insert_person(
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"$browser_version": 125})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"$browser_version": 125})),
+            )
+            .await
+            .unwrap();
 
         // Define a flag with an In cohort filter
         let flag = create_test_flag(
@@ -2879,36 +3045,44 @@ mod tests {
     #[tokio::test]
     async fn test_static_cohort_matching_user_in_cohort() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a static cohort
-        let cohort = context.insert_cohort(
-            team.id,
-            Some("Static Cohort".to_string()),
-            json!({}), // Static cohorts don't have property filters
-            true,      // is_static = true
-        )
-        .await
-        .unwrap();
+        let cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Static Cohort".to_string()),
+                json!({}), // Static cohorts don't have property filters
+                true,      // is_static = true
+            )
+            .await
+            .unwrap();
 
         // Insert a person
         let distinct_id = "static_user".to_string();
-        context.insert_person(
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "static@user.com"})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "static@user.com"})),
+            )
+            .await
+            .unwrap();
 
         // Retrieve the person's ID
-        let person_id = context.get_person_id_by_distinct_id(team.id, &distinct_id)
+        let person_id = context
+            .get_person_id_by_distinct_id(team.id, &distinct_id)
             .await
             .unwrap();
 
         // Associate the person with the static cohort
-        context.add_person_to_cohort(cohort.id, person_id)
+        context
+            .add_person_to_cohort(cohort.id, person_id)
             .await
             .unwrap();
 
@@ -2969,28 +3143,34 @@ mod tests {
     #[tokio::test]
     async fn test_static_cohort_matching_user_not_in_cohort() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a static cohort
-        let cohort = context.insert_cohort(
-            team.id,
-            Some("Another Static Cohort".to_string()),
-            json!({}), // Static cohorts don't have property filters
-            true,
-        )
-        .await
-        .unwrap();
+        let cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Another Static Cohort".to_string()),
+                json!({}), // Static cohorts don't have property filters
+                true,
+            )
+            .await
+            .unwrap();
 
         // Insert a person
         let distinct_id = "non_static_user".to_string();
-        context.insert_person(
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "nonstatic@user.com"})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "nonstatic@user.com"})),
+            )
+            .await
+            .unwrap();
 
         // Note: Do NOT associate the person with the static cohort
 
@@ -3046,28 +3226,34 @@ mod tests {
     #[tokio::test]
     async fn test_static_cohort_not_in_matching_user_not_in_cohort() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a static cohort
-        let cohort = context.insert_cohort(
-            team.id,
-            Some("Static Cohort NotIn".to_string()),
-            json!({}), // Static cohorts don't have property filters
-            true,      // is_static = true
-        )
-        .await
-        .unwrap();
+        let cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Static Cohort NotIn".to_string()),
+                json!({}), // Static cohorts don't have property filters
+                true,      // is_static = true
+            )
+            .await
+            .unwrap();
 
         // Insert a person
         let distinct_id = "not_in_static_user".to_string();
-        context.insert_person(
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "notinstatic@user.com"})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "notinstatic@user.com"})),
+            )
+            .await
+            .unwrap();
 
         // No association with the static cohort
 
@@ -3128,36 +3314,44 @@ mod tests {
     #[tokio::test]
     async fn test_static_cohort_not_in_matching_user_in_cohort() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a static cohort
-        let cohort = context.insert_cohort(
-            team.id,
-            Some("Static Cohort NotIn User In".to_string()),
-            json!({}), // Static cohorts don't have property filters
-            true,      // is_static = true
-        )
-        .await
-        .unwrap();
+        let cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Static Cohort NotIn User In".to_string()),
+                json!({}), // Static cohorts don't have property filters
+                true,      // is_static = true
+            )
+            .await
+            .unwrap();
 
         // Insert a person
         let distinct_id = "in_not_in_static_user".to_string();
-        context.insert_person(
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "innotinstatic@user.com"})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "innotinstatic@user.com"})),
+            )
+            .await
+            .unwrap();
 
         // Retrieve the person's ID
-        let person_id = context.get_person_id_by_distinct_id(team.id, &distinct_id)
+        let person_id = context
+            .get_person_id_by_distinct_id(team.id, &distinct_id)
             .await
             .unwrap();
 
         // Associate the person with the static cohort
-        context.add_person_to_cohort(cohort.id, person_id)
+        context
+            .add_person_to_cohort(cohort.id, person_id)
             .await
             .unwrap();
 
@@ -3213,21 +3407,29 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_feature_flags_with_experience_continuity() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
         let distinct_id = "user3".to_string();
 
         // Insert person
-        context.insert_person(
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "user3@example.com"})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "user3@example.com"})),
+            )
+            .await
+            .unwrap();
 
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(context.persons_reader.clone()).await.unwrap();
+        group_type_mapping_cache
+            .init(context.persons_reader.clone())
+            .await
+            .unwrap();
 
         // Create flag with experience continuity
         let flag = create_test_flag(
@@ -3310,20 +3512,28 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_feature_flags_with_continuity_missing_override() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
         let distinct_id = "user4".to_string();
 
-        context.insert_person(
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "user4@example.com"})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "user4@example.com"})),
+            )
+            .await
+            .unwrap();
 
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(context.persons_reader.clone()).await.unwrap();
+        group_type_mapping_cache
+            .init(context.persons_reader.clone())
+            .await
+            .unwrap();
 
         // Create flag with experience continuity
         let flag = create_test_flag(
@@ -3389,20 +3599,28 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_all_feature_flags_mixed_continuity() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
         let distinct_id = "user5".to_string();
 
-        context.insert_person(
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "user5@example.com"})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "user5@example.com"})),
+            )
+            .await
+            .unwrap();
 
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(context.persons_reader.clone()).await.unwrap();
+        group_type_mapping_cache
+            .init(context.persons_reader.clone())
+            .await
+            .unwrap();
 
         // Create flag with continuity
         let flag_continuity = create_test_flag(
@@ -3520,18 +3738,23 @@ mod tests {
     #[tokio::test]
     async fn test_variant_override_in_condition() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
         let distinct_id = "test_user".to_string();
 
         // Insert a person with properties that will match our condition
-        context.insert_person(
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "test@example.com"})),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "test@example.com"})),
+            )
+            .await
+            .unwrap();
 
         // Create a flag with multiple variants and a condition with a variant override
         let flag = create_test_flag(
@@ -3665,26 +3888,32 @@ mod tests {
     #[tokio::test]
     async fn test_feature_flag_with_holdout_filter() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // example_id is outside 70% holdout
-        let _person1 = context.insert_person(
-            team.id,
-            "example_id".to_string(),
-            Some(json!({"$some_prop": 5})),
-        )
-        .await
-        .unwrap();
+        let _person1 = context
+            .insert_person(
+                team.id,
+                "example_id".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
 
         // example_id2 is within 70% holdout
-        let _person2 = context.insert_person(
-            team.id,
-            "example_id2".to_string(),
-            Some(json!({"$some_prop": 5})),
-        )
-        .await
-        .unwrap();
+        let _person2 = context
+            .insert_person(
+                team.id,
+                "example_id2".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
 
         let multivariate_json = MultivariateFlagOptions {
             variants: vec![
@@ -3890,7 +4119,11 @@ mod tests {
     async fn test_variants() {
         // Ported from posthog/test/test_feature_flag.py test_variants
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = FeatureFlag {
@@ -4008,34 +4241,42 @@ mod tests {
     #[tokio::test]
     async fn test_static_cohort_evaluation_skips_dependency_graph() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         // Insert a static cohort
-        let cohort = context.insert_cohort(
-            team.id,
-            Some("Static Cohort".to_string()),
-            json!({}), // Static cohorts don't have property filters
-            true,      // is_static = true
-        )
-        .await
-        .unwrap();
+        let cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Static Cohort".to_string()),
+                json!({}), // Static cohorts don't have property filters
+                true,      // is_static = true
+            )
+            .await
+            .unwrap();
 
         // Insert a person
         let distinct_id = "static_user".to_string();
-        context.insert_person(
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "static@user.com"})),
-        )
-        .await
-        .unwrap();
-
-        // Get person ID and add to cohort
-        let person_id = context.get_person_id_by_distinct_id(team.id, &distinct_id)
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"email": "static@user.com"})),
+            )
             .await
             .unwrap();
-        context.add_person_to_cohort(cohort.id, person_id)
+
+        // Get person ID and add to cohort
+        let person_id = context
+            .get_person_id_by_distinct_id(team.id, &distinct_id)
+            .await
+            .unwrap();
+        context
+            .add_person_to_cohort(cohort.id, person_id)
             .await
             .unwrap();
 
@@ -4096,7 +4337,11 @@ mod tests {
     #[tokio::test]
     async fn test_no_person_id_with_overrides() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -4164,7 +4409,11 @@ mod tests {
     #[tokio::test]
     async fn test_numeric_group_keys() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -4191,7 +4440,10 @@ mod tests {
 
         // Set up group type mapping cache
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(context.persons_reader.clone()).await.unwrap();
+        group_type_mapping_cache
+            .init(context.persons_reader.clone())
+            .await
+            .unwrap();
 
         // Test with numeric group key
         let groups_numeric = HashMap::from([("organization".to_string(), json!(123))]);
@@ -4295,7 +4547,11 @@ mod tests {
     #[tokio::test]
     async fn test_complex_super_condition_matching() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -4370,39 +4626,42 @@ mod tests {
         );
 
         // Test case 1: User with super condition property set to true
-        context.insert_person(
-            team.id,
-            "super_user".to_string(),
-            Some(json!({
-                "email": "random@example.com",
-                "$feature_enrollment/artificial-hog": true
-            })),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "super_user".to_string(),
+                Some(json!({
+                    "email": "random@example.com",
+                    "$feature_enrollment/artificial-hog": true
+                })),
+            )
+            .await
+            .unwrap();
 
         // Test case 2: User with matching email but no super condition
-        context.insert_person(
-            team.id,
-            "posthog_user".to_string(),
-            Some(json!({
-                "email": "test@posthog.com",
-                "$feature_enrollment/artificial-hog": false
-            })),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "posthog_user".to_string(),
+                Some(json!({
+                    "email": "test@posthog.com",
+                    "$feature_enrollment/artificial-hog": false
+                })),
+            )
+            .await
+            .unwrap();
 
         // Test case 3: User with neither super condition nor matching email
-        context.insert_person(
-            team.id,
-            "regular_user".to_string(),
-            Some(json!({
-                "email": "regular@example.com"
-            })),
-        )
-        .await
-        .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "regular_user".to_string(),
+                Some(json!({
+                    "email": "regular@example.com"
+                })),
+            )
+            .await
+            .unwrap();
 
         // Test super condition user
         let router = context.create_postgres_router();
@@ -4482,14 +4741,20 @@ mod tests {
     #[tokio::test]
     async fn test_filters_with_distinct_id_exact() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
 
-        let team = context.insert_new_team(None)
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team in pg");
 
         let distinct_id = "user_distinct_id".to_string();
-        context.insert_person( team.id, distinct_id.clone(), None)
+        context
+            .insert_person(team.id, distinct_id.clone(), None)
             .await
             .expect("Failed to insert person");
 
@@ -4545,24 +4810,29 @@ mod tests {
     #[tokio::test]
     async fn test_partial_property_overrides_fallback_behavior() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let distinct_id = "test_user".to_string();
 
         // Insert person with specific properties in DB that would match condition 1
-        context.insert_person(
-            team.id,
-            distinct_id.clone(),
-            Some(json!({
-                "app_version": "1.3.6",
-                "focus": "all-of-the-above",
-                "os": "iOS",
-                "email": "test@example.com"
-            })),
-        )
-        .await
-        .expect("Failed to insert person");
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({
+                    "app_version": "1.3.6",
+                    "focus": "all-of-the-above",
+                    "os": "iOS",
+                    "email": "test@example.com"
+                })),
+            )
+            .await
+            .expect("Failed to insert person");
 
         // Create a flag with two conditions similar to the user's example
         let flag = create_test_flag(
@@ -4781,30 +5051,36 @@ mod tests {
     #[tokio::test]
     async fn test_partial_group_property_overrides_fallback_behavior() {
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let distinct_id = "test_user".to_string();
 
         // Insert person (required for group flag evaluation)
-        context.insert_person(team.id, distinct_id.clone(), None)
+        context
+            .insert_person(team.id, distinct_id.clone(), None)
             .await
             .expect("Failed to insert person");
 
         // Create a group with specific properties in DB that would match condition 1
-        context.create_group(
-            team.id,
-            "organization",
-            "test_org_123",
-            json!({
-                "plan": "enterprise",
-                "region": "us-east-1",
-                "feature_access": "full",
-                "billing_email": "billing@testorg.com"
-            }),
-        )
-        .await
-        .expect("Failed to create group");
+        context
+            .create_group(
+                team.id,
+                "organization",
+                "test_org_123",
+                json!({
+                    "plan": "enterprise",
+                    "region": "us-east-1",
+                    "feature_access": "full",
+                    "billing_email": "billing@testorg.com"
+                }),
+            )
+            .await
+            .expect("Failed to create group");
 
         // Create a group flag with two conditions similar to the person property test
         let flag = create_test_flag(
@@ -4872,7 +5148,10 @@ mod tests {
 
         // Set up group type mappings
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(context.persons_reader.clone()).await.unwrap();
+        group_type_mapping_cache
+            .init(context.persons_reader.clone())
+            .await
+            .unwrap();
 
         let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
         let indexes_to_types = [(1, "organization".to_string())].into_iter().collect();
@@ -4923,7 +5202,10 @@ mod tests {
 
         // Debug logging to see what's in the result
         println!("Test result: {:?}", result);
-        println!("Errors while computing: {}", result.errors_while_computing_flags);
+        println!(
+            "Errors while computing: {}",
+            result.errors_while_computing_flags
+        );
         println!("Flags in result: {:?}", result.flags);
 
         assert!(!result.errors_while_computing_flags);
@@ -5095,9 +5377,14 @@ mod tests {
         // Unlike decide, we don't sort conditions with variant overrides to the top.
         // This test ensures that the order is maintained regardless of the presence of a variant override.
         let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
 
-        let team = context.insert_new_team(None)
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team");
 

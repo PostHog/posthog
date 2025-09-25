@@ -947,7 +947,8 @@ mod tests {
         let distinct_id = "user2".to_string();
 
         // Insert person
-        context.insert_person(team.id, distinct_id.clone(), None)
+        context
+            .insert_person(team.id, distinct_id.clone(), None)
             .await
             .unwrap();
 
@@ -985,9 +986,7 @@ mod tests {
         };
 
         // Insert the feature flag into the database
-        context.insert_flag(team.id, Some(flag_row))
-            .await
-            .unwrap();
+        context.insert_flag(team.id, Some(flag_row)).await.unwrap();
 
         // Set hash key override
         let router = context.create_postgres_router();
@@ -1002,10 +1001,10 @@ mod tests {
         .unwrap();
 
         // Retrieve hash key overrides
-        let overrides =
-            context.get_feature_flag_hash_key_overrides(team.id, vec![distinct_id.clone()])
-                .await
-                .unwrap();
+        let overrides = context
+            .get_feature_flag_hash_key_overrides(team.id, vec![distinct_id.clone()])
+            .await
+            .unwrap();
 
         assert_eq!(
             overrides.get("test_flag"),
@@ -1017,37 +1016,42 @@ mod tests {
     #[tokio::test]
     async fn test_set_feature_flag_hash_key_overrides_with_multiple_persons() {
         let context = TestContext::new(None).await;
-        let team = context.insert_new_team(None)
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
         // Create 3 persons
-        let person1_id = context.insert_person(
-            team.id,
-            "batch_user1".to_string(),
-            Some(json!({"email": "user1@example.com"})),
-        )
-        .await
-        .expect("Failed to insert person1");
+        let person1_id = context
+            .insert_person(
+                team.id,
+                "batch_user1".to_string(),
+                Some(json!({"email": "user1@example.com"})),
+            )
+            .await
+            .expect("Failed to insert person1");
 
-        let _person2_id = context.insert_person(
-            team.id,
-            "batch_user2".to_string(),
-            Some(json!({"email": "user2@example.com"})),
-        )
-        .await
-        .expect("Failed to insert person2");
+        let _person2_id = context
+            .insert_person(
+                team.id,
+                "batch_user2".to_string(),
+                Some(json!({"email": "user2@example.com"})),
+            )
+            .await
+            .expect("Failed to insert person2");
 
-        let _person3_id = context.insert_person(
-            team.id,
-            "batch_user3".to_string(),
-            Some(json!({"email": "user3@example.com"})),
-        )
-        .await
-        .expect("Failed to insert person3");
+        let _person3_id = context
+            .insert_person(
+                team.id,
+                "batch_user3".to_string(),
+                Some(json!({"email": "user3@example.com"})),
+            )
+            .await
+            .expect("Failed to insert person3");
 
         // Add additional distinct_id for person1 to test multiple distinct_ids per person
-        let mut conn = context.get_persons_connection()
+        let mut conn = context
+            .get_persons_connection()
             .await
             .expect("Failed to get connection");
         let mut transaction = conn.begin().await.expect("Failed to begin transaction");
@@ -1082,7 +1086,8 @@ mod tests {
                 version: Some(1),
                 evaluation_runtime: None,
             };
-            context.insert_flag(team.id, Some(flag_row))
+            context
+                .insert_flag(team.id, Some(flag_row))
                 .await
                 .unwrap_or_else(|_| panic!("Failed to insert flag {i}"));
         }
@@ -1112,12 +1117,10 @@ mod tests {
         // Verify all combinations were created correctly
         // Should create overrides for all distinct_ids
         for distinct_id in &distinct_ids {
-            let overrides = context.get_feature_flag_hash_key_overrides(
-                team.id,
-                vec![distinct_id.clone()],
-            )
-            .await
-            .unwrap_or_else(|_| panic!("Failed to get overrides for {distinct_id}"));
+            let overrides = context
+                .get_feature_flag_hash_key_overrides(team.id, vec![distinct_id.clone()])
+                .await
+                .unwrap_or_else(|_| panic!("Failed to get overrides for {distinct_id}"));
 
             assert_eq!(
                 overrides.len(),
@@ -1137,7 +1140,8 @@ mod tests {
 
         // Verify the actual count in the database
         // batch_user1 and batch_user1_alt map to same person, so 3 persons * 4 flags = 12 overrides
-        let mut conn = context.get_persons_connection()
+        let mut conn = context
+            .get_persons_connection()
             .await
             .expect("Failed to get connection");
         let count: i64 = sqlx::query_scalar(
@@ -1159,26 +1163,29 @@ mod tests {
     #[tokio::test]
     async fn test_set_feature_flag_hash_key_overrides_with_with_existing_overrides() {
         let context = TestContext::new(None).await;
-        let team = context.insert_new_team(None)
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
         // Create 2 persons
-        let person1_id = context.insert_person(
-            team.id,
-            "existing_user1".to_string(),
-            Some(json!({"email": "existing1@example.com"})),
-        )
-        .await
-        .expect("Failed to insert person1");
+        let person1_id = context
+            .insert_person(
+                team.id,
+                "existing_user1".to_string(),
+                Some(json!({"email": "existing1@example.com"})),
+            )
+            .await
+            .expect("Failed to insert person1");
 
-        let _person2_id = context.insert_person(
-            team.id,
-            "existing_user2".to_string(),
-            Some(json!({"email": "existing2@example.com"})),
-        )
-        .await
-        .expect("Failed to insert person2");
+        let _person2_id = context
+            .insert_person(
+                team.id,
+                "existing_user2".to_string(),
+                Some(json!({"email": "existing2@example.com"})),
+            )
+            .await
+            .expect("Failed to insert person2");
 
         // Create 3 flags
         for i in 1..=3 {
@@ -1194,13 +1201,15 @@ mod tests {
                 version: Some(1),
                 evaluation_runtime: None,
             };
-            context.insert_flag(team.id, Some(flag_row))
+            context
+                .insert_flag(team.id, Some(flag_row))
                 .await
                 .unwrap_or_else(|_| panic!("Failed to insert flag {i}"));
         }
 
         // Manually insert some existing overrides
-        let mut conn = context.get_persons_connection()
+        let mut conn = context
+            .get_persons_connection()
             .await
             .expect("Failed to get connection");
         let mut transaction = conn.begin().await.expect("Failed to begin transaction");
@@ -1241,12 +1250,10 @@ mod tests {
         assert!(result, "Should have written new overrides");
 
         // Verify existing overrides are preserved
-        let overrides1 = context.get_feature_flag_hash_key_overrides(
-            team.id,
-            vec!["existing_user1".to_string()],
-        )
-        .await
-        .expect("Failed to get overrides");
+        let overrides1 = context
+            .get_feature_flag_hash_key_overrides(team.id, vec!["existing_user1".to_string()])
+            .await
+            .expect("Failed to get overrides");
 
         assert_eq!(
             overrides1.get("existing_flag_1"),
@@ -1265,7 +1272,8 @@ mod tests {
         );
 
         // Verify the count - should have 6 total (2 existing + 4 new)
-        let mut conn = context.get_persons_connection()
+        let mut conn = context
+            .get_persons_connection()
             .await
             .expect("Failed to get connection");
         let count: i64 = sqlx::query_scalar(
@@ -1285,18 +1293,20 @@ mod tests {
     #[tokio::test]
     async fn test_set_overrides_filters_inactive_and_deleted_flags() {
         let context = TestContext::new(None).await;
-        let team = context.insert_new_team(None)
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
         // Create a person
-        context.insert_person(
-            team.id,
-            "filter_test_user".to_string(),
-            Some(json!({"email": "filter@example.com"})),
-        )
-        .await
-        .expect("Failed to insert person");
+        context
+            .insert_person(
+                team.id,
+                "filter_test_user".to_string(),
+                Some(json!({"email": "filter@example.com"})),
+            )
+            .await
+            .expect("Failed to insert person");
 
         // Create various flags with different states
         let active_flag = FeatureFlagRow {
@@ -1351,16 +1361,20 @@ mod tests {
             evaluation_runtime: None,
         };
 
-        context.insert_flag(team.id, Some(active_flag))
+        context
+            .insert_flag(team.id, Some(active_flag))
             .await
             .expect("Failed to insert active flag");
-        context.insert_flag(team.id, Some(inactive_flag))
+        context
+            .insert_flag(team.id, Some(inactive_flag))
             .await
             .expect("Failed to insert inactive flag");
-        context.insert_flag(team.id, Some(deleted_flag))
+        context
+            .insert_flag(team.id, Some(deleted_flag))
             .await
             .expect("Failed to insert deleted flag");
-        context.insert_flag(team.id, Some(no_continuity_flag))
+        context
+            .insert_flag(team.id, Some(no_continuity_flag))
             .await
             .expect("Failed to insert no continuity flag");
 
@@ -1379,12 +1393,10 @@ mod tests {
         assert!(result, "Should have written override for active flag");
 
         // Verify only the active flag with experience continuity got an override
-        let overrides = context.get_feature_flag_hash_key_overrides(
-            team.id,
-            vec!["filter_test_user".to_string()],
-        )
-        .await
-        .expect("Failed to get overrides");
+        let overrides = context
+            .get_feature_flag_hash_key_overrides(team.id, vec!["filter_test_user".to_string()])
+            .await
+            .expect("Failed to get overrides");
 
         assert_eq!(overrides.len(), 1, "Should have exactly 1 override");
         assert_eq!(
@@ -1411,18 +1423,20 @@ mod tests {
     #[tokio::test]
     async fn test_should_write_hash_key_override() {
         let context = TestContext::new(None).await;
-        let team = context.insert_new_team(None)
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
         // Create a person
-        context.insert_person(
-            team.id,
-            "should_write_user".to_string(),
-            Some(json!({"email": "should_write@example.com"})),
-        )
-        .await
-        .expect("Failed to insert person");
+        context
+            .insert_person(
+                team.id,
+                "should_write_user".to_string(),
+                Some(json!({"email": "should_write@example.com"})),
+            )
+            .await
+            .expect("Failed to insert person");
 
         // Create a flag with experience continuity
         let flag_row = FeatureFlagRow {
@@ -1437,7 +1451,8 @@ mod tests {
             version: Some(1),
             evaluation_runtime: None,
         };
-        context.insert_flag(team.id, Some(flag_row))
+        context
+            .insert_flag(team.id, Some(flag_row))
             .await
             .expect("Failed to insert flag");
 
@@ -1502,7 +1517,8 @@ mod tests {
     #[tokio::test]
     async fn test_set_overrides_with_no_persons() {
         let context = TestContext::new(None).await;
-        let team = context.insert_new_team(None)
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
@@ -1519,7 +1535,8 @@ mod tests {
             version: Some(1),
             evaluation_runtime: None,
         };
-        context.insert_flag(team.id, Some(flag_row))
+        context
+            .insert_flag(team.id, Some(flag_row))
             .await
             .expect("Failed to insert flag");
 
@@ -1541,7 +1558,8 @@ mod tests {
         assert!(!result, "Should return false when no persons found");
 
         // Verify no overrides were created
-        let mut conn = context.get_persons_connection()
+        let mut conn = context
+            .get_persons_connection()
             .await
             .expect("Failed to get connection");
         let count: i64 = sqlx::query_scalar(

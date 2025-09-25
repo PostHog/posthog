@@ -133,7 +133,10 @@ async fn test_evaluate_feature_flags() {
     let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
     let context = TestContext::new(None).await;
-    let team = context.insert_new_team(None).await.expect("Failed to insert team in pg");
+    let team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team in pg");
     let flag = FeatureFlag {
         name: Some("Test Flag".to_string()),
         id: 1,
@@ -207,10 +210,18 @@ async fn test_evaluate_feature_flags() {
 async fn test_evaluate_feature_flags_with_errors() {
     // Set up test dependencies
     let context = TestContext::new(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
-    let team = context.insert_new_team(None).await.expect("Failed to insert team in pg");
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        context.non_persons_reader.clone(),
+        None,
+        None,
+    ));
+    let team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team in pg");
 
-    context.insert_person(team.id, "user123".to_string(), None)
+    context
+        .insert_person(team.id, "user123".to_string(), None)
         .await
         .expect("Failed to insert person");
 
@@ -587,10 +598,14 @@ async fn test_evaluate_feature_flags_multiple_flags() {
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
     let context = TestContext::new(None).await;
-    let team = context.insert_new_team(None).await.expect("Failed to insert team in pg");
+    let team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team in pg");
 
     let distinct_id = "user_distinct_id".to_string();
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .expect("Failed to insert person");
 
@@ -688,7 +703,8 @@ async fn test_evaluate_feature_flags_details() {
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();
     let distinct_id = "user123".to_string();
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .expect("Failed to insert person");
 
@@ -846,7 +862,11 @@ fn test_flag_error_request_decoding() {
 #[tokio::test]
 async fn test_evaluate_feature_flags_with_overrides() {
     let context = TestContext::new(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        context.non_persons_reader.clone(),
+        None,
+        None,
+    ));
     let team = context.insert_new_team(None).await.unwrap();
 
     let flag = FeatureFlag {
@@ -941,10 +961,15 @@ async fn test_long_distinct_id() {
     // distinct_id is CHAR(400)
     let long_id = "a".repeat(400);
     let context = TestContext::new(None).await;
-    let cohort_cache = Arc::new(CohortCacheManager::new(context.non_persons_reader.clone(), None, None));
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        context.non_persons_reader.clone(),
+        None,
+        None,
+    ));
     let team = context.insert_new_team(None).await.unwrap();
     let distinct_id = long_id.to_string();
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .expect("Failed to insert person");
     let flag = FeatureFlag {

@@ -92,7 +92,9 @@ mod tests {
     use common_database::PostgresWriter;
 
     use super::*;
-    use crate::utils::test_utils::{insert_new_team_in_pg, setup_dual_pg_writers, setup_pg_reader_client};
+    use crate::utils::test_utils::{
+        insert_new_team_in_pg, setup_dual_pg_writers, setup_pg_reader_client,
+    };
 
     async fn insert_plugin_in_pg(
         client: PostgresWriter,
@@ -169,7 +171,9 @@ mod tests {
     async fn test_get_decide_site_apps_returns_empty_for_team_with_no_apps() {
         let client = setup_pg_reader_client(None).await;
         let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
+            .await
+            .unwrap();
 
         let result = get_decide_site_apps(client, team.id).await.unwrap();
 
@@ -180,7 +184,9 @@ mod tests {
     async fn test_get_decide_site_apps_returns_apps_for_team() {
         let client = setup_pg_reader_client(None).await;
         let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
+            .await
+            .unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(
@@ -221,7 +227,9 @@ mod tests {
     async fn test_get_decide_site_apps_ignores_disabled_configs() {
         let client = setup_pg_reader_client(None).await;
         let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
+            .await
+            .unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(
@@ -257,7 +265,9 @@ mod tests {
     async fn test_get_decide_site_apps_ignores_non_transpiled_files() {
         let client = setup_pg_reader_client(None).await;
         let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
+            .await
+            .unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(
@@ -293,7 +303,9 @@ mod tests {
     async fn test_get_decide_site_apps_ignores_non_site_files() {
         let client = setup_pg_reader_client(None).await;
         let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
+            .await
+            .unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(
@@ -329,7 +341,9 @@ mod tests {
     async fn test_get_decide_site_apps_returns_multiple_apps() {
         let client = setup_pg_reader_client(None).await;
         let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
+            .await
+            .unwrap();
 
         // Insert first plugin
         let plugin_id_1 = insert_plugin_in_pg(
@@ -397,7 +411,9 @@ mod tests {
     async fn test_get_decide_site_apps_url_format() {
         let client = setup_pg_reader_client(None).await;
         let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
+        let team = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
+            .await
+            .unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(
@@ -444,8 +460,12 @@ mod tests {
     async fn test_get_decide_site_apps_filters_by_team() {
         let client = setup_pg_reader_client(None).await;
         let (persons_writer, non_persons_writer) = setup_dual_pg_writers(None).await;
-        let team1 = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None).await.unwrap();
-        let team2 = insert_new_team_in_pg(persons_writer, non_persons_writer, None).await.unwrap();
+        let team1 = insert_new_team_in_pg(persons_writer.clone(), non_persons_writer.clone(), None)
+            .await
+            .unwrap();
+        let team2 = insert_new_team_in_pg(persons_writer, non_persons_writer, None)
+            .await
+            .unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(

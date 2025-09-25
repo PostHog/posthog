@@ -13,8 +13,8 @@ use crate::common::*;
 
 use feature_flags::config::{FlexBool, TeamIdCollection, DEFAULT_TEST_CONFIG};
 use feature_flags::utils::test_utils::{
-    insert_flags_for_team_in_redis, insert_new_team_in_redis,
-    setup_pg_reader_client, setup_redis_client, TestContext,
+    insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
+    setup_redis_client, TestContext,
 };
 
 pub mod common;
@@ -79,7 +79,10 @@ async fn it_gets_legacy_response_for_v1_or_invalid_version(
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     // Insert a specific flag for the team
     let flag_json = json!([{
@@ -149,7 +152,8 @@ async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -237,7 +241,8 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -321,7 +326,8 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -359,7 +365,10 @@ async fn it_accepts_empty_distinct_id() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
     let server = ServerHandle::for_config(config).await;
 
     let payload = json!({
@@ -649,7 +658,10 @@ async fn it_handles_multivariate_flags() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let flag_json = json!([{
         "id": 1,
@@ -737,7 +749,10 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     let token = team.api_token;
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
     let flag_json = json!([{
         "id": 1,
         "key": "property-flag",
@@ -952,12 +967,13 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(
-        team.id,
-        distinct_id.clone(),
-        Some(json!({"email": "tim@posthog.com"})),
-    )
-    .await?;
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "tim@posthog.com"})),
+        )
+        .await?;
 
     let flag_json = json!([{
         "id": 1,
@@ -1035,27 +1051,26 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
 
     // need this for the test to work, since we look up the dinstinct_id <-> person_id in from the DB at the beginning
     // of the flag evaluation process
-    context.insert_person(team.id, distinct_id.clone(), None).await?;
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await?;
 
     let token = team.api_token;
 
     // Create a group of type "organization" (group_type_index 1) with group_key "foo" and specific properties
-    context.create_group(
-        team.id,
-        "organization",
-        "foo",
-        json!({"email": "posthog@example.com"}),
-    )
-    .await?;
+    context
+        .create_group(
+            team.id,
+            "organization",
+            "foo",
+            json!({"email": "posthog@example.com"}),
+        )
+        .await?;
 
     // Create a group of type "project" (group_type_index 0) with group_key "bar" and specific properties
-    context.create_group(
-        team.id,
-        "project",
-        "bar",
-        json!({"name": "Project Bar"}),
-    )
-    .await?;
+    context
+        .create_group(team.id, "project", "bar", json!({"name": "Project Bar"}))
+        .await?;
 
     // Define feature flags
     let flags_json = json!([
@@ -1207,7 +1222,10 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let flag_json = json!([{
         "id": 1,
@@ -1279,7 +1297,10 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     let token = team.api_token;
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let flag_json = json!([
         {
@@ -1426,22 +1447,24 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     let pg_client = setup_pg_reader_client(None).await;
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await?;
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
     let token = team.api_token;
 
     // Create a group with matching name
-    context.create_group(
-        team.id,
-        "organization",
-        "0183ccf3-5efd-0000-1541-bbd96d7d6b7f",
-        json!({
-            "name": "RaquelMSmith",
-            "created_at": "2023-10-16T16:00:00Z"
-        }),
-    )
-    .await?;
+    context
+        .create_group(
+            team.id,
+            "organization",
+            "0183ccf3-5efd-0000-1541-bbd96d7d6b7f",
+            json!({
+                "name": "RaquelMSmith",
+                "created_at": "2023-10-16T16:00:00Z"
+            }),
+        )
+        .await?;
 
     let flag_json = json!([{
         "id": 1,
@@ -1525,16 +1548,17 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     );
 
     // Test with non-matching name but matching date
-    context.create_group(
-        team.id,
-        "organization",
-        "other_organization",
-        json!({
-            "name": "Other Org",
-            "created_at": "2023-10-16T16:00:00Z"
-        }),
-    )
-    .await?;
+    context
+        .create_group(
+            team.id,
+            "organization",
+            "other_organization",
+            json!({
+                "name": "Other Org",
+                "created_at": "2023-10-16T16:00:00Z"
+            }),
+        )
+        .await?;
 
     let payload = json!({
         "token": token,
@@ -1571,18 +1595,19 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
     let token = team.api_token;
 
     // Insert person with just their stored properties from the DB
-    context.insert_person(
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "$feature_enrollment/artificial-hog": true,
-            "$feature_enrollment/error-tracking": true,
-            "$feature_enrollment/llm-observability": false,
-            "$feature_enrollment/messaging-product": true,
-            "email": "gtarasov.work@gmail.com"
-        })),
-    )
-    .await?;
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "$feature_enrollment/artificial-hog": true,
+                "$feature_enrollment/error-tracking": true,
+                "$feature_enrollment/llm-observability": false,
+                "$feature_enrollment/messaging-product": true,
+                "email": "gtarasov.work@gmail.com"
+            })),
+        )
+        .await?;
 
     // Create the same flag as in production
     let flag_json = json!([{
@@ -1808,7 +1833,10 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let flag_json = json!([{
         "id": 1,
@@ -1877,7 +1905,10 @@ async fn test_config_basic_fields() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let flag_json = json!([{
         "id": 1,
@@ -1944,7 +1975,10 @@ async fn test_config_analytics_enabled() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1981,7 +2015,10 @@ async fn test_config_analytics_enabled_by_default() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2017,7 +2054,10 @@ async fn test_config_analytics_disabled_debug_mode() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2051,7 +2091,10 @@ async fn test_config_capture_performance_combinations() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2085,7 +2128,10 @@ async fn test_config_autocapture_exceptions() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2119,7 +2165,10 @@ async fn test_config_optional_team_features() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2161,7 +2210,10 @@ async fn test_config_site_apps_empty_by_default() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2195,7 +2247,10 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let flag_json = json!([{
         "id": 1,
@@ -2280,7 +2335,8 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2391,7 +2447,8 @@ async fn test_config_session_recording_with_rrweb_script() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2461,7 +2518,8 @@ async fn test_config_session_recording_team_not_allowed_for_script() -> Result<(
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2541,7 +2599,10 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     // Add a site app plugin
     let mut conn = pg_client.get_connection().await.unwrap();
@@ -2708,7 +2769,10 @@ async fn test_config_comprehensive_minimal_team() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2811,7 +2875,10 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2916,7 +2983,10 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2991,7 +3061,10 @@ async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3077,17 +3150,29 @@ async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     // Enable autocapture exceptions in the database too
-    context.update_team_autocapture_exceptions(team.id, true).await.unwrap();
+    context
+        .update_team_autocapture_exceptions(team.id, true)
+        .await
+        .unwrap();
 
     // Insert some suppression rules
     let filter1 = json!({"errorType": "TypeError", "message": "Cannot read property"});
     let filter2 = json!({"stackTrace": {"contains": "node_modules"}});
 
-    context.insert_suppression_rule(team.id, filter1.clone()).await.unwrap();
-    context.insert_suppression_rule(team.id, filter2.clone()).await.unwrap();
+    context
+        .insert_suppression_rule(team.id, filter1.clone())
+        .await
+        .unwrap();
+    context
+        .insert_suppression_rule(team.id, filter2.clone())
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3130,10 +3215,14 @@ async fn test_config_error_tracking_disabled() -> Result<()> {
 
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
-    context.insert_person(team.id, distinct_id.clone(), None).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
 
     // Explicitly disable autocapture exceptions for the team
-    context.update_team_autocapture_exceptions(team.id, false)
+    context
+        .update_team_autocapture_exceptions(team.id, false)
         .await
         .unwrap();
 
@@ -3177,7 +3266,8 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3248,7 +3338,8 @@ async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3318,7 +3409,8 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3390,7 +3482,8 @@ async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3478,7 +3571,8 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3565,7 +3659,8 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3637,22 +3732,23 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     let pg_client = setup_pg_reader_client(None).await;
     let team_id = rand::thread_rng().gen_range(1..10_000_000);
     let context = TestContext::new(None).await;
-    let team = context.insert_new_team(Some(team_id))
-        .await
-        .unwrap();
+    let team = context.insert_new_team(Some(team_id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None).await?;
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await?;
 
     let token = team.api_token;
 
     // Create a group with a numeric group_key (as a string in DB, but represents a number)
-    context.create_group(
-        team.id,
-        "organization",
-        "123",
-        json!({"name": "Organization 123", "size": "large"}),
-    )
-    .await?;
+    context
+        .create_group(
+            team.id,
+            "organization",
+            "123",
+            json!({"name": "Organization 123", "size": "large"}),
+        )
+        .await?;
 
     // Define a group-based flag with simple rollout (no property filters)
     let flags_json = json!([
@@ -3815,16 +3911,17 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with the super condition property set to true in the database
-    context.insert_person(
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "$feature_enrollment/discussions": true,  // DB has it as true
-            "email": "user@example.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "$feature_enrollment/discussions": true,  // DB has it as true
+                "email": "user@example.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     // Create a flag with a super condition that checks the enrollment property
     let flag_json = json!([{
@@ -3938,16 +4035,17 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
 
     // Test the reverse: override to true when DB has false
     // First update DB to have false
-    context.insert_person(
-        team.id,
-        "another_user".to_string(),
-        Some(json!({
-            "$feature_enrollment/discussions": false,  // DB has it as false
-            "email": "another@example.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            "another_user".to_string(),
+            Some(json!({
+                "$feature_enrollment/discussions": false,  // DB has it as false
+                "email": "another@example.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     let payload_reverse_override = json!({
         "token": token,
@@ -4006,17 +4104,18 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
     context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with TWO properties in the database
-    context.insert_person(
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "plan": "premium",  // Flag will check this property
-            "$feature_enrollment/discussions": true,  // We'll override this property
-            "email": "user@example.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "plan": "premium",  // Flag will check this property
+                "$feature_enrollment/discussions": true,  // We'll override this property
+                "email": "user@example.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     // Create two flags:
     // 1. Flag that checks "plan" property (should be true with DB value)
@@ -4143,16 +4242,17 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with the super condition property
-    context.insert_person(
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "$feature_enrollment/discussions": false,  // Super condition property in DB
-            "email": "user@example.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "$feature_enrollment/discussions": false,  // Super condition property in DB
+                "email": "user@example.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     // Create a flag that matches your production example:
     // - Has a super condition that checks "$feature_enrollment/discussions"
@@ -4325,7 +4425,8 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -4593,13 +4694,14 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
     context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with the target email that should match the cohort
-    context.insert_person(
-        team.id,
-        distinct_id.clone(),
-        Some(json!({"email": "test.user@example.com"})),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "test.user@example.com"})),
+        )
+        .await
+        .unwrap();
 
     // Create the cohort with the specified filters:
     // OR condition with AND group that checks:
@@ -4712,13 +4814,14 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
 
     // Test with excluded.user@example.com - should NOT match cohort due to negation condition
     let excluded_distinct_id = "excluded.user".to_string();
-    context.insert_person(
-        team.id,
-        excluded_distinct_id.clone(),
-        Some(json!({"email": "excluded.user@example.com"})),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            excluded_distinct_id.clone(),
+            Some(json!({"email": "excluded.user@example.com"})),
+        )
+        .await
+        .unwrap();
 
     let payload_excluded = json!({
         "token": token,
@@ -4749,13 +4852,14 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
 
     // Test with non-example.com email - should NOT match cohort due to regex condition
     let non_example_distinct_id = "other.user".to_string();
-    context.insert_person(
-        team.id,
-        non_example_distinct_id.clone(),
-        Some(json!({"email": "other.user@other.com"})),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            non_example_distinct_id.clone(),
+            Some(json!({"email": "other.user@other.com"})),
+        )
+        .await
+        .unwrap();
 
     let payload_non_example = json!({
         "token": token,
@@ -4804,7 +4908,8 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5036,7 +5141,8 @@ async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5162,7 +5268,8 @@ async fn it_handles_empty_query_parameters() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5212,7 +5319,8 @@ async fn it_handles_boolean_query_params_as_truthy() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    context.insert_person(team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5294,23 +5402,24 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
     context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with production-like data - should match via days_since_paid_plan_start condition
-    context.insert_person(
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "name": "Test User",
-            "email": "test@example.com",
-            "org_id": "test-org-123", // Not in the allowed org list
-            "user_id": "test-user-456",
-            "days_since_paid_plan_start": 77, // < 365, should match this condition
-            "created_at_timestamp": 1747758893, // Set, would match this condition
-            "upgraded_at_timestamp": 1749058908, // Has upgrade timestamp - fails the not_regex condition in cohort 128293
-            "paid_plan_start_date": "2025-06-04",
-            "trial_start_date": "2025-05-20"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "name": "Test User",
+                "email": "test@example.com",
+                "org_id": "test-org-123", // Not in the allowed org list
+                "user_id": "test-user-456",
+                "days_since_paid_plan_start": 77, // < 365, should match this condition
+                "created_at_timestamp": 1747758893, // Set, would match this condition
+                "upgraded_at_timestamp": 1749058908, // Has upgrade timestamp - fails the not_regex condition in cohort 128293
+                "paid_plan_start_date": "2025-06-04",
+                "trial_start_date": "2025-05-20"
+            })),
+        )
+        .await
+        .unwrap();
 
     let mut conn = pg_client.get_connection().await.unwrap();
 
@@ -5475,18 +5584,19 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
 
     // Test with user who SHOULD match - has low days_since_paid_plan_start and no upgraded_at_timestamp
     let matching_distinct_id = "matching_user".to_string();
-    context.insert_person(
-        team.id,
-        matching_distinct_id.clone(),
-        Some(json!({
-            "days_since_paid_plan_start": 200, // < 365, matches this condition
-            "created_at_timestamp": 1747758893,
-            "org_id": "12345" // Not in special list, but should match via days condition
-            // No upgraded_at_timestamp - this allows them to match base cohort 128293
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            matching_distinct_id.clone(),
+            Some(json!({
+                "days_since_paid_plan_start": 200, // < 365, matches this condition
+                "created_at_timestamp": 1747758893,
+                "org_id": "12345" // Not in special list, but should match via days condition
+                // No upgraded_at_timestamp - this allows them to match base cohort 128293
+            })),
+        )
+        .await
+        .unwrap();
 
     let matching_payload = json!({
         "token": token,
@@ -5518,18 +5628,19 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
 
     // Test with user who should NOT match the cohort - high days_since_paid_plan_start and has upgraded_at_timestamp
     let failing_distinct_id = "failing_user".to_string();
-    context.insert_person(
-        team.id,
-        failing_distinct_id.clone(),
-        Some(json!({
-            "days_since_paid_plan_start": "500", // > 365, fails the lt condition
-            "created_at_timestamp": "2024-01-01T00:00:00Z",
-            "upgraded_at_timestamp": "2024-02-01T00:00:00Z", // has upgrade timestamp, fails the not_regex condition
-            "org_id": "99999" // not in the specific org_id list
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            failing_distinct_id.clone(),
+            Some(json!({
+                "days_since_paid_plan_start": "500", // > 365, fails the lt condition
+                "created_at_timestamp": "2024-01-01T00:00:00Z",
+                "upgraded_at_timestamp": "2024-02-01T00:00:00Z", // has upgrade timestamp, fails the not_regex condition
+                "org_id": "99999" // not in the specific org_id list
+            })),
+        )
+        .await
+        .unwrap();
 
     let failing_payload = json!({
         "token": token,
@@ -5847,15 +5958,16 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with email matching our target pattern
-    context.insert_person(
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "email": "engineer@posthog.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "email": "engineer@posthog.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     let mut conn = pg_client.get_connection().await.unwrap();
 
@@ -5988,15 +6100,16 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     // Test 2: User with admin@posthog.com should NOT match
     // (matches @posthog.com regex BUT is in admin cohort)
     let admin_distinct_id = "admin_user".to_string();
-    context.insert_person(
-        team.id,
-        admin_distinct_id.clone(),
-        Some(json!({
-            "email": "admin@posthog.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            admin_distinct_id.clone(),
+            Some(json!({
+                "email": "admin@posthog.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     let admin_payload = json!({
         "token": token,
@@ -6026,15 +6139,16 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     // Test 3: User without @posthog.com should NOT match
     // (doesn't match regex, regardless of admin status)
     let external_distinct_id = "external_user".to_string();
-    context.insert_person(
-        team.id,
-        external_distinct_id.clone(),
-        Some(json!({
-            "email": "user@example.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            external_distinct_id.clone(),
+            Some(json!({
+                "email": "user@example.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     let external_payload = json!({
         "token": token,
@@ -6084,17 +6198,18 @@ async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
     context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with last_active_date as a string date
-    context.insert_person(
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "user_id": "test_123",
-            "last_active_date": "2024-03-15T19:17:07.083Z",
-            "segment": null  // This ensures the segment filter won't match
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "user_id": "test_123",
+                "last_active_date": "2024-03-15T19:17:07.083Z",
+                "segment": null  // This ensures the segment filter won't match
+            })),
+        )
+        .await
+        .unwrap();
 
     // Insert flag with filter configuration
     let flag_json = json!([{

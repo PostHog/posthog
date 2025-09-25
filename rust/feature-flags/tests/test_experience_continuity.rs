@@ -17,7 +17,10 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
 
     // Insert a new team
     let context = TestContext::new(None).await;
-    let team = context.insert_new_team(None).await.expect("Failed to insert team");
+    let team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team");
 
     // Create a flag with experience continuity (50% rollout like the real experience-flag)
     let flag_row = FeatureFlagRow {
@@ -38,12 +41,13 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
 
     // Create a person with false_eval_user (this ID evaluates to false for 50% rollout)
     let user_id = "false_eval_user";
-    context.insert_person(
-        team.id,
-        user_id.to_string(),
-        Some(json!({"email": "false_eval_user@example.com", "name": "Test User"})),
-    )
-    .await?;
+    context
+        .insert_person(
+            team.id,
+            user_id.to_string(),
+            Some(json!({"email": "false_eval_user@example.com", "name": "Test User"})),
+        )
+        .await?;
 
     // Start test server
     let config = DEFAULT_TEST_CONFIG.clone();
@@ -137,7 +141,10 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
     // Test that merged persons also maintain overrides without $anon_distinct_id
 
     let context = TestContext::new(None).await;
-    let team = context.insert_new_team(None).await.expect("Failed to insert team");
+    let team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team");
 
     // Create flag
     let flag_row = FeatureFlagRow {
@@ -158,12 +165,13 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
 
     // Create initial person with an ID that evaluates to false
     let initial_id = "false_eval_initial";
-    let person_id = context.insert_person(
-        team.id,
-        initial_id.to_string(),
-        Some(json!({"email": "initial@example.com"})),
-    )
-    .await?;
+    let person_id = context
+        .insert_person(
+            team.id,
+            initial_id.to_string(),
+            Some(json!({"email": "initial@example.com"})),
+        )
+        .await?;
 
     // Start server
     let config = DEFAULT_TEST_CONFIG.clone();
