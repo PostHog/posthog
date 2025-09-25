@@ -1,6 +1,7 @@
 import time
 import asyncio
 import logging
+from dataclasses import asdict
 from datetime import datetime, timedelta
 
 from django.core.management.base import BaseCommand
@@ -267,12 +268,12 @@ class Command(BaseCommand):
                             every=timedelta(minutes=interval_minutes),
                         )
                     ],
-                    end_time=end_time,  # Automatically stops after specified duration
+                    end_at=end_time,  # Automatically stops after specified duration
                 ),
                 action=ScheduleActionStartWorkflow(
                     "behavioral-cohorts-coordinator",
-                    inputs,
-                    id=lambda: f"behavioral-cohorts-scheduled-{int(time.time() * 1000000)}",
+                    asdict(inputs),
+                    id=f"behavioral-cohorts-scheduled-{int(time.time() * 1000000)}",
                     task_queue=MESSAGING_TASK_QUEUE,
                 ),
             ),
