@@ -305,18 +305,12 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             actions.loadHeatmap()
         },
     })),
-    subscriptions(
-        (
-            {
-                // actions
-            }
-        ) => ({
-            // windowWidth: () => {
-            //     actions.loadHeatmap()
-            // },
-            // windowHeight: () => {
-            //     actions.loadHeatmap()
-            // },
-        })
-    ),
+    subscriptions(({ actions }) => ({
+        windowWidth: () => {
+            actions.loadHeatmap()
+        },
+        windowHeight: () => {
+            actions.loadHeatmap()
+        },
+    })),
 ])

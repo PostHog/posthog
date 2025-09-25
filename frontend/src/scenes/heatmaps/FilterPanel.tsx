@@ -10,6 +10,7 @@ import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { inStorybookTestRunner } from 'lib/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
@@ -124,7 +125,7 @@ export function FilterPanel(): JSX.Element {
         heatmapDataLogic({ context: 'in-app' })
     )
 
-    const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false)
+    const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false, inStorybookTestRunner() ? 1 : 200)
 
     return (
         <>
