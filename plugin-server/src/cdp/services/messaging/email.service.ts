@@ -200,12 +200,7 @@ export class EmailService {
                     },
                 },
             },
-            Tags: [
-                {
-                    Name: 'PostHogTrackingCode',
-                    Value: trackingCode,
-                },
-            ],
+            Tags: [{ Name: 'ph_id', Value: trackingCode }],
         }
 
         try {
