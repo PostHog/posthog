@@ -18,6 +18,7 @@ import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/sn
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
+import { template as pixelTemplate } from './_sources/pixel/pixel.template'
 import { template as stripeWebhookTemplate } from './_sources/stripe/stripe_webhook.template'
 import { template as incomingWebhookTemplate } from './_sources/webhook/incoming_webhook.template'
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
@@ -82,7 +83,11 @@ export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [n
     ],
 }))
 
-export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate, stripeWebhookTemplate]
+export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [
+    incomingWebhookTemplate,
+    stripeWebhookTemplate,
+    pixelTemplate,
+]
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED: HogFunctionTemplate[] = DESTINATION_PLUGINS.map(
     (x) => x.template

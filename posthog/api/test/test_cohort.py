@@ -24,7 +24,7 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Action, FeatureFlag, Person
+from posthog.models import Action, FeatureFlag, Person, User
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
@@ -111,10 +111,13 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         assert cohort1.is_calculating is True
         assert cohort1 not in get_cohort_calculation_candidates_queryset()
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
     @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
-    def test_creating_update_and_calculating(self, patch_sync_execute, patch_calculate_cohort, patch_capture):
+    def test_creating_update_and_calculating(
+        self, patch_sync_execute, patch_calculate_cohort, patch_capture, patch_on_commit
+    ):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"team_id": 5})
@@ -188,10 +191,11 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             },
         )
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
     @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
-    def test_action_persons_on_events(self, patch_sync_execute, patch_calculate_cohort, patch_capture):
+    def test_action_persons_on_events(self, patch_sync_execute, patch_calculate_cohort, patch_capture, patch_on_commit):
         materialize("person", "favorite_number", table_column="properties")
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
@@ -884,10 +888,12 @@ user789
 
         csv = SimpleUploadedFile(
             "test.csv",
-            str.encode("""distinct_id
+            str.encode(
+                """distinct_id
 user123
 user456
-"""),
+"""
+            ),
             content_type="application/csv",
         )
 
@@ -933,9 +939,12 @@ user456
         calculating_cohorts = Cohort.objects.filter(team=self.team, name="test_error", is_calculating=True)
         self.assertEqual(calculating_cohorts.count(), 0, "No cohort should be left in calculating state after error")
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_static_cohort_to_dynamic_cohort(self, patch_calculate_cohort, patch_calculate_cohort_from_list):
+    def test_static_cohort_to_dynamic_cohort(
+        self, patch_calculate_cohort, patch_calculate_cohort_from_list, patch_on_commit
+    ):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"email": "email@example.org"})
@@ -1001,6 +1010,112 @@ email@example.org,
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=nomatch").json()
         self.assertEqual(len(response["results"]), 0)
+
+    def test_cohort_list_with_type_filter(self):
+        Person.objects.create(team=self.team, properties={"prop": 5})
+
+        # Create dynamic cohort
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "dynamic_cohort", "groups": [{"properties": {"prop": 5}}]},
+        )
+
+        # Create static cohort
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "static_cohort", "is_static": True},
+        )
+
+        # Test no filter returns both
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
+        self.assertEqual(len(response["results"]), 2)
+
+        # Test static filter
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=static").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(response["results"][0]["name"], "static_cohort")
+        self.assertTrue(response["results"][0]["is_static"])
+
+        # Test dynamic filter
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=dynamic").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(response["results"][0]["name"], "dynamic_cohort")
+        self.assertFalse(response["results"][0]["is_static"])
+
+    def test_cohort_list_with_created_by_filter(self):
+        Person.objects.create(team=self.team, properties={"prop": 5})
+
+        # Create cohorts by self.user
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "self_user_cohort_1", "groups": [{"properties": {"prop": 5}}]},
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "self_user_cohort_2", "groups": [{"properties": {"prop": 5}}]},
+        )
+        other_user = User.objects.create_user(email="other@test.com", password="password", first_name="Other")
+        other_user_cohort = Cohort.objects.create(
+            team=self.team,
+            name="other_user_cohort",
+            created_by=other_user,
+        )
+
+        # Test no filter returns all cohorts
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
+        self.assertEqual(len(response["results"]), 3)
+
+        # Test filter by self.user's cohorts
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={self.user.id}").json()
+        self.assertEqual(len(response["results"]), 2)
+        for cohort in response["results"]:
+            self.assertEqual(cohort["created_by"]["id"], self.user.id)
+            self.assertEqual(cohort["name"][:-2], "self_user_cohort")
+
+        # Test filter by other_user's cohorts
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={other_user.id}").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(response["results"][0]["name"], other_user_cohort.name)
+
+        # Test filter by blank user (should return no cohorts)
+        blank_user = User.objects.create_user(email="blank@test.com", password="password", first_name="blank")
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={blank_user.id}").json()
+        self.assertEqual(len(response["results"]), 0)
+
+    def test_cohort_list_with_combined_filters(self):
+        Person.objects.create(team=self.team, properties={"prop": 5})
+
+        # Create dynamic cohort
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "dynamic_test", "groups": [{"properties": {"prop": 5}}]},
+        )
+
+        # Create static cohort
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "static_test", "is_static": True},
+        )
+
+        # Test combined type and search filters
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=dynamic&search=dynamic").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(response["results"][0]["name"], "dynamic_test")
+        self.assertFalse(response["results"][0]["is_static"])
+
+        # Test combined filters with no matches
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=static&search=dynamic").json()
+        self.assertEqual(len(response["results"]), 0)
+
+        # Test all filters combined
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/cohorts?type=static&search=static&created_by_id={self.user.id}"
+        ).json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(response["results"][0]["name"], "static_test")
+        self.assertTrue(response["results"][0]["is_static"])
+        self.assertEqual(response["results"][0]["created_by"]["id"], self.user.id)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_list_cohorts_excludes_behavioral_cohorts(self, patch_capture):
@@ -1112,7 +1227,8 @@ email@example.org,
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], regular_cohort.id)
 
-    def test_cohort_activity_log(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_cohort_activity_log(self, patch_on_commit):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"prop": 5})
@@ -1345,12 +1461,13 @@ email@example.org,
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 2, response)
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.chain")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_and_calculating_with_cycle(
-        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture
+        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture, patch_on_commit
     ):
         mock_chain_instance = MagicMock()
         patch_chain.return_value = mock_chain_instance
@@ -1462,12 +1579,13 @@ email@example.org,
         )
         self.assertEqual(get_total_calculation_calls(), 3)
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.chain")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_with_non_directed_cycle(
-        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture
+        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture, patch_on_commit
     ):
         mock_chain_instance = MagicMock()
         patch_chain.return_value = mock_chain_instance
@@ -1539,9 +1657,12 @@ email@example.org,
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(get_total_calculation_calls(), 4)
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_creating_update_and_calculating_with_invalid_cohort(self, patch_calculate_cohort, patch_capture):
+    def test_creating_update_and_calculating_with_invalid_cohort(
+        self, patch_calculate_cohort, patch_capture, patch_on_commit
+    ):
         # Cohort A
         response_a = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -1564,8 +1685,9 @@ email@example.org,
         )
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
-    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture):
+    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture, patch_on_commit):
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
@@ -1642,8 +1764,9 @@ email@example.org,
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(2, len(response.json()["results"]))
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
-    def test_calculating_with_new_cohort_event_filters(self, patch_capture):
+    def test_calculating_with_new_cohort_event_filters(self, patch_capture, patch_on_commit):
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
@@ -1887,8 +2010,9 @@ email@example.org,
             query_get_response.json()["errors_calculating"], 1
         )  # Should be because selecting from groups is not allowed
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
-    def test_cohort_with_is_set_filter_missing_value(self, patch_capture):
+    def test_cohort_with_is_set_filter_missing_value(self, patch_capture, patch_on_commit):
         # regression test: Removing `value` was silently failing
 
         _create_person(
@@ -2107,13 +2231,14 @@ email@example.org,
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "A dependent cohort (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
+                "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
                 "attr": "filters",
             },
             response.json(),
         )
 
-    def test_duplicating_dynamic_cohort_as_static(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_duplicating_dynamic_cohort_as_static(self, patch_on_commit):
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
@@ -2515,8 +2640,9 @@ email@example.org,
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "Missing required keys for cohort filter: value")
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
-    def test_behavioral_filter_with_operator_and_operator_value(self, patch_capture):
+    def test_behavioral_filter_with_operator_and_operator_value(self, patch_capture, patch_on_commit):
         # Valid usage: operator and operator_value present
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -2781,6 +2907,158 @@ email@example.org,
         cohort_data = response.json()
         self.assertIsNotNone(cohort_data.get("id"))
 
+    def test_remove_person_from_static_cohort(self):
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Static Cohort",
+            is_static=True,
+        )
+
+        personToRemove = _create_person(
+            team_id=self.team.pk, distinct_ids=["test-person-to-remove"], properties={"email": "test@example.com"}
+        )
+        personToKeep = _create_person(
+            team_id=self.team.pk, distinct_ids=["test-person-to-keep"], properties={"email": "test@example.com"}
+        )
+        flush_persons_and_events()
+        static_cohort.insert_users_by_list(["test-person-to-remove", "test-person-to-keep"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
+            {"person_id": str(personToRemove.uuid)},
+            format="json",
+        )
+
+        assert response.json() == {"success": True}
+        assert response.status_code == 200
+
+        # Verify activity was logged
+        activity_response = self._get_cohort_activity(static_cohort.id)
+        activity = activity_response["results"]
+        assert len(activity) == 1
+        activity_entry = activity[0]
+        assert activity_entry["activity"] == "person_removed_manually"
+        assert activity_entry["scope"] == "Cohort"
+        assert activity_entry["item_id"] == str(static_cohort.id)
+        assert activity_entry["user"]["email"] == self.user.email
+
+        # Verify only the correct person was removed
+        cohort_persons_response = self.client.get(f"/api/cohort/{static_cohort.id}/persons")
+        assert cohort_persons_response.status_code == 200
+        cohort_persons = cohort_persons_response.json()["results"]
+        person_uuids_in_cohort = [p["uuid"] for p in cohort_persons]
+        assert str(personToRemove.uuid) not in person_uuids_in_cohort
+        assert str(personToKeep.uuid) in person_uuids_in_cohort
+
+    def test_remove_person_from_static_cohort_validation_errors(self):
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Static Cohort",
+            is_static=True,
+        )
+
+        dynamic_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Dynamic Cohort",
+            is_static=False,
+        )
+
+        # Test missing person_id
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
+            {},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "person_id is required" in response.json()["detail"]
+
+        # Test non-string person_id
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
+            {"person_id": 123},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "person_id must be a string" in response.json()["detail"]
+
+        # Test person_id that is not a valid UUID
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
+            {"person_id": "a"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "person_id must be a valid UUID" in response.json()["detail"]
+
+        # Test non-static cohort
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{dynamic_cohort.id}/remove_person_from_static_cohort",
+            {"person_id": "some-uuid"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "Can only remove users from static cohorts" in response.json()["detail"]
+
+    def test_remove_person_from_static_cohort_person_not_in_cohort(self):
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Static Cohort",
+            is_static=True,
+        )
+        # Person does not exist at all
+        not_existant_person_UUID = "12345678-1234-1234-1234-123456789abc"
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
+            {"person_id": not_existant_person_UUID},
+            format="json",
+        )
+        assert response.status_code == 404
+        assert "Person with this UUID does not exist" in response.json()["detail"]
+
+        # Person exists but is not in the cohort
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["test-person-not-in-cohort"],
+            properties={"email": "notincohort@example.com"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
+            {"person_id": str(person.uuid)},
+            format="json",
+        )
+
+        assert response.status_code == 404
+        assert "Person is not part of the cohort" in response.json()["detail"]
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.models.cohort.dependencies._on_cohort_changed")
+    @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
+    def test_cohort_update_recalculated_after_caching(
+        self,
+        patch_calculate: MagicMock,
+        patch_cohort_changed: MagicMock,
+        patch_on_commit: MagicMock,
+    ) -> None:
+        calls = []
+        patch_calculate.side_effect = lambda *a, **kw: calls.append(patch_calculate)
+        patch_cohort_changed.side_effect = lambda *a, **kw: calls.append(patch_cohort_changed)
+
+        response_a = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        response_b = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",
+            data={"name": "cohort A", "groups": [{"properties": [{"key": "email", "value": "email@example.org"}]}]},
+        )
+
+        self.assertEqual(response_b.status_code, 200, response_a.json())
+        self.assertEqual(patch_cohort_changed.call_count, 2)
+        self.assertEqual(patch_calculate.call_count, 2)
+        self.assertEqual(calls, [patch_cohort_changed, patch_calculate, patch_cohort_changed, patch_calculate])
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):
@@ -2832,7 +3110,8 @@ class TestCalculateCohortCommand(APIBaseTest):
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
-    return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
+    with patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+        return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
 
 
 def create_cohort_ok(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):

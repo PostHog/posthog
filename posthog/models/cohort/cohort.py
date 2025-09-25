@@ -4,9 +4,11 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
-from django.db import connection, models
+from django.db import connection, models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
@@ -509,6 +511,57 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         return current_batch_index + 1
 
+    def remove_user_by_uuid(self, user_uuid: str, *, team_id: int) -> bool:
+        """
+        Remove a user from the cohort by their UUID.
+
+        Args:
+            user_uuid: UUID of the user to be removed from the cohort.
+            team_id: ID of the team to which the cohort belongs
+        Returns:
+            True if user was removed, False if user was not in the cohort.
+        """
+        from posthog.models.cohort.util import get_static_cohort_size, remove_person_from_static_cohort
+
+        try:
+            # Get person by UUID
+            person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=team_id, uuid=user_uuid)
+
+            # Check if person is in the cohort
+            cohort_person = CohortPeople.objects.filter(
+                cohort_id=self.id,
+                person_id=person.id,
+            ).first()
+
+            if not cohort_person:
+                return False
+
+            # Remove from both PostgreSQL and ClickHouse
+            cohort_person.delete()
+            remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
+
+            # Update count
+            try:
+                count = get_static_cohort_size(cohort_id=self.id, team_id=team_id)
+                self.count = count
+                self.save(update_fields=["count"])
+            except Exception as count_err:
+                logger.exception("Failed to update cohort count after removal", cohort_id=self.id, team_id=team_id)
+                capture_exception(count_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
+
+            return True
+
+        except Person.DoesNotExist:
+            return False
+        except Exception as err:
+            logger.exception(
+                "Failed to remove user from cohort", cohort_id=self.id, team_id=team_id, user_uuid=user_uuid
+            )
+            capture_exception(
+                err, additional_properties={"cohort_id": self.id, "team_id": team_id, "user_uuid": user_uuid}
+            )
+            raise
+
     def to_dict(self) -> dict:
         people_data = [
             {
@@ -572,6 +625,21 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 logger.exception("Failed to save cohort state on retry", cohort_id=self.id, team_id=team_id)
                 # If both attempts fail, the cohort may remain in an inconsistent state
 
+    def enqueue_calculation(self, *, initiating_user=None) -> None:
+        """
+        Enqueue this cohort to be recalculated.
+
+        Args:
+            initiating_user (User): The user who initiated the calculation.
+        """
+
+        def trigger_calculation():
+            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+
+            increment_version_and_enqueue_calculate_cohort(self, initiating_user=initiating_user)
+
+        transaction.on_commit(trigger_calculation)
+
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 
@@ -583,3 +651,28 @@ class CohortPeople(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["cohort_id", "person_id"])]
+
+
+@receiver(post_delete, sender=CohortPeople)
+def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
+    from posthog.models.cohort.util import get_static_cohort_size
+
+    try:
+        cohort_id = instance.cohort_id
+        person_uuid = instance.person_id
+
+        cohort = Cohort.objects.get(id=cohort_id)
+        cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
+        cohort.save(update_fields=["count"])
+
+        logger.info(
+            "Updated cohort count after CohortPeople change",
+            cohort_id=cohort_id,
+            person_uuid=person_uuid,
+            new_count=cohort.count,
+        )
+    except Cohort.DoesNotExist:
+        logger.warning("Attempted to update count for non-existent cohort", cohort_id=cohort_id)
+    except Exception as e:
+        logger.exception("Error updating cohort count", cohort_id=cohort_id, person_uuid=person_uuid)
+        capture_exception(e)

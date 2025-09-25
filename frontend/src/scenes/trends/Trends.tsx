@@ -38,7 +38,8 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             display === ChartDisplayType.ActionsLineGraph ||
             display === ChartDisplayType.ActionsLineGraphCumulative ||
             display === ChartDisplayType.ActionsAreaGraph ||
-            display === ChartDisplayType.ActionsBar
+            display === ChartDisplayType.ActionsBar ||
+            display === ChartDisplayType.ActionsUnstackedBar
         ) {
             return (
                 <ActionsLineGraph

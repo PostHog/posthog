@@ -61,12 +61,40 @@ fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
     // granular bucket ranges for higher fidelity metrics
     const SIMILARITY_BUCKETS: &[f64] = &[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
 
+    const CHECKPOINT_FILE_COUNT_BUCKETS: &[f64] = &[
+        1.0, 10.0, 50.0, 100.0, 200.0, 400.0, 600.0, 800.0, 1000.0, 1500.0,
+    ];
+    const CHECKPOINT_SIZE_BYTES_BUCKETS: &[f64] = &[
+        1.0,
+        10.0,
+        100.0,
+        1024.0,
+        10.0 * 1024.0,
+        100.0 * 1024.0,
+        1024.0 * 1024.0,
+        10.0 * 1024.0 * 1024.0,
+        100.0 * 1024.0 * 1024.0,
+        1024.0 * 1024.0 * 1024.0,
+        10.0 * 1024.0 * 1024.0 * 1024.0,
+        100.0 * 1024.0 * 1024.0 * 1024.0,
+    ];
+
     PrometheusBuilder::new()
         .set_buckets(BUCKETS)
         .unwrap()
         .set_buckets_for_metric(
             Matcher::Suffix("similarity_score".to_string()),
             SIMILARITY_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Suffix("checkpoint_file_count".to_string()),
+            CHECKPOINT_FILE_COUNT_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Suffix("checkpoint_size_bytes".to_string()),
+            CHECKPOINT_SIZE_BYTES_BUCKETS,
         )
         .unwrap()
         .install_recorder()

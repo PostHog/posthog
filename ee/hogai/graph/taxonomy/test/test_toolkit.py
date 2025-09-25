@@ -1,21 +1,11 @@
-from datetime import datetime
-
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import Mock, patch
+from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from langchain_core.agents import AgentAction
 from parameterized import parameterized
 from pydantic import BaseModel
 
-from posthog.schema import (
-    ActorsPropertyTaxonomyResponse,
-    CachedActorsPropertyTaxonomyQueryResponse,
-    CachedEventTaxonomyQueryResponse,
-    EventTaxonomyItem,
-)
-
 from posthog.models import Action
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
@@ -26,11 +16,10 @@ class DummyToolkit(TaxonomyAgentToolkit):
         return self._get_default_tools()
 
 
-class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
+class TestTaxonomyAgentToolkit(BaseTest):
     def setUp(self):
         super().setUp()
         self.toolkit = DummyToolkit(self.team)
-        self.action = Action.objects.create(team=self.team, name="test_action", steps_json=[{"event": "test_event"}])
 
     def test_toolkit_initialization(self):
         self.assertEqual(self.toolkit._team, self.team)
@@ -59,20 +48,6 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         expected = ["person", "session", "organization", "project"]
         self.assertEqual(toolkit._entity_names, expected)
 
-    @parameterized.expand(
-        [
-            ("$session_duration", True, "'30'\n- '146'\n- '2'\n- and many more distinct values"),
-            ("$channel_type", True, "Direct"),
-            ("nonexistent_property", False, "does not exist"),
-        ]
-    )
-    def test_retrieve_session_properties(self, property_name, should_contain_values, expected_content):
-        result = self.toolkit._retrieve_session_properties(property_name)
-        if should_contain_values:
-            self.assertIn(expected_content, result)
-        else:
-            self.assertIn(expected_content, result)
-
     def test_enrich_props_with_descriptions(self):
         props = [("$browser", "String"), ("custom_prop", "Numeric")]
         enriched = self.toolkit._enrich_props_with_descriptions("event", props)
@@ -95,349 +70,10 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         result = self.toolkit._format_property_values("test_property", sample_values, sample_count, format_as_string)
         self.assertIn(expected_substring, result)
 
-    def _create_property_definition(self, prop_type, name="test_prop", group_type_index=None):
-        """Helper to create property definitions"""
-        kwargs = {"team": self.team, "name": name, "property_type": PropertyType.String}
-        if prop_type == PropertyDefinition.Type.GROUP:
-            kwargs["type"] = PropertyDefinition.Type.GROUP
-            kwargs["group_type_index"] = group_type_index
-        else:
-            kwargs["type"] = prop_type
-
-        return PropertyDefinition.objects.create(**kwargs)
-
-    def _create_mock_taxonomy_response(self, response_type="event", results=None, **kwargs):
-        """Helper to create mock taxonomy responses"""
-        if results is None:
-            # Create single result from kwargs
-            if response_type == "event":
-                results = [EventTaxonomyItem(**kwargs)]
-            elif response_type == "actors":
-                results = [ActorsPropertyTaxonomyResponse(**kwargs)]
-
-        if response_type == "event":
-            return CachedEventTaxonomyQueryResponse(
-                cache_key="test",
-                is_cached=False,
-                last_refresh=datetime.now().isoformat(),
-                next_allowed_client_refresh=datetime.now().isoformat(),
-                timezone="UTC",
-                results=results,
-            )
-        elif response_type == "actors":
-            return CachedActorsPropertyTaxonomyQueryResponse(
-                cache_key="test",
-                is_cached=False,
-                last_refresh=datetime.now().isoformat(),
-                next_allowed_client_refresh=datetime.now().isoformat(),
-                timezone="UTC",
-                results=results,
-            )
-
-    def test_retrieve_entity_properties_person(self):
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
-        result = self.toolkit.retrieve_entity_properties("person")
-        self.assertIn("email", result["person"])
-        self.assertIn("String", result["person"])
-
-    def test_retrieve_entity_properties_session(self):
-        result = self.toolkit.retrieve_entity_properties("session")
-        self.assertIn("$session_duration", result["session"])
-        self.assertIn("properties", result["session"])
-
-    def test_retrieve_entity_properties_group(self):
-        create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
-        )
-        self._create_property_definition(PropertyDefinition.Type.GROUP, "org_name", group_type_index=0)
-        result = self.toolkit.retrieve_entity_properties("organization")
-        self.assertIn("org_name", result["organization"])
-
-    @parameterized.expand(
-        [
-            ("invalid_entity", "Entity invalid_entity not found"),
-            ("person", "Properties do not exist in the taxonomy for the entity person."),
-        ]
-    )
-    def test_retrieve_entity_properties_edge_cases(self, entity, expected_content):
-        result = self.toolkit.retrieve_entity_properties(entity)
-        self.assertIn(expected_content, result[entity])
-
-    def test_retrieve_multiple_entities_properties(self):
-        """Test retrieving properties for multiple entities at once."""
-        create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
-        )
-
-        create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="account"
-        )
-
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
-        self._create_property_definition(PropertyDefinition.Type.GROUP, "org_name", group_type_index=0)
-        self._create_property_definition(PropertyDefinition.Type.GROUP, "account_size", group_type_index=1)
-
-        # Test multiple entities
-        result = self.toolkit.retrieve_entity_properties(["person", "session", "organization", "account"])
-
-        # Should contain the actual properties
-        self.assertIn("email", result["person"])
-        self.assertIn("$session_duration", result["session"])
-        self.assertIn("org_name", result["organization"])
-        self.assertIn("account_size", result["account"])
-
-    def test_retrieve_multiple_entity_properties_with_invalid_entity(self):
-        """Test retrieving properties for multiple entities when one is invalid."""
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
-        result = self.toolkit.retrieve_entity_properties(["person", "invalid_entity", "session"])
-
-        # Should contain error message for invalid entity
-        self.assertIn("Entity invalid_entity not found", result["invalid_entity"])
-        self.assertIn("email", result["person"])
-        assert "person" in result
-        assert "session" in result
-
-    def test_retrieve_single_entity_property(self):
-        """Test retrieving properties for a single entity."""
-        result = self.toolkit.retrieve_entity_properties("person")
-
-        self.assertIn("Properties do not exist in the taxonomy for the entity person.", result["person"])
-        assert "person" in result
-
-    @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
-    def test_retrieve_entity_property_values_person(self, mock_runner_class):
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
-
-        mock_response = self._create_mock_taxonomy_response(
-            response_type="actors", sample_values=["test@example.com", "user@test.com"], sample_count=2
-        )
-
-        mock_runner = Mock()
-        mock_runner.run.return_value = mock_response
-        mock_runner_class.return_value = mock_runner
-
-        result = self.toolkit.retrieve_entity_property_values("person", "email")
-        self.assertIn("test@example.com", result)
-
-    @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
-    def test_retrieve_entity_property_values_person_multiple(self, mock_runner_class):
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "name")
-
-        mock_result1 = ActorsPropertyTaxonomyResponse(
-            sample_count=3, sample_values=["another@example.com", "user@test.com", "test@example.com"]
-        )
-        mock_result2 = ActorsPropertyTaxonomyResponse(
-            sample_count=3, sample_values=["Bob Johnson", "Jane Smith", "John Doe"]
-        )
-
-        mock_cached_response = self._create_mock_taxonomy_response("actors", results=[mock_result1, mock_result2])
-        mock_runner = Mock()
-        mock_runner.run.return_value = mock_cached_response
-        mock_runner_class.return_value = mock_runner
-
-        result = self.toolkit.retrieve_entity_property_values("person", ["email", "name"])
-        result_str = "\n".join(result) if isinstance(result, list) else result
-        self.assertIn("property: email", result_str)
-        self.assertIn("another@example.com", result_str)
-        self.assertIn("user@test.com", result_str)
-        self.assertIn("test@example.com", result_str)
-
-        self.assertIn("property: name", result_str)
-        self.assertIn("Bob Johnson", result_str)
-        self.assertIn("Jane Smith", result_str)
-        self.assertIn("John Doe", result_str)
-
-    @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
-    def test_retrieve_entity_property_values_person_no_results(self, mock_runner_class):
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "name")
-
-        mock_cached_response = self._create_mock_taxonomy_response("actors", results=[])
-        mock_runner = Mock()
-        mock_runner.run.return_value = mock_cached_response
-        mock_runner_class.return_value = mock_runner
-
-        result = self.toolkit.retrieve_entity_property_values("person", ["email", "name"])
-        self.assertIn("No values found for property email on entity person", result)
-        self.assertIn("No values found for property name on entity person", result)
-
-    @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
-    def test_retrieve_entity_property_values_person_results_not_list(self, mock_runner_class):
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "name")
-
-        mock_cached_response = self._create_mock_taxonomy_response(
-            "actors",
-            results=[
-                ActorsPropertyTaxonomyResponse(sample_count=3, sample_values=["Bob Johnson", "Jane Smith", "John Doe"])
-            ],
-        )
-        mock_runner = Mock()
-        mock_runner.run.return_value = mock_cached_response
-        mock_runner_class.return_value = mock_runner
-
-        result = self.toolkit.retrieve_entity_property_values("person", "name")
-        result_str = "\n".join(result) if isinstance(result, list) else result
-        self.assertIn("property: name", result_str)
-        self.assertIn("Bob Johnson", result_str)
-        self.assertIn("Jane Smith", result_str)
-        self.assertIn("John Doe", result_str)
-
-    @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
-    def test_retrieve_entity_property_no_values_multiple(self, mock_runner_class):
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "address")
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "name")
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "city")
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "age")
-        mock_result = ActorsPropertyTaxonomyResponse(sample_count=0, sample_values=[])
-        mock_result2 = ActorsPropertyTaxonomyResponse(
-            sample_count=3, sample_values=["Bob Johnson", "Jane Smith", "John Doe"]
-        )
-        mock_result3 = ActorsPropertyTaxonomyResponse(
-            sample_count=10, sample_values=["New York", "Los Angeles", "Chicago"]
-        )
-
-        mock_cached_response = self._create_mock_taxonomy_response(
-            "actors", results=[mock_result, mock_result2, mock_result3]
-        )
-        mock_runner = Mock()
-        mock_runner.run.return_value = mock_cached_response
-        mock_runner_class.return_value = mock_runner
-
-        result = self.toolkit.retrieve_entity_property_values("person", ["address"])
-        result_str = "\n".join(result) if isinstance(result, list) else result
-        self.assertIn("The property does not have any values in the taxonomy.", result_str)
-
-        result = self.toolkit.retrieve_entity_property_values("person", ["address", "name"])
-        result_str = "\n".join(result) if isinstance(result, list) else result
-        self.assertIn("The property does not have any values in the taxonomy.", result_str)
-        self.assertIn("property: name", result_str)
-        self.assertIn("Bob Johnson", result_str)
-        self.assertIn("Jane Smith", result_str)
-        self.assertIn("John Doe", result_str)
-
-        result = self.toolkit.retrieve_entity_property_values("person", ["address", "name", "city"])
-        result_str = "\n".join(result) if isinstance(result, list) else result
-        self.assertIn("and 7 more distinct values", result_str)
-
-    @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
-    def test_retrieve_entity_multiple_properties_less_results(self, mock_runner_class):
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "address")
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "name")
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "city")
-
-        mock_result = ActorsPropertyTaxonomyResponse(sample_count=0, sample_values=[])
-        mock_result2 = ActorsPropertyTaxonomyResponse(
-            sample_count=3, sample_values=["Bob Johnson", "Jane Smith", "John Doe"]
-        )
-        mock_result3 = ActorsPropertyTaxonomyResponse(sample_count=0, sample_values=[])
-        mock_cached_response = self._create_mock_taxonomy_response(
-            "actors", results=[mock_result, mock_result2, mock_result3]
-        )
-        mock_runner = Mock()
-        mock_runner.run.return_value = mock_cached_response
-        mock_runner_class.return_value = mock_runner
-
-        result = self.toolkit.retrieve_entity_property_values("person", ["address", "name", "city"])
-        result_str = "\n".join(result) if isinstance(result, list) else result
-        self.assertIn(
-            "property: address\nvalues: []\nmessage: The property does not have any values in the taxonomy.", result_str
-        )
-        self.assertIn("property: name", result_str)
-        self.assertIn(
-            "property: city\nvalues: []\nmessage: The property does not have any values in the taxonomy.", result_str
-        )
-
-    @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
-    def test_retrieve_entity_property_different_value_types_multiple(self, mock_runner_class):
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "name")
-        self._create_property_definition(PropertyDefinition.Type.PERSON, "age")
-
-        mock_result = ActorsPropertyTaxonomyResponse(
-            sample_count=3, sample_values=["Bob Johnson", "Jane Smith", "John Doe"]
-        )
-        mock_result2 = ActorsPropertyTaxonomyResponse(sample_count=3, sample_values=[25, 30, 35])
-
-        # Create a single CachedActorsPropertyTaxonomyQueryResponse with a list of result dicts
-        mock_cached_response = self._create_mock_taxonomy_response("actors", results=[mock_result, mock_result2])
-        mock_runner = Mock()
-        mock_runner.run.return_value = mock_cached_response
-        mock_runner_class.return_value = mock_runner
-
-        result = self.toolkit.retrieve_entity_property_values("person", ["name", "age"])
-        result_str = "\n".join(result) if isinstance(result, list) else result
-        self.assertIn("property: name", result_str)
-        self.assertIn("Bob Johnson", result_str)
-        self.assertIn("Jane Smith", result_str)
-        self.assertIn("John Doe", result_str)
-        self.assertIn("property: age", result_str)
-        self.assertIn("25", result_str)
-        self.assertIn("30", result_str)
-        self.assertIn("35", result_str)
-
-    def test_retrieve_entity_property_values_invalid_entity(self):
-        result = self.toolkit.retrieve_entity_property_values("invalid", "prop")
-        self.assertIn("Entity invalid not found", result)
-
-    @patch("ee.hogai.graph.taxonomy.toolkit.EventTaxonomyQueryRunner")
-    def test_retrieve_event_or_action_properties(self, mock_runner_class):
-        self._create_property_definition(PropertyDefinition.Type.EVENT, "$browser")
-
-        mock_response = self._create_mock_taxonomy_response(property="$browser", sample_values=[], sample_count=0)
-
-        mock_runner = Mock()
-        mock_runner.run.return_value = mock_response
-        mock_runner_class.return_value = mock_runner
-
-        result = self.toolkit.retrieve_event_or_action_properties("test_event")
-        self.assertIn("$browser", result)
-
     def test_retrieve_event_or_action_properties_action_not_found(self):
         Action.objects.all().delete()
         result = self.toolkit.retrieve_event_or_action_properties(999)
         self.assertEqual(result, "No actions exist in the project.")
-
-    @patch("ee.hogai.graph.taxonomy.toolkit.EventTaxonomyQueryRunner")
-    def test_retrieve_event_or_action_property_values(self, mock_runner_class):
-        self._create_property_definition(PropertyDefinition.Type.EVENT, "$browser")
-        self._create_property_definition(PropertyDefinition.Type.EVENT, "$device_type")
-
-        mock_response = self._create_mock_taxonomy_response(
-            property="$browser", sample_values=["Chrome", "Firefox"], sample_count=2
-        )
-
-        mock_runner = Mock()
-        mock_runner.run.return_value = mock_response
-        mock_runner_class.return_value = mock_runner
-
-        result = self.toolkit.retrieve_event_or_action_property_values("test_event", "$browser")
-        self.assertIn("Chrome", result)
-        self.assertIn("Firefox", result)
-        self.assertIn("property: $browser", result)
-
-    @patch("ee.hogai.graph.taxonomy.toolkit.EventTaxonomyQueryRunner")
-    def test_retrieve_event_or_action_property_values_multiple(self, mock_runner_class):
-        self._create_property_definition(PropertyDefinition.Type.EVENT, "$browser")
-        self._create_property_definition(PropertyDefinition.Type.EVENT, "$device_type")
-
-        mock_response = EventTaxonomyItem(property="$browser", sample_values=["Chrome", "Firefox"], sample_count=2)
-        mock_response2 = EventTaxonomyItem(property="$device_type", sample_values=["Mobile", "Desktop"], sample_count=2)
-
-        mock_cached_response = self._create_mock_taxonomy_response("event", results=[mock_response, mock_response2])
-        mock_runner = Mock()
-        mock_runner.run.return_value = mock_cached_response
-        mock_runner_class.return_value = mock_runner
-
-        result = self.toolkit.retrieve_event_or_action_property_values(
-            "test_event", ["$browser", "$device_type", "does_not_exist"]
-        )
-        result_str = "\n".join(result) if isinstance(result, list) else result
-        self.assertIn("Chrome", result_str)
-        self.assertIn("Firefox", result_str)
-        self.assertIn("property: $browser", result_str)
-        self.assertIn(
-            "The property does_not_exist does not exist in the taxonomy for entity event test_event", result_str
-        )
 
     def test_handle_incorrect_response(self):
         class TestModel(BaseModel):
@@ -457,9 +93,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         ]
     )
     @patch.object(DummyToolkit, "retrieve_entity_properties", return_value={"person": "mocked"})
-    @patch.object(DummyToolkit, "retrieve_entity_property_values", return_value="mocked")
+    @patch.object(DummyToolkit, "retrieve_entity_property_values", return_value={"person": ["mocked"]})
     @patch.object(DummyToolkit, "retrieve_event_or_action_properties", return_value="mocked")
-    @patch.object(DummyToolkit, "retrieve_event_or_action_property_values", return_value="mocked")
+    @patch.object(DummyToolkit, "retrieve_event_or_action_property_values", return_value={"test_event": ["mocked"]})
     def test_handle_tools(self, tool_name, tool_args, expected_result, *mocks):
         class Arguments(BaseModel):
             pass

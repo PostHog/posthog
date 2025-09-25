@@ -6,10 +6,7 @@ pub mod common;
 use crate::common::ServerHandle;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::flags::flag_models::FeatureFlagRow;
-use feature_flags::utils::test_utils::{
-    insert_flag_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
-    setup_pg_reader_client, setup_pg_writer_client,
-};
+use feature_flags::utils::test_utils::TestContext;
 
 #[tokio::test]
 async fn test_experience_continuity_matches_python() -> Result<()> {
@@ -18,11 +15,10 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
     // 3. Set hash key override via $anon_distinct_id
     // 4. Call WITHOUT $anon_distinct_id - should maintain the override
 
-    let pg_reader = setup_pg_reader_client(None).await;
-    let pg_writer = setup_pg_writer_client(None).await;
-
     // Insert a new team
-    let team = insert_new_team_in_pg(pg_reader.clone(), None)
+    let context = TestContext::new(None).await;
+    let team = context
+        .insert_new_team(None)
         .await
         .expect("Failed to insert team");
 
@@ -41,17 +37,17 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
         version: Some(1),
         evaluation_runtime: None,
     };
-    insert_flag_for_team_in_pg(pg_writer.clone(), team.id, Some(flag_row)).await?;
+    context.insert_flag(team.id, Some(flag_row)).await?;
 
     // Create a person with false_eval_user (this ID evaluates to false for 50% rollout)
     let user_id = "false_eval_user";
-    insert_person_for_team_in_pg(
-        pg_reader.clone(),
-        team.id,
-        user_id.to_string(),
-        Some(json!({"email": "false_eval_user@example.com", "name": "Test User"})),
-    )
-    .await?;
+    context
+        .insert_person(
+            team.id,
+            user_id.to_string(),
+            Some(json!({"email": "false_eval_user@example.com", "name": "Test User"})),
+        )
+        .await?;
 
     // Start test server
     let config = DEFAULT_TEST_CONFIG.clone();
@@ -144,10 +140,9 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
 async fn test_experience_continuity_with_merge() -> Result<()> {
     // Test that merged persons also maintain overrides without $anon_distinct_id
 
-    let pg_reader = setup_pg_reader_client(None).await;
-    let pg_writer = setup_pg_writer_client(None).await;
-
-    let team = insert_new_team_in_pg(pg_reader.clone(), None)
+    let context = TestContext::new(None).await;
+    let team = context
+        .insert_new_team(None)
         .await
         .expect("Failed to insert team");
 
@@ -166,17 +161,17 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
         version: Some(1),
         evaluation_runtime: None,
     };
-    insert_flag_for_team_in_pg(pg_writer.clone(), team.id, Some(flag_row)).await?;
+    context.insert_flag(team.id, Some(flag_row)).await?;
 
     // Create initial person with an ID that evaluates to false
     let initial_id = "false_eval_initial";
-    let person_id = insert_person_for_team_in_pg(
-        pg_reader.clone(),
-        team.id,
-        initial_id.to_string(),
-        Some(json!({"email": "initial@example.com"})),
-    )
-    .await?;
+    let person_id = context
+        .insert_person(
+            team.id,
+            initial_id.to_string(),
+            Some(json!({"email": "initial@example.com"})),
+        )
+        .await?;
 
     // Start server
     let config = DEFAULT_TEST_CONFIG.clone();
@@ -266,7 +261,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
 
     // Step 5: Simulate a person merge (this would normally happen via $identify event)
     // Use an ID that would naturally evaluate to false to prove the override is working
-    let mut conn = pg_writer.get_connection().await?;
+    let mut conn = context.get_persons_connection().await?;
     sqlx::query(
         "INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version)
          VALUES ($1, $2, $3, 0)",

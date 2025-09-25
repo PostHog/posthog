@@ -11,7 +11,7 @@ import { objectClean } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardBasicType } from '~/types'
+import { Breadcrumb, DashboardBasicType } from '~/types'
 
 import type { dashboardsLogicType } from './dashboardsLogicType'
 
@@ -119,6 +119,17 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     threshold: 0.3,
                 })
             },
+        ],
+
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'dashboards',
+                    name: 'Dashboards',
+                    iconType: 'dashboard',
+                },
+            ],
         ],
     }),
     tabAwareActionToUrl(({ values }) => ({

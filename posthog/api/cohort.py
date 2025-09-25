@@ -1,4 +1,5 @@
 import csv
+import uuid
 from collections import defaultdict
 from collections.abc import Iterator
 from datetime import datetime
@@ -18,7 +19,7 @@ from pydantic import (
     model_validator,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -59,7 +60,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
-from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
+from posthog.models.cohort.util import get_all_cohort_dependencies, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
@@ -311,9 +312,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
-            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
-
-            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+            cohort.enqueue_calculation(initiating_user=request.user)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -553,12 +552,12 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _validate_nested_cohort_behavioral_filters(self, prop: Any, cohort_used_in_flags: bool):
         nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
-        dependent_cohorts = get_dependent_cohorts(nested_cohort)
+        dependency_cohorts = get_all_cohort_dependencies(nested_cohort)
 
-        for dependent_cohort in [nested_cohort, *dependent_cohorts]:
-            if cohort_used_in_flags and any(p.type == "behavioral" for p in dependent_cohort.properties.flat):
+        for dependency_cohort in [nested_cohort, *dependency_cohorts]:
+            if cohort_used_in_flags and any(p.type == "behavioral" for p in dependency_cohort.properties.flat):
                 raise serializers.ValidationError(
-                    detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
+                    detail=f"A cohort dependency ({dependency_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
                     code="behavioral_cohort_found",
                 )
 
@@ -609,16 +608,11 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
-            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
-
-            if cohort.is_static:
+            if cohort.is_static and request.FILES.get("csv"):
                 # You can't update a static cohort using the trend/stickiness thing
-                if request.FILES.get("csv"):
-                    self._calculate_static_by_csv(request.FILES["csv"], cohort)
-                else:
-                    increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+                self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+                cohort.enqueue_calculation(initiating_user=request.user)
 
         report_user_action(
             request.user,
@@ -644,13 +638,26 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     serializer_class = CohortSerializer
     scope_object = "cohort"
 
+    def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
+        filters = request.GET.dict()
+
+        for key in filters:
+            if key == "type":
+                cohort_type = filters[key]
+                if cohort_type == "static":
+                    queryset = queryset.filter(is_static=True)
+                elif cohort_type == "dynamic":
+                    queryset = queryset.filter(is_static=False)
+            elif key == "created_by_id":
+                queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
+            elif key == "search":
+                queryset = queryset.filter(name__icontains=request.GET["search"])
+
+        return queryset
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
-
-            search_query = self.request.query_params.get("search", None)
-            if search_query:
-                queryset = queryset.filter(name__icontains=search_query)
 
             # TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
             # used in the feature flag property filter UI
@@ -658,6 +665,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
                 behavioral_cohort_ids = self._find_behavioral_cohorts(all_cohorts)
                 queryset = queryset.exclude(id__in=behavioral_cohort_ids)
+
+            # add additional filters provided by the client
+            queryset = self._filter_request(self.request, queryset)
 
         return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
 
@@ -855,6 +865,46 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             item_id=str(cohort.id),
             scope="Cohort",
             activity="persons_added_manually",
+            detail=Detail(changes=[Change(type="Cohort", action="changed")]),
+        )
+        return Response({"success": True}, status=200)
+
+    @action(methods=["PATCH"], detail=True)
+    def remove_person_from_static_cohort(self, request: request.Request, **kwargs):
+        cohort: Cohort = self.get_object()
+        if not cohort.is_static:
+            raise ValidationError("Can only remove users from static cohorts")
+        person_id = request.data.get("person_id", None)
+        if not person_id:
+            raise ValidationError("person_id is required")
+        if not isinstance(person_id, str):
+            raise ValidationError("person_id must be a string")
+
+        # Validate UUID format
+        try:
+            uuid.UUID(person_id)
+        except ValueError:
+            raise ValidationError("person_id must be a valid UUID")
+
+        # Check if person exists and belongs to this team
+        try:
+            person_uuid = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=self.team_id, uuid=person_id).uuid
+        except Person.DoesNotExist:
+            raise NotFound("Person with this UUID does not exist in the cohort's team")
+
+        success = cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
+
+        if not success:
+            raise NotFound("Person is not part of the cohort")
+
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(cohort.id),
+            scope="Cohort",
+            activity="person_removed_manually",
             detail=Detail(changes=[Change(type="Cohort", action="changed")]),
         )
         return Response({"success": True}, status=200)
