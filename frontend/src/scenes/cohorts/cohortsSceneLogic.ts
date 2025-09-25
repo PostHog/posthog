@@ -256,7 +256,13 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                         currentSorting = parsedSorting
                     }
                 } catch (error: any) {
-                    posthog.captureException('Failed to parse sorting', error)
+                    console.error('Failed to parse sorting', error, { sorting })
+                    posthog.captureException(error, {
+                        extra: {
+                            context: 'Failed to parse sorting',
+                            sorting: sorting,
+                        },
+                    })
                 }
             }
 
