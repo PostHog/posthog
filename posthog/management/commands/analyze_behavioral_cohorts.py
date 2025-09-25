@@ -238,7 +238,7 @@ class Command(BaseCommand):
         )
 
         # Create unique schedule ID
-        schedule_id = f"behavioral-cohorts-{interval_minutes}min-{int(time.time())}"
+        schedule_id = f"behavioral-cohorts-{interval_minutes}min-{team_id or 'all'}-{int(time.time() * 1000)}"
 
         # Calculate end time based on duration
         start_time = datetime.utcnow()
