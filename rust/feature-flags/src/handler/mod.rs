@@ -86,6 +86,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
                 &context.meta,
                 &context.headers,
                 None,
+                request.evaluation_environments.as_ref(),
             )
             .await?;
 
