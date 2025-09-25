@@ -11,7 +11,16 @@ import { addTrackingToEmail, generateEmailTrackingCode } from './email-tracking.
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 
 export class EmailService {
-    constructor(private hub: Hub) {}
+    ses: AWS.SES
+
+    constructor(private hub: Hub) {
+        this.ses = new AWS.SES({
+            accessKeyId: this.hub.SES_ACCESS_KEY_ID,
+            secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
+            region: this.hub.SES_REGION,
+            endpoint: this.hub.SES_ENDPOINT || undefined,
+        })
+    }
 
     // Send email
     public async executeSendEmail(
@@ -167,13 +176,6 @@ export class EmailService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
-        const ses = new AWS.SES({
-            accessKeyId: this.hub.SES_ACCESS_KEY_ID,
-            secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
-            region: this.hub.SES_REGION,
-            endpoint: this.hub.SES_ENDPOINT || undefined,
-        })
-
         const trackingCode = generateEmailTrackingCode(result.invocation)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
 
@@ -207,7 +209,7 @@ export class EmailService {
         }
 
         try {
-            const response = await ses.sendEmail(params_ses).promise()
+            const response = await this.ses.sendEmail(params_ses).promise()
             result.logs.push(logEntry('debug', `Email sent via SES with MessageId: ${response.MessageId}`))
         } catch (error) {
             throw new Error(`Failed to send email via SES: ${error.message}`)
