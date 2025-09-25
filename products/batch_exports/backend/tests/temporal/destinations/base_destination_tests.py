@@ -30,9 +30,12 @@ from posthog.batch_exports.service import (
 )
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.logger import BATCH_EXPORT_WORKFLOW_TYPES as LOGGER_BATCH_EXPORT_WORKFLOW_TYPES
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
+from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
+from products.batch_exports.backend.temporal.metrics import BATCH_EXPORT_ACTIVITY_TYPES, BATCH_EXPORT_WORKFLOW_TYPES
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
@@ -447,6 +450,21 @@ class CommonWorkflowTests:
     @pytest.fixture
     def simulate_unexpected_error(self):
         raise NotImplementedError("simulate_unexpected_error fixture must be implemented by destination-specific tests")
+
+    def test_workflow_and_activities_are_registered(
+        self,
+        destination_test: BaseDestinationTest,
+    ):
+        """Test that the workflow and activities are registered in the right places"""
+        assert destination_test.workflow_class in WORKFLOWS
+        assert destination_test.main_activity in ACTIVITIES
+        # also check the workflow and activity names are set up for metric handling
+        assert destination_test.workflow_class.get_name() in BATCH_EXPORT_WORKFLOW_TYPES
+        assert destination_test.main_activity.__name__ in BATCH_EXPORT_ACTIVITY_TYPES
+        # also check the workflow name is in this list we use for logging
+        # TODO: we should probably consolidate these lists somewhere, except for now they're not exactly the same (one
+        # includes http-export, while the other doesn't)
+        assert destination_test.workflow_class.get_name() in LOGGER_BATCH_EXPORT_WORKFLOW_TYPES
 
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
     @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
