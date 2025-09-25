@@ -195,7 +195,7 @@ class SESProvider:
             )
 
         #  Start/ensure DKIM (three CNAMEs) ---
-        dkim_tokens = []
+        dkim_tokens: list[str] = []
         try:
             resp = self.client.verify_domain_dkim(Domain=domain)
             dkim_tokens = resp.get("DkimTokens", []) or []
