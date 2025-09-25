@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 
 from posthog.hogql.ast import BooleanType, FloatType, IntegerType, StringType
+from posthog.hogql.functions.core import AnyConstantType
 from posthog.hogql.functions.typegen import generate_json_path_signatures, generate_variadic_signatures
 
 
@@ -113,7 +114,7 @@ class TestTypegen(BaseTest):
         self.assertEqual(len(signatures), 14)
 
         # Group by input length
-        by_length = {}
+        by_length: dict[int, list[tuple[list[AnyConstantType], AnyConstantType]]] = {}
         for inputs, output in signatures:
             length = len(inputs)
             if length not in by_length:
