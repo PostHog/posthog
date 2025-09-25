@@ -192,9 +192,8 @@ impl FeatureFlagList {
 mod tests {
     use super::*;
     use crate::utils::test_utils::{
-        insert_evaluation_tags_for_flag_in_pg, insert_flag_for_team_in_pg,
-        insert_flags_for_team_in_redis, insert_new_team_in_pg, insert_new_team_in_redis,
-        setup_invalid_pg_client, setup_pg_reader_client, setup_redis_client,
+        insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_invalid_pg_client,
+        setup_redis_client, TestContext,
     };
     use rand::Rng;
 
@@ -245,19 +244,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_flags_from_pg() {
-        let reader = setup_pg_reader_client(None).await;
-
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
-        insert_flag_for_team_in_pg(reader.clone(), team.id, None)
+        context
+            .insert_flag(team.id, None)
             .await
             .expect("Failed to insert flag");
 
-        let (flags_from_pg, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
-            .await
-            .expect("Failed to fetch flags from pg");
+        let (flags_from_pg, _) =
+            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id)
+                .await
+                .expect("Failed to fetch flags from pg");
 
         assert_eq!(flags_from_pg.flags.len(), 1);
         let flag = flags_from_pg.flags.first().expect("Flags should be in pg");
@@ -269,20 +270,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_empty_team_from_pg() {
-        let reader = setup_pg_reader_client(None).await;
+        let context = TestContext::new(None).await;
 
-        let (FeatureFlagList { flags }, _) = FeatureFlagList::from_pg(reader.clone(), 1234)
-            .await
-            .expect("Failed to fetch flags from pg");
+        let (FeatureFlagList { flags }, _) =
+            FeatureFlagList::from_pg(context.non_persons_reader.clone(), 1234)
+                .await
+                .expect("Failed to fetch flags from pg");
 
         assert_eq!(flags.len(), 0);
     }
 
     #[tokio::test]
     async fn test_fetch_nonexistent_team_from_pg() {
-        let reader = setup_pg_reader_client(None).await;
+        let context = TestContext::new(None).await;
 
-        match FeatureFlagList::from_pg(reader.clone(), -1).await {
+        match FeatureFlagList::from_pg(context.non_persons_reader.clone(), -1).await {
             Ok((flags, _)) => assert_eq!(flags.flags.len(), 0),
             Err(err) => panic!("Expected empty result, got error: {err:?}"),
         }
@@ -303,9 +305,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_multiple_flags_from_pg() {
-        let reader = setup_pg_reader_client(None).await;
-
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
@@ -341,17 +343,20 @@ mod tests {
         };
 
         // Insert multiple flags for the team
-        insert_flag_for_team_in_pg(reader.clone(), team.id, Some(flag1))
+        context
+            .insert_flag(team.id, Some(flag1))
             .await
             .expect("Failed to insert flags");
 
-        insert_flag_for_team_in_pg(reader.clone(), team.id, Some(flag2))
+        context
+            .insert_flag(team.id, Some(flag2))
             .await
             .expect("Failed to insert flags");
 
-        let (flags_from_pg, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
-            .await
-            .expect("Failed to fetch flags from pg");
+        let (flags_from_pg, _) =
+            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id)
+                .await
+                .expect("Failed to fetch flags from pg");
 
         assert_eq!(flags_from_pg.flags.len(), 2);
         for flag in &flags_from_pg.flags {
@@ -361,29 +366,31 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_flags_with_evaluation_tags_from_pg() {
-        let reader = setup_pg_reader_client(None).await;
-
-        let team = insert_new_team_in_pg(reader.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team");
 
-        let flag_row = insert_flag_for_team_in_pg(reader.clone(), team.id, None)
+        let flag_row = context
+            .insert_flag(team.id, None)
             .await
             .expect("Failed to insert flag");
 
         // Insert evaluation tags for the flag
-        insert_evaluation_tags_for_flag_in_pg(
-            reader.clone(),
-            flag_row.id,
-            team.id,
-            vec!["docs-page", "marketing-site", "app"],
-        )
-        .await
-        .expect("Failed to insert evaluation tags");
-
-        let (flags_from_pg, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
+        context
+            .insert_evaluation_tags_for_flag(
+                flag_row.id,
+                team.id,
+                vec!["docs-page", "marketing-site", "app"],
+            )
             .await
-            .expect("Failed to fetch flags from pg");
+            .expect("Failed to insert evaluation tags");
+
+        let (flags_from_pg, _) =
+            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id)
+                .await
+                .expect("Failed to fetch flags from pg");
 
         assert_eq!(flags_from_pg.flags.len(), 1);
         let flag = flags_from_pg.flags.first().expect("Should have one flag");
