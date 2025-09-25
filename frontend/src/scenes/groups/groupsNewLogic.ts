@@ -53,6 +53,12 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
                 return aggregationLabel(logicProps.groupTypeIndex).singular
             },
         ],
+        groupTypeNamePlural: [
+            (s) => [s.aggregationLabel, s.logicProps],
+            (aggregationLabel, logicProps): string => {
+                return aggregationLabel(logicProps.groupTypeIndex).plural
+            },
+        ],
         breadcrumbs: [
             (s) => [s.logicProps, s.groupTypeName],
             (logicProps, groupTypeName): Breadcrumb[] => {
