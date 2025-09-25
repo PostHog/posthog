@@ -1,8 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonInputSelect, LemonSearchableSelect, LemonSelect } from '@posthog/lemon-ui'
+import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonInputSelect,
+    LemonSearchableSelect,
+    LemonSelect,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { ActiveDetailFilter, advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 
@@ -11,7 +18,7 @@ interface DetailFilterRowProps {
 }
 
 const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
-    const { availableFilters } = useValues(advancedActivityLogsLogic)
+    const { availableFilters, activeFilters } = useValues(advancedActivityLogsLogic)
     const { updateActiveFilter, removeActiveFilter } = useActions(advancedActivityLogsLogic)
 
     const [localValue, setLocalValue] = useState<string | string[]>(filter.value)
@@ -24,7 +31,6 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
             return []
         }
 
-        const { activeFilters } = advancedActivityLogsLogic.values
         const selectedFields = new Set(
             activeFilters.filter((f) => f.key !== filter.key && !f.isCustom).map((f) => f.fieldPath)
         )
@@ -67,7 +73,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
             .filter((section) => section.options.length > 0)
 
         return fieldSections
-    }, [availableFilters, filter.key, filter.fieldPath])
+    }, [availableFilters, filter.key, filter.fieldPath, activeFilters])
 
     const validateCustomFieldPath = (path: string): string | null => {
         if (!path || !path.trim()) {
@@ -90,7 +96,10 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
     }, [filter.fieldPath])
 
     const handleOperationChange = (operation: ActiveDetailFilter['operation']): void => {
-        const newValue = operation === 'in' && !Array.isArray(filter.value) ? [filter.value as string] : filter.value
+        let newValue = filter.value
+        if (operation === 'in' && !Array.isArray(filter.value)) {
+            newValue = filter.value && (filter.value as string).trim() ? [filter.value as string] : []
+        }
         setLocalValue(newValue)
         updateActiveFilter(filter.key, { operation, value: newValue })
     }
@@ -155,6 +164,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                         onChange={handleCustomFieldPathChange}
                         placeholder="Enter custom field path"
                         status={fieldPathError ? 'danger' : undefined}
+                        size="small"
                     />
                     {fieldPathError && <div className="text-xs text-danger mt-1">{fieldPathError}</div>}
                 </div>
@@ -164,6 +174,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                     onChange={handleFieldChange}
                     options={fieldOptionsForRow}
                     placeholder="Select field"
+                    size="small"
                     className="min-w-60"
                 />
             )}
@@ -176,6 +187,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                     { value: 'contains', label: 'contains' },
                     { value: 'in', label: 'is one of' },
                 ]}
+                size="small"
                 className="min-w-32"
             />
 
@@ -186,6 +198,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                     onChange={handleValueChange}
                     allowCustomValues
                     placeholder="Enter values"
+                    size="small"
                     className="min-w-60"
                 />
             ) : (
@@ -193,6 +206,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                     value={localValue as string}
                     onChange={handleValueChange}
                     placeholder="Enter value"
+                    size="small"
                     className="min-w-60"
                 />
             )}
@@ -269,8 +283,13 @@ export const DetailFilters = (): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col gap-2">
-            <label className="block text-sm font-medium">Detail Filters</label>
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1">
+                <label className="block text-sm font-medium">Detail filters</label>
+                <Tooltip title="Filter by specific fields within the activity log details field. For example, filter by changes to specific dashboard properties, feature flag variations, or other detailed attributes logged with each activity.">
+                    <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                </Tooltip>
+            </div>
 
             <div className="flex flex-col gap-2">
                 {activeFilters.map((filter) => (
@@ -288,9 +307,10 @@ export const DetailFilters = (): JSX.Element => {
                     }
                 }}
                 options={fieldOptions}
-                placeholder="Add detail filter"
+                placeholder="Add filter"
                 searchPlaceholder="Search fields..."
                 icon={<IconPlus />}
+                size="small"
                 className="w-[200px]"
             />
         </div>

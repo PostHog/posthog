@@ -14,6 +14,7 @@ import {
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { Breadcrumb } from '~/types'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
@@ -95,7 +96,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs) => ({
                         href: fs.href,
-                        name: 'new ' + fs.path.substring(8),
+                        name: 'New ' + fs.path.substring(8),
                         icon: getIconForFileSystemItem(fs),
                         flag: fs.flag,
                     }))
@@ -113,7 +114,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ path }) => !path.startsWith('Insight/') && !path.startsWith('Data/'))
                     .map((fs) => ({
                         href: fs.href,
-                        name: 'new ' + fs.path,
+                        name: 'New ' + fs.path,
                         icon: getIconForFileSystemItem(fs),
                         flag: fs.flag,
                     }))
@@ -142,10 +143,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     {
                         category: 'create-new',
                         types: [
-                            { name: 'new SQL query', icon: <IconDatabase />, href: '/sql' },
+                            { name: 'New SQL query', icon: <IconDatabase />, href: '/sql' },
                             ...newInsightItems,
                             ...newOtherItems,
-                            { name: 'new Hog program', icon: <IconHogQL />, href: '/debug/hog' },
+                            { name: 'New Hog program', icon: <IconHogQL />, href: '/debug/hog' },
                         ],
                     },
                     {
@@ -221,6 +222,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     ? filteredItemsList[selectedIndex]
                     : null,
         ],
+        breadcrumbs: [() => [], (): Breadcrumb[] => [{ key: 'new-tab', name: 'New tab', iconType: 'blank' }]],
     }),
     listeners(({ values }) => ({
         onSubmit: () => {

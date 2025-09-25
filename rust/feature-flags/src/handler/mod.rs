@@ -10,13 +10,13 @@ pub mod properties;
 pub mod session_recording;
 pub mod types;
 
-use common_metrics::inc;
+use common_metrics::{histogram, inc};
 pub use types::*;
 
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     flags::flag_service::FlagService,
-    metrics::consts::FLAG_REQUESTS_COUNTER,
+    metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY},
 };
 use std::collections::HashMap;
 use tracing::{info, instrument, warn};
@@ -119,17 +119,6 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             if !request.is_flags_disabled() {
                 billing::record_usage(&context, &filtered_flags, team.id).await;
             }
-            inc(
-                FLAG_REQUESTS_COUNTER,
-                &[
-                    (
-                        "flags_disabled".to_string(),
-                        request.is_flags_disabled().to_string(),
-                    ),
-                    ("team_id".to_string(), team.id.to_string()),
-                ],
-                1,
-            );
 
             response
         };
@@ -140,6 +129,23 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             config_response_builder::build_response(flags_response, &context, &team).await?;
 
         let total_duration = start_time.elapsed();
+
+        // Record metrics
+        let labels = [
+            (
+                "flags_disabled".to_string(),
+                request.is_flags_disabled().to_string(),
+            ),
+            ("team_id".to_string(), team.id.to_string()),
+        ];
+
+        inc(FLAG_REQUESTS_COUNTER, &labels, 1);
+
+        histogram(
+            FLAG_REQUESTS_LATENCY,
+            &labels,
+            total_duration.as_millis() as f64,
+        );
 
         // Comprehensive request summary
         info!(

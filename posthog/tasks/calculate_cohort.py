@@ -18,7 +18,7 @@ from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Cohort
 from posthog.models.cohort import CohortOrEmpty
-from posthog.models.cohort.util import get_dependent_cohorts, sort_cohorts_topologically
+from posthog.models.cohort.util import get_all_cohort_dependencies, sort_cohorts_topologically
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
@@ -185,7 +185,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
-    dependent_cohorts = get_dependent_cohorts(cohort)
+    dependent_cohorts = get_all_cohort_dependencies(cohort)
     if dependent_cohorts:
         logger.info("cohort_has_dependencies", cohort_id=cohort.id, dependent_count=len(dependent_cohorts))
 
@@ -286,11 +286,14 @@ def calculate_cohort_from_list(
     if team_id is None:
         team_id = cohort.team_id
 
-    batch_count = (
-        cohort.insert_users_by_list(items, team_id=team_id)
-        if id_type == "distinct_id"
-        else cohort.insert_users_list_by_uuid(items, team_id=team_id)
-    )
+    if id_type == "distinct_id":
+        batch_count = cohort.insert_users_by_list(items, team_id=team_id)
+    elif id_type == "person_id":
+        batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id)
+    elif id_type == "email":
+        batch_count = cohort.insert_users_by_email(items, team_id=team_id)
+    else:
+        raise ValueError(f"Unsupported id_type: {id_type}")
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
             cohort.pk, len(items), batch_count, (time.time() - start_time)
