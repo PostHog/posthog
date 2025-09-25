@@ -405,6 +405,26 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_started
+
+    litellm:
+        image: ghcr.io/berriai/litellm-database:main-stable
+        restart: on-failure
+        ports:
+            - '4000:4000'
+        volumes:
+            - ./docker/litellm/config.yaml:/app/config.yaml
+        environment:
+            - LITELLM_MASTER_KEY=sk-1234
+            - DATABASE_URL=postgresql://posthog:posthog@db:5432/litellm
+            - POSTHOG_API_URL=http://localhost:8000
+            - POSTHOG_API_KEY
+            - ANTHROPIC_API_KEY
+        command: --config /app/config.yaml --detailed_debug
+        depends_on:
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_started
     otel-collector:
         image: otel/opentelemetry-collector-contrib:latest
         container_name: otel-collector-local

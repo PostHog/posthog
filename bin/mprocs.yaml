@@ -111,5 +111,9 @@ procs:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
 
+    litellm:
+        shell: './bin/start-litellm'
+        autostart: false
+
 mouse_scroll_speed: 1
 scrollback: 10000

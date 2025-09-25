@@ -1,0 +1,33 @@
+environment_variables:
+    POSTHOG_API_URL: os.environ/POSTHOG_API_URL
+    POSTHOG_API_KEY: os.environ/POSTHOG_API_KEY
+
+model_list:
+    - model_name: claude-3-5-haiku-20241022
+      litellm_params:
+          model: anthropic/claude-3-5-haiku-20241022
+          api_key: os.environ/ANTHROPIC_API_KEY
+
+    - model_name: claude-sonnet-4-20250514
+      litellm_params:
+          model: anthropic/claude-sonnet-4-20250514
+          api_key: os.environ/ANTHROPIC_API_KEY
+
+    - model_name: claude-opus-4-1-20250805
+      litellm_params:
+          model: anthropic/claude-opus-4-1-20250805
+          api_key: os.environ/ANTHROPIC_API_KEY
+
+router_settings:
+    redis_host: redis
+    redis_port: 6379
+
+general_settings:
+    master_key: 'sk-1234'
+    database_url: os.environ/DATABASE_URL
+
+litellm_settings:
+    success_callback: ['posthog']
+    failure_callback: ['posthog']
+    master_key: os.environ/LITELLM_MASTER_KEY
+    set_verbose: true

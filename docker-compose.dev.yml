@@ -207,6 +207,11 @@ services:
         volumes:
             - ./docker/livestream/configs-dev.yml:/configs/configs.yml
 
+    litellm:
+        extends:
+            file: docker-compose.base.yml
+            service: litellm
+
     # Temporal containers
     elasticsearch:
         extends:
