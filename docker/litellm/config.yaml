@@ -23,7 +23,7 @@ router_settings:
     redis_port: 6379
 
 general_settings:
-    master_key: 'sk-1234'
+    master_key: os.environ/LITELLM_MASTER_KEY
     database_url: os.environ/DATABASE_URL
 
 litellm_settings:
