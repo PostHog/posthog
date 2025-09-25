@@ -26,7 +26,7 @@ from posthog.temporal.hogql_query_snapshots.delta_snapshot import DeltaSnapshot,
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery, aget_saved_query_by_id
 from posthog.warehouse.models.snapshot_job import DataWarehouseSnapshotJob
-from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
 
 LOGGER = get_logger(__name__)
 
@@ -47,6 +47,10 @@ async def create_snapshot_job_activity(inputs: CreateSnapshotJobInputs) -> tuple
     workflow_id = temporalio.activity.info().workflow_id
     workflow_run_id = temporalio.activity.info().workflow_run_id
     saved_query = await aget_saved_query_by_id(saved_query_id=inputs.saved_query_id, team_id=inputs.team_id)
+
+    if saved_query is None:
+        raise Exception(f"Saved query: {inputs.saved_query_id} cannot be found")
+
     job = await start_job_snapshot_run(team, workflow_id, workflow_run_id, saved_query)
 
     # get table that's a snapshot table
@@ -69,6 +73,10 @@ async def create_backup_snapshot_job_activity(inputs: CreateBackupSnapshotJobInp
 
     await logger.adebug(f"Creating backup object for {inputs.saved_query_id} snapshot")
     saved_query = await aget_saved_query_by_id(saved_query_id=inputs.saved_query_id, team_id=inputs.team_id)
+
+    if saved_query is None:
+        raise Exception(f"Saved query: {inputs.saved_query_id} cannot be found")
+
     create_backup_object(saved_query)
 
 
@@ -100,6 +108,10 @@ async def restore_from_backup_activity(inputs: RestoreFromBackupInputs) -> None:
 
     await logger.adebug(f"Restoring from backup for {inputs.saved_query_id}")
     saved_query = await aget_saved_query_by_id(saved_query_id=inputs.saved_query_id, team_id=inputs.team_id)
+
+    if saved_query is None:
+        raise Exception(f"Saved query: {inputs.saved_query_id} cannot be found")
+
     restore_from_backup(saved_query)
 
 
@@ -149,6 +161,10 @@ async def finish_snapshot_job_activity(inputs: FinishSnapshotJobInputs) -> None:
         DataWarehouseSnapshotJob.Status.COMPLETED if inputs.error is None else DataWarehouseSnapshotJob.Status.FAILED
     )
     job.error = inputs.error if inputs.error is not None else None
+
+    if workflow_saved_query is None:
+        raise Exception(f"Saved query: {inputs.saved_query_id} cannot be found")
+
     clear_backup_object(workflow_saved_query)
     await database_sync_to_async(job.save)()
 
@@ -188,6 +204,10 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
     logger.info(f"Running snapshot for saved query {inputs.saved_query_id}")
 
     saved_query = await aget_saved_query_by_id(inputs.saved_query_id, inputs.team_id)
+
+    if saved_query is None:
+        raise Exception(f"Saved query: {inputs.saved_query_id} cannot be found")
+
     hogql_query = saved_query.query["query"]
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
     delta_snapshot = DeltaSnapshot(saved_query)
@@ -417,7 +437,7 @@ def validate_snapshot_schema(
 
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
-            raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
+            raw_db_columns: DataWarehouseTableColumns = table_created.get_columns()
             db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
 
             columns = {}

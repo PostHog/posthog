@@ -673,21 +673,21 @@ def create_hogql_database(
                 if table.external_data_source:
                     source_type = table.external_data_source.source_type
                     prefix = table.external_data_source.prefix
-                    table_chain: list[str] = [source_type.lower()]
+                    table_chain_parts: list[str] = [source_type.lower()]
 
                     if prefix is not None and isinstance(prefix, str) and prefix != "":
                         table_name_stripped = table.name.replace(f"{prefix}{source_type}_".lower(), "")
-                        table_chain.extend([prefix.strip("_").lower(), table_name_stripped])
+                        table_chain_parts.extend([prefix.strip("_").lower(), table_name_stripped])
                     else:
                         table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
-                        table_chain.append(table_name_stripped)
+                        table_chain_parts.append(table_name_stripped)
 
                     # For a chain of type a.b.c, we want to create a nested table group
                     # where a is the parent, b is the child of a, and c is the child of b
                     # where a.b.c will contain the s3_table
-                    create_nested_table_group(table_chain, warehouse_tables, s3_table)
+                    create_nested_table_group(table_chain_parts, warehouse_tables, s3_table)
 
-                    joined_table_chain = ".".join(table_chain)
+                    joined_table_chain = ".".join(table_chain_parts)
                     s3_table.name = joined_table_chain
                     warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
