@@ -6,6 +6,7 @@ import { LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
@@ -251,6 +252,7 @@ export function OverViewTab({
     const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
@@ -299,12 +301,14 @@ export function OverViewTab({
                           if (!tags || tags.length === 0) {
                               return null
                           }
-                          return (
+                          return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
                               <FeatureFlagEvaluationTags
                                   tags={tags}
                                   evaluationTags={featureFlag.evaluation_tags || []}
                                   staticOnly
                               />
+                          ) : (
+                              <ObjectTags tags={tags} staticOnly />
                           )
                       },
                   } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,

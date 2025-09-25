@@ -29,6 +29,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
@@ -465,22 +466,36 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                     <LemonField name="tags" label="Tags">
                                         {({ value: formTags, onChange: onChangeTags }) => (
-                                            <LemonField name="evaluation_tags">
-                                                {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
-                                                    <FeatureFlagEvaluationTags
+                                            <>
+                                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                                    <LemonField name="evaluation_tags">
+                                                        {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
+                                                            <FeatureFlagEvaluationTags
+                                                                tags={formTags}
+                                                                evaluationTags={formEvalTags || []}
+                                                                onChange={(updatedTags, updatedEvaluationTags) => {
+                                                                    onChangeTags(updatedTags)
+                                                                    onChangeEvalTags(updatedEvaluationTags)
+                                                                }}
+                                                                tagsAvailable={tags.filter(
+                                                                    (tag: string) => !formTags?.includes(tag)
+                                                                )}
+                                                                className="mt-2"
+                                                            />
+                                                        )}
+                                                    </LemonField>
+                                                ) : (
+                                                    <ObjectTags
                                                         tags={formTags}
-                                                        evaluationTags={formEvalTags || []}
-                                                        onChange={(updatedTags, updatedEvaluationTags) => {
-                                                            onChangeTags(updatedTags)
-                                                            onChangeEvalTags(updatedEvaluationTags)
-                                                        }}
+                                                        onChange={onChangeTags}
+                                                        saving={featureFlagLoading}
                                                         tagsAvailable={tags.filter(
                                                             (tag: string) => !formTags?.includes(tag)
                                                         )}
                                                         className="mt-2"
                                                     />
                                                 )}
-                                            </LemonField>
+                                            </>
                                         )}
                                     </LemonField>
                                 )}
