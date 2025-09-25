@@ -6,7 +6,7 @@ import hashlib
 import datetime
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import numpy as np
 import orjson
@@ -375,7 +375,9 @@ def append_partition_key_to_table(
         is_partition_key_int = pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
         are_incrementing_ints = False
         if is_partition_key_int:
-            min_max = pc.min_max(table.column(normalized_partition_keys[0])).as_py()[0]
+            min_max: dict[str, int] = cast(
+                dict[str, int], pc.min_max(table.column(normalized_partition_keys[0])).as_py()
+            )
             min_int_val, max_int_val = min_max["min"], min_max["max"]
             range_size = max_int_val - min_int_val + 1
             are_incrementing_ints = table.num_rows / range_size >= 0.2
