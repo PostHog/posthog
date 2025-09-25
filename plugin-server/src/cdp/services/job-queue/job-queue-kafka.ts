@@ -90,9 +90,12 @@ export class CyclotronJobQueueKafka {
                     teamId: x.teamId.toString(),
                 }
 
-                if (x.queueScheduledAt && x.state?.returnTopic) {
-                    headers.queueScheduledAt = x.queueScheduledAt.toString()
+                if (x.state?.returnTopic) {
                     headers.returnTopic = `cdp_cyclotron_${x.state.returnTopic}`
+                }
+
+                if (x.queueScheduledAt) {
+                    headers.queueScheduledAt = x.queueScheduledAt.toString()
                 }
 
                 await producer
