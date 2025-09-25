@@ -206,7 +206,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number> = {
+            const searchParams: Record<string, string | number | string[]> = {
                 ...values.filters,
             }
 
