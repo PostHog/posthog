@@ -193,11 +193,10 @@ class SESProvider:
         """
         dns_records = []
 
-        # --- 1) Start/ensure domain verification (TXT at _amazonses.domain) ---
+        # Start/ensure domain verification (TXT at _amazonses.domain) ---
         verification_token = None
         try:
             resp = self.client.verify_domain_identity(Domain=domain)
-            print(f"Verification response: {resp}")
             verification_token = resp.get("VerificationToken")
         except ClientError as e:
             # If already requested/exists, carry on; SES v1 is idempotent-ish here
@@ -215,11 +214,10 @@ class SESProvider:
                 }
             )
 
-        # --- 2) Start/ensure DKIM (three CNAMEs) ---
+        #  Start/ensure DKIM (three CNAMEs) ---
         dkim_tokens = []
         try:
             resp = self.client.verify_domain_dkim(Domain=domain)
-            print(f"DKIM response: {resp}")
             dkim_tokens = resp.get("DkimTokens", []) or []
         except ClientError as e:
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
@@ -246,7 +244,7 @@ class SESProvider:
             }
         )
 
-        # --- 4) Current verification / DKIM statuses to compute overall status & per-record statuses ---
+        # Current verification / DKIM statuses to compute overall status & per-record statuses ---
         try:
             id_attrs = self.client.get_identity_verification_attributes(Identities=[domain])
             verification_status = (
