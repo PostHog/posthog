@@ -87,12 +87,6 @@ export const IssueQueryOptions = (): JSX.Element => {
                                 label: 'Revenue',
                                 ...(hasRevenueAnalytics
                                     ? {
-                                          onClick: () => {
-                                              posthog.capture('error_tracking_sort_by_revenue_clicked')
-                                              router.actions.push(urls.revenueAnalytics())
-                                          },
-                                      }
-                                    : {
                                           placement: 'right-start',
                                           items: [
                                               {
@@ -105,6 +99,12 @@ export const IssueQueryOptions = (): JSX.Element => {
                                                       onSelectRevenueEntity(value as ErrorTrackingQueryRevenueEntity),
                                               })),
                                           ],
+                                      }
+                                    : {
+                                          onClick: () => {
+                                              posthog.capture('error_tracking_sort_by_revenue_clicked')
+                                              router.actions.push(urls.revenueAnalytics())
+                                          },
                                       }),
                             },
                         ]}
