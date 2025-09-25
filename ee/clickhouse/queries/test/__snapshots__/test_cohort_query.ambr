@@ -469,7 +469,7 @@
                                                                                   FROM person AS where_optimization
                                                                                   WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
                                    GROUP BY person.id
-                                   HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
                                 WHERE ifNull(equals(persons.properties___name, 'test'), 0)
                                 ORDER BY persons.id ASC
                                 LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -493,7 +493,7 @@
                               FROM person_distinct_id_overrides
                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
                               GROUP BY person_distinct_id_overrides.distinct_id
-                              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                         GROUP BY actor_id) AS source
                      ORDER BY source.id ASC
