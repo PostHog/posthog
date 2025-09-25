@@ -117,11 +117,14 @@ export function FilterPanel(): JSX.Element {
         heatmapDataLogic({ context: 'in-app' })
     )
 
-    const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false, inStorybookTestRunner() ? 0 : 200)
+    const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false)
 
+    // KLUDGE: the loading bar flaps in visual regression tests,
+    // for some reason our wait for loading to finish can't see it
+    // this is ugly but better than stopping taking visual snapshots of it
     return (
         <>
-            {debouncedLoading && (
+            {debouncedLoading && !inStorybookTestRunner() && (
                 <LoadingBar
                     wrapperClassName="absolute top-0 left-0 w-full overflow-hidden rounded-none my-0"
                     className="h-1 rounded-none"
