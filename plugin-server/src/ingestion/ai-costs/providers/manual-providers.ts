@@ -60,17 +60,10 @@ export const manualCosts: ModelRow[] = [
     // Other
     {
         model: 'deepseek-v3-fireworks',
+        provider: 'fireworks',
         cost: {
             prompt_token: 0.0000009,
             completion_token: 0.0000009,
-        },
-    },
-    // testing
-    {
-        model: 'testing_model',
-        cost: {
-            prompt_token: 0.1,
-            completion_token: 0.1,
         },
     },
 ]
