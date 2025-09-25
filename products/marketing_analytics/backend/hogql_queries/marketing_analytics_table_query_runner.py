@@ -31,8 +31,8 @@ from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
 from .constants import BASE_COLUMN_MAPPING, DEFAULT_LIMIT, PAGINATION_EXTRA, to_marketing_analytics_data
 from .conversion_goal_processor import ConversionGoalProcessor
+from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_config import MarketingAnalyticsConfig
-from .unified_conversion_goals_query_runner import ConversionGoalsAggregator
 from .utils import convert_team_conversion_goals_to_objects
 
 logger = structlog.get_logger(__name__)
