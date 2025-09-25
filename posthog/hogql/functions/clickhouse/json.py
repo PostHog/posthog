@@ -8,12 +8,12 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "isValidJSON": HogQLFunctionMeta("isValidJSON", 1, 1, signatures=[((StringType(),), IntegerType())]),
     "JSONHas": HogQLFunctionMeta(
         "JSONHas",
-        2,
+        1,
         6,
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=IntegerType(),  # Returns 1 or 0
-            min_paths=1,
+            min_paths=0,
             max_paths=5,
         ),
     ),
@@ -64,56 +64,56 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "JSONExtractUInt": HogQLFunctionMeta(
         "JSONExtractUInt",
-        2,
+        1,
         6,
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=IntegerType(),  # Returns unsigned integer
-            min_paths=1,
+            min_paths=0,
             max_paths=5,
         ),
     ),
     "JSONExtractInt": HogQLFunctionMeta(
         "JSONExtractInt",
-        2,
+        1,
         6,
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=IntegerType(),  # Returns signed integer
-            min_paths=1,
+            min_paths=0,
             max_paths=5,
         ),
     ),
     "JSONExtractFloat": HogQLFunctionMeta(
         "JSONExtractFloat",
-        2,
+        1,
         6,
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=FloatType(),  # Returns float
-            min_paths=1,
+            min_paths=0,
             max_paths=5,
         ),
     ),
     "JSONExtractBool": HogQLFunctionMeta(
         "JSONExtractBool",
-        2,
+        1,
         6,
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=BooleanType(),  # Returns boolean
-            min_paths=1,
+            min_paths=0,
             max_paths=5,
         ),
     ),
     "JSONExtractString": HogQLFunctionMeta(
         "JSONExtractString",
-        2,
+        1,
         6,
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=StringType(),  # Returns string
-            min_paths=1,
+            min_paths=0,
             max_paths=5,
         ),
     ),
@@ -130,48 +130,48 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "JSONExtractRaw": HogQLFunctionMeta(
         "JSONExtractRaw",
-        2,
+        1,
         6,
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],
             return_type=StringType(),
-            min_paths=1,
+            min_paths=0,
             max_paths=5,
         ),
     ),
     "JSONExtractArrayRaw": HogQLFunctionMeta(
         "JSONExtractArrayRaw",
-        2,
+        1,
         6,
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=StringType(),  # Returns raw JSON array as string
-            min_paths=1,
+            min_paths=0,
             max_paths=5,
         ),
     ),
     "JSONExtractKeysAndValues": HogQLFunctionMeta(
         "JSONExtractKeysAndValues",
-        1,
-        4,
+        2,
+        7,
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             suffix_types=[StringType()],  # ClickHouse data type as string
             return_type=ArrayType(item_type=TupleType(item_types=[StringType(), StringType()])),
             # Returns array of (key, value) tuples
             min_paths=0,
-            max_paths=2,
+            max_paths=5,
         ),
     ),
     "JSONExtractKeysAndValuesRaw": HogQLFunctionMeta(
         "JSONExtractKeysAndValuesRaw",
-        2,
+        1,
         6,
         signatures=generate_json_path_signatures(
             fixed_types=[StringType()],  # JSON parameter
             return_type=ArrayType(item_type=TupleType(item_types=[StringType(), StringType()])),
             # Returns array of (key, raw_value) tuples
-            min_paths=1,
+            min_paths=0,
             max_paths=5,
         ),
     ),
