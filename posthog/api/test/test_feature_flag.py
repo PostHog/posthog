@@ -8205,10 +8205,12 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
 
         from ee.models.license import License, LicenseManager
 
+        # Use a date that's always 50 years in the future to avoid expiration
+        future_year = dt.now().year + 50
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="test_license_key",
             plan="enterprise",
-            valid_until=dt(2038, 1, 19, 3, 14, 7),
+            valid_until=dt(future_year, 1, 19, 3, 14, 7),
         )
 
     @pytest.mark.ee
