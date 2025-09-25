@@ -124,6 +124,8 @@ if TYPE_CHECKING:
 
 tracer = trace.get_tracer(__name__)
 
+SNAPSHOTS_TABLE_GROUP_NAME = "snapshots"
+
 
 class Database(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -330,9 +332,9 @@ class Database(BaseModel):
             # No need to add TableGroups to the view table names,
             # they're already with their chained names
             if isinstance(f_def, TableGroup):
-                continue
-
-            self._view_table_names.append(f_name)
+                self._view_table_names.extend([f"{f_name}.{x}" for x in f_def.resolve_all_table_names()])
+            else:
+                self._view_table_names.append(f_name)
 
 
 def _use_person_properties_from_events(database: Database) -> None:
@@ -598,7 +600,16 @@ def create_hogql_database(
 
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
-                views[saved_query.name] = saved_query.hogql_definition(modifiers)
+                if saved_query.type == DataWarehouseSavedQuery.Type.SNAPSHOT:
+                    table_chain = [SNAPSHOTS_TABLE_GROUP_NAME]
+                    table_chain.append(saved_query.name)
+                    s3_table = saved_query.hogql_definition(modifiers)
+                    joined_table_chain = ".".join(table_chain)
+                    s3_table.name = joined_table_chain
+                    warehouse_tables_dot_notation_mapping[joined_table_chain] = saved_query.name
+                    create_nested_table_group(table_chain, views, s3_table)
+                else:
+                    views[saved_query.name] = saved_query.hogql_definition(modifiers)
 
     with timings.measure("revenue_analytics_views"):
         revenue_views = []
@@ -641,7 +652,7 @@ def create_hogql_database(
         for table in tables:
             # Skip adding data warehouse tables that are materialized from views
             # We can detect that because they have the exact same name as the view
-            if views.get(table.name, None) is not None:
+            if views.get(table.name, None) is not None and not table.type == DataWarehouseTable.Type.SNAPSHOT:
                 continue
 
             with timings.measure(f"table_{table.name}"):
@@ -655,28 +666,36 @@ def create_hogql_database(
 
                 if table.external_data_source:
                     warehouse_tables[table.name] = s3_table
-                else:
+                elif not table.type == DataWarehouseTable.Type.SNAPSHOT:
                     self_managed_warehouse_tables[table.name] = s3_table
 
                 # Add warehouse table using dot notation
                 if table.external_data_source:
                     source_type = table.external_data_source.source_type
                     prefix = table.external_data_source.prefix
-                    table_chain: list[str] = [source_type.lower()]
+                    table_chain_parts: list[str] = [source_type.lower()]
 
                     if prefix is not None and isinstance(prefix, str) and prefix != "":
                         table_name_stripped = table.name.replace(f"{prefix}{source_type}_".lower(), "")
-                        table_chain.extend([prefix.strip("_").lower(), table_name_stripped])
+                        table_chain_parts.extend([prefix.strip("_").lower(), table_name_stripped])
                     else:
                         table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
-                        table_chain.append(table_name_stripped)
+                        table_chain_parts.append(table_name_stripped)
 
                     # For a chain of type a.b.c, we want to create a nested table group
                     # where a is the parent, b is the child of a, and c is the child of b
                     # where a.b.c will contain the s3_table
-                    create_nested_table_group(table_chain, warehouse_tables, s3_table)
+                    create_nested_table_group(table_chain_parts, warehouse_tables, s3_table)
 
-                    joined_table_chain = ".".join(table_chain)
+                    joined_table_chain = ".".join(table_chain_parts)
+                    s3_table.name = joined_table_chain
+                    warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+
+                if table.type == DataWarehouseTable.Type.SNAPSHOT:
+                    snapshot_table_chain: list[str] = [SNAPSHOTS_TABLE_GROUP_NAME]
+                    snapshot_table_chain.append(table.name)
+                    create_nested_table_group(snapshot_table_chain, warehouse_tables, s3_table)
+                    joined_table_chain = ".".join(snapshot_table_chain)
                     s3_table.name = joined_table_chain
                     warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
