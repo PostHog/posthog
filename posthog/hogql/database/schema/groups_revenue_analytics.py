@@ -148,7 +148,7 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
 
             # If it's a data warehouse view, we need to join with the customer view
             if not customer_view.is_event_view():
-                query.select_from.next_join = ast.JoinExpr(
+                query.select_from.next_join = ast.JoinExpr(  # type: ignore
                     alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
                     table=ast.Field(chain=[customer_view.name]),
                     join_type="INNER JOIN",
