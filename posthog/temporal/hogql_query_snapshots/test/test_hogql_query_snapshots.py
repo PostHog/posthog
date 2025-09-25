@@ -232,7 +232,7 @@ async def test_finish_snapshot_job_activity_success(ateam, saved_query, auser):
 
     # Verify a snapshot saved query was created
     snapshot_saved_query: DataWarehouseSavedQuery | None = job.table
-    assert snapshot_saved_query is not None
+    assert isinstance(snapshot_saved_query, DataWarehouseSavedQuery)
     assert snapshot_saved_query.type == DataWarehouseSavedQuery.Type.SNAPSHOT
     assert snapshot_saved_query.name == f"{snapshot_table.name}_2024_01_01_12_00_00_123456"
 

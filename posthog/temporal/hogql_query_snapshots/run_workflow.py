@@ -387,8 +387,8 @@ def validate_snapshot_schema(
     team_id: int,
     saved_query: DataWarehouseSavedQuery,
     logger: FilteringBoundLogger,
-    table_schema_dict: typing.Optional[dict[str, str]] = None,
-) -> str | None:
+    table_schema_dict: dict[str, str],
+) -> str:
     """
 
     Validates the schemas of data that has been synced from saved query snapshot.
@@ -438,7 +438,10 @@ def validate_snapshot_schema(
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
             raw_db_columns: DataWarehouseTableColumns = table_created.get_columns()
-            db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
+            db_columns = {
+                key: column.get("clickhouse", "") if isinstance(column, dict) else column
+                for key, column in raw_db_columns.items()
+            }
 
             columns = {}
             for column_name, db_column_type in db_columns.items():
@@ -473,4 +476,7 @@ def validate_snapshot_schema(
         )
         raise
 
-    return str(table_created.id) if table_created is not None else None
+    if table_created is None:
+        raise Exception(f"Could not create table for saved query {saved_query.pk}")
+
+    return str(table_created.id)
