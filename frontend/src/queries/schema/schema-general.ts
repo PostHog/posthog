@@ -2438,6 +2438,8 @@ export type FileSystemIconType =
     | 'insight/lifecycle'
     | 'insight/stickiness'
     | 'insight/hog'
+    | 'team_activity'
+    | 'home'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2563,6 +2565,7 @@ export const enum ExperimentMetricType {
 export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
     uuid?: string
+    fingerprint?: string // # SHA256 hash of metric definition + experiment config
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
@@ -2674,6 +2677,12 @@ export interface LegacyExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
+export interface SessionData {
+    person_id: string
+    session_id: string
+    event_uuid: string
+}
+
 export interface ExperimentStatsBase {
     key: string
     number_of_samples: integer
@@ -2682,6 +2691,8 @@ export interface ExperimentStatsBase {
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
+    step_counts?: integer[]
+    step_sessions?: SessionData[][]
 }
 
 export enum ExperimentStatsValidationFailure {
@@ -3721,6 +3732,8 @@ export interface MarketingAnalyticsTableQuery
     draftConversionGoal?: ConversionGoalFilter | null
     /** Compare to date range */
     compareFilter?: CompareFilter
+    /** Include conversion goal rows even when they don't match campaign costs table */
+    includeAllConversions?: boolean
 }
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {

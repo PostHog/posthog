@@ -1,10 +1,6 @@
 import { createValidateEventUuidStep } from '../../../src/ingestion/event-preprocessing/validate-event-uuid'
+import { PipelineResultType, drop, ok } from '../../../src/ingestion/pipelines/results'
 import { Hub, IncomingEventWithTeam } from '../../../src/types'
-import {
-    PipelineStepResultType,
-    drop,
-    success,
-} from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 import { captureIngestionWarning } from '../../../src/worker/ingestion/utils'
 import { getMetricValues, resetMetrics } from '../../helpers/metrics'
 
@@ -53,7 +49,7 @@ describe('createValidateEventUuidStep', () => {
         const input = { eventWithTeam: mockEventWithTeam }
         const result = await step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
     })
 
@@ -172,9 +168,9 @@ describe('createValidateEventUuidStep', () => {
         const input = { eventWithTeam: mockEventWithTeam }
         const result = await step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
 
-        if (result.type === PipelineStepResultType.OK) {
+        if (result.type === PipelineResultType.OK) {
             expect(result.value.eventWithTeam.event.token).toBe('test-token-123')
             expect(result.value.eventWithTeam.event.distinct_id).toBe('test-user-456')
             expect(result.value.eventWithTeam.event.event).toBe('test-event')
