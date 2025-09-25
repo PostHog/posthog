@@ -89,7 +89,7 @@ export class EmailTrackingService {
         functionId?: string
         invocationId?: string
         metricName: MinimalAppMetric['metric_name']
-        source: 'mailjet' | 'direct'
+        source: 'mailjet' | 'direct' | 'ses'
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -177,35 +177,30 @@ export class EmailTrackingService {
     }
 
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
-        const okResponse = { status: 200, message: 'OK' }
-
         if (!req.rawBody) {
             return { status: 403, message: 'Missing request body' }
         }
 
         try {
-            const event = req.body as MailjetWebhookEvent
-
-            const { functionId, invocationId } = parseEmailTrackingCode(event.Payload || '') || {}
-            const category = EVENT_TYPE_TO_CATEGORY[event.event]
-
-            if (!category) {
-                logger.error('[EmailTrackingService] trackMetric: Unmapped event type', { event })
-                emailTrackingErrorsCounter.inc({ error_type: 'unmapped_event_type' })
-                return { status: 400, message: 'Unmapped event type' }
-            }
-
-            await this.trackMetric({
-                functionId,
-                invocationId,
-                metricName: category,
-                source: 'mailjet',
+            const { status, body, metrics } = await this.sesWebhookHandler.handleWebhook({
+                body: req.rawBody,
+                headers: req.headers,
+                verifySignature: true,
             })
 
-            return okResponse
+            for (const metric of metrics || []) {
+                await this.trackMetric({
+                    functionId: metric.functionId,
+                    invocationId: metric.invocationId,
+                    metricName: metric.metricName,
+                    source: 'ses',
+                })
+            }
+
+            return { status, message: body as string }
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
-            logger.error('[EmailService] handleWebhook: Mailjet webhook error', { error })
+            logger.error('[EmailService] handleWebhook: SES webhook error', { error })
             throw error
         }
     }
