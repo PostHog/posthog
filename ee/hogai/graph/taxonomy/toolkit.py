@@ -498,8 +498,6 @@ class TaxonomyAgentToolkit:
     async def _parallel_event_processing(
         self, event_properties: dict[str | int, list[str]]
     ) -> dict[str | int, list[str]]:
-        # Limit parallel event/action queries to prevent overwhelming the system
-        # Each query already handles multiple properties efficiently via batching
         event_tasks = [
             self._retrieve_multiple_event_or_action_property_values(event_name_or_action_id, property_names)
             for event_name_or_action_id, property_names in event_properties.items()
