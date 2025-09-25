@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCheckCircle, IconCopy, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
@@ -20,6 +21,16 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
         modalContent = (
             <Form logic={emailSetupModalLogic} formKey="emailSender">
                 <div className="space-y-4">
+                    <FlaggedFeature flag="messaging-ses">
+                        <LemonField name="provider" label="Provider">
+                            <LemonSelect
+                                options={[
+                                    { value: 'ses', label: 'AWS SES' },
+                                    { value: 'mailjet', label: 'Mailjet' },
+                                ]}
+                            />
+                        </LemonField>
+                    </FlaggedFeature>
                     <LemonField name="name" label="Name">
                         <LemonInput type="text" placeholder="John Doe" disabled={integrationLoading} />
                     </LemonField>
