@@ -536,35 +536,45 @@ async fn try_get_feature_flag_hash_key_overrides(
     let mut conn = reader.as_ref().get_connection().await?;
     conn_timer.fin();
 
-    let person_and_distinct_id_query = r#"
-            SELECT person_id, distinct_id
-            FROM posthog_persondistinctid
-            WHERE team_id = $1 AND distinct_id = ANY($2)
+    // Get person data and their hash key overrides in one query
+    let hash_override_query = r#"
+            SELECT
+                ppd.person_id,
+                ppd.distinct_id,
+                fhko.feature_flag_key,
+                fhko.hash_key
+            FROM posthog_persondistinctid ppd
+            LEFT JOIN posthog_featureflaghashkeyoverride fhko
+                ON fhko.person_id = ppd.person_id
+                AND fhko.team_id = ppd.team_id
+            WHERE ppd.team_id = $1
+                AND ppd.distinct_id = ANY($2)
         "#;
 
-    let person_and_distinct_ids: Vec<(PersonId, String)> =
-        sqlx::query_as(person_and_distinct_id_query)
-            .bind(team_id)
-            .bind(distinct_id_and_hash_key_override)
-            .fetch_all(&mut *conn)
-            .await?;
-
-    let person_id_to_distinct_id: HashMap<PersonId, String> =
-        person_and_distinct_ids.into_iter().collect();
-    let person_ids: Vec<PersonId> = person_id_to_distinct_id.keys().cloned().collect();
-
-    // Get hash key overrides
-    let hash_key_override_query = r#"
-            SELECT feature_flag_key, hash_key, person_id
-            FROM posthog_featureflaghashkeyoverride
-            WHERE team_id = $1 AND person_id = ANY($2)
-        "#;
-
-    let overrides: Vec<(String, String, PersonId)> = sqlx::query_as(hash_key_override_query)
+    let rows = sqlx::query(hash_override_query)
         .bind(team_id)
-        .bind(&person_ids)
+        .bind(distinct_id_and_hash_key_override)
         .fetch_all(&mut *conn)
         .await?;
+
+    // Process results to build person mapping and collect any existing overrides
+    let mut person_id_to_distinct_id = HashMap::new();
+    let mut overrides = Vec::new();
+
+    for row in rows {
+        let person_id: PersonId = row.get("person_id");
+        let distinct_id: String = row.get("distinct_id");
+
+        person_id_to_distinct_id.insert(person_id, distinct_id);
+
+        // Collect overrides where they exist
+        if let (Ok(feature_flag_key), Ok(hash_key)) = (
+            row.try_get::<String, _>("feature_flag_key"),
+            row.try_get::<String, _>("hash_key"),
+        ) {
+            overrides.push((feature_flag_key, hash_key, person_id));
+        }
+    }
 
     // Sort and process overrides, with the distinct_id at the start of the array having priority
     // We want the highest priority to go last in sort order, so it's the latest update in the hashmap
