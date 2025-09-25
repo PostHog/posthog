@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
+import { isDlqResult, isDropResult, isOkResult, isRedirectResult } from '../../../ingestion/pipelines/results'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { EventHeaders, Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -29,7 +30,6 @@ import {
     pipelineStepThrowCounter,
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
-import { isDlqResult, isDropResult, isRedirectResult, isSuccessResult } from './pipeline-step-result'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { transformEventStep } from './transformEventStep'
@@ -314,7 +314,7 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        if (!isSuccessResult(personStepResult)) {
+        if (!isOkResult(personStepResult)) {
             // Handle DLQ/drop/redirect cases - return early from pipeline
             if (isDlqResult(personStepResult)) {
                 await this.sendToDLQ(event, personStepResult.error, 'processPersonsStep')
