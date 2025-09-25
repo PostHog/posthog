@@ -1,6 +1,5 @@
 import './Link.scss'
 
-import { useActions } from 'kea'
 import { router } from 'kea-router'
 import React, { useContext } from 'react'
 
@@ -128,7 +127,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         },
         ref
     ) => {
-        const { newTab } = useActions(sceneLogic)
         const externalLink = isExternalLink(to)
         const openInNewPostHogTab = !externalLink && to && typeof to === 'string' && target === '_blank'
         const withinSidePanel = useContext(WithinSidePanelContext)
@@ -194,7 +192,9 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                     event.preventDefault()
                     event.stopPropagation()
                     if (to && typeof to === 'string') {
-                        newTab(to)
+                        sceneLogic.isMounted() ? sceneLogic.actions.newTab(to) : window.open(to)
+                    } else {
+                        window.open(to)
                     }
                     return
                 }
