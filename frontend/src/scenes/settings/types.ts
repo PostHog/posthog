@@ -30,10 +30,10 @@ export type SettingSectionId =
     | 'environment-crm'
     | 'environment-max'
     | 'environment-integrations'
+    | 'environment-activity-logs'
     | 'environment-access-control'
     | 'environment-danger-zone'
     | 'project-details'
-    | 'project-activity-logs'
     | 'project-danger-zone'
     | 'project-autocapture' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-product-analytics' // TODO: This section is for backward compat – remove when Environments are rolled out
