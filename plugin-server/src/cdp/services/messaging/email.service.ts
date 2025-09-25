@@ -210,7 +210,9 @@ export class EmailService {
 
         try {
             const response = await this.ses.sendEmail(params_ses).promise()
-            result.logs.push(logEntry('debug', `Email sent via SES with MessageId: ${response.MessageId}`))
+            if (!response.MessageId) {
+                throw new Error('No messageId returned from SES')
+            }
         } catch (error) {
             throw new Error(`Failed to send email via SES: ${error.message}`)
         }
