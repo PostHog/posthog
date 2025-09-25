@@ -11,8 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 class SESProvider:
-    client: boto3.client
-
     def __init__(self):
         self.access_key_id = self.get_access_key_id()
         self.secret_access_key = self.get_secret_access_key()
