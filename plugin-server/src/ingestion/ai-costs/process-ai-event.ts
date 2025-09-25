@@ -12,6 +12,16 @@ const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
 // Models where reasoning is charged separately as output tokens
 const REASONING_COST_MODELS = [/^gemini-2.5-/]
 
+export enum CostModelSource {
+    Primary = 'primary',
+    Backup = 'backup',
+}
+
+interface CostModelResult {
+    cost: ModelRow
+    source: CostModelSource
+}
+
 export const AI_EVENT_TYPES = new Set([
     '$ai_generation',
     '$ai_embedding',
@@ -164,14 +174,17 @@ const processCost = (event: PluginEvent) => {
         model = getNewModelName(event.properties)
     }
 
-    const cost = findCostFromModel(model, event.properties)
+    const costResult = findCostFromModel(model, event.properties)
 
-    if (!cost) {
+    if (!costResult) {
         return event
     }
 
+    const { cost, source } = costResult
+
     // This is used to track the model that was used for the cost calculation
     event.properties['$ai_model_cost_used'] = cost.model
+    event.properties['$ai_cost_model_source'] = source
 
     event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
     event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
@@ -278,7 +291,7 @@ const searchModelInCosts = (aiModel: string, costsDict: Record<string, ModelRow>
     return undefined
 }
 
-const findCostFromModel = (aiModel: string, properties?: Properties): ModelRow | undefined => {
+const findCostFromModel = (aiModel: string, properties?: Properties): CostModelResult | undefined => {
     const provider = properties?.['$ai_provider']?.toLowerCase()
 
     // First: Try primary costs filtered by provider
@@ -296,7 +309,7 @@ const findCostFromModel = (aiModel: string, properties?: Properties): ModelRow |
             const result = searchModelInCosts(aiModel, filteredDict)
 
             if (result) {
-                return result
+                return { cost: result, source: CostModelSource.Primary }
             }
         }
     }
@@ -306,9 +319,10 @@ const findCostFromModel = (aiModel: string, properties?: Properties): ModelRow |
 
     if (!backupResult) {
         logger.warn(`No cost found for model: ${aiModel}${provider ? ` (provider: ${provider})` : ''}`)
+        return undefined
     }
 
-    return backupResult
+    return { cost: backupResult, source: CostModelSource.Backup }
 }
 
 const requireSpecialCost = (aiModel: string): boolean => {
