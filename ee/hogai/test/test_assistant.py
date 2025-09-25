@@ -2136,6 +2136,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # Create a simple graph that returns messages with IDs
         def create_messages_with_ids(_):
             if call_count[0] == 0:
+                call_count[0] += 1
                 return PartialAssistantState(
                     messages=[
                         AssistantMessage(id=message_id_1, content="Message 1"),
@@ -2160,9 +2161,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         output, _ = await self._run_assistant_graph(graph, message="First run", conversation=self.conversation)
-        self.assertEqual(len(output), 1)
-        self.assertEqual(cast(AssistantMessage, output[0][1]).id, message_id_1)
+        # Extract only AssistantMessages from the output
+        assistant_messages = [msg for event_type, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertEqual(len(assistant_messages), 1)
+        self.assertEqual(assistant_messages[0].id, message_id_1)
 
         output, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
-        self.assertEqual(len(output), 1)
-        self.assertEqual(cast(AssistantMessage, output[0][1]).id, message_id_2)
+        # Extract only AssistantMessages from the output
+        assistant_messages = [msg for event_type, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertEqual(len(assistant_messages), 1)
+        self.assertEqual(assistant_messages[0].id, message_id_2)

@@ -5,8 +5,6 @@ import asyncio
 from typing import Any, Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
-from django.conf import settings
-
 import posthoganalytics
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
@@ -19,7 +17,6 @@ from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
-from pydantic import BaseModel
 
 from posthog.schema import (
     AssistantContextualTool,
@@ -44,11 +41,13 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.ai.assembly import build_available_tools
+from ee.hogai.ai.product_registry import get_tool_class
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
-from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, get_contextual_tool_class
 from ee.hogai.utils.anthropic import (
     add_cache_control,
     get_thinking_from_assistant_message,
@@ -491,36 +490,8 @@ class RootNode(RootNodeUIContextMixin):
         if self._is_hard_limit_reached(state):
             return base_model
 
-        from ee.hogai.tool import (
-            create_and_query_insight,
-            create_dashboard,
-            get_contextual_tool_class,
-            search_documentation,
-            search_insights,
-            session_summarization,
-        )
-
-        available_tools: list[type[BaseModel]] = []
-        # Check if insight search is enabled for the user
-        if self._has_insight_search_feature_flag():
-            available_tools.append(search_insights)
-        # Check if session summarization is enabled for the user
-        if self._has_session_summarization_feature_flag():
-            available_tools.append(session_summarization)
-        # Add dashboard creation tool (always available)
-        available_tools.append(create_dashboard)
-        if settings.INKEEP_API_KEY:
-            available_tools.append(search_documentation)
-        tool_names = self._get_contextual_tools(config).keys()
-        is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
-        if not is_editing_insight:
-            # This is the default tool, which can be overriden by the MaxTool based tool with the same name
-            available_tools.append(create_and_query_insight)
-        for tool_name in tool_names:
-            ToolClass = get_contextual_tool_class(tool_name)
-            if ToolClass is None:
-                continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
-            available_tools.append(ToolClass(team=self._team, user=self._user))  # type: ignore
+        contextual_tools = set(self._get_contextual_tools(config).keys())
+        available_tools = build_available_tools(self._team, self._user, contextual_tools)
 
         if "retrieve_billing_information" in extra_tools:
             from ee.hogai.tool import retrieve_billing_information
@@ -546,8 +517,6 @@ class RootNode(RootNodeUIContextMixin):
         return self._deduplicate_context_messages(state, prompts)
 
     def _get_contextual_tools_prompt(self, config: RunnableConfig) -> str | None:
-        from ee.hogai.tool import get_contextual_tool_class
-
         contextual_tools_prompt = [
             f"<{tool_name}>\n"
             f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
@@ -789,8 +758,6 @@ class RootNodeTools(AssistantNode):
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         tool_call = tools_calls[0]
 
-        from ee.hogai.tool import get_contextual_tool_class
-
         if tool_call.name == "create_and_query_insight" and not is_editing_insight:
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
@@ -827,7 +794,7 @@ class RootNodeTools(AssistantNode):
                 search_insights_queries=search_insights_queries,
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif ToolClass := get_contextual_tool_class(tool_call.name):
+        elif ToolClass := get_tool_class(tool_call.name):
             tool_class = ToolClass(team=self._team, user=self._user, state=state)
             try:
                 result = await tool_class.ainvoke(tool_call.model_dump(), config)

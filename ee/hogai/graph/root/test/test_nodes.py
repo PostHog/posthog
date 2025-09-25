@@ -799,13 +799,24 @@ class TestRootNodeTools(BaseTest):
             ]
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
-            # Mock the navigate tool
-            mock_navigate_tool = AsyncMock()
-            mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
-                content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
-            )
-            mock_tools.return_value = lambda *args, **kwargs: mock_navigate_tool
+        with (
+            patch("ee.hogai.ai.product_registry.get_tool_class") as mock_get_tool_class,
+            patch("ee.hogai.graph.root.nodes.get_tool_class") as mock_get_tool_class_2,
+        ):
+            # Mock tool class that returns the mock tool instance
+            class MockToolClass:
+                def __init__(self, team, user, state):
+                    self.team = team
+                    self.user = user
+                    self._state = state
+
+                async def ainvoke(self, *args, **kwargs):
+                    return LangchainToolMessage(
+                        content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
+                    )
+
+            mock_get_tool_class.return_value = MockToolClass
+            mock_get_tool_class_2.return_value = MockToolClass
 
             # The navigate tool call should raise NodeInterrupt
             with self.assertRaises(NodeInterrupt) as cm:
@@ -837,13 +848,23 @@ class TestRootNodeTools(BaseTest):
             ]
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
-            # Mock the navigate tool to raise an exception
-            mock_navigate_tool = AsyncMock()
-            mock_navigate_tool.ainvoke = AsyncMock(side_effect=Exception("Navigation failed"))
-            mock_navigate_tool.show_tool_call_message = True
-            mock_navigate_tool._state = state
-            mock_tools.return_value = lambda *args, **kwargs: mock_navigate_tool
+        with (
+            patch("ee.hogai.ai.product_registry.get_tool_class") as mock_get_tool_class,
+            patch("ee.hogai.graph.root.nodes.get_tool_class") as mock_get_tool_class_2,
+        ):
+            # Mock tool class that raises an exception
+            class MockToolClass:
+                def __init__(self, team, user, state):
+                    self.team = team
+                    self.user = user
+                    self._state = state
+                    self.show_tool_call_message = True
+
+                async def ainvoke(self, *args, **kwargs):
+                    raise Exception("Navigation failed")
+
+            mock_get_tool_class.return_value = MockToolClass
+            mock_get_tool_class_2.return_value = MockToolClass
 
             # The navigate tool call should NOT raise NodeInterrupt when there's an error
             result = await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
@@ -881,13 +902,23 @@ class TestRootNodeTools(BaseTest):
             ]
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
-            # Mock the search_session_recordings tool
-            mock_search_session_recordings = AsyncMock()
-            mock_search_session_recordings.ainvoke.return_value = LangchainToolMessage(
-                content="YYYY", tool_call_id="nav-123", artifact={"filters": {}}
-            )
-            mock_tools.return_value = lambda *args, **kwargs: mock_search_session_recordings
+        with (
+            patch("ee.hogai.ai.product_registry.get_tool_class") as mock_get_tool_class,
+            patch("ee.hogai.graph.root.nodes.get_tool_class") as mock_get_tool_class_2,
+        ):
+            # Mock tool class for search_session_recordings
+            class MockSearchToolClass:
+                def __init__(self, team, user, state):
+                    self.team = team
+                    self.user = user
+                    self._state = state
+                    self.show_tool_call_message = False
+
+                async def ainvoke(self, *args, **kwargs):
+                    return LangchainToolMessage(content="YYYY", tool_call_id="search-123", artifact={"filters": {}})
+
+            mock_get_tool_class.return_value = MockSearchToolClass
+            mock_get_tool_class_2.return_value = MockSearchToolClass
 
             # This should not raise NodeInterrupt
             result = await node.arun(
@@ -1425,19 +1456,23 @@ Query results: 42 events
             ]
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool_class:
-            # Mock the tool class to raise an exception
-            mock_tool_class = AsyncMock()
-            mock_tool_class.ainvoke = AsyncMock(side_effect=Exception("Tool execution failed"))
-            mock_tool_class.show_tool_call_message = True
-            # Set the initial state, but when exception happens, the code should use the FailureMessage path
-            mock_tool_class._state = state
+        with (
+            patch("ee.hogai.ai.product_registry.get_tool_class") as mock_get_tool_class,
+            patch("ee.hogai.graph.root.nodes.get_tool_class") as mock_get_tool_class_2,
+        ):
+            # Mock tool class that raises an exception
+            class MockToolClass:
+                def __init__(self, team, user, state):
+                    self.team = team
+                    self.user = user
+                    self._state = state
+                    self.show_tool_call_message = True
 
-            # Mock get_contextual_tool_class to return a class constructor
-            def MockToolClass(team, user, state):
-                return mock_tool_class
+                async def ainvoke(self, *args, **kwargs):
+                    raise Exception("Tool execution failed")
 
             mock_get_tool_class.return_value = MockToolClass
+            mock_get_tool_class_2.return_value = MockToolClass
 
             result = await node.arun(state, {"configurable": {"contextual_tools": {"search_session_recordings": {}}}})
 
