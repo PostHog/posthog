@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSelect, Spinner } from '@posthog/lemon-ui'
@@ -41,6 +42,7 @@ export const IssueQueryOptions = (): JSX.Element => {
     const hasRevenueAnalytics = hasRevenueTables || hasRevenueEvents
 
     const onSelectRevenueEntity = (entity: ErrorTrackingQueryRevenueEntity): void => {
+        posthog.capture('error_tracking_sort_by_revenue_clicked', { entity })
         setOrderBy('revenue')
         setRevenueEntity(entity)
     }
@@ -84,7 +86,12 @@ export const IssueQueryOptions = (): JSX.Element => {
                             hasRevenueSorting && {
                                 label: 'Revenue',
                                 ...(hasRevenueAnalytics
-                                    ? { onClick: () => router.actions.push(urls.revenueSettings()) }
+                                    ? {
+                                          onClick: () => {
+                                              posthog.capture('error_tracking_sort_by_revenue_clicked')
+                                              router.actions.push(urls.revenueAnalytics())
+                                          },
+                                      }
                                     : {
                                           placement: 'right-start',
                                           items: [
