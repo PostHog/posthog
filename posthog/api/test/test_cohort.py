@@ -111,10 +111,13 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         assert cohort1.is_calculating is True
         assert cohort1 not in get_cohort_calculation_candidates_queryset()
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
     @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
-    def test_creating_update_and_calculating(self, patch_sync_execute, patch_calculate_cohort, patch_capture):
+    def test_creating_update_and_calculating(
+        self, patch_sync_execute, patch_calculate_cohort, patch_capture, patch_on_commit
+    ):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"team_id": 5})
@@ -188,10 +191,11 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             },
         )
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
     @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
-    def test_action_persons_on_events(self, patch_sync_execute, patch_calculate_cohort, patch_capture):
+    def test_action_persons_on_events(self, patch_sync_execute, patch_calculate_cohort, patch_capture, patch_on_commit):
         materialize("person", "favorite_number", table_column="properties")
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
@@ -884,10 +888,12 @@ user789
 
         csv = SimpleUploadedFile(
             "test.csv",
-            str.encode("""distinct_id
+            str.encode(
+                """distinct_id
 user123
 user456
-"""),
+"""
+            ),
             content_type="application/csv",
         )
 
@@ -933,9 +939,12 @@ user456
         calculating_cohorts = Cohort.objects.filter(team=self.team, name="test_error", is_calculating=True)
         self.assertEqual(calculating_cohorts.count(), 0, "No cohort should be left in calculating state after error")
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_static_cohort_to_dynamic_cohort(self, patch_calculate_cohort, patch_calculate_cohort_from_list):
+    def test_static_cohort_to_dynamic_cohort(
+        self, patch_calculate_cohort, patch_calculate_cohort_from_list, patch_on_commit
+    ):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"email": "email@example.org"})
@@ -1218,7 +1227,8 @@ email@example.org,
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], regular_cohort.id)
 
-    def test_cohort_activity_log(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_cohort_activity_log(self, patch_on_commit):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"prop": 5})
@@ -1451,12 +1461,13 @@ email@example.org,
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 2, response)
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.chain")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_and_calculating_with_cycle(
-        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture
+        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture, patch_on_commit
     ):
         mock_chain_instance = MagicMock()
         patch_chain.return_value = mock_chain_instance
@@ -1568,12 +1579,13 @@ email@example.org,
         )
         self.assertEqual(get_total_calculation_calls(), 3)
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.chain")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_with_non_directed_cycle(
-        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture
+        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture, patch_on_commit
     ):
         mock_chain_instance = MagicMock()
         patch_chain.return_value = mock_chain_instance
@@ -1645,9 +1657,12 @@ email@example.org,
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(get_total_calculation_calls(), 4)
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_creating_update_and_calculating_with_invalid_cohort(self, patch_calculate_cohort, patch_capture):
+    def test_creating_update_and_calculating_with_invalid_cohort(
+        self, patch_calculate_cohort, patch_capture, patch_on_commit
+    ):
         # Cohort A
         response_a = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -1670,8 +1685,9 @@ email@example.org,
         )
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
-    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture):
+    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture, patch_on_commit):
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
@@ -1748,8 +1764,9 @@ email@example.org,
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(2, len(response.json()["results"]))
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
-    def test_calculating_with_new_cohort_event_filters(self, patch_capture):
+    def test_calculating_with_new_cohort_event_filters(self, patch_capture, patch_on_commit):
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
@@ -1993,8 +2010,9 @@ email@example.org,
             query_get_response.json()["errors_calculating"], 1
         )  # Should be because selecting from groups is not allowed
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
-    def test_cohort_with_is_set_filter_missing_value(self, patch_capture):
+    def test_cohort_with_is_set_filter_missing_value(self, patch_capture, patch_on_commit):
         # regression test: Removing `value` was silently failing
 
         _create_person(
@@ -2213,13 +2231,14 @@ email@example.org,
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "A dependent cohort (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
+                "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
                 "attr": "filters",
             },
             response.json(),
         )
 
-    def test_duplicating_dynamic_cohort_as_static(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_duplicating_dynamic_cohort_as_static(self, patch_on_commit):
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
@@ -2621,8 +2640,9 @@ email@example.org,
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "Missing required keys for cohort filter: value")
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
-    def test_behavioral_filter_with_operator_and_operator_value(self, patch_capture):
+    def test_behavioral_filter_with_operator_and_operator_value(self, patch_capture, patch_on_commit):
         # Valid usage: operator and operator_value present
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -3012,6 +3032,33 @@ email@example.org,
         assert response.status_code == 404
         assert "Person is not part of the cohort" in response.json()["detail"]
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.models.cohort.dependencies._on_cohort_changed")
+    @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
+    def test_cohort_update_recalculated_after_caching(
+        self,
+        patch_calculate: MagicMock,
+        patch_cohort_changed: MagicMock,
+        patch_on_commit: MagicMock,
+    ) -> None:
+        calls = []
+        patch_calculate.side_effect = lambda *a, **kw: calls.append(patch_calculate)
+        patch_cohort_changed.side_effect = lambda *a, **kw: calls.append(patch_cohort_changed)
+
+        response_a = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        response_b = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",
+            data={"name": "cohort A", "groups": [{"properties": [{"key": "email", "value": "email@example.org"}]}]},
+        )
+
+        self.assertEqual(response_b.status_code, 200, response_a.json())
+        self.assertEqual(patch_cohort_changed.call_count, 2)
+        self.assertEqual(patch_calculate.call_count, 2)
+        self.assertEqual(calls, [patch_cohort_changed, patch_calculate, patch_cohort_changed, patch_calculate])
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):
@@ -3063,7 +3110,8 @@ class TestCalculateCohortCommand(APIBaseTest):
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
-    return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
+    with patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+        return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
 
 
 def create_cohort_ok(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):

@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
-from django.db import connection, models
+from django.db import connection, models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
 from django.db.models.signals import post_delete
@@ -624,6 +624,21 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             except Exception:
                 logger.exception("Failed to save cohort state on retry", cohort_id=self.id, team_id=team_id)
                 # If both attempts fail, the cohort may remain in an inconsistent state
+
+    def enqueue_calculation(self, *, initiating_user=None) -> None:
+        """
+        Enqueue this cohort to be recalculated.
+
+        Args:
+            initiating_user (User): The user who initiated the calculation.
+        """
+
+        def trigger_calculation():
+            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+
+            increment_version_and_enqueue_calculate_cohort(self, initiating_user=initiating_user)
+
+        transaction.on_commit(trigger_calculation)
 
     __repr__ = sane_repr("id", "name", "last_calculation")
 
