@@ -74,6 +74,22 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_behavioral_cohorts_matches]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_behavioral_cohorts_matches
+  (
+      team_id Int64,
+      cohort_id Int64,
+      evaluation_timestamp DateTime64(6),
+      person_id UUID,
+      condition String,
+      latest_event_is_match UInt8
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_behavioral_cohorts_matches', 'clickhouse_behavioral_cohorts_matches', 'JSONEachRow')
+  SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -614,6 +630,44 @@
   
   '''
 # ---
+# name: test_create_table_query[behavioral_cohorts_matches]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS behavioral_cohorts_matches
+  (
+      team_id Int64,
+      cohort_id Int64,
+      date Date,
+      person_id UUID,
+      condition String,
+      matches SimpleAggregateFunction(sum, UInt64),
+      latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_behavioral_cohorts_matches', sipHash64(person_id))
+  
+  '''
+# ---
+# name: test_create_table_query[behavioral_cohorts_matches_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW behavioral_cohorts_matches_mv TO writable_behavioral_cohorts_matches
+  AS SELECT
+      team_id,
+      cohort_id,
+      toDate(evaluation_timestamp) AS date,
+      person_id,
+      condition,
+      sum(1) AS matches,
+      argMaxState(latest_event_is_match, evaluation_timestamp) AS latest_event_is_match
+  FROM kafka_behavioral_cohorts_matches
+  GROUP BY
+      team_id,
+      cohort_id,
+      date,
+      person_id,
+      condition
+      
+  '''
+# ---
 # name: test_create_table_query[channel_definition]
   '''
   
@@ -1148,6 +1202,22 @@
       error_details String CODEC(ZSTD(3))
   )
   ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_behavioral_cohorts_matches]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_behavioral_cohorts_matches
+  (
+      team_id Int64,
+      cohort_id Int64,
+      evaluation_timestamp DateTime64(6),
+      person_id UUID,
+      condition String,
+      latest_event_is_match UInt8
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_behavioral_cohorts_matches', 'clickhouse_behavioral_cohorts_matches', 'JSONEachRow')
+  SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
   
   '''
 # ---
@@ -3182,6 +3252,26 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_behavioral_cohorts_matches]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_behavioral_cohorts_matches
+  (
+      team_id Int64,
+      cohort_id Int64,
+      date Date,
+      person_id UUID,
+      condition String,
+      matches SimpleAggregateFunction(sum, UInt64),
+      latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_behavioral_cohorts_matches', '{replica}')
+  PARTITION BY toYYYYMM(date)
+  ORDER BY (team_id, cohort_id, condition, date)
+  
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_events]
   '''
   
@@ -4209,6 +4299,22 @@
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
       
+  '''
+# ---
+# name: test_create_table_query[writable_behavioral_cohorts_matches]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_behavioral_cohorts_matches
+  (
+      team_id Int64,
+      cohort_id Int64,
+      date Date,
+      person_id UUID,
+      condition String,
+      matches SimpleAggregateFunction(sum, UInt64),
+      latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_behavioral_cohorts_matches', sipHash64(person_id))
+  
   '''
 # ---
 # name: test_create_table_query[writable_events]
@@ -5263,6 +5369,26 @@
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_behavioral_cohorts_matches]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_behavioral_cohorts_matches
+  (
+      team_id Int64,
+      cohort_id Int64,
+      date Date,
+      person_id UUID,
+      condition String,
+      matches SimpleAggregateFunction(sum, UInt64),
+      latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_behavioral_cohorts_matches', '{replica}')
+  PARTITION BY toYYYYMM(date)
+  ORDER BY (team_id, cohort_id, condition, date)
+  
+  SETTINGS ttl_only_drop_parts = 1
   
   '''
 # ---
