@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::kafka::batch_message::{Batch, BatchError, KafkaMessage};
+use crate::kafka::metrics_consts::{BATCH_CONSUMER_KAFKA_ERRORS, BATCH_CONSUMER_MESSAGES_RECEIVED};
 use crate::kafka::types::Partition;
 
 use anyhow::anyhow;
@@ -136,6 +137,11 @@ where
                             if batch.is_empty() {
                                 continue;
                             }
+                            metrics::counter!(BATCH_CONSUMER_MESSAGES_RECEIVED, "status" => "success")
+                            .increment(batch.message_count() as u64);
+                            metrics::counter!(BATCH_CONSUMER_MESSAGES_RECEIVED, "status" => "error")
+                            .increment(batch.error_count() as u64);
+
                             if let Err(e) = sender.send(batch) {
                                 // TODO: stat this
                                 error!("Error sending Batch for processing: {e}");
@@ -143,7 +149,7 @@ where
                         }
 
                         Err(e) => {
-                            // TODO: stat this
+                            metrics::counter!(BATCH_CONSUMER_KAFKA_ERRORS).increment(1);
                             error!("Error consuming Batch from stream: {e}");
                             tokio::time::sleep(Duration::from_millis(100)).await;
                         }
@@ -266,7 +272,7 @@ where
                         }
                     }
                     // if the batch is now at size, bail out and return it
-                    if batch.len() >= batch_size {
+                    if batch.message_count() >= batch_size {
                         break;
                     }
                 }

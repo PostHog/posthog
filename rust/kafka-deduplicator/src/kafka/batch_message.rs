@@ -27,8 +27,12 @@ impl<T> Batch<T> {
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub fn message_count(&self) -> usize {
         self.messages.len()
+    }
+
+    pub fn error_count(&self) -> usize {
+        self.errors.len()
     }
 
     pub fn is_empty(&self) -> bool {
