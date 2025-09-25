@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import base64
+import socket
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -1809,6 +1810,9 @@ class DatabricksIntegration:
     def integration_from_config(
         cls, team_id: int, server_hostname: str, client_id: str, client_secret: str, created_by: User | None = None
     ) -> Integration:
+        # first, validate the host
+        cls.validate_host(server_hostname)
+
         config = {
             "server_hostname": server_hostname,
         }
@@ -1831,3 +1835,33 @@ class DatabricksIntegration:
             integration.save()
 
         return integration
+
+    @staticmethod
+    def validate_host(server_hostname: str):
+        """Validate the Databricks host.
+
+        This is a quick check to ensure the host is valid and that we can connect to it (testing connectivity to a SQL
+        warehouse requires a warehouse http_path in addition to these parameters so it not possible to perform a full
+        test here)
+        """
+        # we expect a hostname, not a full URL
+        if server_hostname.startswith("http"):
+            raise DatabricksIntegrationError(
+                f"Databricks integration is not valid: 'server_hostname' should not be a full URL"
+            )
+        # TCP connectivity check
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3.0)
+            # we only support https
+            port = 443
+            sock.connect((server_hostname, port))
+            sock.close()
+        except OSError:
+            raise DatabricksIntegrationError(
+                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+            )
+        except Exception:
+            raise DatabricksIntegrationError(
+                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+            )

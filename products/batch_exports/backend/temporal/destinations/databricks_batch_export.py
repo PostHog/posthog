@@ -8,7 +8,6 @@ import contextlib
 import dataclasses
 import collections.abc
 from collections.abc import AsyncGenerator
-from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -167,41 +166,6 @@ class DatabricksClient:
             schema=inputs.schema,
         )
 
-    # TODO - move into the integration model
-    async def validate_host(self) -> bool:
-        """Validate the Databricks host.
-
-        This is a quick check to ensure the host is valid and that we can connect to it.
-
-        When initializing the Config object, Databricks tries to fetch the OIDC endpoints for the
-        workspace. When performing this request, Databricks uses an unconfigurable timeout of 5 minutes, which means we
-        can end up waiting for a long time.
-        I have opened an issue with Databricks to make this timeout configurable:
-        https://github.com/databricks/databricks-sdk-py/issues/1046
-        """
-        try:
-            # URL format validation
-            parsed = urlparse(
-                self.server_hostname if self.server_hostname.startswith("http") else f"https://{self.server_hostname}"
-            )
-            if not (parsed.netloc and parsed.scheme in ["http", "https"]):
-                return False
-
-            hostname = parsed.hostname
-            port = parsed.port or (443 if parsed.scheme == "https" else 80)
-
-            # Async TCP connectivity check
-            try:
-                _, writer = await asyncio.wait_for(asyncio.open_connection(hostname, port), timeout=3.0)
-                writer.close()
-                await writer.wait_closed()
-                return True
-            except (TimeoutError, OSError):
-                return False
-
-        except Exception:
-            return False
-
     @property
     def connection(self) -> Connection:
         """Raise if a `Connection` hasn't been established, else return it."""
@@ -219,10 +183,6 @@ class DatabricksClient:
 
         We call `use_catalog` and `use_schema` to ensure that all queries are run in the correct catalog and schema.
         """
-
-        self.logger.debug("Validating Databricks host")
-        if not await self.validate_host():
-            raise DatabricksConnectionError(f"Invalid host: {self.server_hostname}")
 
         self.logger.debug("Initializing Databricks connection")
 
