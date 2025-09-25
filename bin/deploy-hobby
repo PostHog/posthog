@@ -71,13 +71,92 @@ curl -o /dev/null -L --header "Content-Type: application/json" -d "{
     \"event\": \"magic_curl_install_start\"
 }" https://us.i.posthog.com/batch/ &> /dev/null
 
-# update apt cache
-echo "Grabbing latest apt caches"
-sudo apt update
+# Function to detect package manager
+detect_pkg_manager() {
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "apt-get"
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "dnf"
+    elif command -v yum >/dev/null 2>&1; then
+        echo "yum"
+    elif command -v zypper >/dev/null 2>&1; then
+        echo "zypper"
+    elif command -v pacman >/dev/null 2>&1; then
+        echo "pacman"
+    else
+        echo "unsupported"
+    fi
+}
+
+# function to update pm cache once
+update_cache_once() {
+    local pm=$1
+
+    if [ "$CACHE_UPDATED" = false ]; then
+        case "$pm" in
+            apt-get)
+                sudo apt-get update -y
+                ;;
+            dnf)
+                sudo dnf makecache -y
+                ;;
+            yum)
+                sudo yum makecache -y
+                ;;
+            zypper)
+                sudo zypper refresh
+                ;;
+            pacman)
+                sudo pacman -Sy --noconfirm
+                ;;
+            apk)
+                sudo apk update
+                ;;
+        esac
+        CACHE_UPDATED=true
+    fi
+}
+
+# Install function specific each pm
+install_packages() {
+    local pkgs=("$@")
+    local pm=$(detect_pkg_manager)
+
+    case "$pm" in
+        apt-get)
+            sudo apt-get update -y
+            sudo apt-get install -y "${pkgs[@]}"
+            ;;
+        dnf)
+            sudo dnf makecache -y
+            sudo dnf install -y "${pkgs[@]}"
+            ;;
+        yum)
+            sudo yum makecache -y
+            sudo yum install -y "${pkgs[@]}"
+            ;;
+        zypper)
+            sudo zypper refresh
+            sudo zypper install -y "${pkgs[@]}"
+            ;;
+        pacman)
+            sudo pacman -Sy --noconfirm   # -Sy updates the package database
+            sudo pacman -S --noconfirm "${pkgs[@]}"
+            ;;
+        *)
+            echo "Error: No supported package manager found on this system." >&2
+            exit 1
+            ;;
+    esac
+}
+
+# update package cache
+echo "Grabbing latest package caches"
+update_cache_once 
 
 # clone posthog
 echo "Installing PostHog 🦔 from Github"
-sudo apt install -y git
+install_packages git
 # try to clone - if folder is already there pull latest for that branch
 git clone https://github.com/PostHog/posthog.git &> /dev/null || true
 cd posthog
@@ -141,8 +220,7 @@ EOF
 
 # Download GeoLite2-City.mmdb if it doesn't exist
 echo "Downloading GeoIP database file"
-apt-get update && 
-apt-get install -y --no-install-recommends curl ca-certificates brotli && 
+install_packages --no-install-recommends curl ca-certificates brotli && 
 mkdir -p ./share && 
 if [ ! -f ./share/GeoLite2-City.mmdb ]; then 
     curl -L 'https://mmdbcdn.posthog.net/' --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb && 
