@@ -271,7 +271,7 @@ class Command(BaseCommand):
                 action=ScheduleActionStartWorkflow(
                     "behavioral-cohorts-coordinator",
                     inputs,
-                    id=lambda: f"behavioral-cohorts-scheduled-{int(time.time())}",
+                    id=lambda: f"behavioral-cohorts-scheduled-{int(time.time() * 1000000)}",
                     task_queue=MESSAGING_TASK_QUEUE,
                 ),
             ),
