@@ -1,13 +1,10 @@
-import { useValues } from 'kea'
-
-import { LemonInput, LemonMenu, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { TagSelect } from 'lib/components/TagSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
-import { tagsModel } from '~/models/tagsModel'
 import { FeatureFlagEvaluationRuntime } from '~/types'
 
 import { FeatureFlagsFilters } from './featureFlagsLogic'
@@ -34,8 +31,6 @@ export function FeatureFlagFiltersSection({
     searchPlaceholder = 'Search for feature flags',
     filtersConfig = {},
 }: FeatureFlagFiltersProps): JSX.Element {
-    const { tags: allTags } = useValues(tagsModel)
-
     const config = {
         search: false,
         type: false,
@@ -161,49 +156,14 @@ export function FeatureFlagFiltersSection({
                             <span className="ml-1">
                                 <b>Tags</b>
                             </span>
-                            <LemonMenu
-                                closeParentPopoverOnClickInside={false}
-                                items={[
-                                    ...((allTags || []).map((t: string) => ({
-                                        key: t,
-                                        custom: true,
-                                        label: () => (
-                                            <div className="flex items-center gap-2">
-                                                <input
-                                                    type="checkbox"
-                                                    className="cursor-pointer"
-                                                    checked={(filters.tags || []).includes(t)}
-                                                    onChange={(e) => {
-                                                        const selected = new Set(filters.tags || [])
-                                                        if (e.target.checked) {
-                                                            selected.add(t)
-                                                        } else {
-                                                            selected.delete(t)
-                                                        }
-                                                        setFeatureFlagsFilters({ tags: Array.from(selected), page: 1 })
-                                                    }}
-                                                />
-                                                <span className="text-sm">{t}</span>
-                                            </div>
-                                        ),
-                                    })) as any),
-                                    { key: '__divider__', custom: true, label: () => <div className="my-1" /> },
-                                    {
-                                        key: '__clear__',
-                                        label: 'Clear',
-                                        onClick: () => setFeatureFlagsFilters({ tags: undefined, page: 1 }),
-                                    },
-                                ]}
-                            >
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    className="w-32"
-                                    data-attr="feature-flag-select-tags"
-                                >
-                                    {filters.tags?.length ? `${filters.tags.length} selected` : 'Any tags'}
-                                </LemonButton>
-                            </LemonMenu>
+                            <TagSelect
+                                defaultLabel="Any tags"
+                                value={filters.tags || []}
+                                onChange={(tags) => {
+                                    setFeatureFlagsFilters({ tags: tags.length > 0 ? tags : undefined, page: 1 })
+                                }}
+                                data-attr="feature-flag-select-tags"
+                            />
                         </>
                     )}
                     {config.runtime &&

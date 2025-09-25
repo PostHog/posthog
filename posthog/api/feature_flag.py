@@ -1070,6 +1070,16 @@ class FeatureFlagViewSet(
                 except (json.JSONDecodeError, TypeError):
                     # If the JSON is invalid, ignore the filter
                     pass
+            elif key == "tags":
+                import json
+
+                try:
+                    tags = json.loads(request.GET["tags"])
+                    if tags:
+                        queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+                except (json.JSONDecodeError, TypeError):
+                    # If the JSON is invalid, ignore the filter
+                    pass
 
         return queryset
 
@@ -1172,6 +1182,13 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="JSON-encoded list of feature flag keys to exclude from the results.",
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of tag names to filter feature flags by.",
             ),
         ]
     )
