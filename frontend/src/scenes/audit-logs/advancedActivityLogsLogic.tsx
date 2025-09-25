@@ -470,7 +470,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        '/advanced-activity-logs': (_, searchParams) => {
+        '/activity-logs': (_, searchParams) => {
             const hasUrlParams = Object.keys(searchParams).length > 0
 
             // If just visiting the page, we want to clear all filters in case the page was previously mounted with filters
