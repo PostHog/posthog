@@ -180,8 +180,8 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
 
 class GroupsRevenueAnalyticsTable(LazyTable):
     fields: dict[str, FieldOrTable] = {
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "group_key": StringDatabaseField(name="group_key"),
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "group_key": StringDatabaseField(name="group_key", nullable=False),
         "revenue": DecimalDatabaseField(name="revenue", nullable=False),
         "revenue_last_30_days": DecimalDatabaseField(name="revenue_last_30_days", nullable=False),
     }

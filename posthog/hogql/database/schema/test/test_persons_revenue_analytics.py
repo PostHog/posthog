@@ -168,7 +168,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-            self.assertEqual(response.results[0], (Decimal("350.42"), Decimal("350.42")))
+            self.assertEqual((Decimal("350.42"), Decimal("350.42")), response.results[0])
 
     def test_get_revenue_for_schema_source_for_id_join(self):
         self.setup_schema_sources()
@@ -191,7 +191,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
 
                 self.assertEqual(
-                    response.results,
                     [
                         (distinct_id_to_person_id["cus_1"], Decimal("297.0065541769")),
                         (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452")),
@@ -201,6 +200,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                         (distinct_id_to_person_id["cus_6"], Decimal("2796.37014")),
                         (distinct_id_to_person_id["dummy"], None),
                     ],
+                    response.results,
                 )
 
     def test_get_revenue_for_schema_source_for_email_join(self):
@@ -230,7 +230,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(
-                response.results,
                 [
                     (
                         distinct_id_to_person_id["john.doe@example.com"],
@@ -252,6 +251,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     ),
                     (distinct_id_to_person_id["zdummy"], None, None),
                 ],
+                response.results,
             )
 
     def test_get_revenue_for_schema_source_for_metadata_join(self):
@@ -281,7 +281,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(
-                response.results,
                 [
                     (distinct_id_to_person_id["cus_1_metadata"], Decimal("297.0065541769"), Decimal("297.0065541769")),
                     (distinct_id_to_person_id["cus_2_metadata"], Decimal("482.2158673452"), Decimal("482.2158673452")),
@@ -291,6 +290,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     (distinct_id_to_person_id["cus_6_metadata"], Decimal("2796.37014"), Decimal("2796.37014")),
                     (distinct_id_to_person_id["dummy"], None, None),
                 ],
+                response.results,
             )
 
     def test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids(self):
@@ -314,11 +314,11 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(
-                response.results,
                 [
                     (multiple_distinct_ids_person.uuid, Decimal("297.0065541769")),
                     (dummy_person.uuid, None),
                 ],
+                response.results,
             )
 
             response = execute_hogql_query(
@@ -327,7 +327,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 modifiers=self.MODIFIERS,
             )
 
-            self.assertEqual(response.results, [(Decimal("297.0065541769"),), (None,)])
+            self.assertEqual([(Decimal("297.0065541769"),), (None,)], response.results)
 
     def test_query_revenue_analytics_table(self):
         self.setup_schema_sources()
@@ -341,7 +341,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 modifiers=self.MODIFIERS,
             )
 
-            self.assertEqual(results.results, [(ANY, Decimal("9530.7287415221"), ANY)])
+            self.assertEqual([(ANY, Decimal("9530.7287415221"), ANY)], results.results)
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
     def test_virtual_property_in_trend(self, mode):

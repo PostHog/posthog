@@ -209,8 +209,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(
-                response.results,
                 [("lolol0:xxx", Decimal("350.42"), Decimal("350.42"))],
+                response.results,
             )
 
     def test_get_revenue_for_schema_source_for_id_join(self):
@@ -232,7 +232,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
 
                 self.assertEqual(
-                    response.results,
                     [
                         ("cus_1", Decimal("297.0065541769")),
                         ("cus_2", Decimal("482.2158673452")),
@@ -242,6 +241,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                         ("cus_6", Decimal("2796.37014")),
                         ("dummy", None),
                     ],
+                    response.results,
                 )
 
     def test_get_revenue_for_schema_source_for_email_join(self):
@@ -269,7 +269,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(
-                response.results,
                 [
                     ("jane.doe@example.com", Decimal("482.2158673452"), Decimal("482.2158673452")),
                     ("jane.smith@example.com", Decimal("254.12345"), Decimal("254.12345")),
@@ -279,6 +278,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     ("john.smith@example.com", Decimal("4171.09153"), Decimal("4171.09153")),
                     ("zdummy", None, None),
                 ],
+                response.results,
             )
 
     def test_get_revenue_for_schema_source_for_metadata_join(self):
@@ -306,7 +306,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(
-                response.results,
                 [
                     ("cus_1_metadata", Decimal("297.0065541769"), Decimal("297.0065541769")),
                     ("cus_2_metadata", Decimal("482.2158673452"), Decimal("482.2158673452")),
@@ -316,6 +315,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     ("cus_6_metadata", Decimal("2796.37014"), Decimal("2796.37014")),
                     ("dummy", None, None),
                 ],
+                response.results,
             )
 
     def test_query_revenue_analytics_table_sources(self):
@@ -343,7 +343,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(
-                results.results,
                 [
                     ("jane.doe@example.com", Decimal("482.2158673452"), ANY),
                     ("jane.smith@example.com", Decimal("254.12345"), ANY),
@@ -352,6 +351,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     ("john.doejrjr@example.com", Decimal("2796.37014"), ANY),
                     ("john.smith@example.com", Decimal("4171.09153"), ANY),
                 ],
+                results.results,
             )
 
     def test_query_revenue_analytics_table_events(self):
@@ -376,10 +376,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(
-                results.results,
                 [
                     ("lolol0:xxx", Decimal("350.42"), None),
                     ("lolol1:xxx", Decimal("225"), None),
                     ("lolol1:xxx2", Decimal("32.23"), None),
                 ],
+                results.results,
             )

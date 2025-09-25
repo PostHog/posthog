@@ -167,8 +167,8 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
 
 class PersonsRevenueAnalyticsTable(LazyTable):
     fields: dict[str, FieldOrTable] = {
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "person_id": StringDatabaseField(name="person_id"),
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "person_id": StringDatabaseField(name="person_id", nullable=False),
         "revenue": DecimalDatabaseField(name="revenue", nullable=False),
         "revenue_last_30_days": DecimalDatabaseField(name="revenue_last_30_days", nullable=False),
     }
