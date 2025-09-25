@@ -9,27 +9,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveIndex(
-            model_name="experimentmetricresult",
-            name="posthog_exp_experim_b5f6d4_idx",
-        ),
-        migrations.AlterUniqueTogether(
-            name="experimentmetricresult",
-            unique_together=set(),
-        ),
+        # Step 1: Just add the fingerprint field safely
         migrations.AddField(
             model_name="experimentmetricresult",
             name="fingerprint",
             field=models.CharField(blank=True, max_length=64, null=True),
-        ),
-        migrations.AlterUniqueTogether(
-            name="experimentmetricresult",
-            unique_together={("experiment", "metric_uuid", "fingerprint", "query_to")},
-        ),
-        migrations.AddIndex(
-            model_name="experimentmetricresult",
-            index=models.Index(
-                fields=["experiment", "metric_uuid", "fingerprint", "query_to"], name="posthog_exp_experim_45aaa3_idx"
-            ),
         ),
     ]
