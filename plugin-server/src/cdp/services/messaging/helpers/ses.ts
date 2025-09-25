@@ -167,11 +167,42 @@ export class SesWebhookHandler {
     }
 
     private async fetchCert(url: string): Promise<string> {
+        // Validate that the URL is from AWS SNS
+        if (!this.isValidSnsCertUrl(url)) {
+            throw new Error(`Invalid SNS certificate URL: ${url}`)
+        }
+
         if (this.certCache[url]) {
             return await this.certCache[url]
         }
         this.certCache[url] = this.fetchText(url)
         return await this.certCache[url]
+    }
+
+    private isValidSnsCertUrl(url: string): boolean {
+        try {
+            const parsedUrl = new URL(url)
+
+            // Must be HTTPS
+            if (parsedUrl.protocol !== 'https:') {
+                return false
+            }
+
+            // Must be from sns.{region}.amazonaws.com
+            const hostname = parsedUrl.hostname
+            if (!hostname.match(/^sns\.[a-z0-9-]+\.amazonaws\.com$/)) {
+                return false
+            }
+
+            // Must end with .pem
+            if (!parsedUrl.pathname.endsWith('.pem')) {
+                return false
+            }
+
+            return true
+        } catch {
+            return false
+        }
     }
 
     /**
