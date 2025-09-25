@@ -2,7 +2,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
-import { ExportedAsset } from './advancedActivityLogsLogic'
+import { AdvancedActivityLogFilters, ExportedAsset } from './advancedActivityLogsLogic'
 
 export const getStatusTag = (exportAsset: ExportedAsset): JSX.Element => {
     if (exportAsset.exception) {
@@ -30,7 +30,7 @@ export const getHumanReadableFormat = (format: string): string => {
 }
 
 export const getFilterSummary = (exportAsset: ExportedAsset): string => {
-    const filters = exportAsset.export_context?.filters
+    const filters = exportAsset.export_context?.filters as AdvancedActivityLogFilters
     if (!filters) {
         return 'No filters'
     }
@@ -65,7 +65,7 @@ export const getFilterSummary = (exportAsset: ExportedAsset): string => {
 }
 
 export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
-    const filters = exportAsset.export_context?.filters
+    const filters = exportAsset.export_context?.filters as AdvancedActivityLogFilters
     if (!filters) {
         return <div>No filters applied</div>
     }

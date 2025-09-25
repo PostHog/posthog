@@ -285,6 +285,19 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
 
 
+def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
+    """Remove a person from a static cohort in ClickHouse."""
+    tag_queries(cohort_id=cohort_id, team_id=team_id, name="remove_person_from_static_cohort", feature=Feature.COHORT)
+    sync_execute(
+        f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s",
+        {
+            "person_id": str(person_uuid),
+            "cohort_id": cohort_id,
+            "team_id": team_id,
+        },
+    )
+
+
 def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
     count = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id).count()
 
@@ -484,7 +497,7 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     return [*cohort_ids, *static_cohort_ids]
 
 
-def get_dependent_cohorts(
+def get_all_cohort_dependencies(
     cohort: Cohort,
     using_database: str = "default",
     seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,

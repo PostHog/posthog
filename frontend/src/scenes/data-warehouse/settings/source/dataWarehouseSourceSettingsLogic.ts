@@ -27,10 +27,10 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     path(['scenes', 'data-warehouse', 'settings', 'source', 'dataWarehouseSourceSettingsLogic']),
     props({} as DataWarehouseSourceSettingsLogicProps),
     key(({ id }) => id),
-    connect({
+    connect(() => ({
         values: [availableSourcesDataLogic, ['availableSources']],
         actions: [externalDataSourcesLogic, ['updateSource']],
-    }),
+    })),
     actions({
         setSourceId: (id: string) => ({ id }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
