@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
 import { createParseKafkaMessageStep } from '../../../src/ingestion/event-preprocessing/parse-kafka-message'
+import { drop, ok } from '../../../src/ingestion/pipelines/results'
 import { logger } from '../../../src/utils/logger'
-import { drop, success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 
 // Mock dependencies
 jest.mock('../../../src/utils/logger')
@@ -42,7 +42,7 @@ describe('createParseKafkaMessageStep', () => {
             const result = step(input)
 
             expect(result).toEqual(
-                success({
+                ok({
                     message: mockMessage,
                     event: {
                         event: {
@@ -83,7 +83,7 @@ describe('createParseKafkaMessageStep', () => {
             const result = step(input)
 
             expect(result).toEqual(
-                success({
+                ok({
                     message: mockMessage,
                     event: {
                         event: {
@@ -115,7 +115,7 @@ describe('createParseKafkaMessageStep', () => {
             const result = step(input)
 
             expect(result).toEqual(
-                success({
+                ok({
                     message: mockMessage,
                     event: {
                         event: {
@@ -150,7 +150,7 @@ describe('createParseKafkaMessageStep', () => {
             const result = step(input)
 
             expect(result).toEqual(
-                success({
+                ok({
                     message: mockMessage,
                     event: {
                         event: {
@@ -187,7 +187,7 @@ describe('createParseKafkaMessageStep', () => {
             const result = step(input)
 
             expect(result).toEqual(
-                success({
+                ok({
                     message: mockMessage,
                     event: {
                         event: {
@@ -325,7 +325,7 @@ describe('createParseKafkaMessageStep', () => {
             const result = step(input)
 
             expect(result).toEqual(
-                success({
+                ok({
                     message: mockMessage,
                     event: {
                         event: {
@@ -357,7 +357,7 @@ describe('createParseKafkaMessageStep', () => {
             const result = step(input)
 
             expect(result).toEqual(
-                success({
+                ok({
                     message: mockMessage,
                     event: {
                         event: {

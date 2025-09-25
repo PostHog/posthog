@@ -439,6 +439,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 user=mock.ANY,
                 filters_override={},
                 variables_override={},
+                tile_filters_override={},
             )
 
         with patch(
@@ -453,6 +454,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 user=mock.ANY,
                 filters_override={},
                 variables_override={},
+                tile_filters_override={},
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -2362,17 +2364,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(lines[2], b"Formula (A*0.5),0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.5")
         self.assertEqual(len(lines), 3, response.content)
-
-    # Extra permissioning tests here
-    def test_insight_trends_allowed_if_project_open_and_org_member(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = False
-        self.team.save()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def _create_one_person_cohort(self, properties: list[dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)

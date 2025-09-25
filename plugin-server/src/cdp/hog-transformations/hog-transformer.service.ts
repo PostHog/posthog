@@ -15,8 +15,8 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
-import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
-import { cleanNullValues } from './transformation-functions'
+import { createInvocation } from '../utils/invocation-utils'
+import { getTransformationFunctions } from './transformation-functions'
 
 export const hogTransformationDroppedEvents = new Counter({
     name: 'hog_transformation_dropped_events',
@@ -102,15 +102,7 @@ export class HogTransformerService {
 
     private async getTransformationFunctions() {
         const geoipLookup = await this.hub.geoipService.get()
-        return {
-            geoipLookup: (val: unknown): any => {
-                return typeof val === 'string' ? geoipLookup.city(val) : null
-            },
-            cleanNullValues,
-            postHogCapture: () => {
-                throw new Error('posthogCapture is not supported in transformations')
-            },
-        }
+        return getTransformationFunctions(geoipLookup)
     }
 
     private createInvocationGlobals(event: PluginEvent): HogFunctionInvocationGlobals {
@@ -198,26 +190,11 @@ export class HogTransformerService {
                     })
 
                     // If filter didn't pass skip the actual transformation and add logs and errors from the filterResult
+                    this.hogFunctionMonitoringService.queueAppMetrics(filterResults.metrics, 'hog_function')
+                    this.hogFunctionMonitoringService.queueLogs(filterResults.logs, 'hog_function')
+
                     if (!filterResults.match) {
                         transformationsSkipped.push(transformationIdentifier)
-                        results.push(
-                            createInvocationResult(
-                                createInvocation(
-                                    {
-                                        ...globals,
-                                        inputs: {}, // Not needed as this is only for a valid return type
-                                    },
-                                    hogFunction
-                                ),
-                                {},
-                                {
-                                    metrics: filterResults.metrics,
-                                    logs: filterResults.logs,
-                                    error: filterResults.error,
-                                    finished: true,
-                                }
-                            )
-                        )
                         continue
                     }
                 }

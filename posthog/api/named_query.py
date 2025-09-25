@@ -1,5 +1,5 @@
 import re
-import typing
+from typing import Union, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
@@ -20,6 +20,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import _process_query_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
@@ -31,6 +32,7 @@ from posthog.models import User
 from posthog.models.named_query import NamedQuery
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.types import InsightQueryNode
 
 from common.hogvm.python.utils import HogVMException
 
@@ -39,8 +41,8 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "named_query"
     # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "create", "list", "destroy", "update", "run"]
-    scope_object_write_actions: list[str] = []
+    scope_object_read_actions = ["retrieve", "list", "run"]
+    scope_object_write_actions: list[str] = ["create", "destroy", "update"]
     lookup_field = "name"
     queryset = NamedQuery.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -80,6 +82,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
                     "endpoint_path": named_query.endpoint_path,
                     "created_at": named_query.created_at,
                     "updated_at": named_query.updated_at,
+                    "created_by": UserBasicSerializer(named_query.created_by).data,
                 }
             )
 
@@ -87,10 +90,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
     def validate_request(self, data: NamedQueryRequest, strict: bool = True) -> None:
         query = data.query
-        if query:
-            if query.kind != "HogQLQuery":
-                raise ValidationError("Only HogQLQuery query kind is supported (speak to us)")
-        elif strict:
+        if not query and strict:
             raise ValidationError("Must specify query")
 
         name = data.name
@@ -117,9 +117,9 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
         try:
             named_query = NamedQuery.objects.create(
                 team=self.team,
-                created_by=typing.cast(User, request.user),
-                name=typing.cast(str, data.name),  # verified in validate_request
-                query=typing.cast(HogQLQuery, data.query).model_dump(),
+                created_by=cast(User, request.user),
+                name=cast(str, data.name),  # verified in validate_request
+                query=cast(Union[HogQLQuery, InsightQueryNode], data.query).model_dump(),
                 description=data.description or "",
                 is_active=data.is_active if data.is_active is not None else True,
             )
@@ -139,6 +139,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
                 status=status.HTTP_201_CREATED,
             )
 
+        # We should expose if the query name is duplicate
         except Exception as e:
             capture_exception(e)
             raise ValidationError("Failed to create named query.")
@@ -199,8 +200,9 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute a named query with optional parameters."""
         named_query = get_object_or_404(NamedQuery, team=self.team, name=name, is_active=True)
-
         data = self.get_model(request.data, NamedQueryRunRequest)
+
+        self.validate_run_request(data, named_query)
         data.variables_values = data.variables_values or {}
 
         try:
@@ -210,7 +212,10 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
                     if variable.get("code_name", "") == code_name:
                         variable["value"] = value
 
-            # Build QueryRequest
+            insight_query_override = data.query_override or {}
+            for query_field, value in insight_query_override.items():
+                named_query.query[query_field] = value
+
             query_request_data = {
                 "client_query_id": data.client_query_id,
                 "filters_override": data.filters_override,
@@ -235,7 +240,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
                 query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
-                user=typing.cast(User, request.user),
+                user=cast(User, request.user),
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             )
 
@@ -259,6 +264,10 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
             self.handle_column_ch_error(e)
             capture_exception(e)
             raise
+
+    def validate_run_request(self, data: NamedQueryRunRequest, named_query: NamedQuery) -> None:
+        if named_query.query.get("kind") == "HogQLQuery" and data.query_override:
+            raise ValidationError("Query override is not supported for HogQL queries")
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):

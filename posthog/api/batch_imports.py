@@ -178,6 +178,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
     is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
+    generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
         model = BatchImport
@@ -199,6 +200,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "is_eu_region",
             "import_events",
             "generate_identify_events",
+            "generate_group_identify_events",
         ]
         read_only_fields = [
             "id",
@@ -265,9 +267,11 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
 
             # Only apply import_events and generate_identify_events for Amplitude
             if source_type == "amplitude":
-                config_builder = config_builder.with_import_events(
-                    validated_data.get("import_events", True)
-                ).with_generate_identify_events(validated_data.get("generate_identify_events", True))
+                config_builder = (
+                    config_builder.with_import_events(validated_data.get("import_events", True))
+                    .with_generate_identify_events(validated_data.get("generate_identify_events", True))
+                    .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", True))
+                )
 
             config_builder.to_kafka(
                 topic=BatchImportKafkaTopic.HISTORICAL,

@@ -89,7 +89,7 @@ export function InsightsTable({
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
-    const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
+    const { setDetailedResultsAggregationType } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
@@ -251,7 +251,9 @@ export function InsightsTable({
                 <AggregationColumnTitle
                     isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                     aggregation={aggregation}
-                    setAggregationType={(state: CalcColumnState) => setAggregationType(state as AggregationType)}
+                    setAggregationType={(state: CalcColumnState) =>
+                        setDetailedResultsAggregationType(state as AggregationType)
+                    }
                 />
             ),
             render: (_: any, item: IndexedTrendResult) => (

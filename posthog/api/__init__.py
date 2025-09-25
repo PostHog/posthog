@@ -210,6 +210,15 @@ project_features_router = projects_router.register(
 )
 
 register_grandfathered_environment_nested_viewset(r"tasks", tasks.TaskViewSet, "environment_tasks", ["team_id"])
+register_grandfathered_environment_nested_viewset(
+    r"workflows", tasks.TaskWorkflowViewSet, "environment_workflows", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(
+    r"workflow-stages", tasks.WorkflowStageViewSet, "environment_workflow_stages", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(
+    r"agents", tasks.AgentDefinitionViewSet, "environment_agents", ["team_id"]
+)
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(
     r"dashboard_templates",

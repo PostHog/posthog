@@ -6,7 +6,6 @@ import { LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
@@ -36,9 +35,9 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { AccessControlResourceType, ProductKey } from '~/types'
 import {
     AccessControlLevel,
+    AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
     AvailableFeature,
@@ -46,6 +45,7 @@ import {
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
+    ProductKey,
 } from '~/types'
 
 import { createMaxToolSurveyConfig } from './FeatureFlag'
@@ -473,24 +473,27 @@ export function FeatureFlags(): JSX.Element {
     const { setActiveTab } = useActions(featureFlagsLogic)
     return (
         <SceneContent className="feature_flags">
-            <PageHeader
-                buttons={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.FeatureFlag}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
-                            New feature flag
-                        </LemonButton>
-                    </AccessControlAction>
-                }
-            />
             <SceneTitleSection
                 name="Feature flags"
                 description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
                 resourceType={{
                     type: 'feature_flag',
                 }}
+                actions={
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.FeatureFlag}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            type="primary"
+                            to={urls.featureFlag('new')}
+                            data-attr="new-feature-flag"
+                            size="small"
+                        >
+                            New feature flag
+                        </LemonButton>
+                    </AccessControlAction>
+                }
             />
             <SceneDivider />
             <LemonTabs

@@ -155,6 +155,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     key: Scene.FeatureFlags,
                     name: 'Feature flags',
                     path: urls.featureFlags(),
+                    iconType: 'feature_flag',
                 },
             ],
         ],

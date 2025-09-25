@@ -54,6 +54,14 @@ from posthog.clickhouse.query_log_archive import (
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models.behavioral_cohorts.sql import (
+    BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
+    BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
+    BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
+)
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -103,6 +111,18 @@ from posthog.models.raw_sessions.sql import (
     RAW_SESSIONS_TABLE_MV_SQL,
     RAW_SESSIONS_TABLE_SQL,
     WRITABLE_RAW_SESSIONS_TABLE_SQL,
+)
+from posthog.models.raw_sessions.sql_v3 import (
+    DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3,
+    DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3,
+    DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3,
+    DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3,
+    DROP_RAW_SESSION_VIEW_SQL_V3,
+    DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3,
+    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
+    RAW_SESSIONS_TABLE_MV_SQL_V3,
+    RAW_SESSIONS_TABLE_SQL_V3,
+    WRITABLE_RAW_SESSIONS_TABLE_SQL_V3,
 )
 from posthog.models.sessions.sql import (
     DISTRIBUTED_SESSIONS_TABLE_SQL,
@@ -397,14 +417,16 @@ def clean_varying_query_parts(query, replace_all_numbers):
     return query
 
 
-def _setup_test_data(klass):
-    klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
-    klass.project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=klass.organization)
-    klass.team = Team.objects.create(
-        id=klass.project.id,
-        project=klass.project,
-        organization=klass.organization,
-        api_token=klass.CONFIG_API_TOKEN,
+def setup_test_organization_team_and_user(
+    organization_name: str, team_api_token: str, user_email: str | None = None, user_password: str | None = None
+) -> tuple[Organization, Project, Team, User | None, OrganizationMembership | None]:
+    organization = Organization.objects.create(name=organization_name)
+    project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
+    team = Team.objects.create(
+        id=project.id,
+        project=project,
+        organization=organization,
+        api_token=team_api_token or str(uuid.uuid4()),
         test_account_filters=[
             {
                 "key": "email",
@@ -415,9 +437,27 @@ def _setup_test_data(klass):
         ],
         has_completed_onboarding_for={"product_analytics": True},
     )
-    if klass.CONFIG_EMAIL:
-        klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
-        klass.organization_membership = klass.user.organization_memberships.get()
+    if user_email and user_password:
+        user = User.objects.create_and_join(organization, user_email, user_password)
+        organization_membership = user.organization_memberships.get()
+    else:
+        user = None
+        organization_membership = None
+    return organization, project, team, user, organization_membership
+
+
+def _setup_test_data(klass):
+    organization, project, team, user, organization_membership = setup_test_organization_team_and_user(
+        organization_name=klass.CONFIG_ORGANIZATION_NAME,
+        team_api_token=klass.CONFIG_API_TOKEN,
+        user_email=klass.CONFIG_EMAIL,
+        user_password=klass.CONFIG_PASSWORD,
+    )
+    klass.organization = organization
+    klass.project = project
+    klass.team = team
+    klass.user = user
+    klass.organization_membership = organization_membership
 
 
 class FuzzyInt(int):
@@ -1146,7 +1186,9 @@ def reset_clickhouse_database() -> None:
     run_clickhouse_statement_in_parallel(
         [
             DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
+            DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3(),
             DROP_RAW_SESSION_VIEW_SQL(),
+            DROP_RAW_SESSION_VIEW_SQL_V3(),
             DROP_SESSION_MATERIALIZED_VIEW_SQL(),
             DROP_SESSION_VIEW_SQL(),
             DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -1165,8 +1207,11 @@ def reset_clickhouse_database() -> None:
             DROP_PERSON_TABLE_SQL,
             DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
             DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
+            DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3(),
             DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
+            DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3(),
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
+            DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
             DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             DROP_SESSION_TABLE_SQL(),
@@ -1178,6 +1223,9 @@ def reset_clickhouse_database() -> None:
             DROP_WEB_BOUNCES_HOURLY_SQL(),
             DROP_WEB_STATS_STAGING_SQL(),
             DROP_WEB_BOUNCES_STAGING_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
             TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
             TRUNCATE_GROUPS_TABLE_SQL,
@@ -1197,7 +1245,9 @@ def reset_clickhouse_database() -> None:
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
+            RAW_SESSIONS_TABLE_SQL_V3(),
             WRITABLE_RAW_SESSIONS_TABLE_SQL(),
+            WRITABLE_RAW_SESSIONS_TABLE_SQL_V3(),
             SESSIONS_TABLE_SQL(),
             SESSION_RECORDING_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_TABLE_SQL(),
@@ -1220,6 +1270,7 @@ def reset_clickhouse_database() -> None:
             EXCHANGE_RATE_DICTIONARY_SQL(),
             DISTRIBUTED_EVENTS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
+            DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
@@ -1229,6 +1280,9 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
+            BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
+            BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1236,7 +1290,9 @@ def reset_clickhouse_database() -> None:
             CHANNEL_DEFINITION_DATA_SQL(),
             EXCHANGE_RATE_DATA_BACKFILL_SQL(),
             RAW_SESSIONS_TABLE_MV_SQL(),
+            RAW_SESSIONS_TABLE_MV_SQL_V3(),
             RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
+            RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3(),
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
