@@ -238,7 +238,7 @@ class ConversionGoalProcessor:
                         self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field),
                     ]
                 )
-        elif self.goal.kind == "ActionsNode" and self.attribution_window_days > 0:
+        elif self.goal.kind == "ActionsNode" and self.config.max_attribution_window_days > 0:
             # For ActionsNode with attribution, we need both action events and pageview events
             action_conditions = self.get_base_where_conditions()
             action_filter = self._build_action_event_filter(action_conditions, date_conditions)

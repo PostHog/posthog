@@ -38,25 +38,29 @@ class ConversionGoalsAggregator:
             base_query = processor.generate_cte_query(additional_conditions)
 
             # Transform the query to include a column for this specific conversion goal
-            # and NULL columns for all other conversion goals
+            # and zero columns for all other conversion goals
             enhanced_select = [
                 # Keep campaign and source
                 base_query.select[0],  # campaign
                 base_query.select[1],  # source
             ]
 
-            # Add columns for all conversion goals (this one gets the actual value, others get NULL)
+            # Add columns for all conversion goals (this one gets the actual value, others get 0)
             for p in self.processors:
                 if p.index == processor.index:
                     # This is the current processor - use the actual conversion value
+                    # Extract the expression from the alias to avoid double aliasing
+                    conversion_expr = base_query.select[2]
+                    if isinstance(conversion_expr, ast.Alias):
+                        conversion_expr = conversion_expr.expr
                     enhanced_select.append(
                         ast.Alias(
                             alias=self.config.get_conversion_goal_column_name(p.index),
-                            expr=base_query.select[2].expr,  # The conversion goal value
+                            expr=conversion_expr,
                         )
                     )
                 else:
-                    # This is a different processor - add NULL column
+                    # This is a different processor - add zero column
                     enhanced_select.append(
                         ast.Alias(
                             alias=self.config.get_conversion_goal_column_name(p.index), expr=ast.Constant(value=0)
@@ -77,12 +81,12 @@ class ConversionGoalsAggregator:
 
         # Step 2: UNION ALL the individual queries
         if len(conversion_subqueries) == 1:
-            union_query = conversion_subqueries[0]
+            union_query: ast.SelectQuery | ast.SelectSetQuery = conversion_subqueries[0]
         else:
             union_query = ast.SelectSetQuery.create_from_queries(conversion_subqueries, "UNION ALL")
 
         # Step 3: Create final aggregation query that sums all conversion goals by campaign/source
-        final_select = [ast.Field(chain=[field]) for field in self.config.group_by_fields]
+        final_select: list[ast.Expr] = [ast.Field(chain=[field]) for field in self.config.group_by_fields]
 
         # Add each conversion goal as a summed column
         for processor in self.processors:
@@ -104,7 +108,7 @@ class ConversionGoalsAggregator:
 
         return ast.CTE(name="unified_conversion_goals", expr=final_query, cte_type="subquery")
 
-    def get_conversion_goal_columns(self) -> dict[str, ast.Expr]:
+    def get_conversion_goal_columns(self) -> dict[str, ast.Alias]:
         """Get the column mappings for accessing conversion goals from the unified CTE"""
         columns = {}
 

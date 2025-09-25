@@ -73,11 +73,11 @@ class MarketingAnalyticsConfig:
         """Get the list of fields to group by"""
         return [self.campaign_field, self.source_field]
 
-    def get_campaign_cost_field_chain(self, field_name: str) -> list[str]:
+    def get_campaign_cost_field_chain(self, field_name: str) -> list[str | int]:
         """Get field chain for campaign cost CTE fields"""
         return [self.campaign_costs_cte_name, field_name]
 
-    def get_unified_conversion_field_chain(self, field_name: str) -> list[str]:
+    def get_unified_conversion_field_chain(self, field_name: str) -> list[str | int]:
         """Get field chain for unified conversion goals CTE fields"""
         return [self.unified_conversion_goals_cte_alias, field_name]
 
