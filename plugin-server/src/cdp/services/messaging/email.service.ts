@@ -200,6 +200,7 @@ export class EmailService {
                     },
                 },
             },
+            ConfigurationSetName: 'posthog-messaging', // This triggers the SNS notifications for email tracking
             Tags: [{ Name: 'ph_id', Value: trackingCode }],
         }
 
