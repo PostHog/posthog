@@ -205,9 +205,7 @@ class TestMailjetProvider(TestCase):
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(len(result["dnsRecords"]), 3)
-        self.assertTrue(
-            all(record["status"] == "success" or record["status"] == "unknown" for record in result["dnsRecords"])
-        )
+        self.assertTrue(all(record["status"] == "success" for record in result["dnsRecords"]))
 
     @patch.object(MailjetProvider, "_check_domain_dns_records")
     @patch.object(MailjetProvider, "_get_domain_dns_records")
@@ -224,6 +222,28 @@ class TestMailjetProvider(TestCase):
 
         self.assertEqual(result["status"], "pending")
         self.assertEqual(len(result["dnsRecords"]), 3)
-        self.assertTrue(
-            all(record["status"] == "pending" or record["status"] == "unknown" for record in result["dnsRecords"])
-        )
+        self.assertTrue(all(record["status"] == "pending" for record in result["dnsRecords"]))
+
+    @patch.object(MailjetProvider, "_check_domain_dns_records")
+    @patch.object(MailjetProvider, "_get_domain_dns_records")
+    @patch.object(MailjetProvider, "_validate_email_sender")
+    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
+    def test_verify_email_domain_validation_failed(self, mock_get_dns, mock_check_dns, mock_validate):
+        verified_dns_response = self.mock_dns_response.copy()
+        verified_dns_response["DKIMStatus"] = "OK"
+        verified_dns_response["SPFStatus"] = "OK"
+        mock_get_dns.return_value = verified_dns_response
+        mock_check_dns.return_value = verified_dns_response
+
+        mock_validate.return_value = False
+
+        provider = MailjetProvider()
+        result = provider.verify_email_domain(self.domain)
+
+        mock_validate.assert_called_once_with(self.domain)
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(len(result["dnsRecords"]), 3)
+
+        self.assertTrue(result["dnsRecords"][0]["status"] == "success")
+        self.assertTrue(result["dnsRecords"][1]["status"] == "success")
+        self.assertTrue(result["dnsRecords"][2]["status"] == "pending")
