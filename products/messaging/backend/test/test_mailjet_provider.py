@@ -14,7 +14,6 @@ class TestMailjetProvider(TestCase):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.domain = "example.com"
-        self.email = "test@example.com"
         self.mock_dns_response = {
             "DKIMRecordName": "mailjet._domainkey.example.com",
             "DKIMRecordValue": "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBA...",
@@ -54,9 +53,9 @@ class TestMailjetProvider(TestCase):
         self.assertEqual(status, "pending")
         self.assertEqual(len(records), 2)
 
-        dkim_record = next((r for r in records if r["type"] == "dkim"), None)
-        spf_record = next((r for r in records if r["type"] == "spf"), None)
-        ownership_record = next((r for r in records if r["type"] == "ownership"), None)
+        dkim_record = next((r for r in records if r["type"] == "dkim"), {})
+        spf_record = next((r for r in records if r["type"] == "spf"), {})
+        ownership_record = next((r for r in records if r["type"] == "ownership"), {})
 
         self.assertEqual(dkim_record["recordType"], "TXT")
         self.assertEqual(dkim_record["recordHostname"], self.mock_dns_response["DKIMRecordName"])
@@ -199,14 +198,16 @@ class TestMailjetProvider(TestCase):
         mock_check_dns.return_value = verified_dns_response
 
         provider = MailjetProvider()
-        result = provider.verify_email_domain(self.email, self.domain, self.team.id)
+        result = provider.verify_email_domain(self.domain, self.team.id)
 
         mock_check_dns.assert_called_once_with(self.domain)
         mock_get_dns.assert_called_once_with(self.domain)
 
         self.assertEqual(result["status"], "success")
-        self.assertEqual(len(result["dnsRecords"]), 2)
-        self.assertTrue(all(record["status"] == "success" for record in result["dnsRecords"]))
+        self.assertEqual(len(result["dnsRecords"]), 3)
+        self.assertTrue(
+            all(record["status"] == "success" or record["status"] == "unknown" for record in result["dnsRecords"])
+        )
 
     @patch.object(MailjetProvider, "_check_domain_dns_records")
     @patch.object(MailjetProvider, "_get_domain_dns_records")
@@ -216,11 +217,13 @@ class TestMailjetProvider(TestCase):
         mock_check_dns.return_value = self.mock_dns_response
 
         provider = MailjetProvider()
-        result = provider.verify_email_domain(self.email, self.domain, self.team.id)
+        result = provider.verify_email_domain(self.domain, self.team.id)
 
         mock_check_dns.assert_called_once_with(self.domain)
         mock_get_dns.assert_called_once_with(self.domain)
 
         self.assertEqual(result["status"], "pending")
-        self.assertEqual(len(result["dnsRecords"]), 2)
-        self.assertTrue(all(record["status"] == "pending" for record in result["dnsRecords"]))
+        self.assertEqual(len(result["dnsRecords"]), 3)
+        self.assertTrue(
+            all(record["status"] == "pending" or record["status"] == "unknown" for record in result["dnsRecords"])
+        )

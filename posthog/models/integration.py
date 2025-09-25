@@ -1134,10 +1134,9 @@ class EmailIntegration:
         return integration
 
     def verify(self):
-        email = self.integration.config.get("email")
         domain = self.integration.config.get("domain")
 
-        verification_result = self.mailjet_provider.verify_email_domain(email, domain, team_id=self.integration.team_id)
+        verification_result = self.mailjet_provider.verify_email_domain(domain)
 
         if verification_result.get("status") == "success":
             # We can validate all other integrations with the same domain
