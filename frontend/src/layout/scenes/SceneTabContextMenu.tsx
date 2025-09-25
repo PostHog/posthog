@@ -3,6 +3,7 @@ import React from 'react'
 
 import { IconChevronLeft, IconChevronRight, IconCopy, IconExternal, IconPencil, IconX } from '@posthog/icons'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -14,6 +15,8 @@ import {
 import { SceneTab } from 'scenes/sceneTypes'
 
 import { sceneLogic } from '~/scenes/sceneLogic'
+
+import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
 
 export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children: React.ReactElement }): JSX.Element {
     const { tabs } = useValues(sceneLogic)
@@ -50,6 +53,23 @@ export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children
                     </ButtonPrimitive>
                 </ContextMenuItem>
                 <ContextMenuItem asChild>
+                    <ButtonPrimitive
+                        menuItem
+                        onClick={() => {
+                            try {
+                                navigator.clipboard.writeText(
+                                    `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
+                                )
+                                lemonToast.success('URL copied to clipboard')
+                            } catch (error) {
+                                lemonToast.error(`Failed to copy URL to clipboard ${error}`)
+                            }
+                        }}
+                    >
+                        <IconCopy /> Copy URL
+                    </ButtonPrimitive>
+                </ContextMenuItem>
+                <ContextMenuItem asChild>
                     <ButtonPrimitive menuItem onClick={() => renameTab(tab)}>
                         <IconPencil /> Rename tab
                     </ButtonPrimitive>
@@ -62,7 +82,7 @@ export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children
                 <ContextMenuSeparator />
                 <ContextMenuItem asChild>
                     <ButtonPrimitive menuItem onClick={() => removeTab(tab)}>
-                        <IconX /> Close tab
+                        <IconX /> Close tab <KeyboardShortcut command shift b />
                     </ButtonPrimitive>
                 </ContextMenuItem>
                 <ContextMenuItem asChild>

@@ -3,15 +3,13 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconSearch, IconShare, IconX } from '@posthog/icons'
+import { IconPlus, IconSearch, IconX } from '@posthog/icons'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { HoverCard, HoverCardContent, HoverCardTrigger } from 'lib/ui/HoverCard/HoverCard'
 import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -93,7 +91,17 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 <IconSearch className="text-secondary size-4" />
                             </ButtonPrimitive>
                         </div>
-                        <div className="scene-tab-row flex flex-row flex-1 min-w-0 gap-1">
+                        <div
+                            className="scene-tab-row grid min-w-0 gap-1"
+                            style={{
+                                gridTemplateColumns:
+                                    tabs.length === 1
+                                        ? '250px'
+                                        : tabs.length === 2
+                                          ? 'repeat(2, 250px)'
+                                          : `repeat(${tabs.length}, minmax(40px, 250px))`,
+                            }}
+                        >
                             {tabs.map((tab) => (
                                 <SortableSceneTab key={tab.id} tab={tab} />
                             ))}
@@ -135,44 +143,9 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
     }
 
     return (
-        <div
-            ref={setNodeRef}
-            style={style}
-            {...attributes}
-            {...listeners}
-            className="grow-0 shrink basis-auto min-w-[40px] max-w-[200px]"
-        >
+        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
             <SceneTabContextMenu tab={tab}>
-                <HoverCard>
-                    <HoverCardTrigger>
-                        <SceneTabComponent tab={tab} isDragging={isDragging} />
-                    </HoverCardTrigger>
-                    <HoverCardContent
-                        className="break-words"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                    >
-                        <ButtonPrimitive
-                            iconOnly
-                            size="xs"
-                            tooltip="Copy tab URL for sharing"
-                            className="text-primary float-right"
-                            onClick={() => {
-                                try {
-                                    navigator.clipboard.writeText(
-                                        `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
-                                    )
-                                    lemonToast.success('URL copied to clipboard')
-                                } catch (error) {
-                                    lemonToast.error(`Failed to copy URL to clipboard ${error}`)
-                                }
-                            }}
-                        >
-                            <IconShare />
-                        </ButtonPrimitive>
-                        <span className="text-primary text-sm font-semibold">{tab.title}</span>
-                    </HoverCardContent>
-                </HoverCard>
+                <SceneTabComponent tab={tab} isDragging={isDragging} />
             </SceneTabContextMenu>
         </div>
     )
@@ -221,6 +194,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 'focus:outline-none',
                 className
             )}
+            tooltip={tab.title}
         >
             {tab.iconType === 'blank' ? (
                 <></>
@@ -229,12 +203,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             ) : (
                 iconForType(tab.iconType as FileSystemIconType)
             )}
-            <div
-                className={cn(
-                    'scene-tab-title flex-grow text-left max-w-[200px] truncate',
-                    tab.customTitle && 'italic'
-                )}
-            >
+            <div className={cn('scene-tab-title flex-grow text-left truncate', tab.customTitle && 'italic')}>
                 {tab.customTitle || tab.title}
             </div>
             {canRemoveTab && (
