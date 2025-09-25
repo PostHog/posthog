@@ -148,7 +148,6 @@ services:
             - --set redpanda.compaction_ctrl_i_coeff=0
             - --set redpanda.compaction_ctrl_d_coeff=0
             - --set redpanda.partition_autobalancing_mode=off
-            - --set redpanda.reactor_stall_min_time_ms=500
         volumes:
             - redpanda-data:/var/lib/redpanda/data
         environment:
