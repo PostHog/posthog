@@ -48,6 +48,7 @@ import {
 } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlLevel, OnboardingStepKey, ProductKey } from '~/types'
 
 import { preflightLogic } from './PreflightCheck/preflightLogic'
@@ -229,6 +230,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             search,
                             hash,
                             title: 'New tab',
+                            iconType: 'blank',
                         },
                     ]
                 },
@@ -251,6 +253,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             search: '',
                             hash: '',
                             title: 'New tab',
+                            iconType: 'blank',
                         })
                     }
                     return newState
@@ -289,6 +292,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         hash: source.hash,
                         title: source.title,
                         customTitle: source.customTitle,
+                        iconType: source.iconType,
                         active: false,
                     }
 
@@ -506,21 +510,25 @@ export const sceneLogic = kea<sceneLogicType>([
                 )
             },
         ],
-        title: [
+
+        titleAndIcon: [
             (s) => [
                 // We're effectively passing the selector through to the scene logic, and "recalculating"
                 // this every time it's rendered. Caching will happen within the scene's breadcrumb selector.
-                (state, props): string => {
+                (state, props): { title: string; iconType: FileSystemIconType | 'loading' | 'blank' } => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
+                    const activeExportedScene = sceneLogic.selectors.activeExportedScene(state, props)
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
                         try {
-                            const activeExportedScene = sceneLogic.selectors.activeExportedScene(state, props)
                             const sceneParams = sceneLogic.selectors.sceneParams(state, props)
                             const bc = activeSceneLogic.selectors.breadcrumbs(
                                 state,
                                 activeExportedScene?.paramsToProps?.(sceneParams) || props
                             )
-                            return bc.length > 0 ? bc[bc.length - 1].name : '...'
+                            return {
+                                title: bc.length > 0 ? bc[bc.length - 1].name : '...',
+                                iconType: bc.length > 0 ? bc[bc.length - 1].iconType : 'blank',
+                            }
                         } catch {
                             // If the breadcrumb selector fails, we'll just ignore it and return a placeholder value below
                         }
@@ -529,12 +537,16 @@ export const sceneLogic = kea<sceneLogicType>([
                     const activeSceneId = s.activeSceneId(state, props)
                     if (activeSceneId) {
                         const sceneConfig = s.sceneConfig(state, props)
-                        return sceneConfig?.name ?? identifierToHuman(activeSceneId)
+                        return {
+                            title: sceneConfig?.name ?? identifierToHuman(activeSceneId),
+                            iconType: sceneConfig?.iconType ?? (activeExportedScene ? 'notebook' : 'loading'),
+                        }
                     }
-                    return '...'
+                    return { title: '...', iconType: 'loading' }
                 },
             ],
-            (title): string => title,
+            (titleAndIcon) => titleAndIcon as { title: string; iconType: FileSystemIconType | 'loading' | 'blank' },
+            { resultEqualityCheck: equal },
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
@@ -587,7 +599,15 @@ export const sceneLogic = kea<sceneLogicType>([
             } else {
                 actions.setTabs([
                     ...values.tabs,
-                    { id: generateTabId(), active: true, pathname, search, hash, title: 'Loading...' },
+                    {
+                        id: generateTabId(),
+                        active: true,
+                        pathname,
+                        search,
+                        hash,
+                        title: 'Loading...',
+                        iconType: 'loading',
+                    },
                 ])
             }
             persistTabs(values.tabs)
@@ -615,7 +635,15 @@ export const sceneLogic = kea<sceneLogicType>([
             } else {
                 actions.setTabs([
                     ...values.tabs,
-                    { id: generateTabId(), active: true, pathname, search, hash, title: 'Loading...' },
+                    {
+                        id: generateTabId(),
+                        active: true,
+                        pathname,
+                        search,
+                        hash,
+                        title: 'Loading...',
+                        iconType: 'loading',
+                    },
                 ])
             }
             persistTabs(values.tabs)
@@ -915,6 +943,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     search: currentLocation.search,
                     hash: currentLocation.hash,
                     title: 'Loading...',
+                    iconType: 'loading',
                 },
             ])
         }
@@ -974,7 +1003,7 @@ export const sceneLogic = kea<sceneLogicType>([
     }),
 
     subscriptions(({ actions, values, cache }) => ({
-        title: (title) => {
+        titleAndIcon: ({ title, iconType }) => {
             const activeIndex = values.tabs.findIndex((t) => t.active)
             if (activeIndex === -1) {
                 const { currentLocation } = router.values
@@ -986,6 +1015,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         search: currentLocation.search,
                         hash: currentLocation.hash,
                         title: title || 'Loading...',
+                        iconType,
                     },
                 ])
             } else {
@@ -993,7 +1023,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     // When the tab is loading, don't flicker between the loaded title and the new one
                     return
                 }
-                const newTabs = values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title } : tab))
+                const newTabs = values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title, iconType } : tab))
                 actions.setTabs(newTabs)
             }
             if (!process?.env?.STORYBOOK) {

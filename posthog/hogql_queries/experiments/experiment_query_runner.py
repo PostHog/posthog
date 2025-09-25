@@ -59,8 +59,9 @@ class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, override_end_date: Optional[datetime] = None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.override_end_date = override_end_date
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -77,7 +78,7 @@ class ExperimentQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.date_range = get_experiment_date_range(self.experiment, self.team)
+        self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
         self.date_range_query = QueryDateRange(
             date_range=self.date_range,
             team=self.team,

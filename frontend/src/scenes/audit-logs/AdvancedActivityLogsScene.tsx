@@ -1,10 +1,14 @@
 import { useActions, useValues } from 'kea'
 
+import { IconActivity } from '@posthog/icons'
 import { LemonTabs } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AdvancedActivityLogFiltersPanel } from './AdvancedActivityLogFiltersPanel'
 import { AdvancedActivityLogsList } from './AdvancedActivityLogsList'
@@ -50,9 +54,22 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
     ]
 
     return (
-        <div>
-            <PageHeader caption="Track all changes and activities in your organization" />
-            <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key as 'logs' | 'exports')} tabs={tabs} />
-        </div>
+        <SceneContent>
+            <SceneTitleSection
+                name="Advanced activity logs"
+                description="Track all changes and activities in your organization"
+                resourceType={{
+                    type: 'activity logs',
+                    forceIcon: <IconActivity />,
+                }}
+            />
+            <SceneDivider />
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={(key) => setActiveTab(key as 'logs' | 'exports')}
+                tabs={tabs}
+                sceneInset
+            />
+        </SceneContent>
     )
 }

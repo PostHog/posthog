@@ -1937,6 +1937,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "ActionsUnstackedBar",
+                    "type": "string"
+                },
+                {
                     "const": "ActionsAreaGraph",
                     "type": "string"
                 },
@@ -2050,6 +2054,7 @@
                     "enum": [
                         "ActionsLineGraph",
                         "ActionsBar",
+                        "ActionsUnstackedBar",
                         "ActionsAreaGraph",
                         "ActionsLineGraphCumulative",
                         "BoldNumber",
@@ -6838,6 +6843,7 @@
             "enum": [
                 "ActionsLineGraph",
                 "ActionsBar",
+                "ActionsUnstackedBar",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
                 "ActionsLineGraphCumulative",
@@ -11396,6 +11402,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "funnel_order_type": {
                     "$ref": "#/definitions/StepOrderValue"
                 },
@@ -11611,6 +11620,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
@@ -11690,6 +11702,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
@@ -11746,6 +11761,67 @@
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 }
             ]
+        },
+        "ExperimentMetricTimeseries": {
+            "additionalProperties": false,
+            "properties": {
+                "computed_at": {
+                    "type": ["string", "null"]
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "errors": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "experiment_id": {
+                    "type": "number"
+                },
+                "metric_uuid": {
+                    "type": "string"
+                },
+                "status": {
+                    "enum": ["pending", "completed", "partial", "failed"],
+                    "type": "string"
+                },
+                "timeseries": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ExperimentQueryResponse"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "experiment_id",
+                "metric_uuid",
+                "status",
+                "timeseries",
+                "errors",
+                "computed_at",
+                "created_at",
+                "updated_at"
+            ],
+            "type": "object"
         },
         "ExperimentMetricType": {
             "enum": ["funnel", "mean", "ratio"],
@@ -11892,6 +11968,9 @@
                 },
                 "denominator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "fingerprint": {
+                    "type": "string"
                 },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
@@ -12477,7 +12556,8 @@
                 "insight/paths",
                 "insight/lifecycle",
                 "insight/stickiness",
-                "insight/hog"
+                "insight/hog",
+                "team_activity"
             ],
             "type": "string"
         },
@@ -14036,7 +14116,7 @@
                     "type": "boolean"
                 },
                 "sessionTableVersion": {
-                    "enum": ["auto", "v1", "v2"],
+                    "enum": ["auto", "v1", "v2", "v3"],
                     "type": "string"
                 },
                 "sessionsV2JoinMode": {
@@ -15705,6 +15785,9 @@
         "MarketingAnalyticsSchemaField": {
             "additionalProperties": false,
             "properties": {
+                "isCurrency": {
+                    "type": "boolean"
+                },
                 "required": {
                     "type": "boolean"
                 },
@@ -15715,7 +15798,7 @@
                     "type": "array"
                 }
             },
-            "required": ["type", "required"],
+            "required": ["type", "required", "isCurrency"],
             "type": "object"
         },
         "MarketingAnalyticsSchemaFieldTypes": {
@@ -15758,6 +15841,10 @@
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
+                    "type": "boolean"
+                },
+                "includeAllConversions": {
+                    "description": "Include conversion goal rows even when they don't match campaign costs table",
                     "type": "boolean"
                 },
                 "includeRevenue": {
@@ -16534,7 +16621,14 @@
                     "type": "string"
                 },
                 "query": {
-                    "$ref": "#/definitions/HogQLQuery"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/InsightQueryNode"
+                        }
+                    ]
                 }
             },
             "type": "object"
@@ -16548,6 +16642,9 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
+                },
+                "query_override": {
+                    "type": "object"
                 },
                 "refresh": {
                     "$ref": "#/definitions/RefreshType",
@@ -25093,6 +25190,11 @@
                 },
                 "decimalPlaces": {
                     "type": "number"
+                },
+                "detailedResultsAggregationType": {
+                    "description": "detailed results table",
+                    "enum": ["total", "average", "median"],
+                    "type": "string"
                 },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType",

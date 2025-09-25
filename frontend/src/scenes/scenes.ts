@@ -51,8 +51,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
-        layout: 'app-raw',
+        layout: 'app-full-scene-height',
         defaultDocsPath: '/blog/introducing-notebooks',
+        hideProjectNotice: true,
     },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.Cohorts]: { projectBased: true, name: 'Cohorts', defaultDocsPath: '/docs/data/cohorts' },
@@ -278,6 +279,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Settings',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
+        hideProjectNotice: true,
     },
     [Scene.ReplaySingle]: {
         projectBased: true,
@@ -490,7 +492,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
-    [urls.embeddedAnalytics()]: [Scene.EmbeddedAnalytics, 'embeddedAnalytics'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
