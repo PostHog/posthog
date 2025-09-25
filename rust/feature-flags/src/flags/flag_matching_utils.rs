@@ -13,7 +13,6 @@ use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
-use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 
 // Add thread-local imports for test-specific counter
@@ -36,6 +35,11 @@ use crate::{
 };
 
 use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluationState};
+
+// Write timeout constants - for writing hash overrides to the database
+// This is the only place where the /flags service writes to the database
+const WRITE_STATEMENT_TIMEOUT: Duration = Duration::from_millis(1000);
+const WRITE_LOCK_TIMEOUT: Duration = Duration::from_millis(500);
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
@@ -683,6 +687,20 @@ async fn try_set_feature_flag_hash_key_overrides(
     persons_conn_timer.fin();
     let mut transaction = persons_conn.begin().await?;
 
+    // Set longer timeouts for this write operation
+    sqlx::query(&format!(
+        "SET LOCAL statement_timeout = '{}ms'",
+        WRITE_STATEMENT_TIMEOUT.as_millis()
+    ))
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(&format!(
+        "SET LOCAL lock_timeout = '{}ms'",
+        WRITE_LOCK_TIMEOUT.as_millis()
+    ))
+    .execute(&mut *transaction)
+    .await?;
+
     // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
     let person_data_query = r#"
             SELECT DISTINCT 
@@ -935,8 +953,6 @@ async fn try_should_write_hash_key_override(
     distinct_ids: &[String],
     project_id: ProjectId,
 ) -> Result<bool, FlagError> {
-    const QUERY_TIMEOUT: Duration = Duration::from_millis(1000);
-
     // Query 1: Get person_ids and existing overrides from person pool in one shot
     let person_data_query = r#"
         SELECT DISTINCT
@@ -957,109 +973,94 @@ async fn try_should_write_hash_key_override(
             AND flag.active = TRUE
             AND flag.deleted = FALSE
     "#;
+    // Get connection from persons pool for person data
+    let persons_labels = [
+        ("pool".to_string(), "persons_reader".to_string()),
+        (
+            "operation".to_string(),
+            "should_write_hash_key_override".to_string(),
+        ),
+    ];
+    let persons_conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &persons_labels);
+    let mut persons_conn = router
+        .get_persons_reader()
+        .get_connection()
+        .await
+        .map_err(FlagError::from)?;
+    persons_conn_timer.fin();
 
-    let result = timeout(QUERY_TIMEOUT, async {
-        // Get connection from persons pool for person data
-        let persons_labels = [
-            ("pool".to_string(), "persons_reader".to_string()),
-            (
-                "operation".to_string(),
-                "should_write_hash_key_override".to_string(),
-            ),
-        ];
-        let persons_conn_timer =
-            common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &persons_labels);
-        let mut persons_conn = router
-            .get_persons_reader()
-            .get_connection()
-            .await
-            .map_err(FlagError::from)?;
-        persons_conn_timer.fin();
+    // Step 1: Get person data and existing overrides
+    let person_query_labels = [
+        (
+            "query".to_string(),
+            "person_data_with_overrides".to_string(),
+        ),
+        ("operation".to_string(), "should_write_check".to_string()),
+    ];
+    let person_query_timer =
+        common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
+    let person_data_rows = sqlx::query(person_data_query)
+        .bind(team_id)
+        .bind(distinct_ids)
+        .fetch_all(&mut *persons_conn)
+        .await
+        .map_err(|e| {
+            FlagError::DatabaseError(e, Some("Failed to fetch person data".to_string()))
+        })?;
+    person_query_timer.fin();
 
-        // Step 1: Get person data and existing overrides
-        let person_query_labels = [
-            (
-                "query".to_string(),
-                "person_data_with_overrides".to_string(),
-            ),
-            ("operation".to_string(), "should_write_check".to_string()),
-        ];
-        let person_query_timer =
-            common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
-        let person_data_rows = sqlx::query(person_data_query)
-            .bind(team_id)
-            .bind(distinct_ids)
-            .fetch_all(&mut *persons_conn)
-            .await
-            .map_err(|e| {
-                FlagError::DatabaseError(e, Some("Failed to fetch person data".to_string()))
-            })?;
-        person_query_timer.fin();
+    // If no person_ids found, there's nothing to check
+    if person_data_rows.is_empty() {
+        return Ok(false);
+    }
 
-        // If no person_ids found, there's nothing to check
-        if person_data_rows.is_empty() {
-            return Ok(false);
-        }
+    // Extract existing flag keys from overrides
+    let existing_flag_keys: HashSet<String> = person_data_rows
+        .iter()
+        .filter_map(|row| row.try_get::<String, _>("feature_flag_key").ok())
+        .collect();
 
-        // Extract existing flag keys from overrides
-        let existing_flag_keys: HashSet<String> = person_data_rows
-            .iter()
-            .filter_map(|row| row.try_get::<String, _>("feature_flag_key").ok())
-            .collect();
+    // Step 2: Get active feature flags with experience continuity from non-persons pool
+    // Get connection from non-persons pool for flag data
+    let non_persons_labels = [
+        ("pool".to_string(), "non_persons_reader".to_string()),
+        (
+            "operation".to_string(),
+            "should_write_hash_key_override".to_string(),
+        ),
+    ];
+    let non_persons_conn_timer =
+        common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &non_persons_labels);
+    let mut non_persons_conn = router
+        .get_non_persons_reader()
+        .get_connection()
+        .await
+        .map_err(FlagError::from)?;
+    non_persons_conn_timer.fin();
+    let flags_labels = [
+        (
+            "query".to_string(),
+            "active_flags_with_continuity".to_string(),
+        ),
+        ("operation".to_string(), "should_write_check".to_string()),
+    ];
+    let flags_query_timer = common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
+    let flag_rows = sqlx::query(flags_query)
+        .bind(project_id)
+        .fetch_all(&mut *non_persons_conn)
+        .await
+        .map_err(|e| FlagError::DatabaseError(e, Some("Failed to fetch flags".to_string())))?;
+    flags_query_timer.fin();
 
-        // Step 2: Get active feature flags with experience continuity from non-persons pool
-        // Get connection from non-persons pool for flag data
-        let non_persons_labels = [
-            ("pool".to_string(), "non_persons_reader".to_string()),
-            (
-                "operation".to_string(),
-                "should_write_hash_key_override".to_string(),
-            ),
-        ];
-        let non_persons_conn_timer =
-            common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &non_persons_labels);
-        let mut non_persons_conn = router
-            .get_non_persons_reader()
-            .get_connection()
-            .await
-            .map_err(FlagError::from)?;
-        non_persons_conn_timer.fin();
-        let flags_labels = [
-            (
-                "query".to_string(),
-                "active_flags_with_continuity".to_string(),
-            ),
-            ("operation".to_string(), "should_write_check".to_string()),
-        ];
-        let flags_query_timer =
-            common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
-        let flag_rows = sqlx::query(flags_query)
-            .bind(project_id)
-            .fetch_all(&mut *non_persons_conn)
-            .await
-            .map_err(|e| FlagError::DatabaseError(e, Some("Failed to fetch flags".to_string())))?;
-        flags_query_timer.fin();
-
-        // Check if there are any flags that don't have overrides
-        for row in flag_rows {
-            let flag_key: String = row.get("key");
-            if !existing_flag_keys.contains(&flag_key) {
-                return Ok(true); // Found a flag without override
-            }
-        }
-
-        Ok::<bool, FlagError>(false) // All flags have overrides
-    })
-    .await;
-
-    match result {
-        Ok(Ok(flags_present)) => Ok(flags_present),
-        Ok(Err(e)) => Err(e),
-        Err(_) => {
-            // Handle timeout
-            Err(FlagError::TimeoutError)
+    // Check if there are any flags that don't have overrides
+    for row in flag_rows {
+        let flag_key: String = row.get("key");
+        if !existing_flag_keys.contains(&flag_key) {
+            return Ok(true); // Found a flag without override
         }
     }
+
+    Ok(false) // All flags have overrides
 }
 
 #[cfg(test)]
@@ -1958,7 +1959,7 @@ mod tests {
 
         // Test that configuration errors don't trigger retries
         let config_error = FlagError::DatabaseError(
-            SqlxError::Configuration("invalid connection string".into()),
+            SqlxError::Configuration(Box::new(std::io::Error::other("invalid connection string"))),
             None,
         );
         assert!(!should_retry_on_error(&config_error));

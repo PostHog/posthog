@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use common_cookieless::CookielessManagerError;
-use common_database::CustomDatabaseError;
+use common_database::{is_timeout_error, CustomDatabaseError};
 use common_redis::CustomRedisError;
 use thiserror::Error;
 
@@ -273,8 +273,15 @@ impl From<CustomRedisError> for FlagError {
 impl From<CustomDatabaseError> for FlagError {
     fn from(e: CustomDatabaseError) -> Self {
         match e {
-            CustomDatabaseError::Other(_) => FlagError::DatabaseUnavailable,
             CustomDatabaseError::Timeout(_) => FlagError::TimeoutError,
+            CustomDatabaseError::Other(sqlx_error) => {
+                // Check if it's a timeout-related SQL error
+                if is_timeout_error(&sqlx_error) {
+                    FlagError::TimeoutError
+                } else {
+                    FlagError::DatabaseUnavailable
+                }
+            }
         }
     }
 }
@@ -291,6 +298,7 @@ impl From<sqlx::Error> for FlagError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::time::{timeout, Duration};
 
     #[test]
     fn test_is_5xx() {
@@ -315,5 +323,39 @@ mod tests {
         assert!(!FlagError::NoTokenError.is_5xx());
         assert!(!FlagError::TokenValidationError.is_5xx());
         assert!(!FlagError::PersonNotFound.is_5xx());
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_timeout() {
+        // Test that CustomDatabaseError::Timeout converts to FlagError::TimeoutError
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let elapsed_error = rt.block_on(async {
+            timeout(
+                Duration::from_nanos(1),
+                tokio::time::sleep(Duration::from_secs(1)),
+            )
+            .await
+            .unwrap_err()
+        });
+
+        let timeout_error = CustomDatabaseError::Timeout(elapsed_error);
+        let flag_error: FlagError = timeout_error.into();
+        assert!(matches!(flag_error, FlagError::TimeoutError));
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_sqlx_timeout() {
+        // Test that sqlx timeout errors convert to FlagError::TimeoutError
+        let sqlx_timeout = CustomDatabaseError::Other(sqlx::Error::PoolTimedOut);
+        let flag_error: FlagError = sqlx_timeout.into();
+        assert!(matches!(flag_error, FlagError::TimeoutError));
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_sqlx_non_timeout() {
+        // Test that non-timeout sqlx errors convert to FlagError::DatabaseUnavailable
+        let sqlx_error = CustomDatabaseError::Other(sqlx::Error::RowNotFound);
+        let flag_error: FlagError = sqlx_error.into();
+        assert!(matches!(flag_error, FlagError::DatabaseUnavailable));
     }
 }
