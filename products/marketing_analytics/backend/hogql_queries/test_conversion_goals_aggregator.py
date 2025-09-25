@@ -281,6 +281,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         fallback_columns = aggregator.get_coalesce_fallback_columns()
         campaign_column = fallback_columns[self.config.campaign_column_alias]
         assert isinstance(campaign_column, ast.Alias)
+        assert isinstance(campaign_column.expr, ast.Call)
 
         first_arg = campaign_column.expr.args[0]
         assert isinstance(first_arg, ast.Call)
