@@ -59,8 +59,12 @@ export function ProjectHomepage(): JSX.Element {
                 </span>
             )}
 
-            {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && <PosthogStoriesContainer />}
-            <SceneDivider />
+            {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && (
+                <>
+                    <PosthogStoriesContainer />
+                    <SceneDivider />
+                </>
+            )}
             <SceneTitleSection
                 name={dashboard?.name ?? 'Project Homepage'}
                 resourceType={{
