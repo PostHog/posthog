@@ -9,7 +9,6 @@ mod tests {
     use crate::{
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::cohort_cache_manager::CohortCacheManager,
-        database::postgres_router::PostgresRouter,
         flags::{
             flag_group_type_mapping::GroupTypeMappingCache,
             flag_match_reason::FeatureFlagMatchReason,
@@ -293,12 +292,6 @@ mod tests {
             )
             .await;
 
-        // Debug logging for test_group_property_overrides
-        println!("test_group_property_overrides result: {:?}", result);
-        println!(
-            "Errors while computing: {}",
-            result.errors_while_computing_flags
-        );
         println!("Flags: {:?}", result.flags);
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -5200,12 +5193,6 @@ mod tests {
             )
             .await;
 
-        // Debug logging to see what's in the result
-        println!("Test result: {:?}", result);
-        println!(
-            "Errors while computing: {}",
-            result.errors_while_computing_flags
-        );
         println!("Flags in result: {:?}", result.flags);
 
         assert!(!result.errors_while_computing_flags);
