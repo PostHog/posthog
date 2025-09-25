@@ -12030,6 +12030,21 @@
                 "numerator_denominator_sum_product": {
                     "type": "number"
                 },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -12057,6 +12072,21 @@
                 },
                 "numerator_denominator_sum_product": {
                     "type": "number"
+                },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"
@@ -12237,6 +12267,21 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -12288,6 +12333,21 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"
@@ -23355,6 +23415,22 @@
                 }
             },
             "required": ["columns", "hogql", "results", "types"],
+            "type": "object"
+        },
+        "SessionData": {
+            "additionalProperties": false,
+            "properties": {
+                "event_uuid": {
+                    "type": "string"
+                },
+                "person_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["person_id", "session_id", "event_uuid"],
             "type": "object"
         },
         "SessionEventsItem": {

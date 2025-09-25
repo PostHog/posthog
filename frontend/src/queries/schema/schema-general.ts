@@ -2677,6 +2677,12 @@ export interface LegacyExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
+export interface SessionData {
+    person_id: string
+    session_id: string
+    event_uuid: string
+}
+
 export interface ExperimentStatsBase {
     key: string
     number_of_samples: integer
@@ -2685,6 +2691,8 @@ export interface ExperimentStatsBase {
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
+    step_counts?: integer[]
+    step_sessions?: SessionData[][]
 }
 
 export enum ExperimentStatsValidationFailure {
