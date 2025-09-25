@@ -1,5 +1,6 @@
 import './Link.scss'
 
+import { useActions } from 'kea'
 import { router } from 'kea-router'
 import React, { useContext } from 'react'
 
@@ -11,6 +12,7 @@ import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { WithinSidePanelContext, sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
@@ -126,12 +128,15 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         },
         ref
     ) => {
+        const { newTab } = useActions(sceneLogic)
+        const externalLink = isExternalLink(to)
+        const openInNewPostHogTab = !externalLink && to && typeof to === 'string' && target === '_blank'
         const withinSidePanel = useContext(WithinSidePanelContext)
         const { elementProps: draggableProps } = useNotebookDrag({
             href: typeof to === 'string' ? to : undefined,
         })
 
-        if (withinSidePanel && target === '_blank' && !isExternalLink(to)) {
+        if (withinSidePanel && target === '_blank' && !externalLink) {
             target = undefined // Within side panels, treat target="_blank" as "open in main scene"
         }
 
@@ -174,7 +179,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
+            if (!target && to && !externalLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()
                 if (to && to !== '#' && !preventClick) {
                     if (Array.isArray(to)) {
@@ -182,6 +187,16 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                     } else {
                         router.actions.push(to)
                     }
+                }
+            } else {
+                if (openInNewPostHogTab) {
+                    // For internal links, open in new PostHog tab
+                    event.preventDefault()
+                    event.stopPropagation()
+                    if (to && typeof to === 'string') {
+                        newTab(to)
+                    }
+                    return
                 }
             }
         }

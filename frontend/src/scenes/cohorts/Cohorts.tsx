@@ -110,6 +110,7 @@ export function Cohorts(): JSX.Element {
                                         }).url
                                     }
                                     fullWidth
+                                    targetBlank
                                 >
                                     View session recordings
                                 </LemonButton>
