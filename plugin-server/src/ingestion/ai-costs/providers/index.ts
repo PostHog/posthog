@@ -1,11 +1,21 @@
-import generatedCosts from './backup-llm-provider-costs.json'
+import backupCosts from './backup-llm-provider-costs.json'
 import { embeddingCosts } from './embeddings'
+import primaryCosts from './llm-provider-costs.json'
 import { manualCosts } from './manual-providers'
 import type { ModelRow } from './types'
 
-export const costsByModel: Record<string, ModelRow> = {}
+// Primary costs from llm-provider-costs.json plus manual costs
+export const primaryCostsByModel: Record<string, ModelRow> = {}
+export const primaryCostsList: ModelRow[] = [...primaryCosts, ...manualCosts]
 
-for (const cost of [...generatedCosts, ...manualCosts, ...embeddingCosts]) {
-    // NOTE: This is done in a loop with overrides after ensuring that they are applied
-    costsByModel[cost.model] = cost
+for (const cost of primaryCosts) {
+    primaryCostsByModel[cost.model.toLowerCase()] = cost
+}
+
+// Backup costs from backup-llm-provider-costs.json plus manual and embedding costs
+export const backupCostsByModel: Record<string, ModelRow> = {}
+export const backupCostsList: ModelRow[] = [...backupCosts, ...manualCosts, ...embeddingCosts]
+
+for (const cost of [...backupCosts, ...manualCosts, ...embeddingCosts]) {
+    backupCostsByModel[cost.model.toLowerCase()] = cost
 }
