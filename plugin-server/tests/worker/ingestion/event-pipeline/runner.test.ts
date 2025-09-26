@@ -3,8 +3,8 @@ import { v4 } from 'uuid'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { dlq, ok, redirect } from '~/ingestion/pipelines/results'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { dlq, redirect, success } from '~/worker/ingestion/event-pipeline/pipeline-step-result'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
@@ -188,7 +188,7 @@ describe('EventPipelineRunner', () => {
         )
 
         jest.mocked(processPersonsStep).mockResolvedValue(
-            success([
+            ok([
                 pluginEvent,
                 { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
                 Promise.resolve(),

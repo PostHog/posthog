@@ -31,10 +31,10 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { PipelineConfig, ResultHandlingPipeline } from '../worker/ingestion/result-handling-pipeline'
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
+    createApplyCookielessProcessingStep,
     createApplyDropRestrictionsStep,
     createApplyForceOverflowRestrictionsStep,
     createApplyPersonProcessingRestrictionsStep,
@@ -43,6 +43,8 @@ import {
     createResolveTeamStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
+import { createBatch, createNewBatchPipeline, createNewPipeline } from './pipelines/helpers'
+import { PipelineConfig, ResultHandlingPipeline } from './pipelines/result-handling-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -113,7 +115,7 @@ export class IngestionConsumer {
     private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
 
-    private preprocessingPipeline: (message: Message) => Promise<PreprocessedEvent | null>
+    private batchPreprocessingPipeline!: ResultHandlingPipeline<{ message: Message }, PreprocessedEvent>
 
     constructor(
         private hub: Hub,
@@ -174,37 +176,6 @@ export class IngestionConsumer {
             groupId: this.groupId,
             topic: this.topic,
         })
-
-        // Initialize preprocessing pipeline
-        this.preprocessingPipeline = async (message: Message) => {
-            const pipelineConfig: PipelineConfig = {
-                kafkaProducer: this.kafkaProducer!,
-                dlqTopic: this.dlqTopic,
-                promiseScheduler: this.promiseScheduler,
-            }
-
-            try {
-                const pipeline = ResultHandlingPipeline.of({ message }, message, pipelineConfig)
-                    .pipe(createParseHeadersStep())
-                    .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
-                    .pipe(
-                        createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
-                            overflowEnabled: this.overflowEnabled(),
-                            overflowTopic: this.overflowTopic || '',
-                            preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
-                        })
-                    )
-                    .pipe(createParseKafkaMessageStep())
-                    .pipeAsync(createResolveTeamStep(this.hub))
-                    .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
-                    .pipeAsync(createValidateEventUuidStep(this.hub))
-
-                return await pipeline.unwrap()
-            } catch (error) {
-                console.error('Error processing message in pipeline:', error)
-                throw error
-            }
-        }
     }
 
     public get service(): PluginServerService {
@@ -227,6 +198,9 @@ export class IngestionConsumer {
             }),
         ])
 
+        // Initialize batch preprocessing pipeline after kafka producer is available
+        this.initializePipeline()
+
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
                 {
@@ -236,6 +210,39 @@ export class IngestionConsumer {
                 async () => await this.handleKafkaBatch(messages)
             )
         })
+    }
+
+    private initializePipeline(): void {
+        const pipelineConfig: PipelineConfig = {
+            kafkaProducer: this.kafkaProducer!,
+            dlqTopic: this.dlqTopic,
+            promiseScheduler: this.promiseScheduler,
+        }
+
+        // Create preprocessing pipeline
+        const preprocessingPipeline = createNewPipeline()
+            .pipe(createParseHeadersStep())
+            .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
+            .pipe(
+                createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
+                    overflowEnabled: this.overflowEnabled(),
+                    overflowTopic: this.overflowTopic || '',
+                    preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                })
+            )
+            .pipe(createParseKafkaMessageStep())
+            .pipeAsync(createResolveTeamStep(this.hub))
+            .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
+            .pipeAsync(createValidateEventUuidStep(this.hub))
+
+        // Create the batch processing pipeline with fluent API
+        const batchPipeline = createNewBatchPipeline()
+            .pipeConcurrently(preprocessingPipeline)
+            .gather()
+            .pipeBatch(createApplyCookielessProcessingStep(this.hub))
+
+        // Wrap it in the result handling pipeline
+        this.batchPreprocessingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
     }
 
     public async stop(): Promise<void> {
@@ -308,10 +315,7 @@ export class IngestionConsumer {
                 preprocessedEvents.map((x) => x.event)
             )
         )
-        const postCookielessMessages = await this.runInstrumented('cookielessProcessing', () =>
-            this.hub.cookielessManager.doBatch(preprocessedEvents.map((x) => x.eventWithTeam))
-        )
-        const eventsPerDistinctId = this.groupEventsByDistinctId(postCookielessMessages)
+        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents.map((x) => x.eventWithTeam))
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
@@ -610,12 +614,21 @@ export class IngestionConsumer {
     }
 
     private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {
-        const pipelinePromises = messages.map(async (message) => {
-            return await this.preprocessingPipeline(message)
-        })
+        // Create batch using the helper function
+        const batch = createBatch(messages)
 
-        const results = await Promise.all(pipelinePromises)
-        return results.filter((result): result is PreprocessedEvent => result !== null)
+        // Feed batch to the pipeline
+        this.batchPreprocessingPipeline.feed(batch)
+
+        // Get all results from the gather pipeline (should return all results in one call)
+        const result = await this.batchPreprocessingPipeline.next()
+
+        if (result === null) {
+            return []
+        }
+
+        // Return the results (already filtered to successful ones by ResultHandlingPipeline)
+        return result
     }
 
     private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
