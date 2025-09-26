@@ -92,7 +92,8 @@ export default function ViewRecordingButton({
             targetBlank
         >
             <div className="flex items-center gap-2 whitespace-nowrap">
-                <span>{label ? label : 'View recording'}</span>x{maybeUnwatchedIndicator}
+                <span>{label ? label : 'View recording'}</span>
+                {maybeUnwatchedIndicator}
             </div>
         </LemonButton>
     )

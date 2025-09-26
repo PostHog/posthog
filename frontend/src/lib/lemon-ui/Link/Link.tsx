@@ -128,7 +128,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         ref
     ) => {
         const externalLink = isExternalLink(to)
-        const openInNewPostHogTab = !externalLink && to && typeof to === 'string' && target === '_blank'
         const withinSidePanel = useContext(WithinSidePanelContext)
         const { elementProps: draggableProps } = useNotebookDrag({
             href: typeof to === 'string' ? to : undefined,
@@ -186,18 +185,11 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                         router.actions.push(to)
                     }
                 }
-            } else {
-                if (openInNewPostHogTab) {
-                    // For internal links, open in new PostHog tab
-                    event.preventDefault()
-                    event.stopPropagation()
-                    if (to && typeof to === 'string') {
-                        sceneLogic.isMounted() ? sceneLogic.actions.newTab(to) : window.open(to)
-                    } else {
-                        window.open(to)
-                    }
-                    return
-                }
+            } else if (target === '_blank' && !externalLink && to && typeof to === 'string') {
+                // For internal links, open in new PostHog tab
+                event.preventDefault()
+                event.stopPropagation()
+                sceneLogic.isMounted() ? sceneLogic.actions.newTab(to) : window.open(to)
             }
         }
 
