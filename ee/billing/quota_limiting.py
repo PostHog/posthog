@@ -76,6 +76,8 @@ class QuotaLimitingCaches(Enum):
 OVERAGE_BUFFER = {
     QuotaResource.EVENTS: 0,
     QuotaResource.EXCEPTIONS: 0,
+    # NOTE(Marce): Talked to Ben and this high buffer seems to be a hacky attempt
+    # to try to delay dropping events until long-running recordings have finished.
     QuotaResource.RECORDINGS: 1000,
     QuotaResource.ROWS_SYNCED: 0,
     QuotaResource.FEATURE_FLAG_REQUESTS: 0,
@@ -596,7 +598,10 @@ def update_all_orgs_billing_quotas(
             get_teams_with_exceptions_captured_in_period(period_start, period_end)
         ),
         "teams_with_recording_count_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_recording_count_in_period(period_start, period_end)
+            get_teams_with_recording_count_in_period(period_start, period_end, snapshot_source="web")
+        ),
+        "teams_with_mobile_recording_count_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_recording_count_in_period(period_start, period_end, snapshot_source="mobile")
         ),
         "teams_with_rows_synced_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_rows_synced_in_period(period_start, period_end)
@@ -644,11 +649,13 @@ def update_all_orgs_billing_quotas(
     for team in teams:
         decide_requests = all_data["teams_with_decide_requests_count"].get(team.id, 0)
         local_evaluation_requests = all_data["teams_with_local_evaluation_requests_count"].get(team.id, 0)
+        web_recordings = all_data["teams_with_recording_count_in_period"].get(team.id, 0)
+        mobile_recordings = all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0)
 
         team_report = UsageCounters(
             events=all_data["teams_with_event_count_in_period"].get(team.id, 0),
             exceptions=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
-            recordings=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
+            recordings=web_recordings + mobile_recordings,
             rows_synced=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
             feature_flags=decide_requests + (local_evaluation_requests * 10),  # Same weighting as in _get_team_report
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
