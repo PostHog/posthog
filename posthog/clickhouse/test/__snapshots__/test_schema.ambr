@@ -2161,6 +2161,7 @@
       query_kind                            LowCardinality(String),
   
       exception_code                        Int32,
+      exception_name                        String ALIAS errorCodeToName(exception_code),
       exception                             String,
       stack_trace                           String,
   
@@ -5235,6 +5236,7 @@
       query_kind                            LowCardinality(String),
   
       exception_code                        Int32,
+      exception_name                        String ALIAS errorCodeToName(exception_code),
       exception                             String,
       stack_trace                           String,
   
