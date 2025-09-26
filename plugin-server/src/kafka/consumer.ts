@@ -26,7 +26,7 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../config/config'
-import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
+import { kafkaConsumerAssignment, kafkaHeaderStatusCounter } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
@@ -841,8 +841,19 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.distinct_id = value
             } else if (key === 'timestamp') {
                 result.timestamp = value
+            } else if (key === 'event') {
+                result.event = value
+            } else if (key === 'uuid') {
+                result.uuid = value
             }
         })
+    })
+
+    // Track comprehensive header status metrics
+    const trackedHeaders = ['token', 'distinct_id', 'timestamp', 'event', 'uuid'] as const
+    trackedHeaders.forEach((header) => {
+        const status = result[header] ? 'present' : 'absent'
+        kafkaHeaderStatusCounter.labels(header, status).inc()
     })
 
     return result
