@@ -451,8 +451,7 @@ export class CdpApi {
                 : undefined
 
             const logs: MinimalLogEntry[] = []
-            const mockAsyncFunctions = req.body.mock_async_functions
-            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mockAsyncFunctions, logs)
+            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
