@@ -28,11 +28,53 @@ export interface PlaygroundResponse {
     }
 }
 
-export type MessageRole = 'user' | 'assistant' | 'system'
+enum NormalizedMessageRole {
+    User = 'user',
+    Assistant = 'assistant',
+    System = 'system',
+}
+
+export type MessageRole = `${NormalizedMessageRole}`
 
 export interface Message {
     role: MessageRole
     content: string
+}
+
+interface RawMessage {
+    role: string
+    content: unknown
+}
+
+enum InputMessageRole {
+    User = 'user',
+    Assistant = 'assistant',
+    AI = 'ai',
+    Model = 'model',
+    System = 'system',
+}
+
+type ConversationRole = NormalizedMessageRole.User | NormalizedMessageRole.Assistant
+
+function extractConversationMessage(rawMessage: RawMessage): Message | null {
+    // Define mapping for conversation roles only
+    const conversationRoleMap: Partial<Record<string, ConversationRole>> = {
+        [InputMessageRole.User]: NormalizedMessageRole.User,
+        [InputMessageRole.Assistant]: NormalizedMessageRole.Assistant,
+        [InputMessageRole.AI]: NormalizedMessageRole.Assistant, // Map 'ai' to 'assistant'
+        [InputMessageRole.Model]: NormalizedMessageRole.Assistant, // Map 'model' to 'assistant'
+    }
+
+    const normalizedRole: ConversationRole | undefined = conversationRoleMap[rawMessage.role]
+
+    if (!normalizedRole) {
+        return null
+    }
+
+    return {
+        role: normalizedRole,
+        content: typeof rawMessage.content === 'string' ? rawMessage.content : JSON.stringify(rawMessage.content),
+    }
 }
 
 export interface ComparisonItem {
@@ -434,11 +476,8 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
 
                         // Extract user and assistant messages for history
                         conversationMessages = input
-                            .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
-                            .map((msg) => ({
-                                role: msg.role as 'user' | 'assistant',
-                                content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-                            }))
+                            .map((msg: RawMessage) => extractConversationMessage(msg))
+                            .filter((msg) => msg !== null)
                     }
                     // Case 2: Input is just a single string prompt
                     else if (typeof input === 'string') {
