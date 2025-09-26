@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -444,4 +445,5 @@ class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
         agent = get_agent_dict_by_id(pk)
         if agent:
             return Response(agent)
-        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        raise NotFound(f"Unable to find agent definition")
