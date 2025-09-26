@@ -56,7 +56,7 @@ enum InputMessageRole {
 
 type ConversationRole = NormalizedMessageRole.User | NormalizedMessageRole.Assistant
 
-function extractConversationMessage(rawMessage: RawMessage): Message | null {
+function extractConversationMessage(rawMessage: RawMessage): Message {
     // Define mapping for conversation roles only
     const conversationRoleMap: Partial<Record<string, ConversationRole>> = {
         [InputMessageRole.User]: NormalizedMessageRole.User,
@@ -67,12 +67,12 @@ function extractConversationMessage(rawMessage: RawMessage): Message | null {
 
     const normalizedRole: ConversationRole | undefined = conversationRoleMap[rawMessage.role]
 
-    if (!normalizedRole) {
-        return null
-    }
+    // Default to 'user' role when we don't understand the role
+    // Better to show the message as a user message than to drop it entirely
+    const roleToUse = normalizedRole ?? NormalizedMessageRole.User
 
     return {
-        role: normalizedRole,
+        role: roleToUse,
         content: typeof rawMessage.content === 'string' ? rawMessage.content : JSON.stringify(rawMessage.content),
     }
 }
@@ -474,10 +474,10 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                             systemPromptContent = systemMessage.content
                         }
 
-                        // Extract user and assistant messages for history
+                        // Extract user and assistant messages for history (skip system messages as they're handled separately)
                         conversationMessages = input
+                            .filter((msg: RawMessage) => msg.role !== 'system')
                             .map((msg: RawMessage) => extractConversationMessage(msg))
-                            .filter((msg): msg is Message => msg !== null)
                     }
                     // Case 2: Input is just a single string prompt
                     else if (typeof input === 'string') {

@@ -457,19 +457,21 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             expect(logic.values.tools).toEqual(tools)
         })
 
-        it('should filter out messages with invalid roles', () => {
+        it('should default messages with unknown roles to user', () => {
             const input = [
                 { role: 'user', content: 'Valid user' },
-                { role: 'invalid_role', content: 'Should be filtered' },
+                { role: 'invalid_role', content: 'Unknown role defaults to user' },
                 { role: 'assistant', content: 'Valid assistant' },
-                { role: 'unknown', content: 'Also filtered' },
+                { role: 'unknown', content: 'Also defaults to user' },
             ]
 
             logic.actions.setupPlaygroundFromEvent({ input })
 
             expect(logic.values.messages).toEqual([
                 { role: 'user', content: 'Valid user' },
+                { role: 'user', content: 'Unknown role defaults to user' },
                 { role: 'assistant', content: 'Valid assistant' },
+                { role: 'user', content: 'Also defaults to user' },
             ])
         })
 
