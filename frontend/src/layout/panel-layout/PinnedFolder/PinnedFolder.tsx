@@ -33,6 +33,7 @@ export function PinnedFolder(): JSX.Element {
                     data-attr="tree-navbar-pinned-folder-change-button"
                     tooltip="Change pinned folder"
                     tooltipPlacement="top"
+                    className="opacity-0 group-hover/panel-layout:opacity-100 data-[state=open]:opacity-100"
                 >
                     <IconGear className="size-3 text-secondary" />
                 </ButtonPrimitive>
