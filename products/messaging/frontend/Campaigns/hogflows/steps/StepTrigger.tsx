@@ -161,26 +161,38 @@ function StepTriggerConfigurationWebhook({
     const { campaign, actionValidationErrorsById } = useValues(campaignLogic)
     const validationResult = actionValidationErrorsById[action.id]
 
+    const webhookUrl = campaign.id === 'new' ? null : publicWebhooksHostOrigin() + '/public/webhooks/' + campaign.id
+
     return (
         <>
-            <div className="p-2 rounded border deprecated-space-y-2 bg-surface-secondary">
-                <LemonLabel>Webhook URL</LemonLabel>
-                {campaign.id === 'new' ? (
-                    <div className="text-xs text-muted italic border rounded p-1 bg-surface-primary">
-                        The webhook URL will be shown here once you save the workflow
-                    </div>
-                ) : (
-                    <CodeSnippet thing="Webhook URL">
-                        {publicWebhooksHostOrigin() + '/public/webhooks/' + campaign.id}
-                    </CodeSnippet>
-                )}
+            <LemonCollapse
+                className="shrink-0"
+                defaultActiveKey="instructions"
+                panels={[
+                    {
+                        key: 'instructions',
+                        header: 'Usage instructions',
+                        className: 'p-3 bg-surface-secondary flex flex-col gap-2',
+                        content: (
+                            <>
+                                {!webhookUrl ? (
+                                    <div className="text-xs text-muted italic border rounded p-1 bg-surface-primary">
+                                        The webhook URL will be shown here once you save the workflow
+                                    </div>
+                                ) : (
+                                    <CodeSnippet thing="Webhook URL">{webhookUrl}</CodeSnippet>
+                                )}
 
-                <p className="text-sm">
-                    The webhook can be called with a POST request and any JSON payload. You can then use the
-                    configuration options to parse the <code>request.body</code> or <code>request.headers</code> to map
-                    to the required fields.
-                </p>
-            </div>
+                                <p className="text-sm">
+                                    The webhook can be called with any JSON payload. You can then use the configuration
+                                    options to parse the <code>request.body</code> or <code>request.headers</code> to
+                                    map to the required fields.
+                                </p>
+                            </>
+                        ),
+                    },
+                ]}
+            />
             <HogFlowFunctionConfiguration
                 templateId={config.template_id}
                 inputs={config.inputs}
