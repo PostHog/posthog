@@ -346,7 +346,10 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    pass
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
+    """
+    Messages exposed to the user.
+    """
 
 
 class AssistantNodeName(StrEnum):
