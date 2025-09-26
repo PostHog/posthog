@@ -41,7 +41,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePropertiesAttri
         Object.entries(person.properties).filter(([key, _]) => !pinnedPersonProperties.includes(key))
     )
     const numUnpinnedProperties = Object.keys(unpinnedProperties).length
-    const numPinnedProperties = Object.keys(unpinnedProperties).length
+    const numPinnedProperties = Object.keys(pinnedProperties).length
 
     return (
         <div className="py-2 px-4 text-xs">

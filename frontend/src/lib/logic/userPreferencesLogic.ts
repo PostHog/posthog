@@ -21,10 +21,10 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
         ],
         hideNullValues: [true, { persist: true }, { setHideNullValues: (_, { enabled }) => enabled }],
         pinnedPersonProperties: [
-            [],
+            [] as string[],
             { persist: true },
             {
-                pinPersonProperty: (state, { prop }) => [...state, prop],
+                pinPersonProperty: (state, { prop }) => (state.includes(prop) ? state : [...state, prop]),
                 unpinPersonProperty: (state, { prop }) => state.filter((p) => p !== prop),
             },
         ],
