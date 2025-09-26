@@ -41,6 +41,7 @@ export interface PropertyValueProps {
     size?: 'xsmall' | 'small' | 'medium'
     editable?: boolean
     preloadValues?: boolean
+    excludedProperties?: { [key: string]: string[] }
 }
 
 export function PropertyValue({
@@ -59,6 +60,7 @@ export function PropertyValue({
     groupTypeIndex = undefined,
     editable = true,
     preloadValues = false,
+    excludedProperties,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -103,7 +105,13 @@ export function PropertyValue({
         }
     }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
 
-    const displayOptions = propertyOptions?.values || []
+    const displayOptions = (propertyOptions?.values || []).filter((option) => {
+        // If propertyKey is 'event', filter out excluded event names
+        if (propertyKey === 'event' && excludedProperties?.['events']) {
+            return !excludedProperties['events'].includes(String(option.name))
+        }
+        return true
+    })
 
     const onSearchTextChange = (newInput: string): void => {
         if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {

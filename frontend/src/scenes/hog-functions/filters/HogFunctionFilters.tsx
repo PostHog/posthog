@@ -73,8 +73,11 @@ export function HogFunctionFilters({
     const isTransformation = type === 'transformation'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
 
-    const excludedProperties: ExcludedProperties = {
-        [TaxonomicFilterGroupType.EventProperties]: [
+    const excludedProperties: ExcludedProperties = {}
+
+    if (type === 'transformation') {
+        excludedProperties[TaxonomicFilterGroupType.Events] = ['$exception']
+        excludedProperties[TaxonomicFilterGroupType.EventProperties] = [
             '$exception_types',
             '$exception_functions',
             '$exception_values',
@@ -83,10 +86,7 @@ export function HogFunctionFilters({
             '$exception_type',
             '$exception_level',
             '$exception_message',
-        ],
-    }
-
-    if (type === 'transformation') {
+        ]
         excludedProperties[TaxonomicFilterGroupType.Events] = ['$exception']
     }
 
