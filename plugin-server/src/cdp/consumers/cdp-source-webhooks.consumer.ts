@@ -245,6 +245,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     {} as HogFunctionFilterGlobals
                 )
 
+                hogFlowInvocation.id = invocationId // Keep the IDs consistent
+
                 addMetric({
                     metric_kind: 'other',
                     metric_name: 'triggered',
