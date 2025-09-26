@@ -306,6 +306,7 @@ export enum AccessControlResourceType {
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
+    Survey = 'survey',
 }
 
 interface UserBaseType {
@@ -3167,7 +3168,7 @@ export interface ConsolidatedSurveyResults {
 export type SurveyResponseRow = Array<null | string | string[]>
 export type SurveyRawResults = SurveyResponseRow[]
 
-export interface Survey {
+export interface Survey extends WithAccessControl {
     /** UUID */
     id: string
     name: string
@@ -3198,6 +3199,7 @@ export interface Survey {
     response_sampling_interval?: number | null
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
+    user_access_level: AccessControlLevel
     enable_partial_responses?: boolean | null
     _create_in_folder?: string | null
 }
