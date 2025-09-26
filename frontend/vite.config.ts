@@ -108,28 +108,10 @@ export default defineConfig(({ mode }) => {
             devSourcemap: true,
         },
         optimizeDeps: {
-            // Force pre-bundling for development
-            force: true,
-            // Exclude heavy libraries that should be lazy-loaded
-            exclude: [
-                '@posthog/lemon-ui',
-                'monaco-editor',
-                'monaco-editor/*',
-                'elkjs',
-                'react-syntax-highlighter',
-                'mathjax-full',
-                '@tiptap/react/menus',
-                // Other heavy UI libs that aren't needed on first load
-                'react-grid-layout',
-                '@xyflow/react',
-            ],
-            // Entry points to analyze dependencies from
+            include: ['react', 'react-dom', 'buffer'],
+            // Exclude heavy optional libs
+            exclude: ['monaco-editor', 'monaco-editor/*', 'elkjs'],
             entries: ['src/index.tsx'],
-            // Manual chunking to reduce the number of dependency files
-            esbuildOptions: {
-                // Group small utilities into single chunks
-                splitting: false,
-            },
         },
     }
 })
