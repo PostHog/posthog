@@ -433,9 +433,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return
             }
 
-            if (values.queryInput) {
+            // Always create suggestion payload when a new suggestion comes in, even for consecutive suggestions
+            // Only skip diff mode if the editor is completely empty
+            if (values.queryInput && values.queryInput.trim() !== '') {
                 actions._setSuggestionPayload({
                     suggestedValue: suggestedQueryInput,
+                    originalValue: values.queryInput, // Store the current content as original for diff mode
                     acceptText: aiSuggestionOnAcceptText,
                     rejectText: aiSuggestionOnRejectText,
                     onAccept: aiSuggestionOnAccept,
@@ -468,9 +471,26 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             language: 'hogQL',
                         })
                     )
-                    props.editor?.setModel(newModel)
+
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(newModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(newModel)
+                    }
                 } else {
-                    props.editor?.setModel(existingModel)
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(existingModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(existingModel)
+                    }
                 }
             }
             posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
@@ -496,9 +516,26 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             language: 'hogQL',
                         })
                     )
-                    props.editor?.setModel(newModel)
+
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(newModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(newModel)
+                    }
                 } else {
-                    props.editor?.setModel(existingModel)
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(existingModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(existingModel)
+                    }
                 }
             }
             posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
@@ -569,6 +606,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.setFinishedLoading(false)
         },
         setQueryInput: ({ queryInput }) => {
+            // Keep suggestion payload active - let user make edits and then decide to approve/reject
             // if editing a view, track latest history id changes are based on
             if (values.activeTab?.view && values.activeTab?.view.query?.query) {
                 if (queryInput === values.activeTab.view?.query.query) {
@@ -922,12 +960,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         originalQueryInput: [
             (s) => [s.suggestionPayload, s.queryInput],
             (suggestionPayload, queryInput) => {
-                if (suggestionPayload?.suggestedValue && suggestionPayload?.suggestedValue !== queryInput) {
-                    return queryInput
-                }
-
-                if (suggestionPayload?.originalValue && suggestionPayload?.originalValue !== queryInput) {
-                    return suggestionPayload?.originalValue
+                // If we have a suggestion payload, always show diff mode
+                if (suggestionPayload?.suggestedValue) {
+                    // Prefer the stored originalValue if available, otherwise use current queryInput
+                    return suggestionPayload?.originalValue || queryInput
                 }
 
                 return undefined
