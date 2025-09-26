@@ -459,7 +459,7 @@ export class CdpApi {
                 nextActionId: result.invocation.state.currentAction?.id,
                 status: result.error ? 'error' : 'success',
                 errors: result.error ? [result.error] : [],
-                logs: result.logs,
+                logs: [...result.logs, ...logs],
             })
         } catch (e) {
             console.error(e)
@@ -595,7 +595,7 @@ const buildHogExecutorAsyncOptions = (
 ): HogExecutorExecuteAsyncOptions => {
     return {
         maxAsyncFunctions: MAX_ASYNC_STEPS,
-        asyncFunctionsNames: mockAsyncFunctions ? ['fetch', 'sendEmail'] : undefined,
+        asyncFunctionsNames: mockAsyncFunctions ? [] : undefined,
         functions: mockAsyncFunctions
             ? {
                   fetch: (...args: any[]) => {
@@ -624,7 +624,7 @@ const buildHogExecutorAsyncOptions = (
                       logs.push({
                           level: 'info',
                           timestamp: DateTime.now(),
-                          message: `sendEmail('${JSON.stringify(args[0], null, 2)})`,
+                          message: `sendEmail(${JSON.stringify(args[0], null, 2)})`,
                       })
 
                       return {
