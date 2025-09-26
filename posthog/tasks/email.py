@@ -117,6 +117,10 @@ def should_send_notification(
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
         return settings.get(notification_type, True)
 
+    # Default to True (enabled) if not set
+    elif notification_type == NotificationSetting.DISCUSSIONS_MENTIONED.value:
+        return settings.get(notification_type, True)
+
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
     # not handled in this function, we want this as a fallback.
