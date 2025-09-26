@@ -15,6 +15,8 @@ class SandboxAgentConfig(BaseModel):
     repository_url: str
     github_token: str
     task_id: str
+    posthog_personal_api_key: str
+    posthog_project_id: str
 
 
 class SandboxAgent:
@@ -37,6 +39,8 @@ class SandboxAgent:
     ) -> "SandboxAgent":
         environment_variables = {
             "REPOSITORY_URL": config.repository_url,
+            "POSTHOG_CLI_TOKEN": config.posthog_personal_api_key,
+            "POSTHOG_CLI_ENV_ID": config.posthog_project_id,
         }
 
         sandbox_config = SandboxEnvironmentConfig(
@@ -88,7 +92,8 @@ class SandboxAgent:
 
     def get_task_command(self) -> str:
         """Get the command to execute the task."""
-        return "claude --version"  # TODO: Replace this with our CLI instead of Claude Code - once it's available, and pass the task_id to it along with a personal api key
+        # TODO: Replace with actual task execution: posthog-cli task run --task-id {self.config.task_id}
+        return "posthog-cli --help"
 
     async def destroy(self) -> None:
         """Destroy the underlying sandbox."""
