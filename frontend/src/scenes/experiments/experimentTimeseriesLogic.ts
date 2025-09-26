@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ChartDataset as ChartJsDataset } from 'lib/Chart'
@@ -44,6 +44,7 @@ export interface ProcessedChartData {
 
 export interface ExperimentTimeseriesLogicProps {
     experimentId: number | string
+    metric?: ExperimentMetric
 }
 
 export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
@@ -164,7 +165,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                 }
 
                 const timeseriesData = timeseries.timeseries || {}
-                const computedDays = Object.values(timeseriesData).filter((data) => data !== null).length
+                const computedDays = Object.values(timeseriesData).filter(Boolean).length
                 const totalDays = Object.keys(timeseriesData).length
 
                 return totalDays > 0 ? `Computed ${computedDays} of ${totalDays} days` : null
@@ -276,5 +277,11 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                 }
             },
         ],
+    }),
+
+    afterMount(({ props, actions }) => {
+        if (props.metric && props.metric.uuid && props.metric.fingerprint) {
+            actions.loadTimeseries({ metric: props.metric })
+        }
     }),
 ])

@@ -1,7 +1,8 @@
-import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useValues } from 'kea'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
@@ -25,18 +26,8 @@ export function TimeseriesModal({
     variantResult,
     experiment,
 }: TimeseriesModalProps): JSX.Element {
-    const logic = experimentTimeseriesLogic({ experimentId: experiment.id })
-    const { loadTimeseries, clearTimeseries } = useActions(logic)
-    const { chartData, progressMessage, hasTimeseriesData } = useValues(logic)
-
-    useEffect(() => {
-        if (isOpen && metric.uuid && metric.fingerprint) {
-            loadTimeseries({ metric })
-        }
-        return () => {
-            clearTimeseries()
-        }
-    }, [isOpen, metric])
+    const logic = experimentTimeseriesLogic({ experimentId: experiment.id, metric: isOpen ? metric : undefined })
+    const { chartData, progressMessage, hasTimeseriesData, timeseriesLoading } = useValues(logic)
 
     const processedChartData = chartData(variantResult.key)
     const variantName =
@@ -56,7 +47,15 @@ export function TimeseriesModal({
             }
         >
             <div>
-                {hasTimeseriesData ? (
+                {timeseriesLoading ? (
+                    <div
+                        className="flex items-center justify-center gap-2 text-[14px] font-normal"
+                        style={{ height: '200px' }}
+                    >
+                        <Spinner className="text-lg" />
+                        <span>Loading timeseries&hellip;</span>
+                    </div>
+                ) : hasTimeseriesData ? (
                     <div>
                         {progressMessage && <div className="text-xs text-muted mt-2 mb-4">{progressMessage}</div>}
                         {processedChartData ? (
