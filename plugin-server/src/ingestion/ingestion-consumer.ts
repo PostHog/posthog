@@ -1,34 +1,27 @@
-import { Message, MessageHeader } from 'node-rdkafka'
+import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
-import { z } from 'zod'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from '../kafka/consumer'
+import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import {
-    eventDroppedCounter,
-    latestOffsetTimestampGauge,
-    setUsageInNonPersonEventsCounter,
-} from '../main/ingestion-queues/metrics'
+import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
     EventHeaders,
     HealthCheckResult,
     HealthCheckResultError,
     Hub,
+    IncomingEvent,
     IncomingEventWithTeam,
-    KafkaConsumerBreadcrumb,
-    KafkaConsumerBreadcrumbSchema,
     PipelineEvent,
     PluginServerService,
     PluginsServerConfig,
 } from '../types'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
-import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
@@ -41,13 +34,17 @@ import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/p
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
-    applyDropEventsRestrictions,
-    applyForceOverflowRestrictions,
-    applyPersonProcessingRestrictions,
-    parseKafkaMessage,
-    resolveTeam,
-    validateEventUuid,
+    createApplyCookielessProcessingStep,
+    createApplyDropRestrictionsStep,
+    createApplyForceOverflowRestrictionsStep,
+    createApplyPersonProcessingRestrictionsStep,
+    createParseHeadersStep,
+    createParseKafkaMessageStep,
+    createResolveTeamStep,
+    createValidateEventUuidStep,
 } from './event-preprocessing'
+import { createBatch, createNewBatchPipeline, createNewPipeline } from './pipelines/helpers'
+import { PipelineConfig, ResultHandlingPipeline } from './pipelines/result-handling-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -68,6 +65,13 @@ type EventsForDistinctId = {
 
 type IncomingEventsByDistinctId = {
     [key: string]: EventsForDistinctId
+}
+
+type PreprocessedEvent = {
+    message: Message
+    headers: EventHeaders
+    event: IncomingEvent
+    eventWithTeam: IncomingEventWithTeam
 }
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -110,6 +114,8 @@ export class IngestionConsumer {
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
+
+    private batchPreprocessingPipeline!: ResultHandlingPipeline<{ message: Message }, PreprocessedEvent>
 
     constructor(
         private hub: Hub,
@@ -192,6 +198,9 @@ export class IngestionConsumer {
             }),
         ])
 
+        // Initialize batch preprocessing pipeline after kafka producer is available
+        this.initializePipeline()
+
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
                 {
@@ -201,6 +210,39 @@ export class IngestionConsumer {
                 async () => await this.handleKafkaBatch(messages)
             )
         })
+    }
+
+    private initializePipeline(): void {
+        const pipelineConfig: PipelineConfig = {
+            kafkaProducer: this.kafkaProducer!,
+            dlqTopic: this.dlqTopic,
+            promiseScheduler: this.promiseScheduler,
+        }
+
+        // Create preprocessing pipeline
+        const preprocessingPipeline = createNewPipeline()
+            .pipe(createParseHeadersStep())
+            .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
+            .pipe(
+                createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
+                    overflowEnabled: this.overflowEnabled(),
+                    overflowTopic: this.overflowTopic || '',
+                    preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                })
+            )
+            .pipe(createParseKafkaMessageStep())
+            .pipeAsync(createResolveTeamStep(this.hub))
+            .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
+            .pipeAsync(createValidateEventUuidStep(this.hub))
+
+        // Create the batch processing pipeline with fluent API
+        const batchPipeline = createNewBatchPipeline()
+            .pipeConcurrently(preprocessingPipeline)
+            .gather()
+            .pipeBatch(createApplyCookielessProcessingStep(this.hub))
+
+        // Wrap it in the result handling pipeline
+        this.batchPreprocessingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
     }
 
     public async stop(): Promise<void> {
@@ -230,54 +272,6 @@ export class IngestionConsumer {
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
         return instrumentFn<T>(`ingestionConsumer.${name}`, func)
-    }
-
-    private createBreadcrumb(message: Message): KafkaConsumerBreadcrumb {
-        return {
-            topic: message.topic,
-            partition: message.partition,
-            offset: message.offset,
-            processed_at: new Date().toISOString(),
-            consumer_id: this.groupId,
-        }
-    }
-
-    private getExistingBreadcrumbsFromHeaders(message: Message): KafkaConsumerBreadcrumb[] {
-        const existingBreadcrumbs: KafkaConsumerBreadcrumb[] = []
-        if (message.headers) {
-            for (const header of message.headers) {
-                if ('kafka-consumer-breadcrumbs' in header) {
-                    try {
-                        const headerValue = header['kafka-consumer-breadcrumbs']
-                        const valueString = headerValue instanceof Buffer ? headerValue.toString() : String(headerValue)
-                        const parsedValue = parseJSON(valueString)
-                        if (Array.isArray(parsedValue)) {
-                            const validatedBreadcrumbs = z.array(KafkaConsumerBreadcrumbSchema).safeParse(parsedValue)
-                            if (validatedBreadcrumbs.success) {
-                                existingBreadcrumbs.push(...validatedBreadcrumbs.data)
-                            } else {
-                                logger.warn('Failed to validated breadcrumbs array from header', {
-                                    error: validatedBreadcrumbs.error.format(),
-                                })
-                            }
-                        } else {
-                            const validatedBreadcrumb = KafkaConsumerBreadcrumbSchema.safeParse(parsedValue)
-                            if (validatedBreadcrumb.success) {
-                                existingBreadcrumbs.push(validatedBreadcrumb.data)
-                            } else {
-                                logger.warn('Failed to validate breadcrumb from header', {
-                                    error: validatedBreadcrumb.error.format(),
-                                })
-                            }
-                        }
-                    } catch (e) {
-                        logger.warn('Failed to parse breadcrumb from header', { error: e })
-                    }
-                }
-            }
-        }
-
-        return existingBreadcrumbs
     }
 
     private logBatchStart(messages: Message[]): void {
@@ -315,11 +309,13 @@ export class IngestionConsumer {
 
         const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
         // Fire-and-forget deduplication call
-        void this.promiseScheduler.schedule(deduplicateEvents(this.deduplicationRedis, preprocessedEvents))
-        const postCookielessMessages = await this.runInstrumented('cookielessProcessing', () =>
-            this.hub.cookielessManager.doBatch(preprocessedEvents)
+        void this.promiseScheduler.schedule(
+            deduplicateEvents(
+                this.deduplicationRedis,
+                preprocessedEvents.map((x) => x.event)
+            )
         )
-        const eventsPerDistinctId = this.groupEventsByDistinctId(postCookielessMessages)
+        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents.map((x) => x.eventWithTeam))
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
@@ -526,16 +522,11 @@ export class IngestionConsumer {
     ): Promise<EventPipelineResult | undefined> {
         const { event, message, team, headers } = incomingEvent
 
-        const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
-        const currentBreadcrumb = this.createBreadcrumb(message)
-        const allBreadcrumbs = existingBreadcrumbs.concat(currentBreadcrumb)
-
         try {
             const result = await this.runInstrumented('runEventPipeline', () =>
                 retryIfRetriable(async () => {
                     const runner = this.getEventPipelineRunnerV1(
                         event,
-                        allBreadcrumbs,
                         personsStoreForBatch,
                         groupStoreForBatch,
                         headers
@@ -608,7 +599,6 @@ export class IngestionConsumer {
 
     private getEventPipelineRunnerV1(
         event: PipelineEvent,
-        breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch,
         headers?: EventHeaders
@@ -617,63 +607,28 @@ export class IngestionConsumer {
             this.hub,
             event,
             this.hogTransformer,
-            breadcrumbs,
             personsStoreForBatch,
             groupStoreForBatch,
             headers
         )
     }
 
-    private async preprocessEvents(messages: Message[]): Promise<IncomingEventWithTeam[]> {
-        const preprocessedEvents: IncomingEventWithTeam[] = []
+    private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {
+        // Create batch using the helper function
+        const batch = createBatch(messages)
 
-        for (const message of messages) {
-            const headers = parseEventHeaders(message.headers)
+        // Feed batch to the pipeline
+        this.batchPreprocessingPipeline.feed(batch)
 
-            if (applyDropEventsRestrictions(this.eventIngestionRestrictionManager, headers)) {
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'blocked_token',
-                    })
-                    .inc()
-                continue
-            }
+        // Get all results from the gather pipeline (should return all results in one call)
+        const result = await this.batchPreprocessingPipeline.next()
 
-            const forceOverflowDecision = applyForceOverflowRestrictions(this.eventIngestionRestrictionManager, headers)
-            if (forceOverflowDecision.shouldRedirect && this.overflowEnabled()) {
-                ingestionEventOverflowed.inc(1)
-                forcedOverflowEventsCounter.inc()
-                void this.promiseScheduler.schedule(
-                    this.emitToOverflow([message], forceOverflowDecision.preservePartitionLocality)
-                )
-                continue
-            }
-
-            const parsedEvent = parseKafkaMessage(message)
-            if (!parsedEvent) {
-                continue
-            }
-
-            const eventWithHeaders = { ...parsedEvent, headers }
-
-            const eventWithTeam = await resolveTeam(this.hub, eventWithHeaders)
-            if (!eventWithTeam) {
-                continue
-            }
-
-            applyPersonProcessingRestrictions(eventWithTeam, this.eventIngestionRestrictionManager)
-
-            // We only validate it here because we want to raise ingestion warnings
-            const validEvent = await validateEventUuid(eventWithTeam, this.hub)
-            if (!validEvent) {
-                continue
-            }
-
-            preprocessedEvents.push(validEvent)
+        if (result === null) {
+            return []
         }
 
-        return preprocessedEvents
+        // Return the results (already filtered to successful ones by ResultHandlingPipeline)
+        return result
     }
 
     private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
@@ -738,13 +693,6 @@ export class IngestionConsumer {
 
         await Promise.all(
             kafkaMessages.map((message) => {
-                const headers: MessageHeader[] = message.headers ?? []
-                const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
-                const breadcrumb = this.createBreadcrumb(message)
-                const allBreadcrumbs = [...existingBreadcrumbs, breadcrumb]
-                headers.push({
-                    'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify(allBreadcrumbs)),
-                })
                 return this.kafkaOverflowProducer!.produce({
                     topic: this.overflowTopic!,
                     value: message.value,
@@ -752,7 +700,7 @@ export class IngestionConsumer {
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
                     key: preservePartitionLocality ? (message.key ?? null) : null,
-                    headers: parseKafkaHeaders(headers),
+                    headers: parseKafkaHeaders(message.headers),
                 })
             })
         )

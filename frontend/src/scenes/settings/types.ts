@@ -1,6 +1,6 @@
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
-import { Realm, TeamPublicType, TeamType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Realm, TeamPublicType, TeamType } from '~/types'
 
 export type SettingsLogicProps = {
     logicKey?: string
@@ -30,6 +30,7 @@ export type SettingSectionId =
     | 'environment-crm'
     | 'environment-max'
     | 'environment-integrations'
+    | 'environment-activity-logs'
     | 'environment-access-control'
     | 'environment-danger-zone'
     | 'project-details'
@@ -83,6 +84,7 @@ export type SettingId =
     | 'replay-masking'
     | 'replay-authorized-domains'
     | 'replay-ingestion'
+    | 'replay-retention'
     | 'surveys-interface'
     | 'feature-flags-interface'
     | 'error-tracking-exception-autocapture'
@@ -159,13 +161,15 @@ export type Setting = {
     description?: JSX.Element | string
     component: JSX.Element
     searchTerm?: string
+    hideOn?: Realm[]
+
     /**
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
      * When an array is provided, the setting will be shown if ALL of the conditions are met.
      */
     flag?: FeatureFlagKey | `!${FeatureFlagKey}` | (FeatureFlagKey | `!${FeatureFlagKey}`)[]
-    hideOn?: Realm[]
+
     /**
      * defaults to true if not provided
      * can check if a team should have access to a setting and return false if not
@@ -182,4 +186,13 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel
     searchValue?: string
+
+    /**
+     * If the setting is restricted, the resource type and minimum access level
+     * that are required to access the setting
+     */
+    accessControl?: {
+        resourceType: AccessControlResourceType
+        minimumAccessLevel: AccessControlLevel
+    }
 }

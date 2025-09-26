@@ -350,7 +350,7 @@ class OauthIntegration:
                 token_info_config_fields=["id", "name", "email"],
                 client_id=settings.META_ADS_APP_CLIENT_ID,
                 client_secret=settings.META_ADS_APP_CLIENT_SECRET,
-                scope="ads_read ads_management business_management read_insights",
+                scope="ads_read",
                 id_path="id",
                 name_path="name",
             )
@@ -1207,13 +1207,7 @@ class GitHubIntegration:
         if not github_app_private_key:
             raise ValidationError("GITHUB_APP_PRIVATE_KEY is not configured")
 
-        # Handle common newline encoding issues in environment variables
-        # Replace literal \n with actual newlines
-        github_app_private_key = github_app_private_key.replace("\\n", "\n")
-
-        # Check if the private key has the proper PEM format
-        if not github_app_private_key.strip().startswith("-----BEGIN"):
-            raise ValidationError("GITHUB_APP_PRIVATE_KEY is not in proper PEM format. It should start with -----BEGIN")
+        github_app_private_key = github_app_private_key.replace("\\n", "\n").strip()
 
         try:
             jwt_token = jwt.encode(
@@ -1305,6 +1299,8 @@ class GitHubIntegration:
             logger.warning(f"Failed to refresh token for {self}", response=response.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
             oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+            self.integration.save()
+            raise Exception(f"Failed to refresh token for {self}: {response.text}")
         else:
             logger.info(f"Refreshed access token for {self}")
             expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
@@ -1313,7 +1309,7 @@ class GitHubIntegration:
             self.integration.sensitive_config["access_token"] = config["token"]
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
-        self.integration.save()
+            self.integration.save()
 
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")

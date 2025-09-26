@@ -94,7 +94,7 @@ export function PanelLayoutPanel({
         panelWidth: computedPanelWidth,
         panelWillHide,
     } = useValues(panelLayoutLogic)
-    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { closePanel } = useActions(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -164,8 +164,7 @@ export function PanelLayoutPanel({
 
                                 <ButtonPrimitive
                                     onClick={() => {
-                                        showLayoutPanel(false)
-                                        clearActivePanelIdentifier()
+                                        closePanel()
                                     }}
                                     tooltip="Close panel"
                                     iconOnly
