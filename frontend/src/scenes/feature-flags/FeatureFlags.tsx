@@ -178,12 +178,12 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                         Duplicate feature flag
                     </LemonButton>
 
-                    <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth>
+                    <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth targetBlank>
                         Try out in Insights
                     </LemonButton>
 
                     {openMax && (
-                        <LemonButton onClick={openMax} data-attr="create-survey" fullWidth>
+                        <LemonButton onClick={openMax} data-attr="create-survey" fullWidth targetBlank>
                             Create survey
                         </LemonButton>
                     )}
