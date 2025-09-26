@@ -22,6 +22,7 @@ class SandboxEnvironmentStatus(str, Enum):
 
 class SandboxEnvironmentTemplate(str, Enum):
     UBUNTU_LATEST_X86_64 = "ubuntu_latest_x86_64"
+    DEFAULT_BASE = "default_base"
 
 
 class ExecutionResult(BaseModel):
@@ -33,7 +34,7 @@ class ExecutionResult(BaseModel):
 
 class SandboxEnvironmentConfig(BaseModel):
     name: str
-    template: SandboxEnvironmentTemplate = SandboxEnvironmentTemplate.UBUNTU_LATEST_X86_64
+    template: SandboxEnvironmentTemplate = SandboxEnvironmentTemplate.DEFAULT_BASE
     default_execution_timeout_seconds: int = 10 * 60  # 10 minutes
     environment_variables: Optional[dict[str, str]] = None
     entrypoint: Optional[str] = None
@@ -48,6 +49,7 @@ def get_runloop_client() -> AsyncRunloop:
 
 TEMPLATE_TO_BLUEPRINT_ID = {
     SandboxEnvironmentTemplate.UBUNTU_LATEST_X86_64: "bpt_314SoBaTALK7ENbm96oGg",
+    SandboxEnvironmentTemplate.DEFAULT_BASE: "bpt_318UuXYGZbyYyl12hArAL",
 }
 
 BLUEPRINT_ID_TO_TEMPLATE = {v: k for k, v in TEMPLATE_TO_BLUEPRINT_ID.items()}
