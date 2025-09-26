@@ -65,6 +65,12 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
             {
                 token: Buffer.from(event.token || ''),
             },
+            {
+                event: Buffer.from(event.event || ''),
+            },
+            {
+                uuid: Buffer.from(event.uuid || ''),
+            },
         ],
     }
 }
