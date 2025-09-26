@@ -16,7 +16,7 @@ pub use types::*;
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     flags::flag_service::FlagService,
-    metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY},
+    metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
 };
 use std::collections::HashMap;
 use tracing::{info, instrument, warn};
@@ -29,142 +29,167 @@ use tracing::{info, instrument, warn};
 /// 5) Returns a [`FlagsResponse`] or an error.
 #[instrument(skip_all, fields(request_id = %context.request_id))]
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
-    async move {
-        let start_time = std::time::Instant::now();
+    let mut team_id_for_metrics: Option<i32> = None;
 
-        let flag_service = FlagService::new(
-            context.state.redis_reader.clone(),
-            context.state.redis_writer.clone(),
-            context.state.database_pools.non_persons_reader.clone(),
-        );
+    let result: Result<FlagsResponse, FlagError> = {
+        let team_id_ref = &mut team_id_for_metrics;
+        async move {
+            let start_time = std::time::Instant::now();
 
-        let (original_distinct_id, verified_token, request) =
-            authentication::parse_and_authenticate(&context, &flag_service).await?;
+            let flag_service = FlagService::new(
+                context.state.redis_reader.clone(),
+                context.state.redis_writer.clone(),
+                context.state.database_pools.non_persons_reader.clone(),
+            );
 
-        let distinct_id_for_logging = original_distinct_id
-            .clone()
-            .unwrap_or_else(|| "disabled".to_string());
+            let (original_distinct_id, verified_token, request) =
+                authentication::parse_and_authenticate(&context, &flag_service).await?;
 
-        tracing::debug!(
-            "Authentication completed for distinct_id: {}",
-            distinct_id_for_logging
-        );
+            let distinct_id_for_logging = original_distinct_id
+                .clone()
+                .unwrap_or_else(|| "disabled".to_string());
 
-        let team = flag_service
-            .get_team_from_cache_or_pg(&verified_token)
-            .await?;
+            tracing::debug!(
+                "Authentication completed for distinct_id: {}",
+                distinct_id_for_logging
+            );
 
-        tracing::debug!(
-            "Team fetched: team_id={}, project_id={}",
-            team.id,
-            team.project_id
-        );
+            let team = flag_service
+                .get_team_from_cache_or_pg(&verified_token)
+                .await?;
 
-        // Early exit if flags are disabled
-        let flags_response = if request.is_flags_disabled() {
-            FlagsResponse::new(false, HashMap::new(), None, context.request_id)
-        } else if let Some(quota_limited_response) =
-            billing::check_limits(&context, &verified_token).await?
-        {
-            warn!("Request quota limited");
-            quota_limited_response
-        } else {
-            let distinct_id = cookieless::handle_distinct_id(
-                &context,
-                &request,
-                &team,
-                original_distinct_id
-                    .expect("distinct_id should be present when flags are not disabled"),
-            )
-            .await?;
+            let team_id = team.id;
+            *team_id_ref = Some(team_id);
 
-            tracing::debug!("Distinct ID resolved: {}", distinct_id);
-
-            let (filtered_flags, had_flag_errors) = flags::fetch_and_filter(
-                &flag_service,
-                team.project_id,
-                &context.meta,
-                &context.headers,
-                None,
-                request.evaluation_environments.as_ref(),
-            )
-            .await?;
-
-            tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
-
-            let property_overrides = properties::prepare_overrides(&context, &request)?;
-
-            // Evaluate flags (this will return empty if is_flags_disabled is true)
-            let mut response = flags::evaluate_for_request(
-                &context.state,
+            tracing::debug!(
+                "Team fetched: team_id={}, project_id={}",
                 team.id,
-                team.project_id,
-                distinct_id.clone(),
-                filtered_flags.clone(),
-                property_overrides.person_properties,
-                property_overrides.group_properties,
-                property_overrides.groups,
-                property_overrides.hash_key,
-                context.request_id,
-                request.is_flags_disabled(),
-                request.flag_keys.clone(),
-            )
-            .await;
+                team.project_id
+            );
 
-            // Set error flag if there were deserialization errors
-            if had_flag_errors {
-                response.errors_while_computing_flags = true;
-            }
+            // Early exit if flags are disabled
+            let flags_response = if request.is_flags_disabled() {
+                FlagsResponse::new(false, HashMap::new(), None, context.request_id)
+            } else if let Some(quota_limited_response) =
+                billing::check_limits(&context, &verified_token).await?
+            {
+                warn!("Request quota limited");
+                quota_limited_response
+            } else {
+                let distinct_id = cookieless::handle_distinct_id(
+                    &context,
+                    &request,
+                    &team,
+                    original_distinct_id
+                        .expect("distinct_id should be present when flags are not disabled"),
+                )
+                .await?;
 
-            // Only record billing if flags are not disabled
-            if !request.is_flags_disabled() {
-                billing::record_usage(&context, &filtered_flags, team.id).await;
-            }
+                tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
-            response
-        };
+                let (filtered_flags, had_flag_errors) = flags::fetch_and_filter(
+                    &flag_service,
+                    team.project_id,
+                    &context.meta,
+                    &context.headers,
+                    None,
+                    request.evaluation_environments.as_ref(),
+                )
+                .await?;
 
-        // build the rest of the FlagsResponse, since the caller may have passed in `&config=true` and may need additional fields
-        // beyond just feature flags
-        let response =
-            config_response_builder::build_response(flags_response, &context, &team).await?;
+                tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
-        let total_duration = start_time.elapsed();
+                let property_overrides = properties::prepare_overrides(&context, &request)?;
 
-        // Record metrics
-        let labels = [
-            (
-                "flags_disabled".to_string(),
-                request.is_flags_disabled().to_string(),
-            ),
-            ("team_id".to_string(), team.id.to_string()),
-        ];
+                // Evaluate flags (this will return empty if is_flags_disabled is true)
+                let mut response = flags::evaluate_for_request(
+                    &context.state,
+                    team.id,
+                    team.project_id,
+                    distinct_id.clone(),
+                    filtered_flags.clone(),
+                    property_overrides.person_properties,
+                    property_overrides.group_properties,
+                    property_overrides.groups,
+                    property_overrides.hash_key,
+                    context.request_id,
+                    request.is_flags_disabled(),
+                    request.flag_keys.clone(),
+                )
+                .await;
 
-        inc(FLAG_REQUESTS_COUNTER, &labels, 1);
+                // Set error flag if there were deserialization errors
+                if had_flag_errors {
+                    response.errors_while_computing_flags = true;
+                }
 
-        histogram(
-            FLAG_REQUESTS_LATENCY,
-            &labels,
-            total_duration.as_millis() as f64,
-        );
+                // Only record billing if flags are not disabled
+                if !request.is_flags_disabled() {
+                    billing::record_usage(&context, &filtered_flags, team.id).await;
+                }
 
-        // Comprehensive request summary
-        info!(
-            request_id = %context.request_id,
-            distinct_id = %distinct_id_for_logging,
-            team_id = team.id,
-            project_id = team.project_id,
-            flags_count = response.flags.len(),
-            flags_disabled = request.is_flags_disabled(),
-            quota_limited = response.quota_limited.is_some(),
-            duration_ms = total_duration.as_millis(),
-            slow_request = total_duration.as_millis() > 1000,
-            "Request completed"
-        );
+                response
+            };
 
-        Ok(response)
+            // build the rest of the FlagsResponse, since the caller may have passed in `&config=true` and may need additional fields
+            // beyond just feature flags
+            let response =
+                config_response_builder::build_response(flags_response, &context, &team).await?;
+
+            let total_duration = start_time.elapsed();
+
+            // Record metrics
+            let labels = [
+                (
+                    "flags_disabled".to_string(),
+                    request.is_flags_disabled().to_string(),
+                ),
+                ("team_id".to_string(), team.id.to_string()),
+            ];
+
+            inc(FLAG_REQUESTS_COUNTER, &labels, 1);
+
+            histogram(
+                FLAG_REQUESTS_LATENCY,
+                &labels,
+                total_duration.as_millis() as f64,
+            );
+
+            // Comprehensive request summary
+            info!(
+                request_id = %context.request_id,
+                distinct_id = %distinct_id_for_logging,
+                team_id = team.id,
+                project_id = team.project_id,
+                flags_count = response.flags.len(),
+                flags_disabled = request.is_flags_disabled(),
+                quota_limited = response.quota_limited.is_some(),
+                duration_ms = total_duration.as_millis(),
+                slow_request = total_duration.as_millis() > 1000,
+                "Request completed"
+            );
+
+            Ok(response)
+        }
+        .await
+    };
+
+    // Track 5XX errors with team_id if available
+    if let Err(ref e) = result {
+        if e.is_5xx() {
+            let team_label = match team_id_for_metrics {
+                Some(id) => id.to_string(),
+                None => "not_available".to_string(),
+            };
+            inc(
+                FLAG_REQUEST_FAULTS_COUNTER,
+                &[("team_id".to_string(), team_label)],
+                1,
+            );
+        }
     }
-    .await
+
+    result
 }
 
 #[cfg(test)]

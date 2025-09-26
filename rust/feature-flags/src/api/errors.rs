@@ -71,6 +71,46 @@ pub enum FlagError {
     CookielessError(#[from] CookielessManagerError),
 }
 
+impl FlagError {
+    pub fn is_5xx(&self) -> bool {
+        let status = match self {
+            FlagError::ClientFacing(err) => match err {
+                ClientFacingError::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+                _ => return false, // All other ClientFacing are 4XX
+            },
+            FlagError::Internal(_)
+            | FlagError::CacheUpdateError
+            | FlagError::DeserializeFiltersError
+            | FlagError::DatabaseError(_, _)
+            | FlagError::NoGroupTypeMappings
+            | FlagError::RowNotFound
+            | FlagError::DependencyNotFound(_, _)
+            | FlagError::CohortFiltersParsingError
+            | FlagError::DependencyCycle(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
+
+            FlagError::RedisDataParsingError
+            | FlagError::RedisUnavailable
+            | FlagError::DatabaseUnavailable
+            | FlagError::TimeoutError => StatusCode::SERVICE_UNAVAILABLE,
+
+            FlagError::CookielessError(err) => {
+                match err {
+                    CookielessManagerError::HashError(_)
+                    | CookielessManagerError::ChronoError(_)
+                    | CookielessManagerError::RedisError(_, _)
+                    | CookielessManagerError::SaltCacheError(_)
+                    | CookielessManagerError::InvalidIdentifyCount(_) => {
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    }
+                    _ => return false, // Other CookielessErrors are 4XX
+                }
+            }
+            _ => return false, // Everything else is 4XX
+        };
+        status.is_server_error()
+    }
+}
+
 impl IntoResponse for FlagError {
     fn into_response(self) -> Response {
         match self {
