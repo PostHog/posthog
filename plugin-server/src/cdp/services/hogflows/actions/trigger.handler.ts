@@ -12,7 +12,7 @@ export class TriggerHandler implements ActionHandler {
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'trigger' }>
     ): Promise<ActionHandlerResult> {
-        if (action.config.type === 'webhook') {
+        if (action.config.type !== 'event') {
             return { nextAction: findContinueAction(invocation) }
         }
 
