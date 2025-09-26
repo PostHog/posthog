@@ -317,13 +317,11 @@ async fn it_adds_event_and_generated_uuid_headers() -> Result<()> {
     // Basic UUID format validation
     assert!(
         uuid_header.len() == 36,
-        "UUID should be 36 characters long, got: {}",
-        uuid_header
+        "UUID should be 36 characters long, got: {uuid_header}"
     );
     assert!(
         uuid_header.contains('-'),
-        "UUID should contain dashes, got: {}",
-        uuid_header
+        "UUID should contain dashes, got: {uuid_header}"
     );
 
     Ok(())
