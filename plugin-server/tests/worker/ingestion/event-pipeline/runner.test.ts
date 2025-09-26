@@ -4,6 +4,7 @@ import { v4 } from 'uuid'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import {
+    PipelineResult,
     PipelineResultType,
     dlq,
     isDlqResult,
@@ -49,7 +50,12 @@ class TestEventPipelineRunner extends EventPipelineRunner {
     steps: Array<string> = []
     stepsWithArgs: Array<[string, any[]]> = []
 
-    protected runStep(step: any, [runner, ...args]: any[], teamId: number, sendtoDLQ: boolean) {
+    protected async runStep<T, Step extends (...args: any[]) => Promise<T>>(
+        step: Step,
+        [runner, ...args]: Parameters<Step>,
+        teamId: number,
+        sendtoDLQ: boolean = true
+    ) {
         this.steps.push(step.name)
 
         // We stringify+parse to clone the `args` object, since we do a lot of event mutation
@@ -58,7 +64,25 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // in practice, for better or worse).
         this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
 
-        return super.runStep(step, [runner, ...args], teamId, sendtoDLQ)
+        return super.runStep<T, Step>(step, [runner, ...args] as Parameters<Step>, teamId, sendtoDLQ)
+    }
+
+    protected async runPipelineStep<T, Step extends (...args: any[]) => Promise<PipelineResult<T>>>(
+        step: Step,
+        args: Parameters<Step>,
+        teamId: number,
+        sendtoDLQ: boolean = true
+    ) {
+        this.steps.push(step.name)
+
+        // We stringify+parse to clone the `args` object, since we do a lot of event mutation
+        // and pass the same object around by reference. We want to see a "snapshot" of the args
+        // sent to each step, rather than the final mutated object (which many steps actually share
+        // in practice, for better or worse).
+        const [runner, ...restArgs] = args
+        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(restArgs))])
+
+        return super.runPipelineStep<T, Step>(step, [runner, ...args] as Parameters<Step>, teamId, sendtoDLQ)
     }
 }
 
@@ -204,10 +228,8 @@ describe('EventPipelineRunner', () => {
         )
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
 
-        // @ts-expect-error TODO: Check why expect never
         jest.mocked(createEventStep).mockResolvedValue(createdEvent)
 
-        // @ts-expect-error TODO: Check why expect never
         jest.mocked(emitEventStep).mockResolvedValue([Promise.resolve()])
     })
 
