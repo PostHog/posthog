@@ -101,7 +101,7 @@ NON_RETRYABLE_ERROR_TYPES = (
 
 class RedshiftClient(PostgreSQLClient):
     @contextlib.asynccontextmanager
-    async def connect(self) -> typing.AsyncIterator[typing.Self]:
+    async def connect(self) -> collections.abc.AsyncIterator[typing.Self]:
         """Manage a Redshift connection.
 
         This just yields a Postgres connection but we adjust a couple of things required for
@@ -118,7 +118,7 @@ class RedshiftClient(PostgreSQLClient):
             yield self
 
     @contextlib.asynccontextmanager
-    async def async_client_cursor(self) -> typing.AsyncIterator[psycopg.AsyncClientCursor]:
+    async def async_client_cursor(self) -> collections.abc.AsyncIterator[psycopg.AsyncClientCursor]:
         """Yield a AsyncClientCursor from a psycopg.AsyncConnection.
 
         Keeps track of the current cursor_factory to set it after we are done.
@@ -841,7 +841,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                 columns = await redshift_client.aget_table_columns(inputs.schema, inputs.table_name)
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
             except psycopg.errors.UndefinedTable:
-                table_fields = table_schemas.table_schema
+                table_fields = list(table_schemas.table_schema)
 
             primary_key = merge_settings.primary_key if merge_settings.requires_merge is True else None
             async with (
