@@ -8,16 +8,18 @@ logger = logging.getLogger(__name__)
 
 WORKING_DIR = "/tmp/workspace"
 REPOSITORY_TARGET_DIR = "repo"
+DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 
 
 class SandboxAgentConfig(BaseModel):
     repository_url: str
     github_token: str
+    task_id: str
 
 
 class SandboxAgent:
     """
-    Agent that uses sandbox environments to execute Claude Code tasks.
+    Agent that uses sandbox environments to execute tasks.
     """
 
     config: SandboxAgentConfig
@@ -35,6 +37,7 @@ class SandboxAgent:
     ) -> "SandboxAgent":
         environment_variables = {
             "REPOSITORY_URL": config.repository_url,
+            "GITHUB_TOKEN": config.github_token,
         }
 
         sandbox_config = SandboxEnvironmentConfig(
@@ -59,11 +62,10 @@ class SandboxAgent:
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
-        # Parse the repo URL to inject the token
         if repo_url.startswith("https://github.com/"):
-            # Use x-access-token format for GitHub App tokens
             auth_url = repo_url.replace(
-                "https://github.com/", f"https://x-access-token:{self.config.github_token}@github.com/"
+                "https://github.com/",
+                f"https://x-access-token:{self.config.github_token}@github.com/",
             )
         else:
             raise ValueError("Only GitHub is supported")
@@ -73,17 +75,21 @@ class SandboxAgent:
         logger.info(f"Cloning repository {repo_url} to {self.repository_dir} in sandbox {self.sandbox.id}")
         return await self.sandbox.execute(clone_command)
 
-    async def execute_claude_code(self, command: str) -> ExecutionResult:
+    async def execute_task(self) -> ExecutionResult:
         """Execute Claude Code commands in the sandbox."""
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
-        full_command = f"cd {self.repository_dir} && claude {command}"
+        full_command = f"cd {self.repository_dir} && {self.get_task_command()}"
 
         logger.info(
-            f"Executing Claude Code command '{command}' in directory {self.repository_dir} in sandbox {self.sandbox.id}"
+            f"Executing task {self.config.task_id} in directory {self.repository_dir} in sandbox {self.sandbox.id}"
         )
-        return await self.sandbox.execute(full_command)
+        return await self.sandbox.execute(full_command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
+
+    def get_task_command(self) -> str:
+        """Get the command to execute the task."""
+        return "claude --version"  # TODO: Replace this with our CLI instead of Claude Code - once it's available, and pass the task_id to it along with a personal api key
 
     async def destroy(self) -> None:
         """Destroy the underlying sandbox."""

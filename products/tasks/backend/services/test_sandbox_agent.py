@@ -35,7 +35,9 @@ class TestSandboxAgentIntegration:
         )
         sandbox = await SandboxEnvironment.create(sandbox_config)
 
-        agent_config = SandboxAgentConfig(repository_url=public_repo_url, github_token=mock_github_token)
+        agent_config = SandboxAgentConfig(
+            repository_url=public_repo_url, github_token=mock_github_token, task_id="test"
+        )
 
         async with await SandboxAgent.create(sandbox, agent_config) as agent:
             assert agent.id is not None
@@ -51,14 +53,9 @@ class TestSandboxAgentIntegration:
             assert check_result.exit_code == 0
             assert ".git" in check_result.stdout
 
-            version_result = await agent.execute_claude_code("--version")
+            version_result = await agent.execute_task()
             assert version_result.exit_code == 0
             assert "Claude Code" in version_result.stdout
-
-            help_result = await agent.execute_claude_code("--help")
-            assert help_result.exit_code == 0
-            assert "Usage: claude" in help_result.stdout
-            assert "options" in help_result.stdout.lower()
 
             context_result = await agent.sandbox.execute(f"cd {agent.repository_dir} && pwd")
             assert context_result.exit_code == 0
