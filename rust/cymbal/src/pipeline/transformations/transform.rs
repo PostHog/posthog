@@ -66,7 +66,7 @@ impl HogFunctionManager {
             return Ok(functions.into_iter().map(|f| f.inner).collect());
         };
 
-        // TODO - we hardcode transoformations as the function type in a bunch of places. Really the cache should be keyed
+        // TODO - we hardcode transformations as the function type in a bunch of places. Really the cache should be keyed
         // on function type as well as team id.
         let fetched =
             HogFunction::fetch_for_team(e, team_id, HogFunctionType::Transformation).await?;

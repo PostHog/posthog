@@ -213,8 +213,6 @@ pub async fn apply_transformations(
 // Apply a set of transformations to an event. Each transformation results in a TransformationResult.
 fn execute_transformations(
     event: ClickHouseEvent,
-    // TODO - this has to be mutable, because we have to mutate the ExecutionContext's contained here to install the event globals before running the filter. This is better
-    // than cloning the ExecutableHogFunction for each event, but it's still pretty ugly. A better HogVM interface would let us handle the globals set more elegantly.
     executable_list: &[ExecutableHogFunction],
 ) -> TransformSetOutcome {
     let mut results = Vec::new();
