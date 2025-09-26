@@ -229,6 +229,10 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             expected_length = end_byte - start_byte + 1
 
             file_bytes = self.read_all_bytes(key)
+
+            if file_bytes is None:
+                raise BlockDeleteError(f"Failed to read file {key}")
+
             new_file_bytes = bytes(
                 bytearray(file_bytes[:start_byte]) + bytearray(expected_length) + bytearray(file_bytes[end_byte + 1 :])
             )
@@ -266,7 +270,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
         return bool(settings.SESSION_RECORDING_V2_S3_LTS_PREFIX)
 
 
-class AsyncSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
+class AsyncSessionRecordingV2ObjectStorage:
     def __init__(self, aws_client, bucket: str) -> None:
         self.aws_client = aws_client
         self.bucket = bucket
@@ -471,7 +475,7 @@ def client() -> SessionRecordingV2ObjectStorageBase:
 
 
 @asynccontextmanager
-async def async_client() -> AsyncIterator[SessionRecordingV2ObjectStorageBase]:
+async def async_client() -> AsyncIterator[AsyncSessionRecordingV2ObjectStorage]:
     required_settings = [
         settings.SESSION_RECORDING_V2_S3_ENDPOINT,
         settings.SESSION_RECORDING_V2_S3_REGION,
@@ -479,10 +483,10 @@ async def async_client() -> AsyncIterator[SessionRecordingV2ObjectStorageBase]:
     ]
 
     if not all(required_settings):
-        yield UnavailableSessionRecordingV2ObjectStorage()
+        raise RuntimeError("Missing required settings for object storage client")
     else:
         session = get_session()
-        async with session.create_client(
+        async with session.create_client(  # type: ignore[call-overload]
             "s3",
             endpoint_url=settings.SESSION_RECORDING_V2_S3_ENDPOINT,
             aws_access_key_id=settings.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,

@@ -74,7 +74,7 @@ async def load_recording_blocks(input: LoadRecordingBlocksInput) -> list[Recordi
             ) as ch_response:
                 raw_response = await ch_response.content.read()
 
-        block_listing: RecordingBlockListing = SessionReplayEvents.build_recording_block_listing(
+        block_listing: RecordingBlockListing | None = SessionReplayEvents.build_recording_block_listing(
             input.session_id, _parse_block_listing_response(raw_response)
         )
 
