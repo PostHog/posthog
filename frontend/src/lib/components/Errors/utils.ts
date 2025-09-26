@@ -98,13 +98,13 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         // we have seen in production that we managed to get `value = {}`
         // so even though this is typed as a string
         // it might not be!
-        type = exceptionList?.[0]?.type ? String(exceptionList?.[0]?.type) : undefined
+        type = exceptionList?.[0]?.type ? stringify(exceptionList?.[0]?.type) : undefined
     }
     if (!value) {
         // we have seen in production that we managed to get `value = {}`
         // so even though this is typed as a string
         // it might not be!
-        value = exceptionList?.[0]?.value ? String(exceptionList?.[0]?.value) : undefined
+        value = exceptionList?.[0]?.value ? stringify(exceptionList?.[0]?.value) : undefined
     }
     if (synthetic == undefined) {
         synthetic = exceptionList?.[0]?.mechanism?.synthetic
