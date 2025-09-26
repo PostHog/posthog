@@ -127,7 +127,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemDroppable?: (item: TreeDataItem) => boolean
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
-    /** The button to render for the item's side action. */
+    /** The button to render for the item's side action. This will always be visible, and padding will be alloted for it. */
     itemSideActionButton?: (item: TreeDataItem) => React.ReactNode
     /** The context menu to render for the item. */
     itemContextMenu?: (item: TreeDataItem) => React.ReactNode
@@ -392,6 +392,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             // add padding to the right (follow button primmitive group padding)
                                             'pr-1 group-hover/lemon-tree-button-group:pr-[var(--button-height-base)] group-has-[.data-[state=open]]:pr-[var(--button-height-base)]',
                                             {
+                                                // If has custom side action button, add back default padding to the right
+                                                'pr-[var(--button-height-base)]': itemSideActionButton?.(item),
                                                 'bg-fill-button-tertiary-hover':
                                                     ((selectMode === 'folder-only' || selectMode === 'all') &&
                                                         selectedId === item.id &&
@@ -579,14 +581,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             !isEmptyFolder &&
                                             size === 'default' && (
                                                 <DropdownMenu>
-                                                    {/* We hide the side action button until hover (over group) / dropdown is active */}
-                                                    <div className="opacity-0 group-hover/lemon-tree-button-group:opacity-100 [&:has([data-state=open])]:opacity-100">
+                                                    <div className="">
                                                         <DropdownMenuTrigger asChild>
                                                             {itemSideActionButton?.(item) ?? (
                                                                 <ButtonPrimitive
                                                                     iconOnly
                                                                     isSideActionRight
-                                                                    className="z-2"
+                                                                    // We hide the side action button until hover (over group) / dropdown is active
+                                                                    className="z-2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 [&:has([data-state=open])]:opacity-100"
                                                                 >
                                                                     <IconEllipsis className="size-3 text-tertiary" />
                                                                 </ButtonPrimitive>
