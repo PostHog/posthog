@@ -1112,7 +1112,6 @@ posthog/warehouse/models/table.py:0: error: Subclass of "list[tuple[str, ...]]" 
 posthog/warehouse/models/table.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/warehouse/models/table.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/warehouse/test/utils.py:0: error: Dict entry 1 has incompatible type "str": "str | Mapping[str, str | bool]"; expected "str": "str | bool"  [dict-item]
-products/batch_exports/backend/temporal/temporary_file.py:0: error: Argument "compression" to "ParquetWriter" has incompatible type "str"; expected "Literal['gzip', 'bz2', 'brotli', 'lz4', 'zstd', 'snappy', 'none'] | dict[str, Literal['gzip', 'bz2', 'brotli', 'lz4', 'zstd', 'snappy', 'none']]"  [arg-type]
 products/batch_exports/backend/tests/temporal/destinations/test_s3_batch_export_workflow.py:0: error: Cannot assign to a method  [method-assign]
 products/batch_exports/backend/tests/temporal/destinations/test_s3_batch_export_workflow.py:0: error: Signature of "client" incompatible with supertype "aioboto3.session.Session"  [override]
 products/batch_exports/backend/tests/temporal/destinations/test_s3_batch_export_workflow.py:0: error: Signature of "client" incompatible with supertype "boto3.session.Session"  [override]

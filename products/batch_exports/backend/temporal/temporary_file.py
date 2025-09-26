@@ -758,7 +758,7 @@ class ParquetBatchExportWriter(BatchExportWriter):
             self._parquet_writer = pq.ParquetWriter(
                 self.batch_export_file,
                 schema=self.schema,
-                compression="none" if self.compression is None else self.compression,
+                compression="none" if self.compression is None else self.compression,  # type: ignore
                 compression_level=self.compression_level,
             )
         return self._parquet_writer
@@ -799,9 +799,6 @@ def remove_escaped_whitespace_recursive(value):
             return remove_escaped_whitespace_recursive(b.decode("utf-8"))
 
         case [*sequence]:
-            # mypy could be bugged as it's raising a Statement unreachable error.
-            # But we are definitely reaching this statement in tests; hence the ignore comment.
-            # Maybe: https://github.com/python/mypy/issues/16272.
             return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)
 
         case set(elements):
