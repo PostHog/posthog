@@ -477,7 +477,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                         // Extract user and assistant messages for history
                         conversationMessages = input
                             .map((msg: RawMessage) => extractConversationMessage(msg))
-                            .filter((msg) => msg !== null)
+                            .filter((msg): msg is Message => msg !== null)
                     }
                     // Case 2: Input is just a single string prompt
                     else if (typeof input === 'string') {
