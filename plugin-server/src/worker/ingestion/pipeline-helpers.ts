@@ -179,8 +179,8 @@ function getEventMetadata(message: Message): { teamId?: string; distinctId?: str
         }
     }
 
-    const teamId = headers['team-id'] ? String(headers['team-id']) : undefined
-    const distinctId = headers['distinct-id'] ? String(headers['distinct-id']) : undefined
+    const teamId = headers['team_id'] ? String(headers['team_id']) : undefined
+    const distinctId = headers['distinct_id'] ? String(headers['distinct_id']) : undefined
     const event = headers['event'] ? String(headers['event']) : undefined
     const uuid = headers['uuid'] ? String(headers['uuid']) : undefined
 

@@ -382,11 +382,7 @@ describe('sendMessageToDLQ', () => {
             offset: 123,
             key: 'test-key',
             size: 12,
-            headers: [
-                { 'team-id': Buffer.from('42') },
-                { 'distinct-id': Buffer.from('test-user') },
-                { event: 'pageview' },
-            ],
+            headers: [{ team_id: Buffer.from('42') }, { distinct_id: Buffer.from('test-user') }, { event: 'pageview' }],
         } as Message
 
         mockCaptureIngestionWarning.mockResolvedValue(undefined)
@@ -426,8 +422,8 @@ describe('sendMessageToDLQ', () => {
             value: mockMessage.value,
             key: mockMessage.key,
             headers: expect.objectContaining({
-                'team-id': '42',
-                'distinct-id': 'test-user',
+                team_id: '42',
+                distinct_id: 'test-user',
                 event: 'pageview',
                 'dlq-reason': 'Test error',
                 'dlq-step': stepName,
@@ -459,8 +455,8 @@ describe('sendMessageToDLQ', () => {
         const messageWithMixedHeaders = {
             ...mockMessage,
             headers: [
-                { 'team-id': 42 }, // number
-                { 'distinct-id': 'test-user' }, // string
+                { team_id: 42 }, // number
+                { distinct_id: 'test-user' }, // string
                 { event: Buffer.from('pageview') }, // Buffer
                 { custom: null }, // null
                 { undefined: undefined }, // undefined
@@ -478,8 +474,8 @@ describe('sendMessageToDLQ', () => {
             value: messageWithMixedHeaders.value,
             key: messageWithMixedHeaders.key,
             headers: expect.objectContaining({
-                'team-id': '42',
-                'distinct-id': 'test-user',
+                team_id: '42',
+                distinct_id: 'test-user',
                 event: 'pageview',
                 custom: 'null',
                 // undefined should not be included
@@ -551,11 +547,7 @@ describe('redirectMessageToTopic', () => {
             offset: 123,
             key: 'test-key',
             size: 12,
-            headers: [
-                { 'team-id': Buffer.from('42') },
-                { 'distinct-id': Buffer.from('test-user') },
-                { event: 'pageview' },
-            ],
+            headers: [{ team_id: Buffer.from('42') }, { distinct_id: Buffer.from('test-user') }, { event: 'pageview' }],
         } as Message
     })
 
@@ -570,8 +562,8 @@ describe('redirectMessageToTopic', () => {
             value: mockMessage.value,
             key: mockMessage.key,
             headers: expect.objectContaining({
-                'team-id': '42',
-                'distinct-id': 'test-user',
+                team_id: '42',
+                distinct_id: 'test-user',
                 event: 'pageview',
                 'redirect-step': stepName,
                 'redirect-timestamp': expect.any(String),
@@ -669,11 +661,7 @@ describe('logDroppedMessage', () => {
             offset: 123,
             key: 'test-key',
             size: 12,
-            headers: [
-                { 'team-id': Buffer.from('42') },
-                { 'distinct-id': Buffer.from('test-user') },
-                { event: 'pageview' },
-            ],
+            headers: [{ team_id: Buffer.from('42') }, { distinct_id: Buffer.from('test-user') }, { event: 'pageview' }],
         } as Message
     })
 
