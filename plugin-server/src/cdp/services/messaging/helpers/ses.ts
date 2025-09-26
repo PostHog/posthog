@@ -283,40 +283,6 @@ export class SesWebhookHandler {
         return lines.join('\n') + '\n'
     }
 
-    // /**
-    //  * Handle individual SES event
-    //  * Override this method to implement your business logic
-    //  */
-    // protected onSesEvent(record: SesEventRecord): void {
-    //     const { mail, eventType } = record
-    //     const _destination = mail.destination?.[0] ?? null
-    //     const _messageId = mail.messageId
-    //     const _tags = Object.fromEntries(Object.entries(mail.tags ?? {}).map(([k, v]) => [k, v[0]]))
-
-    //     switch (eventType) {
-    //         case 'Open':
-    //             // persist open with join keys -> (messageId, destination, your tags)
-    //             // e.g. await db.opens.insert({ messageId, email: destination, userId: tags.user_id, ts: record.open.timestamp })
-    //             break
-    //         case 'Click':
-    //             // e.g. await db.clicks.insert({ messageId, email: destination, link: record.click.link, ts: record.click.timestamp })
-    //             break
-    //         case 'Delivery':
-    //         case 'Bounce':
-    //         case 'Complaint':
-    //         case 'Send':
-    //         case 'Reject':
-    //         case 'RenderingFailure':
-    //         default:
-    //             // handle or log as needed
-    //             break
-    //     }
-    // }
-
-    /**
-     * Framework-agnostic handler
-     * Pass in the raw JSON body and headers. Returns {status, body}.
-     */
     async handleWebhook(opts: {
         body: any
         headers: Record<string, string | string[] | undefined>
@@ -330,11 +296,16 @@ export class SesWebhookHandler {
             metricName: MinimalAppMetric['metric_name']
         }[]
     }> {
+        logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
         const parsed = this.parseIncomingBody(opts.body)
+
+        logger.info('[SesWebhookHandler] parsed', { parsed })
 
         // If SNS envelope present and verification requested, verify signature
         if ('envelope' in parsed && opts.verifySignature) {
+            logger.info('[SesWebhookHandler] verifying signature', { envelope: parsed.envelope })
             const ok = await this.verifySnsSignature(parsed.envelope)
+            logger.info('[SesWebhookHandler] signature verified', { ok })
             if (!ok) {
                 return { status: 403, body: { error: 'Invalid SNS signature' } }
             }
@@ -342,10 +313,12 @@ export class SesWebhookHandler {
 
         // Handle confirmation flow
         if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'SubscriptionConfirmation') {
+            logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
             // Confirm by visiting SubscribeURL (contained in the *message JSON*, not envelope.Message field here)
             // We need to fetch the inner message JSON to get SubscribeURL
             const env = parsed.envelope
             const inner = parseJSON(env.Message) as { SubscribeURL?: string }
+            logger.info('[SesWebhookHandler] confirming subscription', { inner })
             if (inner.SubscribeURL) {
                 await this.fetchText(inner.SubscribeURL)
             }
@@ -353,6 +326,7 @@ export class SesWebhookHandler {
         }
 
         if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'UnsubscribeConfirmation') {
+            logger.info('[SesWebhookHandler] confirming unsubscribe', { envelope: parsed.envelope })
             return { status: 200, body: { ok: true } }
         }
 
@@ -365,6 +339,7 @@ export class SesWebhookHandler {
         }[] = []
 
         for (const rec of records) {
+            logger.info('[SesWebhookHandler] processing record', { rec })
             const tags = rec.mail.tags
             const { functionId, invocationId } = parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
 
