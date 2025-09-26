@@ -4,6 +4,7 @@ import time
 import typing as t
 import asyncio
 import datetime as dt
+import threading
 import contextlib
 import dataclasses
 import collections.abc
@@ -128,7 +129,7 @@ class DatabricksClient:
     # queries we make to Databricks. 1 second has been chosen rather arbitrarily.
     DEFAULT_POLL_INTERVAL = 1.0
     # Timeout to use for initializing the Databricks connection.
-    CONNECT_TIMEOUT = 5
+    CONNECT_TIMEOUT = 5.0
 
     def __init__(
         self,
@@ -177,21 +178,18 @@ class DatabricksClient:
             raise Exception("Not connected, open a connection by calling `connect`")
         return self._connection
 
-    @contextlib.asynccontextmanager
-    async def connect(self):
-        """Manage a Databricks connection.
+    async def _connect(self):
+        """Establish a raw Databricks connection in a separate thread.
 
-        Methods that require a connection should be ran within this block.
+        NOTE: When initializing the Config object, Databricks tries to fetch the OIDC endpoints for the workspace.
+        When performing this request, Databricks uses an unconfigurable timeout of 5 minutes, which means we can end
+        up waiting for a long time.  I have opened an issue with Databricks to make this timeout configurable:
+        https://github.com/databricks/databricks-sdk-py/issues/1046
 
-        We call `use_catalog` and `use_schema` to ensure that all queries are run in the correct catalog and schema.
+        As a result, we try to establish the connection using a separate thread with a timeout, ensuring that we
+        terminate the thread if it takes too long.
         """
 
-        self.logger.debug("Initializing Databricks connection")
-
-        # NOTE: When initializing the Config object, Databricks tries to fetch the OIDC endpoints for the workspace.
-        # When performing this request, Databricks uses an unconfigurable timeout of 5 minutes, which means we can end
-        # up waiting for a long time.  I have opened an issue with Databricks to make this timeout configurable:
-        # https://github.com/databricks/databricks-sdk-py/issues/1046
         def get_credential_provider():
             config = Config(
                 host=f"https://{self.server_hostname}",
@@ -200,30 +198,51 @@ class DatabricksClient:
             )
             return oauth_service_principal(config)
 
-        try:
-            # wait for the connection to be established or timeout after 10 seconds
-            # (this is necessary due to the issue mentioned above)
-            self._connection = await asyncio.wait_for(
-                # call sql.connect in a separate thread to avoid blocking the event loop in the main thread
-                asyncio.to_thread(
-                    sql.connect,
+        result = None
+        done = asyncio.Event()
+        loop = asyncio.get_event_loop()
+
+        def connect_thread():
+            nonlocal result
+            try:
+                result = sql.connect(
                     server_hostname=self.server_hostname,
                     http_path=self.http_path,
                     credentials_provider=get_credential_provider,
-                    # user agent can be used for usage tracking
                     user_agent_entry="PostHog batch exports",
                     enable_telemetry=False,
-                    _socket_timeout=60,  # 1 minute
-                ),
-                timeout=self.CONNECT_TIMEOUT,
-            )
+                    _socket_timeout=60,
+                )
+            except Exception as e:
+                result = e
+            finally:
+                loop.call_soon_threadsafe(done.set)
+
+        threading.Thread(target=connect_thread, daemon=True).start()
+
+        try:
+            await asyncio.wait_for(done.wait(), timeout=self.CONNECT_TIMEOUT)
+            if isinstance(result, Exception):
+                if isinstance(result, OperationalError):
+                    raise DatabricksConnectionError(f"Failed to connect to Databricks: {result}") from result
+                raise result
+            return result
         except TimeoutError:
             raise DatabricksConnectionError(
                 f"Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
-        except OperationalError as err:
-            raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err
 
+    @contextlib.asynccontextmanager
+    async def connect(self):
+        """Manage a Databricks connection.
+
+        Methods that require a connection should be ran within this block.
+
+        We call `use_catalog` and `use_schema` to ensure that all queries are run in the correct catalog and schema.
+        """
+        self.logger.debug("Initializing Databricks connection")
+
+        self._connection = await self._connect()
         self.logger.debug("Connected to Databricks")
 
         await self.use_catalog(self.catalog)
@@ -232,7 +251,8 @@ class DatabricksClient:
         try:
             yield self
         finally:
-            await asyncio.to_thread(self._connection.close)
+            if self._connection:
+                await asyncio.to_thread(self._connection.close)
             self._connection = None
 
     async def execute_query(
