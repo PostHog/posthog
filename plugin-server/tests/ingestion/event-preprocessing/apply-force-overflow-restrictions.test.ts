@@ -2,9 +2,9 @@ import {
     OverflowConfig,
     createApplyForceOverflowRestrictionsStep,
 } from '../../../src/ingestion/event-preprocessing/apply-force-overflow-restrictions'
+import { ok, redirect } from '../../../src/ingestion/pipelines/results'
 import { EventHeaders } from '../../../src/types'
 import { EventIngestionRestrictionManager } from '../../../src/utils/event-ingestion-restriction-manager'
-import { redirect, success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 
 describe('createApplyForceOverflowRestrictionsStep', () => {
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -39,7 +39,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith('valid-token-123', 'user-456')
         // shouldSkipPerson should not be called if not forcing overflow
         expect(eventIngestionRestrictionManager.shouldSkipPerson).not.toHaveBeenCalled()
@@ -101,7 +101,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(undefined, undefined)
     })
 
@@ -114,7 +114,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(undefined, undefined)
     })
 
@@ -138,7 +138,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
 
         const result = disabledStep(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.shouldForceOverflow).not.toHaveBeenCalled()
         expect(eventIngestionRestrictionManager.shouldSkipPerson).not.toHaveBeenCalled()
     })

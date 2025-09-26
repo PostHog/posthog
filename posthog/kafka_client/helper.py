@@ -109,6 +109,7 @@ def get_kafka_consumer(topic=None, value_deserializer=lambda v: json.loads(v.dec
         security_protocol="SSL",
         ssl_context=get_kafka_ssl_context(),
         value_deserializer=value_deserializer,
+        consumer_timeout_ms=5000 if (settings.DEBUG and not settings.TEST) else 305000,
         **kwargs,
     )
 

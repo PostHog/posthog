@@ -166,6 +166,9 @@ dependencies = [
     "playwright>=1.54.0",
     "linkedin-api-client>=0.3.0",
     "aiobotocore>=2.7.0",
+    "runloop-api-client>=0.60.0",
+    "databricks-sql-connector~=4.1.2",
+    "databricks-sdk~=0.66.0",
 ]
 
 [dependency-groups]

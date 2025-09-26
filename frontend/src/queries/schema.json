@@ -1937,6 +1937,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "ActionsUnstackedBar",
+                    "type": "string"
+                },
+                {
                     "const": "ActionsAreaGraph",
                     "type": "string"
                 },
@@ -2050,6 +2054,7 @@
                     "enum": [
                         "ActionsLineGraph",
                         "ActionsBar",
+                        "ActionsUnstackedBar",
                         "ActionsAreaGraph",
                         "ActionsLineGraphCumulative",
                         "BoldNumber",
@@ -6838,6 +6843,7 @@
             "enum": [
                 "ActionsLineGraph",
                 "ActionsBar",
+                "ActionsUnstackedBar",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
                 "ActionsLineGraphCumulative",
@@ -11384,6 +11390,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "funnel_order_type": {
                     "$ref": "#/definitions/StepOrderValue"
                 },
@@ -11599,6 +11608,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
@@ -11677,6 +11689,9 @@
                 },
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "fingerprint": {
+                    "type": "string"
                 },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
@@ -11942,6 +11957,9 @@
                 "denominator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
+                "fingerprint": {
+                    "type": "string"
+                },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
@@ -12012,6 +12030,21 @@
                 "numerator_denominator_sum_product": {
                     "type": "number"
                 },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -12039,6 +12072,21 @@
                 },
                 "numerator_denominator_sum_product": {
                     "type": "number"
+                },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"
@@ -12219,6 +12267,21 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -12270,6 +12333,21 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"
@@ -12526,7 +12604,9 @@
                 "insight/paths",
                 "insight/lifecycle",
                 "insight/stickiness",
-                "insight/hog"
+                "insight/hog",
+                "team_activity",
+                "home"
             ],
             "type": "string"
         },
@@ -14085,7 +14165,7 @@
                     "type": "boolean"
                 },
                 "sessionTableVersion": {
-                    "enum": ["auto", "v1", "v2"],
+                    "enum": ["auto", "v1", "v2", "v3"],
                     "type": "string"
                 },
                 "sessionsV2JoinMode": {
@@ -15754,6 +15834,9 @@
         "MarketingAnalyticsSchemaField": {
             "additionalProperties": false,
             "properties": {
+                "isCurrency": {
+                    "type": "boolean"
+                },
                 "required": {
                     "type": "boolean"
                 },
@@ -15764,7 +15847,7 @@
                     "type": "array"
                 }
             },
-            "required": ["type", "required"],
+            "required": ["type", "required", "isCurrency"],
             "type": "object"
         },
         "MarketingAnalyticsSchemaFieldTypes": {
@@ -15807,6 +15890,10 @@
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
+                    "type": "boolean"
+                },
+                "includeAllConversions": {
+                    "description": "Include conversion goal rows even when they don't match campaign costs table",
                     "type": "boolean"
                 },
                 "includeRevenue": {
@@ -16583,7 +16670,14 @@
                     "type": "string"
                 },
                 "query": {
-                    "$ref": "#/definitions/HogQLQuery"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/InsightQueryNode"
+                        }
+                    ]
                 }
             },
             "type": "object"
@@ -16597,6 +16691,9 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
+                },
+                "query_override": {
+                    "type": "object"
                 },
                 "refresh": {
                     "$ref": "#/definitions/RefreshType",
@@ -23320,6 +23417,22 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
+        "SessionData": {
+            "additionalProperties": false,
+            "properties": {
+                "event_uuid": {
+                    "type": "string"
+                },
+                "person_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["person_id", "session_id", "event_uuid"],
+            "type": "object"
+        },
         "SessionEventsItem": {
             "additionalProperties": false,
             "properties": {
@@ -25142,6 +25255,11 @@
                 },
                 "decimalPlaces": {
                     "type": "number"
+                },
+                "detailedResultsAggregationType": {
+                    "description": "detailed results table",
+                    "enum": ["total", "average", "median"],
+                    "type": "string"
                 },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType",

@@ -32,7 +32,10 @@ from .adapters.factory import MarketingSourceFactory
 from .constants import (
     BASE_COLUMN_MAPPING,
     CAMPAIGN_COST_CTE_NAME,
+    CONVERSION_GOAL_PREFIX_ABBREVIATION,
     DEFAULT_LIMIT,
+    ORGANIC_CAMPAIGN,
+    ORGANIC_SOURCE,
     PAGINATION_EXTRA,
     TOTAL_CLICKS_FIELD,
     TOTAL_COST_FIELD,
@@ -379,6 +382,11 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
 
     def _build_select_columns_mapping(self, processors: list[ConversionGoalProcessor]) -> dict[str, ast.Expr]:
         all_columns: dict[str, ast.Expr] = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
+
+        # For FULL OUTER JOIN: use COALESCE to show conversion goal UTM values when campaign costs are empty
+        if processors and self.query.includeAllConversions:
+            all_columns.update(self._build_coalesce_campaign_source_columns(processors))
+
         for processor in processors:
             conversion_goal_expr, cost_per_goal_expr = processor.generate_select_columns()
             all_columns.update(
@@ -386,6 +394,62 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
             )
 
         return all_columns
+
+    def _build_coalesce_campaign_source_columns(self, processors: list[ConversionGoalProcessor]) -> dict[str, ast.Expr]:
+        """Build COALESCE expressions for campaign and source that fall back to conversion goal values"""
+        campaign_args: list[ast.Expr] = [
+            ast.Call(
+                name="nullif",
+                args=[
+                    ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.campaign_name_field]),
+                    ast.Constant(value=""),
+                ],
+            )
+        ]
+        source_args: list[ast.Expr] = [
+            ast.Call(
+                name="nullif",
+                args=[
+                    ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.source_name_field]),
+                    ast.Constant(value=""),
+                ],
+            )
+        ]
+
+        # Add conversion goal fallbacks
+        for processor in processors:
+            alias_prefix = CONVERSION_GOAL_PREFIX_ABBREVIATION + str(processor.index)
+            campaign_args.append(
+                ast.Call(
+                    name="nullif",
+                    args=[
+                        ast.Field(chain=[alias_prefix, MarketingSourceAdapter.campaign_name_field]),
+                        ast.Constant(value=""),
+                    ],
+                )
+            )
+            source_args.append(
+                ast.Call(
+                    name="nullif",
+                    args=[
+                        ast.Field(chain=[alias_prefix, MarketingSourceAdapter.source_name_field]),
+                        ast.Constant(value=""),
+                    ],
+                )
+            )
+
+        # Add organic defaults
+        campaign_args.append(ast.Constant(value=ORGANIC_CAMPAIGN))
+        source_args.append(ast.Constant(value=ORGANIC_SOURCE))
+
+        return {
+            str(MarketingAnalyticsBaseColumns.CAMPAIGN): ast.Alias(
+                alias=MarketingAnalyticsBaseColumns.CAMPAIGN, expr=ast.Call(name="coalesce", args=campaign_args)
+            ),
+            str(MarketingAnalyticsBaseColumns.SOURCE): ast.Alias(
+                alias=MarketingAnalyticsBaseColumns.SOURCE, expr=ast.Call(name="coalesce", args=source_args)
+            ),
+        }
 
     def _build_select_query(self, processors: list) -> ast.SelectQuery:
         """Build the complete SELECT query with base columns and conversion goal columns"""
@@ -485,7 +549,7 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
         joins = []
         for processor in processors:
             # Let the processor generate its own JOIN clause
-            join_clause = processor.generate_join_clause()
+            join_clause = processor.generate_join_clause(use_full_outer_join=bool(self.query.includeAllConversions))
             joins.append(join_clause)
 
         return joins
