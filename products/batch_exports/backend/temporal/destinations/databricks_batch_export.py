@@ -198,7 +198,7 @@ class DatabricksClient:
             )
             return oauth_service_principal(config)
 
-        result = None
+        result: Connection | Exception | None = None
         done = asyncio.Event()
         loop = asyncio.get_event_loop()
 
