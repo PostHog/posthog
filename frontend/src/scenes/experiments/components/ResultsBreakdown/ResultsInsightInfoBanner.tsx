@@ -15,10 +15,10 @@ export const ResultsInsightInfoBanner = ({ exposureDifference }: SafeResultsInsi
         <LemonBanner type="info" className="mb-4">
             <div className="items-center inline-flex flex-wrap">
                 <span>
-                    Insight results may be slightly different from exposure results due to a difference in data
-                    processing methods. We're actively working on fixing this.&nbsp;
+                    Exposure counts for the insight below may be less accurate than exposure counts in the experiment
+                    metrics due to a difference in data processing methods. We're actively working on fixing this.&nbsp;
                     <Link
-                        to="https://posthog.com/docs/experiments/common-questions"
+                        to="https://posthog.com/docs/experiments/common-questions#why-do-my-experiments-exposure-counts-not-match-insights"
                         className="font-semibold text-primary hover:text-primary-dark"
                     >
                         Learn more in our docs
