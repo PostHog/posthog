@@ -4,9 +4,8 @@ import { useState } from 'react'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { formatCurrency } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -122,6 +121,5 @@ const formatItem = (item: RevenueAnalyticsOverviewItem, currency: CurrencyCode):
         return item.value.toLocaleString()
     }
 
-    const { symbol, isPrefix } = getCurrencySymbol(currency)
-    return `${isPrefix ? symbol : ''}${humanFriendlyNumber(item.value, 2, 2)}${isPrefix ? '' : ' ' + symbol}`
+    return formatCurrency(item.value, currency)
 }

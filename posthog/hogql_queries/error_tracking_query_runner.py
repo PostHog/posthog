@@ -13,6 +13,7 @@ from posthog.schema import (
     ErrorTrackingQuery,
     ErrorTrackingQueryResponse,
     HogQLFilters,
+    RevenueEntity,
 )
 
 from posthog.hogql import ast
@@ -87,31 +88,31 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     def to_query(self) -> ast.SelectQuery:
         inner_select, outer_select = map(list, zip(*self.select_pairs()))
+        order_by = [ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=self.order_direction)]
 
-        select_from = ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e")
-
-        per_issue_per_revenue_entity_select = ast.SelectQuery(
+        events_select = ast.SelectQuery(
             select=inner_select,
-            select_from=select_from,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
             where=self.where,
-            group_by=[
-                ast.Field(chain=["issue_id"]),
-                ast.Field(chain=["e", self.revenue_entity, self.revenue_entity_key]),
-            ],
+            group_by=[ast.Field(chain=["id"])],
         )
 
-        per_issue_select = ast.SelectQuery(
+        if not self.sort_by_revenue:
+            events_select.order_by = order_by
+            return events_select
+
+        events_select.group_by.append(ast.Field(chain=["e", self.revenue_entity, self.revenue_entity_key]))
+
+        return ast.SelectQuery(
             select=outer_select,
-            select_from=ast.JoinExpr(table=per_issue_per_revenue_entity_select, alias="per_issue_per_revenue_entity"),
-            group_by=[ast.Field(chain=["issue_id"])],
-            order_by=self.order_by,
+            select_from=ast.JoinExpr(table=events_select, alias="per_issue_per_revenue_entity"),
+            group_by=[ast.Field(chain=["id"])],
+            order_by=order_by,
         )
-
-        return per_issue_select
 
     def select_pairs(self):
         expr_pairs = [
-            [ast.Field(chain=["issue_id"]), ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"]))],
+            [ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])), ast.Field(chain=["id"])],
             [
                 ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
                 ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["last_seen"])])),
@@ -232,7 +233,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                 ]
             )
 
-        if self.query.orderBy == "revenue":
+        if self.sort_by_revenue:
             expr_pairs.append(
                 [
                     ast.Alias(
@@ -574,7 +575,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                             "aggregations": (
                                 self.extract_aggregations(result_dict) if self.query.withAggregations else None
                             ),
-                            "revenue": (result_dict.get("revenue") if self.query.orderBy == "revenue" else None),
+                            "revenue": (result_dict.get("revenue") if self.sort_by_revenue else None),
                         }
                     )
 
@@ -610,21 +611,18 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         return aggregations
 
     @property
-    def order_by(self):
-        return [
-            ast.OrderExpr(
-                expr=ast.Field(chain=[self.query.orderBy]),
-                order=(
-                    "DESC"
-                    if self.query.orderBy == "revenue"
-                    else self.query.orderDirection.value
-                    if self.query.orderDirection
-                    else "ASC"
-                    if self.query.orderBy == "first_seen"
-                    else "DESC"
-                ),
-            )
-        ]
+    def order_direction(self):
+        if self.sort_by_revenue:
+            return "DESC"
+
+        if self.query.orderDirection:
+            return self.query.orderDirection.value
+
+        return "ASC" if self.query.orderBy == "first_seen" else "DESC"
+
+    @property
+    def sort_by_revenue(self):
+        return self.query.orderBy == "revenue"
 
     def error_tracking_issues(self, ids):
         status = self.query.status
@@ -700,7 +698,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     @property
     def revenue_entity(self):
-        return "person" if self.query.revenueEntity is None else self.query.revenueEntity
+        return self.query.revenueEntity or RevenueEntity.PERSON
 
     @property
     def revenue_entity_key(self):

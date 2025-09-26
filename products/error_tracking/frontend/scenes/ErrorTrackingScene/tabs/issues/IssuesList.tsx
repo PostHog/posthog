@@ -1,11 +1,13 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useMemo } from 'node_modules/@types/react'
 
-import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyLargeNumber } from 'lib/utils'
-import { currencyFormatter } from 'scenes/billing/billing-utils'
+import { formatCurrency } from 'lib/utils/geography/currency'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
@@ -30,48 +32,6 @@ import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSel
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
-
-const insightProps: InsightLogicProps = {
-    dashboardItemId: 'new-ErrorTrackingQuery',
-}
-
-export function IssuesList(): JSX.Element {
-    const { orderBy } = useValues(issueQueryOptionsLogic)
-    const { query } = useValues(errorTrackingSceneLogic)
-
-    const columns: Record<string, QueryContextColumn> = {
-        error: {
-            width: '50%',
-            render: TitleColumn,
-            renderTitle: TitleHeader,
-        },
-        occurrences: { align: 'center', render: CountColumn },
-        sessions: { align: 'center', render: CountColumn },
-        users: { align: 'center', render: CountColumn },
-        volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
-    }
-
-    if (orderBy === 'revenue') {
-        columns['revenue'] = { align: 'center', render: CurrencyColumn }
-    }
-
-    const context: QueryContext = {
-        columns: columns,
-        showOpenEditorButton: false,
-        insightProps: insightProps,
-        emptyStateHeading: 'No issues found',
-        emptyStateDetail: 'Try changing the date range, changing the filters or removing the assignee.',
-    }
-
-    return (
-        <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-            <div>
-                <ListOptions />
-                <Query query={query} context={context} />
-            </div>
-        </BindLogic>
-    )
-}
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
@@ -123,10 +83,59 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
     )
 }
 
+const defaultColumns: Record<string, QueryContextColumn> = {
+    error: {
+        width: '50%',
+        render: TitleColumn,
+        renderTitle: TitleHeader,
+    },
+    occurrences: { align: 'center', render: CountColumn },
+    sessions: { align: 'center', render: CountColumn },
+    users: { align: 'center', render: CountColumn },
+    volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
+}
+
+const insightProps: InsightLogicProps = {
+    dashboardItemId: 'new-ErrorTrackingQuery',
+}
+
+export function IssuesList(): JSX.Element {
+    const { orderBy } = useValues(issueQueryOptionsLogic)
+    const { query } = useValues(errorTrackingSceneLogic)
+
+    const columns = useMemo(() => {
+        const columns = { ...defaultColumns }
+
+        if (orderBy === 'revenue') {
+            columns['revenue'] = { align: 'center', render: CurrencyColumn }
+        }
+
+        return columns
+    }, [orderBy])
+
+    const context: QueryContext = {
+        columns: columns,
+        showOpenEditorButton: false,
+        insightProps: insightProps,
+        emptyStateHeading: 'No issues found',
+        emptyStateDetail: 'Try changing the date range, changing the filters or removing the assignee.',
+    }
+
+    return (
+        <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
+            <div>
+                <ListOptions />
+                <Query query={query} context={context} />
+            </div>
+        </BindLogic>
+    )
+}
+
 const CurrencyColumn = ({ record }: { record: unknown }): JSX.Element => {
+    const { baseCurrency } = useValues(teamLogic)
     const revenue = (record as ErrorTrackingIssue).revenue!
 
-    return <LemonTableLink to={urls.revenueAnalytics()} title={currencyFormatter(revenue)} />
+    return <LemonTableLink to={urls.revenueAnalytics()} title={formatCurrency(revenue, baseCurrency)} />
 }
 
 const ListOptions = (): JSX.Element => {
@@ -157,8 +166,10 @@ const ListOptions = (): JSX.Element => {
                         id: 'revenue-analytics-feedback-button',
                     }}
                 >
-                    Revenue sorting is currently experimental. We're keen to hear feedback or any issues you have using
-                    it
+                    Revenue sorting requires setting up{' '}
+                    <Link to="https://posthog.com/docs/revenue-analytics">Revenue analytics</Link>. It does not yet work
+                    well for customers with a large number of persons or groups. We're keen to hear feedback or any
+                    issues you have using it while we work to improve the performance
                 </LemonBanner>
             )}
         </SceneStickyBar>
