@@ -312,7 +312,7 @@ async fn it_adds_event_and_generated_uuid_headers() -> Result<()> {
         "Missing 'uuid' header. Available headers: {:?}",
         headers.keys().collect::<Vec<_>>()
     );
-    
+
     let uuid_header = headers.get("uuid").unwrap();
     // Basic UUID format validation
     assert!(
@@ -407,15 +407,17 @@ async fn it_adds_correct_headers_for_snapshot_events() -> Result<()> {
     let res = server.capture_recording(event.to_string(), None).await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // Get message from snapshot topic 
+    // Get message from snapshot topic
     let (event_data, headers) = main_topic.next_message_with_headers()?;
 
     // Check that the event was transformed correctly
     assert!(event_data.is_object(), "Event should be a JSON object");
     let event_obj = event_data.as_object().unwrap();
-    
+
     // Check event data contains the expected fields
-    let data = serde_json::from_str::<serde_json::Value>(event_obj.get("data").unwrap().as_str().unwrap())?;
+    let data = serde_json::from_str::<serde_json::Value>(
+        event_obj.get("data").unwrap().as_str().unwrap(),
+    )?;
     assert_eq!(
         data.get("event").unwrap().as_str().unwrap(),
         "$snapshot_items",
