@@ -486,7 +486,9 @@ class RedshiftQueryStreamTransformer:
                     if record.get(json_column, None) is None:
                         continue
 
-                    record[json_column] = remove_escaped_whitespace_recursive(record[json_column])
+                    record[json_column] = json.dumps(
+                        remove_escaped_whitespace_recursive(record[json_column]), ensure_ascii=False
+                    )
 
                 chunk = await self.mogrify_record(record)
 

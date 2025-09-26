@@ -646,6 +646,8 @@ class RedshiftConsumerFromStage(ConsumerFromStage):
             buffer_size=buffer_size,
         )
 
+        self.current_buffer.seek(0)
+
         async with self.client.async_client_cursor() as cursor:
             async with self.client.connection.transaction():
                 await cursor.execute(self.current_buffer.read())
