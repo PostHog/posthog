@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
-import { AccessLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
+import { Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
 
 import type { rolesLogicType } from './rolesLogicType'
 
@@ -99,7 +99,7 @@ export const rolesLogic = kea<rolesLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         setRoleInFocus: ({ role }) => {
             role && actions.loadRoleMembers({ roleId: role.id })
             actions.setCreateRoleModalShown(true)
@@ -108,13 +108,6 @@ export const rolesLogic = kea<rolesLogicType>([
             actions.setRoleInFocus(null)
             actions.setRoleMembersInFocus([])
             actions.setCreateRoleModalShown(true)
-        },
-        setCreateRoleModalShown: () => {
-            if (values.roleInFocus) {
-                actions.setPermission(Resource.FEATURE_FLAGS, values.roleInFocus.feature_flags_access_level)
-            } else {
-                actions.setPermission(Resource.FEATURE_FLAGS, AccessLevel.WRITE)
-            }
         },
         deleteRoleSuccess: () => {
             actions.setCreateRoleModalShown(false)

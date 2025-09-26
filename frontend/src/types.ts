@@ -4452,22 +4452,12 @@ export enum Resource {
     FEATURE_FLAGS = 'feature flags',
 }
 
-export enum AccessLevel {
-    READ = 21,
-    WRITE = 37,
-}
-
 export interface RoleType {
     id: string
     name: string
-    feature_flags_access_level: AccessLevel
     members: RoleMemberType[]
     created_at: string
     created_by: UserBasicType | null
-}
-
-export interface RolesListParams {
-    feature_flags_access_level?: AccessLevel
 }
 
 export interface RoleMemberType {
