@@ -718,12 +718,17 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
 
         Query parameters:
         - metric_uuid (required): The UUID of the metric to retrieve results for
+        - fingerprint (required): The fingerprint of the metric configuration
         """
         experiment = self.get_object()
         metric_uuid = request.query_params.get("metric_uuid")
+        fingerprint = request.query_params.get("fingerprint")
 
         if not metric_uuid:
             raise ValidationError("metric_uuid query parameter is required")
+
+        if not fingerprint:
+            raise ValidationError("fingerprint query parameter is required")
 
         metrics = experiment.metrics or []
         metrics_secondary = experiment.metrics_secondary or []
@@ -751,7 +756,7 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
             timeseries[experiment_date.isoformat()] = None
 
         metric_results = ExperimentMetricResult.objects.filter(
-            experiment_id=experiment.id, metric_uuid=metric_uuid
+            experiment_id=experiment.id, metric_uuid=metric_uuid, fingerprint=fingerprint
         ).order_by("query_to")
 
         completed_count = 0

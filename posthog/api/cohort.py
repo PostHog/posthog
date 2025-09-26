@@ -186,12 +186,13 @@ class CSVConfig:
 
     PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
+    EMAIL_HEADERS = ["email", "e-mail"]
     ENCODING = "utf-8"
 
     class ErrorMessages:
         EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
-        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person .id' (PostHog export format), 'distinct_id', or 'distinct-id'. Found columns: {columns}"
-        NO_VALID_IDS = "CSV file contains no valid person or distinct IDs. Please ensure your file has data rows with person IDs or distinct IDs."
+        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person .id' (PostHog export format), 'distinct_id', 'distinct-id', or 'email'. Found columns: {columns}"
+        NO_VALID_IDS = "CSV file contains no valid person IDs, distinct IDs, or email addresses. Please ensure your file has data rows with person IDs, distinct IDs, or email addresses."
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
         FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
@@ -342,8 +343,13 @@ class CohortSerializer(serializers.ModelSerializer):
         person_id_headers_lower = [h.lower() for h in CSVConfig.PERSON_ID_HEADERS]
         return header.strip().lower() in person_id_headers_lower
 
+    def _is_email_header(self, header: str) -> bool:
+        """Check if header indicates email column"""
+        email_headers_lower = [h.lower() for h in CSVConfig.EMAIL_HEADERS]
+        return header.strip().lower() in email_headers_lower
+
     def _find_id_column(self, headers: list[str]) -> tuple[int, str] | None:
-        """Find the index and type of the ID column in headers with person_id preference over distinct_id"""
+        """Find the index and type of the ID column in headers, with preference order: person_id > distinct_id > email"""
         normalized_headers = [h.strip() for h in headers]
         normalized_lower_headers = [h.lower() for h in normalized_headers]
 
@@ -357,6 +363,12 @@ class CohortSerializer(serializers.ModelSerializer):
         for i, header in enumerate(normalized_lower_headers):
             if header in CSVConfig.DISTINCT_ID_HEADERS:
                 return i, "distinct_id"
+
+        # Finally, look for email columns
+        email_headers_lower = [h.lower() for h in CSVConfig.EMAIL_HEADERS]
+        for i, header in enumerate(normalized_lower_headers):
+            if header in email_headers_lower:
+                return i, "email"
 
         return None
 
@@ -441,6 +453,10 @@ class CohortSerializer(serializers.ModelSerializer):
                 if first_row and self._is_person_id_header(first_row[0]):
                     ids = self._extract_ids_single_column(first_row, reader, skip_header=True)
                     id_type = "person_id"
+                # Check if single column header indicates email
+                elif first_row and self._is_email_header(first_row[0]):
+                    ids = self._extract_ids_single_column(first_row, reader, skip_header=True)
+                    id_type = "email"
                 else:
                     # Single column format treated as distinct_ids for backwards compatibility
                     ids = self._extract_ids_single_column(first_row, reader, skip_header=False)
