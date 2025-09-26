@@ -615,3 +615,44 @@ export function buildSurveyTimestampFilter(
     return `AND timestamp >= '${fromDate}'
     AND timestamp <= '${toDate}'`
 }
+
+export function createDynamicCohortFormData(survey: Survey): FormData {
+    const cohortName = `Cohort for ${survey.name}`
+
+    const cohortFormData = new FormData()
+
+    cohortFormData.append('name', cohortName)
+
+    const filters = JSON.stringify({
+        properties: {
+            type: 'OR',
+            values: [
+                {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'behavioral',
+                            value: 'performed_event',
+                            negation: false,
+                            key: 'survey sent',
+                            event_type: 'events',
+                            event_filters: [
+                                {
+                                    key: '$survey_id',
+                                    value: [`${survey.id}`],
+                                    operator: 'exact',
+                                    type: 'event',
+                                },
+                            ],
+                            explicit_datetime: survey.created_at,
+                        },
+                    ],
+                },
+            ],
+        },
+    })
+
+    cohortFormData.append('filters', filters)
+
+    return cohortFormData
+}
