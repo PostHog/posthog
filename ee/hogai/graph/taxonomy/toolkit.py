@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from functools import cached_property
-from typing import Optional, Union, cast
+from typing import Any, Optional, Union, cast
 from xml.etree import ElementTree as ET
 
 import yaml
@@ -24,6 +24,8 @@ from posthog.models import Action, Team
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+from products.revenue_analytics.backend.api import find_values_for_revenue_analytics_property
 
 from .tools import (
     TaxonomyTool,
@@ -130,6 +132,7 @@ class TaxonomyAgentToolkit:
             "session": CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"],
             "person": CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"],
             "event": CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"],
+            "revenue_analytics": CORE_FILTER_DEFINITIONS_BY_GROUP["revenue_analytics_properties"],
         }
         for prop_name, prop_type in props:
             description = None
@@ -194,6 +197,18 @@ class TaxonomyAgentToolkit:
 
         return self._format_property_values(sample_values, sample_count, format_as_string=is_str)
 
+    def _retrieve_revenue_analytics_properties(self, property_name: str) -> str:
+        """
+        Revenue analytics properties come from Clickhouse so let's run a separate query here.
+        """
+        if property_name not in CORE_FILTER_DEFINITIONS_BY_GROUP["revenue_analytics_properties"]:
+            return TaxonomyErrorMessages.property_not_found(property_name, "revenue_analytics")
+
+        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            values = find_values_for_revenue_analytics_property(property_name, self._team)
+
+        return self._format_property_values(values, sample_count=len(values))
+
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
         if is_event:
@@ -234,6 +249,9 @@ class TaxonomyAgentToolkit:
         return ET.tostring(root, encoding="unicode")
 
     def _format_properties_yaml(self, children: list[tuple[str, str | None, str | None]]):
+        """
+        Can be used in child classes to override the default implementation for `_format_properties` when yaml is desirable over XML
+        """
         properties_by_type: dict = {}
 
         for name, property_type, description in children:
@@ -286,9 +304,10 @@ class TaxonomyAgentToolkit:
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
 
-        if entity not in ("person", "session", *[group.group_type for group in self._groups]):
+        if entity not in ("person", "session", "revenue_analytics", *[group.group_type for group in self._groups]):
             return TaxonomyErrorMessages.entity_not_found(entity, self._entity_names)
 
+        props: list[Any] = []
         if entity == "person":
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
                 "name", "property_type"
@@ -304,7 +323,15 @@ class TaxonomyAgentToolkit:
                     if prop.get("type") is not None
                 ],
             )
-
+        elif entity == "revenue_analytics":
+            props = self._enrich_props_with_descriptions(
+                "revenue_analytics",
+                [
+                    (prop_name, prop["type"])
+                    for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["revenue_analytics_properties"].items()
+                    if prop.get("type") is not None
+                ],
+            )
         else:
             group_type_index = next(
                 (group.group_type_index for group in self._groups if group.group_type == entity), None
@@ -328,6 +355,9 @@ class TaxonomyAgentToolkit:
 
         if entity == "session":
             return self._retrieve_session_properties(property_name)
+        if entity == "revenue_analytics":
+            return self._retrieve_revenue_analytics_properties(property_name)
+
         if entity == "person":
             query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=25)
         elif entity == "event":
