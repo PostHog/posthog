@@ -222,9 +222,9 @@ describe('EmailService', () => {
                 id: 1,
                 kind: 'email',
                 config: {
-                    email: 'test@posthog.com',
+                    email: 'test@posthog-test.com',
                     name: 'Test User',
-                    domain: 'posthog.com',
+                    domain: 'posthog-test.com',
                     verified: true,
                     provider: 'ses',
                 },
@@ -234,14 +234,33 @@ describe('EmailService', () => {
             invocation.state.vmState = {
                 stack: [],
             } as any
-            invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+            })
             sendEmailSpy = jest.spyOn(service.ses, 'sendEmail')
+
+            // Check if identity exists before trying to delete it to avoid localstack bug
+            await service.ses
+                .deleteIdentity({ Identity: 'posthog-test.com' })
+                .promise()
+                .catch(() => {}) // Ensure the domain is deleted - we dont care if it fails
         })
-        it('should send an email', async () => {
+
+        it('should error if not verified', async () => {
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toEqual(
+                'Failed to send email via SES: Email address not verified "Test User" <test@posthog-test.com>'
+            )
+        })
+
+        it('should send an email if verified', async () => {
+            // Localstack auto-approves verification
+            await service.ses.verifyDomainIdentity({ Domain: 'posthog-test.com' }).promise()
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(sendEmailSpy.mock.calls[0][0]).toMatchInlineSnapshot(`
                 {
+                  "ConfigurationSetName": "posthog-messaging",
                   "Destination": {
                     "ToAddresses": [
                       ""Test User" <test@example.com>",
@@ -263,7 +282,7 @@ describe('EmailService', () => {
                       "Data": "Test Subject",
                     },
                   },
-                  "Source": ""Test User" <test@posthog.com>",
+                  "Source": ""Test User" <test@posthog-test.com>",
                   "Tags": [
                     {
                       "Name": "ph_id",
