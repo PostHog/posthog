@@ -3,15 +3,15 @@ import { v4 } from 'uuid'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { Hub, PipelineEvent, ProjectId, Team } from '../../types'
-import { EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
-import { EventPipelineResult } from '../../worker/ingestion/event-pipeline/runner'
+import { EventPipelineResult, EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { PipelineResult, PipelineResultType, ok } from '../pipelines/results'
 import { PreprocessedEventWithStores, createEventPipelineRunnerV1Step } from './event-pipeline-runner-v1-step'
 
-jest.mock('../../worker/ingestion/event-pipeline/runner')
-const MockedEventPipelineRunner = EventPipelineRunner as jest.MockedClass<typeof EventPipelineRunner>
+jest.mock('../../worker/ingestion/event-pipeline/runner', () => ({
+    EventPipelineRunner: jest.fn(),
+}))
 
 jest.mock('../../utils/retries', () => ({
     retryIfRetriable: jest.fn((fn) => fn()),
@@ -98,7 +98,7 @@ describe('event-pipeline-runner-v1-step', () => {
             runEventPipeline: jest.fn(),
         } as any
 
-        MockedEventPipelineRunner.mockImplementation(() => mockEventPipelineRunner)
+        jest.mocked(EventPipelineRunner).mockImplementation(() => mockEventPipelineRunner)
     })
 
     describe('createEventPipelineRunnerV1Step', () => {
@@ -122,7 +122,7 @@ describe('event-pipeline-runner-v1-step', () => {
             }
 
             const result = await step(input)
-            expect(MockedEventPipelineRunner).toHaveBeenCalledWith(
+            expect(EventPipelineRunner).toHaveBeenCalledWith(
                 mockHub,
                 mockEvent,
                 mockHogTransformer,
@@ -152,7 +152,7 @@ describe('event-pipeline-runner-v1-step', () => {
             await expect(step(input)).rejects.toThrow('Retriable error')
         })
 
-        it('should handle non-retriable errors by returning DLQ result', async () => {
+        it('should handle non-retriable errors by re-throwing them', async () => {
             const nonRetriableError = new Error('Non-retriable error')
             ;(nonRetriableError as any).isRetriable = false
             mockEventPipelineRunner.runEventPipeline.mockRejectedValue(nonRetriableError)
@@ -167,12 +167,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 groupStoreForBatch: mockGroupStore,
             }
 
-            const result = await step(input)
-            expect(result.type).toBe(PipelineResultType.DLQ)
-            if (result.type === PipelineResultType.DLQ) {
-                expect(result.reason).toBe('Processing error - non-retriable')
-                expect(result.error).toBe(nonRetriableError)
-            }
+            await expect(step(input)).rejects.toThrow('Non-retriable error')
         })
 
         it('should handle errors without isRetriable property by re-throwing them', async () => {
@@ -190,47 +185,6 @@ describe('event-pipeline-runner-v1-step', () => {
             }
 
             await expect(step(input)).rejects.toThrow('Error without isRetriable')
-        })
-
-        it('should capture exceptions for non-retriable errors', async () => {
-            const { captureException } = require('../../utils/posthog')
-            const error = new Error('Non-retriable error')
-            ;(error as any).isRetriable = false
-            mockEventPipelineRunner.runEventPipeline.mockRejectedValue(error)
-
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
-            const input: PreprocessedEventWithStores = {
-                message: mockMessage,
-                event: mockEvent,
-                team: mockTeam,
-                headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
-                groupStoreForBatch: mockGroupStore,
-            }
-
-            await step(input)
-
-            expect(captureException).toHaveBeenCalledWith(error)
-        })
-
-        it('should not capture exceptions for retriable errors', async () => {
-            const { captureException } = require('../../utils/posthog')
-            const error = new Error('Retriable error')
-            ;(error as any).isRetriable = true
-            mockEventPipelineRunner.runEventPipeline.mockRejectedValue(error)
-
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
-            const input: PreprocessedEventWithStores = {
-                message: mockMessage,
-                event: mockEvent,
-                team: mockTeam,
-                headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
-                groupStoreForBatch: mockGroupStore,
-            }
-
-            await expect(step(input)).rejects.toThrow('Retriable error')
-            expect(captureException).not.toHaveBeenCalled()
         })
 
         it('should handle successful pipeline results with ackPromises', async () => {
@@ -306,8 +260,8 @@ describe('event-pipeline-runner-v1-step', () => {
             }
 
             await step(input)
-            expect(MockedEventPipelineRunner).toHaveBeenCalledTimes(1)
-            expect(MockedEventPipelineRunner).toHaveBeenCalledWith(
+            expect(EventPipelineRunner).toHaveBeenCalledTimes(1)
+            expect(EventPipelineRunner).toHaveBeenCalledWith(
                 mockHub,
                 mockEvent,
                 mockHogTransformer,
