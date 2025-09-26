@@ -1,7 +1,7 @@
 import { createApplyDropRestrictionsStep } from '../../../src/ingestion/event-preprocessing/apply-drop-events-restrictions'
+import { drop, ok } from '../../../src/ingestion/pipelines/results'
 import { EventHeaders } from '../../../src/types'
 import { EventIngestionRestrictionManager } from '../../../src/utils/event-ingestion-restriction-manager'
-import { drop, success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 
 describe('createApplyDropRestrictionsStep', () => {
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -28,7 +28,7 @@ describe('createApplyDropRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith('valid-token-123', 'user-456')
     })
 
@@ -60,7 +60,7 @@ describe('createApplyDropRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(undefined, undefined)
     })
 
@@ -73,7 +73,7 @@ describe('createApplyDropRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(undefined, undefined)
     })
 })
