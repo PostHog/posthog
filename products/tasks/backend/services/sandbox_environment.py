@@ -49,6 +49,7 @@ def get_runloop_client() -> AsyncRunloop:
 
 TEMPLATE_TO_BLUEPRINT_NAME = {
     SandboxEnvironmentTemplate.DEFAULT_BASE: "sandbox-base-1",
+    SandboxEnvironmentTemplate.DEFAULT_BASE: "bpt_318UuXYGZbyYyl12hArAL",
 }
 
 BLUEPRINT_NAME_TO_TEMPLATE = {v: k for k, v in TEMPLATE_TO_BLUEPRINT_NAME.items()}
