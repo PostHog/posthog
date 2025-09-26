@@ -1,11 +1,9 @@
-import { generateHTML, generateText } from '@tiptap/core'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { RichContentEditorType, RichContentNodeType } from 'lib/components/RichContentEditor/types'
-import { DEFAULT_EXTENSIONS } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
+import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { isEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -16,6 +14,7 @@ import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/pan
 import { CommentType } from '~/types'
 
 import type { commentsLogicType } from './commentsLogicType'
+import { discussionsSlug, getTextContent } from './utils'
 
 export type CommentsLogicProps = {
     scope: CommentType['scope']
@@ -34,8 +33,6 @@ export type CommentContext = {
     context: Record<string, any> | null
     callback?: (event: { sent: boolean }) => void
 }
-
-const discussionsSlug = (): string => `${window.location.pathname}#panel=discussion`
 
 export const commentsLogic = kea<commentsLogicType>([
     path(() => ['scenes', 'notebooks', 'Notebook', 'commentsLogic']),
@@ -150,19 +147,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     const content = values.richContentEditor?.getJSON()
 
-                    const textContent = content
-                        ? generateText(content, DEFAULT_EXTENSIONS, {
-                              textSerializers: {
-                                  [RichContentNodeType.Mention]: ({ node }) => {
-                                      const userId = node.attrs.id
-
-                                      const member = values.meFirstMembers.find((member) => member.user.id === userId)
-
-                                      return `@${member ? member.user.first_name : `user:${userId}`}`
-                                  },
-                              },
-                          })
-                        : ''
+                    const textContent = getTextContent(content, values.meFirstMembers)
 
                     const newComment = await api.comments.create({
                         rich_content: content,
@@ -199,9 +184,11 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     const { id, rich_content } = editedComment
 
+                    const textContent = getTextContent(rich_content, values.meFirstMembers)
+
                     const updatedComment = await api.comments.update(id, {
                         rich_content,
-                        content: null,
+                        content: textContent,
                         mentions: newMentions,
                         slug: discussionsSlug(),
                     })

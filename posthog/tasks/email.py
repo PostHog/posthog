@@ -601,7 +601,7 @@ def send_discussions_mentioned(comment: Comment, mentioned_user_ids: list[int], 
         if (membership.user.id in mentioned_user_ids and membership.user != commenter)
     ]
 
-    href = f"{settings.SITE_URL}/{slug}"
+    href = f"{settings.SITE_URL}{slug}"
 
     campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
     message = EmailMessage(
@@ -611,11 +611,11 @@ def send_discussions_mentioned(comment: Comment, mentioned_user_ids: list[int], 
         template_context={
             "commenter": commenter,
             "content": comment.content,
-            "slug": comment.content,
             "team": team,
             "href": href,
         },
     )
+
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
     message.send()

@@ -40,7 +40,7 @@ class CommentSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Any) -> Any:
         mentions: list[int] = validated_data.pop("mentions", [])
-        slug: str | None = validated_data.pop("slug", None)
+        slug: str = validated_data.pop("slug", "")
         validated_data["team_id"] = self.context["team_id"]
 
         comment = super().create(validated_data)
@@ -52,7 +52,7 @@ class CommentSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Comment, validated_data: dict, **kwargs) -> Comment:
         mentions: list[int] = validated_data.pop("mentions", [])
-        slug: str | None = validated_data.pop("slug", None)
+        slug: str = validated_data.pop("slug", "")
         request = self.context["request"]
 
         with transaction.atomic():
