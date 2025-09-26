@@ -43,3 +43,6 @@ pub use values::NumOp;
 
 // Errors
 pub use error::VmError;
+
+// Ops
+pub use ops::Operation;

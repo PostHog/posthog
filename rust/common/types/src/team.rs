@@ -18,6 +18,7 @@ pub struct Team {
     pub updated_at: DateTime<Utc>,
     pub anonymize_ips: bool,
     pub person_processing_opt_out: Option<bool>,
+    pub person_display_name_properties: Option<Vec<String>>,
 }
 
 impl Team {
@@ -38,7 +39,8 @@ impl Team {
                     created_at,
                     updated_at,
                     anonymize_ips,
-                    person_processing_opt_out
+                    person_processing_opt_out,
+                    person_display_name_properties
                 FROM posthog_team
                 WHERE id = $1
                 LIMIT 1
@@ -66,7 +68,8 @@ impl Team {
                     created_at,
                     updated_at,
                     anonymize_ips,
-                    person_processing_opt_out
+                    person_processing_opt_out,
+                    person_display_name_properties
                 FROM posthog_team
                 WHERE api_token = $1
                 LIMIT 1

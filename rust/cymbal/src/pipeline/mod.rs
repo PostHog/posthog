@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use billing::apply_billing_limits;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -7,7 +7,7 @@ use common_kafka::{
     kafka_consumer::Offset, kafka_messages::ingest_warning::IngestionWarning,
     kafka_producer::send_iter_to_kafka,
 };
-use common_types::{CapturedEvent, ClickHouseEvent};
+use common_types::{CapturedEvent, ClickHouseEvent, Team};
 
 use exception::do_exception_handling;
 use geoip::add_geoip;
@@ -80,7 +80,7 @@ pub async fn handle_batch(
     team_lookup_time.label("outcome", "success").fin();
 
     let prepare_time = common_metrics::timing_guard(PREPARE_EVENTS_TIME, &[]);
-    let buffer = prepare_events(buffer, teams_lut).map_err(log_err).unwrap();
+    let buffer = prepare_events(buffer, &teams_lut).map_err(log_err).unwrap();
     prepare_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
@@ -120,7 +120,8 @@ pub async fn handle_batch(
     assert_eq!(start_count, buffer.len());
 
     let transform_time = common_metrics::timing_guard(TRANSFORMATION_TIME, &[]);
-    let buffer = apply_transformations(buffer, context.clone()).await?;
+    let buffer =
+        apply_transformations(buffer, context.clone(), &transform_teams_lut(teams_lut)).await?;
     transform_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
@@ -185,6 +186,14 @@ pub async fn emit_ingestion_warnings(
     .into_iter()
     .collect::<Result<(), _>>()
     .map_err(|e| e.into())
+}
+
+fn transform_teams_lut(teams_lut: HashMap<String, Option<Team>>) -> HashMap<i32, Team> {
+    teams_lut
+        .into_iter()
+        .filter_map(|(_, team)| team)
+        .map(|team| (team.id, team))
+        .collect()
 }
 
 #[cfg(test)]

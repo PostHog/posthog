@@ -2088,6 +2088,7 @@ dependencies = [
  "common-redis",
  "common-types",
  "envconfig",
+ "fernet",
  "health",
  "hogvm",
  "httpmock",

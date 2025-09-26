@@ -1,8 +1,13 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
-use chrono::{DateTime, Utc};
-use common_types::ClickHouseEvent;
-use hogvm::{ExecutionContext, Program, VmError};
+use chrono::Utc;
+use common_types::{ClickHouseEvent, Team};
+use hogvm::{
+    ExecutionContext, HogLiteral, HogVM, HogValue, NativeFunction, Program, StepOutcome, VmError,
+};
 use metrics::counter;
 use serde_json::Value;
 use uuid::Uuid;
@@ -12,7 +17,9 @@ use crate::{
     error::{PipelineFailure, PipelineResult},
     metric_consts::TRANSFORMATION_EVENTS_DROPPED,
     pipeline::transformations::types::{
-        HogFunctionFilter, TransformLog, TransformOutcome, TransformResult, TransformSetOutcome,
+        transform_globals::{self, FilterGlobals, FunctionContext, InvocationGlobals},
+        HogFunction, HogFunctionFilter, TransformLog, TransformOutcome, TransformResult,
+        TransformSetOutcome,
     },
 };
 
@@ -23,34 +30,50 @@ pub mod types;
 
 // We could, and probably should, cache these, rather than caching the raw HogFunction's
 struct ExecutableHogFunction {
-    id: Uuid,
-    filter: Option<ExecutionContext>,
-    transform: ExecutionContext,
+    function: HogFunction,
+    context: FunctionContext,
+    transform_program: Program,
+    filter_program: Option<Program>,
 }
 
 pub async fn apply_transformations(
     events: Vec<PipelineResult>,
     context: Arc<AppContext>,
+    teams_lut: &HashMap<i32, Team>, // Needed for constructing invocation globals
 ) -> Result<Vec<PipelineResult>, PipelineFailure> {
     // First, convert the hog function list for each team into an execution context list for each team
     let mut executable_lists = HashMap::new();
-    for (i, event) in events.iter().enumerate() {
-        let Ok(event) = event else {
-            continue;
-        };
 
-        if executable_lists.contains_key(&event.team_id) {
+    // TODO - this entire loop could instead by done one a per-team bases within the manager itself, and the outcome
+    // vec cached, rather than caching the raw HogFunction's.
+    for (i, team_id) in events
+        .iter()
+        .filter_map(|e| e.as_ref().ok())
+        .map(|event| event.team_id)
+        .enumerate()
+    {
+        if executable_lists.contains_key(&team_id) {
             continue;
         }
 
         let functions = context
             .team_manager
             .function_manager
-            .get_functions(&context.pool, event.team_id)
+            .get_functions(&context.pool, team_id)
             .await
             .map_err(|e| (i, e))?;
 
         let mut executables = Vec::new();
+
+        // These are used to construct the globals for the invocation
+        let team = teams_lut
+            .get(&team_id)
+            .expect("We have found the team for the event we're processing");
+        let group_types = context
+            .team_manager
+            .get_group_types(&context.pool, team_id)
+            .await
+            .map_err(|e| (i, e))?;
 
         // We don't need to sort these, the manager returns them in the right order
         for function in functions {
@@ -85,21 +108,22 @@ pub async fn apply_transformations(
             };
 
             // Globals like inputs etc. Does not include the event itself, as that is overwritten each time.
-            let placeholder_globals = context
+            let inputs = context
                 .team_manager
                 .function_manager
-                .get_function_globals(&function)
+                .get_function_inputs(&context.encrypted_secrets_keys, &function)
                 .await
                 .map_err(|e| (i, e))?;
 
-            let transform_context = ExecutionContext::with_defaults(transform_program)
-                .with_globals(placeholder_globals);
+            let function_context =
+                FunctionContext::new(&context.config.site_url, &group_types, &team, inputs);
 
             let Some(filters) = &function.filters else {
                 executables.push(ExecutableHogFunction {
-                    id: function.id,
-                    filter: None,
-                    transform: transform_context,
+                    function,
+                    context: function_context,
+                    transform_program,
+                    filter_program: None,
                 });
                 continue;
             };
@@ -116,9 +140,10 @@ pub async fn apply_transformations(
 
             let Some(filter_bytecode) = filters.bytecode else {
                 executables.push(ExecutableHogFunction {
-                    id: function.id,
-                    filter: None,
-                    transform: transform_context,
+                    function,
+                    context: function_context,
+                    transform_program,
+                    filter_program: None,
                 });
                 continue;
             };
@@ -136,16 +161,15 @@ pub async fn apply_transformations(
                 }
             };
 
-            let filter_context = ExecutionContext::with_defaults(filter_program); // Filters have no globals aside from the event
-
             executables.push(ExecutableHogFunction {
-                id: function.id,
-                filter: Some(filter_context),
-                transform: transform_context,
+                function,
+                context: function_context,
+                transform_program,
+                filter_program: Some(filter_program),
             });
         }
 
-        executable_lists.insert(event.team_id, executables);
+        executable_lists.insert(team_id, executables);
     }
 
     // We collect these to feed back to the manager for disabling, reporting logs etc.
@@ -158,7 +182,7 @@ pub async fn apply_transformations(
             continue;
         };
 
-        let Some(list) = executable_lists.get_mut(&event.team_id) else {
+        let Some(list) = executable_lists.get(&event.team_id) else {
             continue;
         };
 
@@ -191,24 +215,24 @@ fn execute_transformations(
     event: ClickHouseEvent,
     // TODO - this has to be mutable, because we have to mutate the ExecutionContext's contained here to install the event globals before running the filter. This is better
     // than cloning the ExecutableHogFunction for each event, but it's still pretty ugly. A better HogVM interface would let us handle the globals set more elegantly.
-    function_list: &mut Vec<ExecutableHogFunction>,
+    executable_list: &[ExecutableHogFunction],
 ) -> TransformSetOutcome {
     let mut results = Vec::new();
 
     let mut final_event = Some(event);
 
-    for function in function_list.iter_mut() {
+    for executable in executable_list.iter() {
         // If the last transform dropped the event, we can exit early.
         let Some(current) = final_event.as_ref() else {
             break;
         };
 
         // Should we apply this transformation?
-        let run_function = match function.test_filter(current) {
+        let run_function = match executable.test_filter(current) {
             Ok(r) => r,
             Err(e) => {
                 results.push(TransformResult {
-                    function_id: function.id,
+                    function_id: executable.function.id,
                     outcome: TransformOutcome::FilterFailure(e),
                     logs: Vec::new(),
                 });
@@ -218,7 +242,7 @@ fn execute_transformations(
 
         if !run_function {
             results.push(TransformResult {
-                function_id: function.id,
+                function_id: executable.function.id,
                 outcome: TransformOutcome::Skipped,
                 logs: Vec::new(),
             });
@@ -226,17 +250,17 @@ fn execute_transformations(
         }
 
         // Apply it, storing the outcome into our final_event if it succeeds
-        let result = match function.apply_transform(current) {
+        let result = match executable.apply_transform(current) {
             Ok((new, logs)) => {
                 final_event = new;
                 TransformResult {
-                    function_id: function.id,
+                    function_id: executable.function.id,
                     outcome: TransformOutcome::Success,
                     logs,
                 }
             }
             Err((e, logs)) => TransformResult {
-                function_id: function.id,
+                function_id: executable.function.id,
                 outcome: TransformOutcome::TransformFailure(e),
                 logs,
             },
@@ -252,14 +276,153 @@ fn execute_transformations(
 }
 
 impl ExecutableHogFunction {
-    pub fn test_filter(&mut self, event: &ClickHouseEvent) -> Result<bool, VmError> {
-        todo!()
+    pub fn test_filter(&self, event: &ClickHouseEvent) -> Result<bool, VmError> {
+        let Some(program) = self.filter_program.as_ref().cloned() else {
+            return Ok(true); // Transforms with no filter match all events
+        };
+
+        // Right now, transformation filters lack a final return. For assignment and grouping rules, we handle this
+        // on the compilation side, by adding it to the AST before final compilation, but the CDP side expects the
+        // return-less filter programs for transforms, so we can't do that there. Instead, we just append a return
+        // statement to the program here.
+        let mut program = program;
+        program.bytecode.push(hogvm::Operation::Return.into());
+        let program = program;
+
+        let globals = FilterGlobals::new(&self.context, event);
+
+        let exec_context = ExecutionContext::with_defaults(program).with_globals(
+            serde_json::to_value(globals)
+                .expect("We successfully json serialise the filter globals"),
+        );
+
+        let mut vm = HogVM::new(&exec_context)?;
+        let mut i = 0;
+        while i < exec_context.max_steps {
+            let step_result = vm.step()?;
+            match step_result {
+                StepOutcome::Finished(Value::Bool(b)) => return Ok(b),
+                StepOutcome::Finished(other) => {
+                    return Err(VmError::Other(format!(
+                        "Transform filter returned {other:?}, expected a boolean value"
+                    )))
+                }
+                StepOutcome::NativeCall(name, args) => {
+                    exec_context.execute_native_function_call(&mut vm, &name, args)?
+                }
+                StepOutcome::Continue => {}
+            }
+            i += 1;
+        }
+        Err(VmError::OutOfResource("steps".to_string()))
     }
 
     pub fn apply_transform(
-        &mut self,
+        &self,
         event: &ClickHouseEvent,
     ) -> Result<(Option<ClickHouseEvent>, Vec<TransformLog>), (VmError, Vec<TransformLog>)> {
-        todo!()
+        let program = self.transform_program.clone();
+        let logs = Arc::new(Mutex::new(Vec::new()));
+
+        let globals = InvocationGlobals::new(&self.context, event);
+        let exec_context = ExecutionContext::with_defaults(program)
+            .with_globals(
+                serde_json::to_value(globals)
+                    .expect("We successfully json serialise the filter globals"),
+            )
+            .with_ext_fn("print".to_string(), Self::make_print_function(logs.clone()));
+
+        let mut vm = HogVM::new(&exec_context).map_err(|e| (e, (*logs.lock().unwrap()).clone()))?;
+        let mut i = 0;
+        while i < exec_context.max_steps {
+            let step_result = vm
+                .step()
+                .map_err(|e| (e, (*logs.lock().unwrap()).clone()))?;
+            match step_result {
+                StepOutcome::Finished(return_val) => {
+                    let logs = logs.lock().unwrap().clone();
+                    match return_val {
+                        Value::Null => return Ok((None, logs)),
+                        Value::Object(map) => {
+                            match serde_json::from_value::<transform_globals::Event>(Value::Object(
+                                map,
+                            )) {
+                                Err(e) => {
+                                    return Err((
+                                        VmError::Other(format!("Failed to parse JSON: {}", e)),
+                                        logs,
+                                    ))
+                                }
+                                Ok(parsed) => {
+                                    let updated = Self::apply_event_update(event, parsed)
+                                        .map_err(|e| (e, logs.clone()))?;
+                                    return Ok((Some(updated), logs));
+                                }
+                            }
+                        }
+                        Value::Bool(_) => {
+                            return Err((
+                                VmError::Other("Transform returned a bool".to_string()),
+                                logs,
+                            ))
+                        }
+                        Value::Number(_) => {
+                            return Err((
+                                VmError::Other("Transform returned a number".to_string()),
+                                logs,
+                            ))
+                        }
+                        Value::String(_) => {
+                            return Err((
+                                VmError::Other("Transform returned a string".to_string()),
+                                logs,
+                            ))
+                        }
+                        Value::Array(_) => {
+                            return Err((
+                                VmError::Other("Transform returned an array".to_string()),
+                                logs,
+                            ))
+                        }
+                    }
+                }
+                StepOutcome::NativeCall(name, args) => exec_context
+                    .execute_native_function_call(&mut vm, &name, args)
+                    .map_err(|e| (e, (*logs.lock().unwrap()).clone()))?,
+                StepOutcome::Continue => {}
+            }
+            i += 1;
+        }
+
+        let logs = logs.lock().unwrap();
+        let logs = logs.clone();
+        Err((VmError::OutOfResource("steps".to_string()), logs))
+    }
+
+    fn make_print_function(logs: Arc<Mutex<Vec<TransformLog>>>) -> NativeFunction {
+        Box::new(move |_vm: &HogVM, _args: Vec<HogValue>| {
+            logs.lock().unwrap().push(TransformLog {
+                message: "TODO".to_string(),
+                level: "info".to_string(),
+                timestamp: Utc::now(),
+            });
+            Ok(HogLiteral::Null.into())
+        })
+    }
+
+    fn apply_event_update(
+        event: &ClickHouseEvent,
+        parsed: transform_globals::Event,
+    ) -> Result<ClickHouseEvent, VmError> {
+        // For now, we only allow transforms to modify properties
+        let mut new_event = event.clone();
+        new_event.properties = Some(serde_json::to_string(&parsed.properties).map_err(|e| {
+            VmError::Other(format!(
+                "Failed to serialise function output: {}",
+                e.to_string()
+            ))
+        })?);
+
+        Ok(new_event)
     }
 }

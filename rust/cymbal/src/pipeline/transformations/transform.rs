@@ -1,16 +1,18 @@
 use std::{collections::HashMap, fmt::Debug, time::Duration};
 
+use base64::{prelude::BASE64_URL_SAFE, Engine};
+use fernet::MultiFernet;
 use metrics::counter;
 use moka::sync::{Cache, CacheBuilder};
 
 use serde_json::Value;
 use sqlx::Postgres;
-use tracing::debug;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{
     error::UnhandledError,
-    metric_consts::TRANSFORMATION_OUTCOME,
+    metric_consts::{TRANSFORMATION_OUTCOME, TRANSFORMATION_SECRETS_FAILED},
     pipeline::transformations::{
         types::{HogFunction, HogFunctionTemplate, HogFunctionType, TransformOutcome},
         TransformResult,
@@ -115,11 +117,59 @@ impl HogFunctionManager {
         Ok(template.and_then(|t| t.bytecode))
     }
 
-    pub async fn get_function_globals(
+    pub async fn get_function_inputs(
         &self,
+        secret_input_keys: &[String],
         function: &HogFunction,
-    ) -> Result<Value, UnhandledError> {
-        todo!();
+    ) -> Result<HashMap<String, Value>, UnhandledError> {
+        let mut res = HashMap::new();
+        if let Some(Value::Object(inputs)) = function.inputs.as_ref() {
+            for (key, value) in inputs {
+                res.insert(key.clone(), value.clone());
+            }
+        }
+
+        if let Some(encrypted) = function.encrypted_inputs.as_ref() {
+            // Matching the plugin server, each key is 32 btyes of utf8 data, which we
+            // then, treating as raw bytes, b64 encode before passing into fernet. I'm
+            // a little thrown off by this - seems like keys could just be the already
+            // encoded strings, but :shrug:, this is how it's done there, so it's how
+            // I'll do it here
+            let fernets: Vec<_> = secret_input_keys
+                .iter()
+                .map(|k| k.as_bytes())
+                .map(|b| BASE64_URL_SAFE.encode(b))
+                .filter_map(|k| fernet::Fernet::new(&k))
+                .collect();
+            let fernet = MultiFernet::new(fernets);
+            let Ok(decrypted) = fernet.decrypt(encrypted) else {
+                warn!(
+                    "Failed to decrypt encrypted inputs for function {}",
+                    function.id
+                );
+                counter!(
+                    TRANSFORMATION_SECRETS_FAILED,
+                    &[("cause", "failed-decryption")]
+                )
+                .increment(1);
+                return Ok(res);
+            };
+            let Ok(secrets) = serde_json::from_slice::<HashMap<String, Value>>(&decrypted) else {
+                warn!(
+                    "Failed to parse encrypted inputs for function {}",
+                    function.id
+                );
+                counter!(
+                    TRANSFORMATION_SECRETS_FAILED,
+                    &[("cause", "failed-parsing")]
+                )
+                .increment(1);
+                return Ok(res);
+            };
+            res.extend(secrets);
+        }
+
+        Ok(res)
     }
 
     pub async fn disable_function(

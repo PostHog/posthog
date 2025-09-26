@@ -72,3 +72,4 @@ pub const GROUP_TYPE_MAPPING_TIME: &str = "cymbal_group_type_mapping_time";
 pub const TRANSFORMATION_TIME: &str = "cymbal_transformation_time";
 pub const TRANSFORMATION_OUTCOME: &str = "cymbal_transformation_outcome";
 pub const TRANSFORMATION_EVENTS_DROPPED: &str = "cymbal_transformation_events_dropped";
+pub const TRANSFORMATION_SECRETS_FAILED: &str = "cymbal_transformation_secrets_failed";
