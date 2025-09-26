@@ -1,6 +1,10 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test.client import Client as HttpClient
+
+from rest_framework import status
+
 from posthog.api.test.test_team import create_team
 from posthog.models.integration import PRIVATE_CHANNEL_WITHOUT_ACCESS, EmailIntegration, Integration, SlackIntegration
 from posthog.models.organization import Organization
@@ -389,3 +393,96 @@ class TestEmailIntegration:
         assert integration2.config["verified"]
         assert not integrationOtherDomain.config["verified"]
         assert not integrationOtherTeam.config["verified"]
+
+
+class TestDatabricksIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
+
+    @patch("posthog.models.integration.socket.socket")
+    def test_integration_from_config_with_valid_config(
+        self,
+        mock_socket,
+        client: HttpClient,
+    ):
+        mock_socket.return_value.connect.return_value = None
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "databricks",
+                "config": {
+                    "server_hostname": "databricks.com",
+                    "client_id": "client_id",
+                    "client_secret": "client_secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["kind"] == "databricks"
+
+        # get integration from db
+        id = response.json()["id"]
+        integration = Integration.objects.get(id=id)
+        assert integration.kind == "databricks"
+        assert integration.team == self.team
+        assert integration.config == {"server_hostname": "databricks.com"}
+        assert integration.sensitive_config == {"client_id": "client_id", "client_secret": "client_secret"}
+        assert integration.created_by == self.user
+        assert integration.integration_id == "databricks.com"
+
+    @pytest.mark.parametrize(
+        "invalid_config,expected_error_message",
+        [
+            # missing client_secret
+            (
+                {"server_hostname": "databricks.com", "client_id": "client_id"},
+                "Server hostname, client ID, and client secret must be provided",
+            ),
+            # missing client_id
+            (
+                {"server_hostname": "databricks.com", "client_secret": "client_secret"},
+                "Server hostname, client ID, and client secret must be provided",
+            ),
+            # missing server_hostname
+            (
+                {"client_id": "client_id", "client_secret": "client_secret"},
+                "Server hostname, client ID, and client secret must be provided",
+            ),
+            # missing all
+            ({}, "Server hostname, client ID, and client secret must be provided"),
+            # wrong type for client_secret
+            (
+                {"server_hostname": "databricks.com", "client_id": "client_id", "client_secret": 1},
+                "Server hostname, client ID, and client secret must be strings",
+            ),
+        ],
+    )
+    @patch("posthog.models.integration.socket.socket")
+    def test_integration_from_config_with_invalid_config(
+        self,
+        mock_socket,
+        invalid_config,
+        expected_error_message,
+        client: HttpClient,
+    ):
+        mock_socket.return_value.connect.return_value = None
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "databricks",
+                "config": invalid_config,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == expected_error_message
