@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import NonAtomicBaseTest
@@ -328,8 +329,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         result = await self.query_runner._compress_results(hogql_query, response)
         self.assertIn("count\n100", result)
 
-    async def test_compress_results_revenue_analytics_queries(self):
-        """Test _compress_results works with revenue analytics queries by casting to assistant types"""
+    async def test_compress_results_revenue_analytics_gross_revenue_query(self):
         revenue_analytics_gross_revenue_query = RevenueAnalyticsGrossRevenueQuery(
             dateRange=DateRange(date_from="2024-11-01", date_to="2025-02-01"),
             interval=IntervalType.MONTH,
@@ -354,13 +354,14 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Breakdown by revenue_analytics_product.name", result)
         self.assertIn("Date|stripe", result)
 
+    async def test_compress_results_revenue_analytics_metrics_query(self):
         revenue_analytics_metrics_query = RevenueAnalyticsMetricsQuery(
             dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
             interval=IntervalType.MONTH,
             properties=[],
             breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
         )
-        response = {
+        response: dict[str, Any] = {
             "results": [
                 {
                     "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
@@ -419,13 +420,14 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("ARPU", result)
         self.assertIn("LTV", result)
 
+    async def test_compress_results_revenue_analytics_mrr_query(self):
         revenue_analytics_mrr_query = RevenueAnalyticsMRRQuery(
             dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
             interval=IntervalType.MONTH,
             properties=[],
             breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
         )
-        response = {
+        response: dict[str, Any] = {
             "results": [
                 RevenueAnalyticsMRRQueryResultItem(
                     churn={
@@ -465,12 +467,13 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Contraction MRR", result)
         self.assertIn("Churned MRR", result)
 
+    async def test_compress_results_revenue_analytics_top_customers_query(self):
         revenue_analytics_top_customers_query = RevenueAnalyticsTopCustomersQuery(
             dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
             groupBy=RevenueAnalyticsTopCustomersGroupBy.MONTH,
             properties=[],
         )
-        response = {
+        response: dict[str, Any] = {
             "results": [
                 ("cus_3", "John Smith", Decimal("615.997315"), date(2025, 2, 1)),
                 ("cus_2", "Jane Doe", Decimal("26.0100949999"), date(2025, 2, 1)),
@@ -488,7 +491,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             groupBy=RevenueAnalyticsTopCustomersGroupBy.ALL,
             properties=[],
         )
-        response = {
+        response: dict[str, Any] = {
             "results": [
                 ("cus_3", "John Smith", Decimal("615.997315"), "all"),
                 ("cus_2", "Jane Doe", Decimal("26.0100949999"), "all"),

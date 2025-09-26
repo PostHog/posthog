@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from posthog.test.base import BaseTest
 
@@ -65,7 +66,7 @@ class TestRevenueAnalyticsFormatters(BaseTest):
             properties=[],
             breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
         )
-        results = [
+        results: list[Any] = [
             {
                 "label": "Subscription Count | stripe.posthog_test - Product E",
                 "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],

@@ -1,4 +1,4 @@
-from datetime import datetime
+import datetime
 from math import floor
 from typing import Any, Optional, Union
 
@@ -106,7 +106,7 @@ def format_date(date: datetime.date) -> str:
 
 
 def strip_datetime_seconds(date: str) -> str:
-    return datetime.fromisoformat(date).strftime("%Y-%m-%d %H:%M" if ":" in date else "%Y-%m-%d")
+    return datetime.datetime.fromisoformat(date).strftime("%Y-%m-%d %H:%M" if ":" in date else "%Y-%m-%d")
 
 
 def replace_breakdown_labels(name: str) -> str:

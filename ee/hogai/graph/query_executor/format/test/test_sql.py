@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 
 from posthog.schema import AssistantHogQLQuery
@@ -20,7 +22,7 @@ class TestSQLResultsFormatter(BaseTest):
 
     def test_format_empty_results(self):
         query = AssistantHogQLQuery(query="SELECT 1")
-        results = []
+        results: list[Any] = []
         columns = ["column1", "column2"]
 
         formatter = SQLResultsFormatter(query, results, columns)
@@ -38,7 +40,7 @@ class TestSQLResultsFormatter(BaseTest):
 
     def test_format_with_none_values(self):
         query = AssistantHogQLQuery(query="SELECT id, name")
-        results = [
+        results: list[Any] = [
             {"id": 1, "name": "test"},
             {"id": 2, "name": None},
         ]

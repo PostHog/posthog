@@ -26,6 +26,10 @@ from posthog.schema import (
     PlanningMessage,
     ReasoningMessage,
     RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsTopCustomersQuery,
     TaskExecutionItem,
     TaskExecutionMessage,
     TaskExecutionStatus,
@@ -56,7 +60,16 @@ AssistantOutput = (
 AnyAssistantGeneratedQuery = (
     AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 )
-AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+AnyAssistantSupportedQuery = (
+    TrendsQuery
+    | FunnelsQuery
+    | RetentionQuery
+    | HogQLQuery
+    | RevenueAnalyticsGrossRevenueQuery
+    | RevenueAnalyticsMetricsQuery
+    | RevenueAnalyticsMRRQuery
+    | RevenueAnalyticsTopCustomersQuery
+)
 # We define this since AssistantMessageUnion is a type and wouldn't work with isinstance()
 ASSISTANT_MESSAGE_TYPES = (
     HumanMessage,

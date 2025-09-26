@@ -36,7 +36,9 @@ class RevenueAnalyticsGrossRevenueResultsFormatter:
 
         breakdown_properties = [breakdown.property for breakdown in self._query.breakdown]
 
-        header = f"Gross revenue for period: {self._query.dateRange.date_from} to {self._query.dateRange.date_to}\n"
+        date_from = self._query.dateRange.date_from if self._query.dateRange else "start of time"
+        date_to = self._query.dateRange.date_to if self._query.dateRange else "end of time"
+        header = f"Gross revenue for period: {date_from} to {date_to}\n"
         breakdown = f"Breakdown by {', '.join(breakdown_properties)}\n" if len(breakdown_properties) > 0 else ""
 
         return f"{header}{breakdown}{self._format_results(results)}"
@@ -79,7 +81,9 @@ class RevenueAnalyticsMetricsResultsFormatter:
 
         breakdown_properties = [breakdown.property for breakdown in self._query.breakdown]
 
-        header = f"Revenue metrics for period: {self._query.dateRange.date_from} to {self._query.dateRange.date_to}\n"
+        date_from = self._query.dateRange.date_from if self._query.dateRange else "start of time"
+        date_to = self._query.dateRange.date_to if self._query.dateRange else "end of time"
+        header = f"Revenue metrics for period: {date_from} to {date_to}\n"
         breakdown = f"Breakdown by {', '.join(breakdown_properties)}\n" if len(breakdown_properties) > 0 else ""
 
         return f"{header}{breakdown}{self._format_results(results)}"
@@ -126,7 +130,9 @@ class RevenueAnalyticsMRRResultsFormatter:
 
         breakdown_properties = [breakdown.property for breakdown in self._query.breakdown]
 
-        header = f"MRR metrics for period: {self._query.dateRange.date_from} to {self._query.dateRange.date_to}\n"
+        date_from = self._query.dateRange.date_from if self._query.dateRange else "start of time"
+        date_to = self._query.dateRange.date_to if self._query.dateRange else "end of time"
+        header = f"MRR metrics for period: {date_from} to {date_to}\n"
         breakdown = f"Breakdown by {', '.join(breakdown_properties)}\n" if len(breakdown_properties) > 0 else ""
 
         return f"{header}{breakdown}{self._format_results(results)}"
@@ -178,11 +184,14 @@ class RevenueAnalyticsTopCustomersResultsFormatter:
         if len(results) == 0:
             return "No data recorded for this time period."
 
-        header = f"Top customers for period: {self._query.dateRange.date_from} to {self._query.dateRange.date_to}\n"
+        date_from = self._query.dateRange.date_from if self._query.dateRange else "start of time"
+        date_to = self._query.dateRange.date_to if self._query.dateRange else "end of time"
+        header = f"Top customers for period: {date_from} to {date_to}\n"
+
         if self._query.groupBy == RevenueAnalyticsTopCustomersGroupBy.MONTH:
             return f"{header}Grouped by month\n{self._format_results_by_month(results)}"
-        else:
-            return f"{header}{self._format_results_all(results)}"
+
+        return f"{header}{self._format_results_all(results)}"
 
     def _format_results_by_month(self, results: list[Any]) -> str:
         # Display customers with higher revenue first
