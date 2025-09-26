@@ -8,7 +8,12 @@ from dagster import BackfillPolicy, DailyPartitionsDefinition
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
+from posthog.models.web_preaggregated.sql import (
+    REPLACE_WEB_BOUNCES_V2_STAGING_SQL,
+    REPLACE_WEB_STATS_V2_STAGING_SQL,
+    WEB_BOUNCES_INSERT_SQL,
+    WEB_STATS_INSERT_SQL,
+)
 
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
@@ -19,9 +24,10 @@ from dags.web_preaggregated_utils import (
     WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
     check_for_concurrent_runs,
     clear_all_staging_partitions,
-    drop_partitions_for_date_range,
     merge_clickhouse_settings,
+    recreate_staging_table,
     swap_partitions_from_staging,
+    sync_partitions_on_replicas,
     web_analytics_retry_policy_def,
 )
 
@@ -29,6 +35,11 @@ MAX_PARTITIONS_PER_RUN_ENV_VAR = "DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_R
 max_partitions_per_run = int(os.getenv(MAX_PARTITIONS_PER_RUN_ENV_VAR, 1))
 backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=max_partitions_per_run)
 partition_def = DailyPartitionsDefinition(start_date="2024-01-01", end_offset=1)
+
+REPLACE_TEMPLATES_BY_STAGING_TABLE_NAME = {
+    "web_pre_aggregated_stats_staging": REPLACE_WEB_STATS_V2_STAGING_SQL,
+    "web_pre_aggregated_bounces_staging": REPLACE_WEB_BOUNCES_V2_STAGING_SQL,
+}
 
 
 def pre_aggregate_web_analytics_data(
@@ -54,11 +65,14 @@ def pre_aggregate_web_analytics_data(
     staging_table_name = f"{table_name}_staging"
 
     try:
-        # 1. Clean staging table partitions for the date range
-        context.log.info(f"Cleaning staging partitions for {date_start} to {date_end}")
-        drop_partitions_for_date_range(context, cluster, staging_table_name, date_start, date_end)
+        # 1. Recreate staging table
+        if staging_table_name not in REPLACE_TEMPLATES_BY_STAGING_TABLE_NAME:
+            raise dagster.Failure(f"No REPLACE TABLE function found for {staging_table_name}")
 
-        # 2. Generate hourly data into staging table
+        replace_sql_func = REPLACE_TEMPLATES_BY_STAGING_TABLE_NAME[staging_table_name]
+        recreate_staging_table(context, cluster, staging_table_name, replace_sql_func)
+
+        # 2. Write data into staging table
         insert_query = sql_generator(
             date_start=date_start,
             date_end=date_end,
@@ -72,13 +86,12 @@ def pre_aggregate_web_analytics_data(
         context.log.info(insert_query)
         sync_execute(insert_query)
 
-        # 3. Atomically swap partitions from staging to target
+        # 3. Sync replicas before partition swapping to ensure consistency
+        sync_partitions_on_replicas(context, cluster, staging_table_name)
+
+        # 4. Atomically swap partitions from staging to target
         context.log.info(f"Swapping partitions from {staging_table_name} to {table_name}")
         swap_partitions_from_staging(context, cluster, table_name, staging_table_name)
-
-        # 4. Clean up staging partitions to speed up next run
-        context.log.info(f"Cleaning up staging partitions")
-        drop_partitions_for_date_range(context, cluster, staging_table_name, date_start, date_end)
 
     except Exception as e:
         raise dagster.Failure(f"Failed to pre-aggregate data {table_name}: {str(e)}") from e

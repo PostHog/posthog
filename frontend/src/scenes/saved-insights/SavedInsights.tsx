@@ -34,7 +34,6 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -50,7 +49,6 @@ import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemo
 import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -568,7 +566,6 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
         <AccessControlAction
             resourceType={AccessControlResourceType.Insight}
             minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]}
         >
             <LemonButton
                 type="primary"
@@ -804,13 +801,13 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <SceneContent className={cn('saved-insights')}>
-            <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
             <SceneTitleSection
                 name="Product analytics"
                 description="Track, analyze, and experiment with user behavior."
                 resourceType={{
                     type: 'product_analytics',
                 }}
+                actions={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
             />
             <SceneDivider />
             <LemonTabs

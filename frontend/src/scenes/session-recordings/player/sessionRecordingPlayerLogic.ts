@@ -343,7 +343,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading', 'isRealtimePolling'],
+            ['snapshotsLoaded', 'snapshotsLoading'],
             sessionRecordingDataLogic(props),
             [
                 'urls',
@@ -451,6 +451,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         markViewed: (delay?: number) => ({ delay }),
         setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
         setShowingClipParams: (showingClipParams: boolean) => ({ showingClipParams }),
+        setIsHovering: (isHovering: boolean) => ({ isHovering }),
+        allowPlayerChromeToHide: true,
     }),
     reducers(({ props }) => ({
         showingClipParams: [
@@ -708,6 +710,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             [] as string[],
             {
                 setSimilarRecordings: (_, { results }) => results,
+            },
+        ],
+        isHovering: [
+            false,
+            {
+                setIsHovering: (_, { isHovering }) => isHovering,
+            },
+        ],
+        forceShowPlayerChrome: [
+            true,
+            {
+                setIsHovering: (state, { isHovering }) => (isHovering ? false : state),
+                allowPlayerChromeToHide: () => {
+                    return false
+                    return false
+                },
             },
         ],
     })),
@@ -984,6 +1002,39 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 },
             },
         ],
+        hoverFlagIsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => {
+                return featureFlags[FEATURE_FLAGS.REPLAY_HOVER_UI] === 'test'
+            },
+        ],
+        hoverModeIsEnabled: [
+            (s) => [s.logicProps, s.isCommenting, s.hoverFlagIsEnabled, s.showingClipParams],
+            (logicProps, isCommenting, hoverFlagIsEnabled, showingClipParams): boolean => {
+                return (
+                    hoverFlagIsEnabled &&
+                    logicProps.mode === SessionRecordingPlayerMode.Standard &&
+                    !isCommenting &&
+                    !showingClipParams
+                )
+            },
+        ],
+        showPlayerChrome: [
+            (s) => [s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],
+            (hoverModeIsEnabled, isHovering, forceShowPlayerChrome): boolean => {
+                if (!hoverModeIsEnabled) {
+                    // we always show the UI in non-hover mode
+                    return true
+                }
+
+                // we default to showing the UI until a timer hides it
+                // or the user has hovered over the player
+                if (forceShowPlayerChrome) {
+                    return true
+                }
+                return isHovering
+            },
+        ],
     }),
     listeners(({ props, values, actions, cache }) => ({
         caughtAssetErrorFromIframe: ({ errorDetails }) => {
@@ -1128,6 +1179,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (iframeContentWindow) {
                     // Clean up any previous listeners before adding new ones
                     cache.iframeErrorListenerCleanup?.()
+                    cache.iframeErrorListenerCleanup = undefined
 
                     cache.iframeErrorListenerCleanup = registerErrorListeners({
                         iframeWindow: iframeContentWindow,
@@ -1505,6 +1557,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: () => {
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
+                cache.timer = undefined
             }
         },
         pauseIframePlayback: () => {
@@ -1776,13 +1829,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         cache.hasInitialized = false
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
+        cache.fullScreenListener = undefined
         cache.pausedMediaElements = []
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
 
         if (cache.playerTimeTrackingTimer) {
             clearTimeout(cache.playerTimeTrackingTimer)
+            cache.playerTimeTrackingTimer = undefined
         }
+
+        cache.iframeErrorListenerCleanup?.()
+        cache.iframeErrorListenerCleanup = undefined
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
@@ -1811,6 +1869,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     clearTimeout(timer)
                 }
             })
+            cache.consoleDebounceTimers = undefined
         }
         ;(window as any)[`__posthog_player_logs`] = undefined
         ;(window as any)[`__posthog_player_warnings`] = undefined

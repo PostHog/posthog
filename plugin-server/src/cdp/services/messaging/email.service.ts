@@ -134,7 +134,7 @@ export class EmailService {
                         Subject: params.subject,
                         TextPart: params.text,
                         HTMLPart: params.html,
-                        CustomID: generateEmailTrackingCode(result.invocation),
+                        EventPayload: generateEmailTrackingCode(result.invocation),
                     },
                 ],
             }),
@@ -142,7 +142,9 @@ export class EmailService {
 
         // TODO: Add support for retries - in fact if it fails should we actually crash out the service?
         if (response.status >= 400) {
-            throw new Error(`Failed to send email to ${params.to.email} with status ${response.status}`)
+            throw new Error(
+                `Failed to send email to ${params.to.email} (status ${response.status}): ${await response.text()}`
+            )
         }
     }
 

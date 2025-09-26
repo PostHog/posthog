@@ -136,13 +136,15 @@ services:
             - --rpc-addr kafka:33145
             - --advertise-rpc-addr kafka:33145
             - --mode dev-container
-            - --smp 1
-            - --memory 1G
-            - --reserve-memory 200M
+            - --smp 2
+            - --memory 3G
+            - --reserve-memory 500M
             - --overprovisioned
             - --set redpanda.empty_seed_starts_cluster=false
             - --seeds kafka:33145
             - --set redpanda.auto_create_topics_enabled=true
+        volumes:
+            - redpanda-data:/var/lib/redpanda/data
         environment:
             ALLOW_PLAINTEXT_LISTENER: 'true'
         healthcheck:
@@ -443,3 +445,6 @@ services:
 networks:
     otel_network:
         driver: bridge
+
+volumes:
+    redpanda-data:

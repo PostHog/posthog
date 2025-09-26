@@ -3,9 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -53,27 +51,30 @@ export function Dashboards(): JSX.Element {
             <NewDashboardModal />
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
-            <PageHeader
-                buttons={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Dashboard}
-                        minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.Dashboard]
-                        }
-                    >
-                        <LemonButton data-attr="new-dashboard" onClick={showNewDashboardModal} type="primary">
-                            New dashboard
-                        </LemonButton>
-                    </AccessControlAction>
-                }
-            />
+
             <SceneTitleSection
                 name="Dashboards"
                 description="Create and manage your dashboards"
                 resourceType={{
                     type: 'dashboard',
                 }}
+                actions={
+                    <>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Dashboard}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                size="small"
+                                data-attr="new-dashboard"
+                                onClick={showNewDashboardModal}
+                                type="primary"
+                            >
+                                New dashboard
+                            </LemonButton>
+                        </AccessControlAction>
+                    </>
+                }
             />
             <SceneDivider />
             <LemonTabs
