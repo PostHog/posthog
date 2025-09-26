@@ -52,6 +52,7 @@ from products.batch_exports.backend.temporal.pipeline.producer import Producer a
 from products.batch_exports.backend.temporal.pipeline.transformer import (
     JSONLStreamTransformer,
     ParquetStreamTransformer,
+    TransformerProtocol,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
@@ -1114,7 +1115,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                     )
 
                     if can_perform_merge:
-                        transformer = ParquetStreamTransformer(
+                        transformer: TransformerProtocol = ParquetStreamTransformer(
                             schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=()),
                             compression="zstd",
                         )
