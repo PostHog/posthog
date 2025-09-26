@@ -313,11 +313,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                         return ''
                     }
 
-                    return `${key}='${JSON.stringify(value)}'`
+                    return `${key}='${btoa(JSON.stringify(value))}'`
                 })
                 .filter((x) => !!x)
                 .join(' ')
 
+            // debugger
             const html = `<${props.nodeType} ${htmlAttributesString} data-pm-slice="0 0 []"></${props.nodeType}>`
 
             const type = 'text/html'
