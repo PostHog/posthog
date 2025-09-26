@@ -42,7 +42,7 @@ function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): 
     if (property.type === PropertyFilterType.Cohort) {
         return (
             <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
-                x{property.cohort_name || `ID ${property.value}`}
+                {property.cohort_name || `ID ${property.value}`}
             </LemonButton>
         )
     }
