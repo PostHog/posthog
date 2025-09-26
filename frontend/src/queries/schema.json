@@ -12042,6 +12042,21 @@
                 "numerator_denominator_sum_product": {
                     "type": "number"
                 },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -12069,6 +12084,21 @@
                 },
                 "numerator_denominator_sum_product": {
                     "type": "number"
+                },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"
@@ -12249,6 +12279,21 @@
                 "significant": {
                     "type": "boolean"
                 },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "sum": {
                     "type": "number"
                 },
@@ -12300,6 +12345,21 @@
                 },
                 "significant": {
                     "type": "boolean"
+                },
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_sessions": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/SessionData"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "sum": {
                     "type": "number"
@@ -12557,7 +12617,8 @@
                 "insight/lifecycle",
                 "insight/stickiness",
                 "insight/hog",
-                "team_activity"
+                "team_activity",
+                "home"
             ],
             "type": "string"
         },
@@ -23366,6 +23427,22 @@
                 }
             },
             "required": ["columns", "hogql", "results", "types"],
+            "type": "object"
+        },
+        "SessionData": {
+            "additionalProperties": false,
+            "properties": {
+                "event_uuid": {
+                    "type": "string"
+                },
+                "person_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["person_id", "session_id", "event_uuid"],
             "type": "object"
         },
         "SessionEventsItem": {

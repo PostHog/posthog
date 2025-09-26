@@ -569,6 +569,14 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-activity-logs',
+        title: 'Activity logs',
+        flag: 'ADVANCED_ACTIVITY_LOGS',
+        to: urls.advancedActivityLogs(),
+        settings: [],
+    },
+    {
+        level: 'environment',
         id: 'mcp-server',
         // hideSelfHost: true,
         title: 'MCP Server',

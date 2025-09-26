@@ -1372,6 +1372,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
+    HOME = "home"
 
 
 class FileSystemImport(BaseModel):
@@ -2415,6 +2416,15 @@ class SessionAttributionGroupBy(StrEnum):
     AD_IDS = "AdIds"
     REFERRING_DOMAIN = "ReferringDomain"
     INITIAL_URL = "InitialURL"
+
+
+class SessionData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event_uuid: str
+    person_id: str
+    session_id: str
 
 
 class SessionEventsItem(BaseModel):
@@ -3839,6 +3849,8 @@ class ExperimentStatsBase(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
 
@@ -3852,6 +3864,8 @@ class ExperimentStatsBaseValidated(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3870,6 +3884,8 @@ class ExperimentVariantResultBayesian(BaseModel):
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
     significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3888,6 +3904,8 @@ class ExperimentVariantResultFrequentist(BaseModel):
     numerator_denominator_sum_product: Optional[float] = None
     p_value: Optional[float] = None
     significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
