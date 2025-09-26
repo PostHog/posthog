@@ -156,8 +156,7 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.12
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -287,8 +286,7 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.16
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -803,8 +801,7 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.3
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -863,12 +860,17 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
+                                                          WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
+  LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
+  GROUP BY "posthog_featureflag"."id"
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.32
@@ -1077,8 +1079,7 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.7
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -1628,12 +1629,17 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
+                                                          WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
+  LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
+  GROUP BY "posthog_featureflag"."id"
   '''
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.9
@@ -2148,12 +2154,17 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
+                                                          WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
+  LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
+  GROUP BY "posthog_featureflag"."id"
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.9
@@ -2286,12 +2297,17 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
+                                                          WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
+  LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
+  GROUP BY "posthog_featureflag"."id"
   '''
 # ---
 # name: TestDecide.test_web_app_queries.2
@@ -2729,8 +2745,7 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.12
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -2860,8 +2875,7 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.16
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -3376,8 +3390,7 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.3
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -5072,12 +5085,17 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
+                                                          WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
+  LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
+  GROUP BY "posthog_featureflag"."id"
   '''
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.63
@@ -5327,8 +5345,7 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.7
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -7034,12 +7051,17 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
+                                                          WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
+  LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
+  GROUP BY "posthog_featureflag"."id"
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.28
@@ -8975,12 +8997,17 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
+                                                          WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
+  LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
+  GROUP BY "posthog_featureflag"."id"
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.28

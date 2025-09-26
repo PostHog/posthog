@@ -16,7 +16,6 @@ import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayT
 
 import { BillingSectionId } from './billing/types'
 import { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
-import { EmbeddedTab } from './embedded-analytics/common'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -39,7 +38,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.AdvancedActivityLogs]: {
         projectBased: true,
         organizationBased: false,
-        name: 'Advanced activity logs',
+        name: 'Activity logs',
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
@@ -493,7 +492,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
-    [urls.embeddedAnalytics(':tab' as EmbeddedTab)]: [Scene.EmbeddedAnalytics, 'embeddedAnalytics'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
