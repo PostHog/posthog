@@ -310,6 +310,12 @@ export const campaignLogic = kea<campaignLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        saveCampaignPartial: async ({ campaign }) => {
+            actions.saveCampaign({
+                ...values.campaign,
+                ...campaign,
+            })
+        },
         loadCampaignSuccess: async ({ originalCampaign }) => {
             actions.resetCampaign(originalCampaign)
         },
