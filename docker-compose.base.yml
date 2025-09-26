@@ -409,7 +409,7 @@ services:
                 condition: service_started
 
     litellm:
-        image: ghcr.io/berriai/litellm-database:main-stable
+        image: ghcr.io/berriai/litellm-database:main-v1.77.3-nightly
         restart: on-failure
         ports:
             - '4000:4000'
@@ -418,8 +418,8 @@ services:
         environment:
             - LITELLM_MASTER_KEY=sk-1234
             - DATABASE_URL=postgresql://posthog:posthog@db:5432/litellm
-            - POSTHOG_API_URL=http://localhost:8010
-            - POSTHOG_API_KEY
+            - POSTHOG_API_URL=http://host.docker.internal:8010
+            - POSTHOG_API_KEY=phc_VFwkhjK3UaUOHKMJRbgNMy4K1upXKMaiAsPEqR8kUwR
             - ANTHROPIC_API_KEY
         command: --config /app/config.yaml --detailed_debug
         depends_on:
