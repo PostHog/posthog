@@ -318,7 +318,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 .filter((x) => !!x)
                 .join(' ')
 
-            // debugger
             const html = `<${props.nodeType} ${htmlAttributesString} data-pm-slice="0 0 []"></${props.nodeType}>`
 
             const type = 'text/html'

@@ -431,7 +431,11 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         },
 
         parseHTML() {
-            return [{ tag: wrapperProps.nodeType }]
+            return [
+                {
+                    tag: wrapperProps.nodeType,
+                },
+            ]
         },
 
         renderHTML({ HTMLAttributes }) {
