@@ -8,7 +8,7 @@ import {
 import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 import { Hub } from '~/types'
 
-import { HogExecutorService } from '../hog-executor.service'
+import { HogExecutorExecuteAsyncOptions, HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
@@ -88,8 +88,9 @@ export class HogFlowFunctionsService {
     }
 
     async executeWithAsyncFunctions(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        hogExecutorOptions?: HogExecutorExecuteAsyncOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        return this.hogFunctionExecutor.executeWithAsyncFunctions(invocation)
+        return this.hogFunctionExecutor.executeWithAsyncFunctions(invocation, hogExecutorOptions)
     }
 }
