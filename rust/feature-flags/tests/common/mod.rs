@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_database::get_pool;
+use common_database::get_pool_with_timeouts;
 use common_redis::MockRedisClient;
 use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
@@ -12,6 +12,7 @@ use tokio::sync::Notify;
 
 use feature_flags::config::Config;
 use feature_flags::server::serve;
+use feature_flags::utils::test_utils::TEST_TIMEOUTS;
 
 pub struct ServerHandle {
     pub addr: SocketAddr,
@@ -75,7 +76,12 @@ impl ServerHandle {
         tokio::spawn(async move {
             let redis_reader_client = Arc::new(mock_client);
             let redis_writer_client = redis_reader_client.clone();
-            let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await
+            let reader = match get_pool_with_timeouts(
+                &config.read_database_url,
+                config.max_pg_connections,
+                TEST_TIMEOUTS,
+            )
+            .await
             {
                 Ok(client) => Arc::new(client),
                 Err(e) => {
@@ -83,7 +89,12 @@ impl ServerHandle {
                     return;
                 }
             };
-            let writer = match get_pool(&config.write_database_url, config.max_pg_connections).await
+            let writer = match get_pool_with_timeouts(
+                &config.write_database_url,
+                config.max_pg_connections,
+                TEST_TIMEOUTS,
+            )
+            .await
             {
                 Ok(client) => Arc::new(client),
                 Err(e) => {
