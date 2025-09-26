@@ -12,6 +12,7 @@ use tracing::{info, warn};
 
 use crate::commands::UploadArgs;
 use crate::utils::auth::load_token;
+use crate::utils::client::{get_client, SKIP_SSL};
 use crate::utils::posthog::capture_command_invoked;
 use crate::utils::release::{create_release, CreateReleaseResponse};
 use crate::utils::sourcemaps::{read_pairs, ChunkUpload, SourcePair};
@@ -57,6 +58,8 @@ pub fn upload(host: Option<String>, args: UploadArgs) -> Result<()> {
         batch_size,
     } = args;
 
+    *SKIP_SSL.lock().unwrap() = skip_ssl_verification;
+
     let token = load_token().context("While starting upload command")?;
     let host = token.get_host(host.as_deref());
 
@@ -82,7 +85,6 @@ pub fn upload(host: Option<String>, args: UploadArgs) -> Result<()> {
         Some(content_hash(uploads.iter().map(|upload| &upload.data))),
         project,
         version,
-        skip_ssl_verification,
     )
     .context("While creating release")?;
 
@@ -94,13 +96,7 @@ pub fn upload(host: Option<String>, args: UploadArgs) -> Result<()> {
         //        We could relax this, such that we instead replace the existing release with the new one,
         //        or we could even just allow adding new chunks to an existing release, but for now I'm
         //        leaving it like this... Reviewers, lets chat about the right approach here
-        upload_chunks(
-            &base_url,
-            &token.token,
-            batch_upload,
-            release.as_ref(),
-            skip_ssl_verification,
-        )?;
+        upload_chunks(&base_url, &token.token, batch_upload, release.as_ref())?;
     }
 
     if delete_after {
@@ -135,11 +131,8 @@ fn upload_chunks(
     token: &str,
     uploads: Vec<ChunkUpload>,
     release: Option<&CreateReleaseResponse>,
-    skip_ssl_verification: bool,
 ) -> Result<()> {
-    let client = reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(skip_ssl_verification)
-        .build()?;
+    let client = get_client()?;
 
     let release_id = release.map(|r| r.id.to_string());
     let chunk_ids = uploads

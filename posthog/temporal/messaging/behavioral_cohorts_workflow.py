@@ -208,13 +208,19 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
             query = """
                 SELECT
                     person_id
-                FROM behavioral_cohorts_matches
-                WHERE
-                    team_id = %(team_id)s
-                    AND cohort_id = %(cohort_id)s
-                    AND condition = %(condition)s
-                    AND date >= now() - toIntervalDay(%(days)s)
-                    AND matches >= %(min_matches)s
+                FROM (
+                    SELECT
+                        person_id,
+                        SUM(matches) as total_matches
+                    FROM behavioral_cohorts_matches
+                    WHERE
+                        team_id = %(team_id)s
+                        AND cohort_id = %(cohort_id)s
+                        AND condition = %(condition)s
+                        AND date >= now() - toIntervalDay(%(days)s)
+                    GROUP BY person_id
+                    HAVING total_matches >= %(min_matches)s
+                )
                 LIMIT 100000
             """
 
