@@ -4,11 +4,11 @@ import time
 import typing as t
 import asyncio
 import datetime as dt
+import threading
 import contextlib
 import dataclasses
 import collections.abc
 from collections.abc import AsyncGenerator
-from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -29,6 +29,7 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     DatabricksBatchExportInputs,
 )
+from posthog.models.integration import DatabricksIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
@@ -57,6 +58,10 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     "DatabricksInsufficientPermissionsError",
     # Raised when the table partition field provided is invalid.
     "DatabricksInvalidPartitionFieldError",
+    # Raised when the Databricks integration is not found.
+    "DatabricksIntegrationNotFoundError",
+    # Raised when the Databricks integration is not valid.
+    "DatabricksIntegrationError",
 ]
 
 DatabricksField = tuple[str, str]
@@ -81,14 +86,18 @@ class DatabricksInvalidPartitionFieldError(Exception):
         super().__init__(f"Invalid table partition field: '{partition_field}'")
 
 
+class DatabricksIntegrationNotFoundError(Exception):
+    """Error raised when the Databricks integration is not found."""
+
+    pass
+
+
 @dataclasses.dataclass(kw_only=True)
 class DatabricksInsertInputs(BatchExportInsertInputs):
     """Inputs for Databricks.
 
-    server_hostname: the Server Hostname value for user's all-purpose compute or SQL warehouse.
+    integration_id: the ID of the Databricks Integration model to use.
     http_path: HTTP Path value for user's all-purpose compute or SQL warehouse.
-    client_id: the service principal's UUID or Application ID value.
-    client_secret: the Secret value for the service principal's OAuth secret.
     catalog: the catalog to use for the export.
     schema: the schema to use for the export.
     table_name: the name of the table to use for the export.
@@ -105,12 +114,8 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
         If None, we will use the default partition by field for the model (if exists)
     """
 
-    # TODO - some of this will go in the integration model once ready
-
-    server_hostname: str
+    integration_id: int
     http_path: str
-    client_id: str
-    client_secret: str
     catalog: str
     schema: str
     table_name: str
@@ -123,6 +128,8 @@ class DatabricksClient:
     # How often to poll for query status. This is a trade-off between responsiveness and number of
     # queries we make to Databricks. 1 second has been chosen rather arbitrarily.
     DEFAULT_POLL_INTERVAL = 1.0
+    # Timeout to use for initializing the Databricks connection.
+    CONNECT_TIMEOUT = 5.0
 
     def __init__(
         self,
@@ -146,50 +153,21 @@ class DatabricksClient:
         self.external_logger = EXTERNAL_LOGGER.bind(server_hostname=server_hostname, http_path=http_path)
 
     @classmethod
-    def from_inputs(cls, inputs: DatabricksInsertInputs) -> t.Self:
+    def from_inputs_and_integration(cls, inputs: DatabricksInsertInputs, integration: DatabricksIntegration) -> t.Self:
+        """Initialize a DatabricksClient from `DatabricksInsertInputs` and `DatabricksIntegration`.
+
+        The config for Databricks is divided between the inputs and the integration model:
+        Anything that could be reused across batch exports is stored in the inputs, whereas anything that is specific to
+        the Databricks instance we're connecting to is stored in the integration model.
+        """
         return cls(
-            server_hostname=inputs.server_hostname,
+            server_hostname=integration.server_hostname,
             http_path=inputs.http_path,
-            client_id=inputs.client_id,
-            client_secret=inputs.client_secret,
+            client_id=integration.client_id,
+            client_secret=integration.client_secret,
             catalog=inputs.catalog,
             schema=inputs.schema,
         )
-
-    # TODO - move into the integration model
-    async def validate_host(self) -> bool:
-        """Validate the Databricks host.
-
-        This is a quick check to ensure the host is valid and that we can connect to it.
-
-        When initializing the Config object, Databricks tries to fetch the OIDC endpoints for the
-        workspace. When performing this request, Databricks uses an unconfigurable timeout of 5 minutes, which means we
-        can end up waiting for a long time.
-        I have opened an issue with Databricks to make this timeout configurable:
-        https://github.com/databricks/databricks-sdk-py/issues/1046
-        """
-        try:
-            # URL format validation
-            parsed = urlparse(
-                self.server_hostname if self.server_hostname.startswith("http") else f"https://{self.server_hostname}"
-            )
-            if not (parsed.netloc and parsed.scheme in ["http", "https"]):
-                return False
-
-            hostname = parsed.hostname
-            port = parsed.port or (443 if parsed.scheme == "https" else 80)
-
-            # Async TCP connectivity check
-            try:
-                _, writer = await asyncio.wait_for(asyncio.open_connection(hostname, port), timeout=3.0)
-                writer.close()
-                await writer.wait_closed()
-                return True
-            except (TimeoutError, OSError):
-                return False
-
-        except Exception:
-            return False
 
     @property
     def connection(self) -> Connection:
@@ -200,25 +178,18 @@ class DatabricksClient:
             raise Exception("Not connected, open a connection by calling `connect`")
         return self._connection
 
-    @contextlib.asynccontextmanager
-    async def connect(self):
-        """Manage a Databricks connection.
+    async def _connect(self):
+        """Establish a raw Databricks connection in a separate thread.
 
-        Methods that require a connection should be ran within this block.
+        NOTE: When initializing the Config object, Databricks tries to fetch the OIDC endpoints for the workspace.
+        When performing this request, Databricks uses an unconfigurable timeout of 5 minutes, which means we can end
+        up waiting for a long time.  I have opened an issue with Databricks to make this timeout configurable:
+        https://github.com/databricks/databricks-sdk-py/issues/1046
 
-        We call `use_catalog` and `use_schema` to ensure that all queries are run in the correct catalog and schema.
+        As a result, we try to establish the connection using a separate thread with a timeout, ensuring that we
+        terminate the thread if it takes too long.
         """
 
-        self.logger.debug("Validating Databricks host")
-        if not await self.validate_host():
-            raise DatabricksConnectionError(f"Invalid host: {self.server_hostname}")
-
-        self.logger.debug("Initializing Databricks connection")
-
-        # NOTE: When initializing the Config object, Databricks tries to fetch the OIDC endpoints for the workspace.
-        # When performing this request, Databricks uses an unconfigurable timeout of 5 minutes, which means we can end
-        # up waiting for a long time.  I have opened an issue with Databricks to make this timeout configurable:
-        # https://github.com/databricks/databricks-sdk-py/issues/1046
         def get_credential_provider():
             config = Config(
                 host=f"https://{self.server_hostname}",
@@ -227,30 +198,51 @@ class DatabricksClient:
             )
             return oauth_service_principal(config)
 
-        try:
-            # wait for the connection to be established or timeout after 10 seconds
-            # (this is necessary due to the issue mentioned above)
-            self._connection = await asyncio.wait_for(
-                # call sql.connect in a separate thread to avoid blocking the event loop in the main thread
-                asyncio.to_thread(
-                    sql.connect,
+        result: Connection | Exception | None = None
+        done = asyncio.Event()
+        loop = asyncio.get_event_loop()
+
+        def connect_thread():
+            nonlocal result
+            try:
+                result = sql.connect(
                     server_hostname=self.server_hostname,
                     http_path=self.http_path,
                     credentials_provider=get_credential_provider,
-                    # user agent can be used for usage tracking
                     user_agent_entry="PostHog batch exports",
                     enable_telemetry=False,
-                    _socket_timeout=60,  # 1 minute
-                ),
-                timeout=10,  # 10 seconds
-            )
+                    _socket_timeout=60,
+                )
+            except Exception as e:
+                result = e
+            finally:
+                loop.call_soon_threadsafe(done.set)
+
+        threading.Thread(target=connect_thread, daemon=True).start()
+
+        try:
+            await asyncio.wait_for(done.wait(), timeout=self.CONNECT_TIMEOUT)
+            if isinstance(result, Exception):
+                if isinstance(result, OperationalError):
+                    raise DatabricksConnectionError(f"Failed to connect to Databricks: {result}") from result
+                raise result
+            return result
         except TimeoutError:
             raise DatabricksConnectionError(
-                f"Timed out while trying to connect to Databricks host '{self.server_hostname}'. Please check that the host is valid."
+                f"Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
-        except OperationalError as err:
-            raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err
 
+    @contextlib.asynccontextmanager
+    async def connect(self):
+        """Manage a Databricks connection.
+
+        Methods that require a connection should be ran within this block.
+
+        We call `use_catalog` and `use_schema` to ensure that all queries are run in the correct catalog and schema.
+        """
+        self.logger.debug("Initializing Databricks connection")
+
+        self._connection = await self._connect()
         self.logger.debug("Connected to Databricks")
 
         await self.use_catalog(self.catalog)
@@ -259,7 +251,8 @@ class DatabricksClient:
         try:
             yield self
         finally:
-            await asyncio.to_thread(self._connection.close)
+            if self._connection:
+                await asyncio.to_thread(self._connection.close)
             self._connection = None
 
     async def execute_query(
@@ -754,6 +747,20 @@ def _get_databricks_merge_config(
     return requires_merge, merge_key, update_key
 
 
+async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> DatabricksIntegration:
+    """Get the Databricks integration.
+
+    Raises:
+        DatabricksIntegrationNotFoundError: If the Databricks integration is not found.
+        DatabricksIntegrationError: If the Databricks integration is not valid.
+    """
+    try:
+        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
+    except Integration.DoesNotExist:
+        raise DatabricksIntegrationNotFoundError(f"Databricks integration with id '{inputs.integration_id}' not found")
+    return DatabricksIntegration(integration)
+
+
 class DatabricksConsumer(Consumer):
     """A consumer that uploads data to a Databricks managed volume."""
 
@@ -856,6 +863,8 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
     )
     external_logger = EXTERNAL_LOGGER.bind()
 
+    databricks_integration = await _get_databricks_integration(inputs)
+
     external_logger.info(
         "Batch exporting range %s - %s to Databricks: %s.%s.%s",
         inputs.data_interval_start or "START",
@@ -909,7 +918,9 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
         volume_path = f"/Volumes/{inputs.catalog}/{inputs.schema}/{volume_name}"
 
-        async with DatabricksClient.from_inputs(inputs).connect() as databricks_client:
+        async with DatabricksClient.from_inputs_and_integration(
+            inputs, databricks_integration
+        ).connect() as databricks_client:
             async with manage_resources(
                 client=databricks_client,
                 volume_name=volume_name,
@@ -997,19 +1008,16 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
             ),
         )
 
+        # should never happen here but check just in case
+        if inputs.integration_id is None:
+            raise DatabricksIntegrationNotFoundError("Databricks integration ID not provided")
+
         insert_inputs = DatabricksInsertInputs(
             team_id=inputs.team_id,
-            server_hostname=inputs.server_hostname,
-            http_path=inputs.http_path,
-            client_id=inputs.client_id,
-            client_secret=inputs.client_secret,
-            catalog=inputs.catalog,
-            schema=inputs.schema,
-            table_name=inputs.table_name,
             data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
@@ -1021,6 +1029,11 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
             batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=databricks_default_fields(),
+            integration_id=inputs.integration_id,
+            http_path=inputs.http_path,
+            catalog=inputs.catalog,
+            schema=inputs.schema,
+            table_name=inputs.table_name,
             use_variant_type=inputs.use_variant_type,
             use_automatic_schema_evolution=inputs.use_automatic_schema_evolution,
             table_partition_field=inputs.table_partition_field,

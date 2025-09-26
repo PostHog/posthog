@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
@@ -14,7 +14,8 @@ import { DetailFilters } from './DetailFilters'
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 
 export const BasicFiltersTab = (): JSX.Element => {
-    const { filters, availableFilters, showMoreFilters } = useValues(advancedActivityLogsLogic)
+    const { filters, availableFilters, showMoreFilters, activeAdvancedFiltersCount } =
+        useValues(advancedActivityLogsLogic)
     const { setFilters, setShowMoreFilters } = useActions(advancedActivityLogsLogic)
 
     return (
@@ -30,7 +31,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                         }}
                         placeholder="All time"
                         data-attr="audit-logs-date-filter"
-                        className="h-8 flex items-center"
+                        className="h-[24px] flex items-center"
                     />
                 </div>
 
@@ -51,7 +52,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                         placeholder="All users"
                         allowCustomValues={false}
                         data-attr="audit-logs-user-filter"
-                        className="min-w-50 min-h-10"
+                        size="small"
+                        className="min-w-50"
                     />
                 </div>
 
@@ -72,7 +74,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                         placeholder="All scopes"
                         allowCustomValues={false}
                         data-attr="audit-logs-scope-filter"
-                        className="min-w-50 min-h-10"
+                        size="small"
+                        className="min-w-50"
                     />
                 </div>
 
@@ -93,20 +96,31 @@ export const BasicFiltersTab = (): JSX.Element => {
                         placeholder="All actions"
                         allowCustomValues={false}
                         data-attr="audit-logs-action-filter"
-                        className="min-w-50 min-h-10"
+                        size="small"
+                        className="min-w-50"
                     />
                 </div>
 
                 <div className="flex items-end justify-end mb-1">
-                    <LemonButton
-                        type="tertiary"
-                        icon={showMoreFilters ? <IconCollapse /> : <IconExpand />}
-                        onClick={() => setShowMoreFilters(!showMoreFilters)}
-                        data-attr="audit-logs-more-filters-toggle"
-                        className="text-muted-alt hover:text-default"
-                    >
-                        More filters
-                    </LemonButton>
+                    <div className="relative">
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={showMoreFilters ? <IconCollapse /> : <IconExpand />}
+                            onClick={() => setShowMoreFilters(!showMoreFilters)}
+                            data-attr="audit-logs-more-filters-toggle"
+                            className="text-muted-alt hover:text-default"
+                        >
+                            More filters
+                        </LemonButton>
+                        {!showMoreFilters && activeAdvancedFiltersCount > 0 && (
+                            <LemonBadge
+                                content={activeAdvancedFiltersCount.toString()}
+                                size="small"
+                                className="absolute -top-1 -right-1"
+                            />
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -134,7 +148,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 ]}
                                 placeholder="All"
                                 data-attr="audit-logs-was-impersonated-filter"
-                                className="min-w-50 min-h-10"
+                                size="small"
+                                className="min-w-50"
                             />
                         </div>
 
@@ -157,7 +172,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 ]}
                                 placeholder="All"
                                 data-attr="audit-logs-is-system-filter"
-                                className="min-w-50 min-h-10"
+                                size="small"
+                                className="min-w-50"
                             />
                         </div>
 
@@ -178,7 +194,8 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 placeholder="Enter item IDs"
                                 allowCustomValues={true}
                                 data-attr="audit-logs-item-ids-filter"
-                                className="min-w-50 min-h-10"
+                                size="small"
+                                className="min-w-50"
                             />
                         </div>
                     </div>
