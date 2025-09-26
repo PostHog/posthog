@@ -93,7 +93,6 @@ export function HogFunctionFilters({
     if (type === 'transformation') {
         excludedProperties[TaxonomicFilterGroupType.Events] = ['$exception']
         excludedProperties[TaxonomicFilterGroupType.EventProperties] = exceptionProperties
-        excludedProperties[TaxonomicFilterGroupType.EventMetadata] = ['$exception']
     }
 
     const taxonomicGroupTypes = useMemo(() => {
