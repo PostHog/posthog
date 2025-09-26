@@ -292,7 +292,6 @@ mod tests {
             )
             .await;
 
-        println!("Flags: {:?}", result.flags);
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(!legacy_response.errors_while_computing_flags);
@@ -5195,7 +5194,6 @@ mod tests {
             )
             .await;
 
-        println!("Flags in result: {:?}", result.flags);
 
         assert!(!result.errors_while_computing_flags);
         // The flag should evaluate using DB properties for condition 1 (which has feature_access="full")
