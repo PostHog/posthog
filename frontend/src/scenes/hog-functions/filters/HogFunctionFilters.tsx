@@ -16,6 +16,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import MaxTool from 'scenes/max/MaxTool'
 
 import { groupsModel } from '~/models/groupsModel'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
@@ -50,6 +51,19 @@ function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFilter
     return sanitized
 }
 
+// Get all exception-related properties dynamically
+const getExceptionProperties = (): string[] => {
+    const exceptionProps = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties).filter((key) =>
+        key.startsWith('$exception')
+    )
+
+    // Add user-defined exception properties that aren't caught by the above
+    const userDefinedExceptionProps = ['$exception_fingerprint_record']
+
+    // Combine all approaches and remove duplicates
+    return [...new Set([...exceptionProps, ...userDefinedExceptionProps])]
+}
+
 export function HogFunctionFilters({
     embedded = false,
     showTriggerOptions = true,
@@ -73,21 +87,13 @@ export function HogFunctionFilters({
     const isTransformation = type === 'transformation'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
 
+    const exceptionProperties = useMemo(() => getExceptionProperties(), [])
     const excludedProperties: ExcludedProperties = {}
 
     if (type === 'transformation') {
         excludedProperties[TaxonomicFilterGroupType.Events] = ['$exception']
-        excludedProperties[TaxonomicFilterGroupType.EventProperties] = [
-            '$exception_types',
-            '$exception_functions',
-            '$exception_values',
-            '$exception_sources',
-            '$exception_list',
-            '$exception_type',
-            '$exception_level',
-            '$exception_message',
-        ]
-        excludedProperties[TaxonomicFilterGroupType.Events] = ['$exception']
+        excludedProperties[TaxonomicFilterGroupType.EventProperties] = exceptionProperties
+        excludedProperties[TaxonomicFilterGroupType.EventMetadata] = ['$exception']
     }
 
     const taxonomicGroupTypes = useMemo(() => {

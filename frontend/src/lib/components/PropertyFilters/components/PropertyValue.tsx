@@ -107,8 +107,8 @@ export function PropertyValue({
 
     const displayOptions = (propertyOptions?.values || []).filter((option) => {
         // If propertyKey is 'event', filter out excluded event names
-        if (propertyKey === 'event' && excludedProperties?.['events']) {
-            return !excludedProperties['events'].includes(String(option.name))
+        if (propertyKey === 'event' && excludedProperties?.events) {
+            return !excludedProperties.events.includes(String(option.name))
         }
         return true
     })
