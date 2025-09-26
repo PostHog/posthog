@@ -3,7 +3,7 @@ import './LemonButton.scss'
 import clsx from 'clsx'
 import React, { useContext } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconExternal } from '@posthog/icons'
 
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 
@@ -263,6 +263,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         {icon ? <span className="LemonButton__icon">{icon}</span> : null}
                         {children ? <span className="LemonButton__content">{children}</span> : null}
                         {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
+                        {targetBlank ? <IconExternal /> : null}
                     </span>
                 </ButtonComponent>
             )
