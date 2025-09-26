@@ -209,6 +209,7 @@ export const FEATURE_FLAGS = {
     MESSAGING: 'messaging', // owner @haven #team-messaging
     MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-messaging
     MESSAGING_TRIGGER_WEBHOOK: 'messaging-trigger-webhook', // owner #team-messaging
+    MESSAGING_SES: 'messaging-ses', // owner #team-messaging
     ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen-posthog #team-platform-features
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
@@ -316,6 +317,7 @@ export const FEATURE_FLAGS = {
     REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW: 'replay-x-llm-analytics-conversation-view', // owner: @pauldambra #team-replay
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
     SEEKBAR_PREVIEW_SCRUBBING: 'seekbar-preview-scrubbing', // owner: @pauldambra #team-replay
+    EXPERIMENTS_BREAKDOWN_FILTER: 'experiments-breakdown-filter', // owner: @rodrigoi #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

@@ -21,7 +21,7 @@ export interface CustomerDashboard {
 export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>([
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),
     tabAwareScene(),
-    connect({
+    connect(() => ({
         actions: [
             newDashboardLogic({ initialTags: ['customer-analytics'] }),
             ['showNewDashboardModal', 'hideNewDashboardModal', 'submitNewDashboardSuccessWithResult'],
@@ -32,7 +32,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             teamLogic,
             ['currentTeamId'],
         ],
-    }),
+    })),
     actions({
         createNewDashboard: true,
         handleEditDashboard: () => {},

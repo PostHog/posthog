@@ -649,7 +649,7 @@
 # name: test_create_table_query[behavioral_cohorts_matches_mv]
   '''
   
-  CREATE MATERIALIZED VIEW behavioral_cohorts_matches_mv TO writable_behavioral_cohorts_matches
+  CREATE MATERIALIZED VIEW IF NOT EXISTS behavioral_cohorts_matches_mv TO writable_behavioral_cohorts_matches
   AS SELECT
       team_id,
       cohort_id,
