@@ -183,8 +183,8 @@ class TestBillingManager(BaseTest):
                     "feature_flag_requests": {"usage": 25, "limit": 300},
                     "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
                     "llm_events": {"usage": 50, "limit": 1000},
-                    "surveys": {"usage": 10, "limit": 100},
-                    "cdp_invocations": {"usage": 10, "limit": 100},
+                    "survey_responses": {"usage": 10, "limit": 100},
+                    "cdp_trigger_events": {"usage": 10, "limit": 100},
                 },
                 "billing_period": {
                     "current_period_start": "2024-01-01T00:00:00Z",
