@@ -54,9 +54,7 @@ export const PlayerCommentModal = (): JSX.Element => {
                             <LemonRichContentEditor
                                 placeholder="Comment on this recording?"
                                 data-attr="create-recording-comment-input"
-                                // maxLength={400}
                                 onPressCmdEnter={submitRecordingComment}
-                                // TODO how do we get existing bare text content in here?
                                 initialContent={recordingComment.richContent}
                                 onCreate={setRichContentEditor}
                                 onUpdate={() => {
