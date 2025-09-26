@@ -16,7 +16,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
-    DashboardPrivilegeLevel,
     DashboardRestrictionLevel,
     ENTITY_MATCH_TYPE,
     FunnelLayout,
@@ -2076,7 +2075,6 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
-    effective_privilege_level: DashboardPrivilegeLevel
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
@@ -2124,7 +2122,6 @@ export interface DashboardBasicType extends WithAccessControl {
     creation_mode: 'default' | 'template' | 'duplicate'
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
-    effective_privilege_level: DashboardPrivilegeLevel
     access_control_version: 'v1' | 'v2'
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
@@ -2203,7 +2200,7 @@ export interface DashboardCollaboratorType {
     id: string
     dashboard_id: DashboardType['id']
     user: UserBasicType
-    level: DashboardPrivilegeLevel
+    level: AccessLevel
     added_at: string
     updated_at: string
 }
@@ -4448,26 +4445,38 @@ export enum RolloutConditionType {
     Sentry = 'sentry',
 }
 
+// TODO: To be deprecated - legacy feature flag permissions system
 export enum Resource {
     FEATURE_FLAGS = 'feature flags',
 }
 
+// TODO: To be deprecated - legacy access levels
 export enum AccessLevel {
     READ = 21,
     WRITE = 37,
 }
 
+// TODO: To be deprecated - legacy organization resource permissions
+export interface OrganizationResourcePermissionType {
+    id: string
+    resource: Resource
+    access_level: AccessLevel
+    created_at: string
+    updated_at: string
+    created_by: UserBaseType | null
+}
+
 export interface RoleType {
     id: string
     name: string
-    feature_flags_access_level: AccessLevel
+    feature_flags_access_level: AccessControlLevel
     members: RoleMemberType[]
     created_at: string
     created_by: UserBasicType | null
 }
 
 export interface RolesListParams {
-    feature_flags_access_level?: AccessLevel
+    feature_flags_access_level?: AccessControlLevel
 }
 
 export interface RoleMemberType {
@@ -4587,15 +4596,6 @@ export interface FeatureFlagAssociatedRoleType {
     added_at: string
 }
 // TODO: To be deprecated
-
-export interface OrganizationResourcePermissionType {
-    id: string
-    resource: Resource
-    access_level: AccessLevel
-    created_at: string
-    updated_at: string
-    created_by: UserBaseType | null
-}
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
 

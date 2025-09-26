@@ -17,7 +17,6 @@ import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
-import { privilegeLevelToName } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
@@ -58,7 +57,6 @@ import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
-import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
@@ -495,8 +493,6 @@ function CollaboratorBubbles({
     dashboard: DashboardType<QueryBasedInsightModel>
     onClick: () => void
 }): JSX.Element | null {
-    const { allCollaborators } = useValues(dashboardCollaboratorsLogic({ dashboardId: dashboard.id }))
-
     if (!dashboard) {
         return null
     }
@@ -513,16 +509,11 @@ function CollaboratorBubbles({
         tooltipParts.push('Shared publicly')
     }
 
+    // Dashboard collaborators are now managed through the access control system
     return (
         <ProfileBubbles
-            people={allCollaborators.map((collaborator) => ({
-                email: collaborator.user.email,
-                name: collaborator.user.first_name,
-                title: `${collaborator.user.first_name} <${collaborator.user.email}> (${
-                    privilegeLevelToName[collaborator.level]
-                })`,
-            }))}
-            tooltip={tooltipParts.join(' • ')}
+            people={[]}
+            tooltip={tooltipParts.length > 0 ? tooltipParts.join(' • ') : 'Click to manage access'}
             onClick={onClick}
         />
     )

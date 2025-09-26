@@ -346,13 +346,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         })
     }
 
-    if (featureFlag.can_edit) {
-        tabs.push({
-            label: 'Permissions',
-            key: FeatureFlagsTab.PERMISSIONS,
-            content: <FeatureFlagPermissions featureFlag={featureFlag} />,
-        })
-    }
+    // Permissions tab should always be shown, but content will handle access control
+    tabs.push({
+        label: 'Permissions',
+        key: FeatureFlagsTab.PERMISSIONS,
+        content: <FeatureFlagPermissions featureFlag={featureFlag} />,
+    })
 
     return (
         <>
@@ -696,8 +695,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     : deleteFeatureFlag(featureFlag)
                                             }}
                                             disabledReasons={{
-                                                "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
-                                                    !featureFlag.can_edit,
                                                 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag':
                                                     (featureFlag.features?.length || 0) > 0,
                                                 'This feature flag is linked to an experiment. Delete the experiment to delete this flag':
@@ -1005,11 +1002,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     })
                                                 }}
                                                 label={featureFlag.active ? 'Enabled' : 'Disabled'}
-                                                disabledReason={
-                                                    !featureFlag.can_edit
-                                                        ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
-                                                        : null
-                                                }
+                                                userAccessLevel={featureFlag.user_access_level}
                                                 checked={featureFlag.active}
                                             />
                                         </AccessControlAction>

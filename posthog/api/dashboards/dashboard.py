@@ -15,7 +15,6 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -43,6 +42,7 @@ from posthog.models.insight_variable import InsightVariable
 from posthog.models.signals import model_activity_signal
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
+from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
@@ -71,7 +71,6 @@ DASHBOARD_SHARED_FIELDS = [
     "tags",
     "restriction_level",
     "effective_restriction_level",
-    "effective_privilege_level",
     "user_access_level",
     "access_control_version",
     "last_refresh",
@@ -113,15 +112,6 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         tile_data["insight"]["query"] = query
         tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
         return order, tile_data
-
-
-class CanEditDashboard(BasePermission):
-    message = "You don't have edit permissions for this dashboard."
-
-    def has_object_permission(self, request: Request, view, dashboard) -> bool:
-        if request.method in SAFE_METHODS:
-            return True
-        return view.user_permissions.dashboard(dashboard).can_edit
 
 
 class TextSerializer(serializers.ModelSerializer):
@@ -172,7 +162,6 @@ class DashboardBasicSerializer(
     UserAccessControlSerializerMixin,
 ):
     created_by = UserBasicSerializer(read_only=True)
-    effective_privilege_level = serializers.SerializerMethodField()
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
@@ -193,7 +182,6 @@ class DashboardBasicSerializer(
             "tags",
             "restriction_level",
             "effective_restriction_level",
-            "effective_privilege_level",
             "user_access_level",
             "access_control_version",
             "last_refresh",
@@ -204,12 +192,7 @@ class DashboardBasicSerializer(
     def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
             return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        return self.user_permissions.dashboard(dashboard).effective_restriction_level
-
-    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
-        if self.context.get("is_shared"):
-            return Dashboard.PrivilegeLevel.CAN_VIEW
-        return self.user_permissions.dashboard(dashboard).effective_privilege_level
+        return self.user_permissions.dashboard_effective_restriction_level(dashboard)
 
     def get_access_control_version(self, dashboard: Dashboard) -> str:
         # This effectively means that the dashboard they are using the old dashboard permissions
@@ -222,7 +205,6 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
-    effective_privilege_level = serializers.SerializerMethodField()
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
@@ -400,7 +382,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
-        can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
+        can_user_restrict = self.user_permissions.dashboard_can_restrict(instance)
         if "restriction_level" in validated_data and not can_user_restrict:
             raise exceptions.PermissionDenied(
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
@@ -592,7 +574,7 @@ class DashboardsViewSet(
 ):
     scope_object = "dashboard"
     queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
-    permission_classes = [CanEditDashboard]
+    permission_classes = [AccessControlPermission]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")

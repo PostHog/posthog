@@ -320,7 +320,6 @@ class InsightSerializer(InsightBasicSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     effective_restriction_level = serializers.SerializerMethodField()
-    effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     dashboards = serializers.PrimaryKeyRelatedField(
         help_text="""
@@ -375,7 +374,6 @@ class InsightSerializer(InsightBasicSerializer):
             "last_modified_by",
             "is_sample",
             "effective_restriction_level",
-            "effective_privilege_level",
             "user_access_level",
             "timezone",
             "is_cached",
@@ -394,7 +392,6 @@ class InsightSerializer(InsightBasicSerializer):
             "updated_at",
             "is_sample",
             "effective_restriction_level",
-            "effective_privilege_level",
             "user_access_level",
             "timezone",
             "refreshing",
@@ -559,11 +556,16 @@ class InsightSerializer(InsightBasicSerializer):
         for dashboard in candidate_dashboards:
             # does this user have permission on dashboards to add... if they are restricted
             # it will mean this dashboard becomes restricted because of the patch
-            if (
-                self.user_permissions.dashboard(dashboard).effective_privilege_level
-                == Dashboard.PrivilegeLevel.CAN_VIEW
-            ):
-                raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
+            # Use modern access control system
+            from posthog.rbac.user_access_control import UserAccessControl
+
+            request = self.context.get("request")
+            if request and request.user:
+                # Get team from the insight instance
+                team = instance.team if instance else dashboard.team
+                user_access_control = UserAccessControl(request.user, team)
+                if not user_access_control.check_access_level_for_object(dashboard, "editor"):
+                    raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
 
             if dashboard.team != instance.team:
                 raise serializers.ValidationError("Dashboard not found")
@@ -643,12 +645,7 @@ class InsightSerializer(InsightBasicSerializer):
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
             return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        return self.user_permissions.insight(insight).effective_restriction_level
-
-    def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
-        if self.context.get("is_shared"):
-            return Dashboard.PrivilegeLevel.CAN_VIEW
-        return self.user_permissions.insight(insight).effective_privilege_level
+        return self.user_permissions.insight_effective_restriction_level(insight)
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)

@@ -322,6 +322,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
             const type = 'text/html'
             const blob = new Blob([html], { type })
+
             const data = [new ClipboardItem({ [type]: blob })]
 
             await window.navigator.clipboard.write(data)

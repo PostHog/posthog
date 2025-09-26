@@ -14,7 +14,6 @@ from posthog.models import Dashboard, DashboardTile, Insight, OrganizationMember
 from posthog.test.db_context_capturing import capture_db_queries
 
 from ee.api.test.base import APILicensedTest
-from ee.models import DashboardPrivilege
 
 
 class TestInsightEnterpriseAPI(APILicensedTest):
@@ -139,10 +138,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 response_data["effective_restriction_level"],
                 Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
             )
-            self.assertEqual(
-                response_data["effective_privilege_level"],
-                Dashboard.PrivilegeLevel.CAN_EDIT,
-            )
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
 
@@ -196,66 +191,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                     },
                 ],
             )
-
-    def test_non_admin_user_with_privilege_can_add_an_insight_to_a_restricted_dashboard(
-        self,
-    ) -> None:
-        # create insight and dashboard separately with default user
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        insight_id, response_data = self.dashboard_api.create_insight(data={"name": "starts un-restricted dashboard"})
-
-        user_with_permissions = User.objects.create_and_join(
-            organization=self.organization,
-            email="with_access_user@posthog.com",
-            password=None,
-        )
-
-        DashboardPrivilege.objects.create(
-            dashboard=dashboard_restricted,
-            user=user_with_permissions,
-            level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        self.client.force_login(user_with_permissions)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"dashboards": [dashboard_restricted.id]},
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-    def test_an_insight_on_both_restricted_dashboard_does_not_restrict_with_explicit_privilege(
-        self,
-    ) -> None:
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        DashboardPrivilege.objects.create(
-            dashboard=dashboard_restricted,
-            user=self.user,
-            level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        _, response_data = self.dashboard_api.create_insight(
-            data={
-                "name": "on a restricted and unrestricted dashboard",
-                "dashboards": [dashboard_restricted.pk],
-            }
-        )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
 
     def test_cannot_update_restricted_insight_as_other_user_who_is_project_member(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
@@ -422,10 +357,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             response_data["effective_restriction_level"],
             Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
         )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
 
     def test_an_insight_on_unrestricted_dashboard_has_no_restrictions(self) -> None:
         dashboard: Dashboard = Dashboard.objects.create(team=self.team)
@@ -435,10 +366,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         self.assertEqual(
             response_data["effective_restriction_level"],
             Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
         )
 
     def test_an_insight_on_restricted_dashboard_has_restrictions_cannot_edit_without_explicit_privilege(
@@ -454,10 +381,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         self.assertEqual(
             response_data["effective_restriction_level"],
             Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_VIEW,
         )
 
     def test_an_insight_on_both_restricted_and_unrestricted_dashboard_has_no_restrictions(
@@ -480,10 +403,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         self.assertEqual(
             response_data["effective_restriction_level"],
             Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
         )
 
     def test_an_insight_on_restricted_dashboard_does_not_restrict_admin(self) -> None:
@@ -508,10 +427,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         self.assertEqual(
             response_data["effective_restriction_level"],
             Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
         )
 
         # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.

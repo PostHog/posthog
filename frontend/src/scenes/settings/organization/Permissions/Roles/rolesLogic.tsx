@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
-import { AccessLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
+import { AccessControlLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
 
 import type { rolesLogicType } from './rolesLogicType'
 
@@ -18,7 +18,7 @@ export const rolesLogic = kea<rolesLogicType>([
         setRoleMembersInFocus: (roleMembers: RoleMemberType[]) => ({ roleMembers }),
         setRoleMembersToAdd: (uuids: string[]) => ({ uuids }),
         openCreateRoleModal: true,
-        setPermission: (resource: Resource, access: AccessLevel) => ({ resource, access }),
+        setPermission: (resource: Resource, access: AccessControlLevel) => ({ resource, access }),
         clearPermission: true,
         updateRole: (role: RoleType) => ({ role }),
     }),
@@ -113,7 +113,7 @@ export const rolesLogic = kea<rolesLogicType>([
             if (values.roleInFocus) {
                 actions.setPermission(Resource.FEATURE_FLAGS, values.roleInFocus.feature_flags_access_level)
             } else {
-                actions.setPermission(Resource.FEATURE_FLAGS, AccessLevel.WRITE)
+                actions.setPermission(Resource.FEATURE_FLAGS, AccessControlLevel.Editor)
             }
         },
         deleteRoleSuccess: () => {

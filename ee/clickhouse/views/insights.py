@@ -9,7 +9,6 @@ from posthog.api.insight import InsightViewSet, capture_legacy_api_call
 from posthog.api.utils import action
 from posthog.decorators import cached_by_filters
 from posthog.models import Insight
-from posthog.models.dashboard import Dashboard
 from posthog.models.filters import Filter
 
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
@@ -23,7 +22,11 @@ class CanEditInsight(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
-        return view.user_permissions.insight(insight).effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
+        # Use modern access control system
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        user_access_control = UserAccessControl(request.user, view.team)
+        return user_access_control.check_access_level_for_object(insight, "editor")
 
 
 class EnterpriseInsightsViewSet(InsightViewSet):

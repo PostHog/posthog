@@ -119,7 +119,7 @@ function InfoBanner(): JSX.Element {
         text = `You currently have access to only one project. If your organization manages multiple projects and you wish to copy this feature flag across them, request project access from your administrator.`
     } else if (!hasMultipleProjects) {
         text = `This feature enables the copying of a feature flag across different projects. Once additional projects are added within your organization, you'll be able to replicate this flag to them.`
-    } else if (!featureFlag.can_edit) {
+    } else if (!['editor', 'manager'].includes(featureFlag.user_access_level || 'none')) {
         text = `You don't have the necessary permissions to copy this flag to another project. Contact your administrator to request editing rights.`
     } else {
         return <></>
@@ -143,7 +143,8 @@ function FeatureFlagCopySection(): JSX.Element {
     const hasStaticCohort = checkHasStaticCohort(featureFlag, allCohorts.results)
     const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
 
-    return hasMultipleProjects && featureFlag.can_edit ? (
+    const canEdit = ['editor', 'manager'].includes(featureFlag.user_access_level || 'none')
+    return hasMultipleProjects && canEdit ? (
         <>
             <h3 className="l3">Feature flag copy</h3>
             <div>Copy your flag and its configuration to another project.</div>

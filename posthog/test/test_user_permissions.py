@@ -9,8 +9,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
-from ee.models.dashboard_privilege import DashboardPrivilege
-
 
 class WithPermissionsBase:
     user: User
@@ -265,11 +263,11 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         self.dashboard = Dashboard.objects.create(team=self.team)
 
     def dashboard_permissions(self):
-        return self.permissions().dashboard(self.dashboard)
+        return self.permissions()
 
     def test_dashboard_effective_restriction_level(self):
         assert (
-            self.dashboard_permissions().effective_restriction_level
+            self.dashboard_permissions().dashboard_effective_restriction_level(self.dashboard)
             == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 
@@ -278,7 +276,7 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         self.dashboard.save()
 
         assert (
-            self.dashboard_permissions().effective_restriction_level
+            self.dashboard_permissions().dashboard_effective_restriction_level(self.dashboard)
             == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         )
 
@@ -290,88 +288,35 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         self.dashboard.save()
 
         assert (
-            self.dashboard_permissions().effective_restriction_level
+            self.dashboard_permissions().dashboard_effective_restriction_level(self.dashboard)
             == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 
     def test_dashboard_can_restrict(self):
-        assert not self.dashboard_permissions().can_restrict
+        assert not self.dashboard_permissions().dashboard_can_restrict(self.dashboard)
 
     def test_dashboard_can_restrict_as_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        assert self.dashboard_permissions().can_restrict
+        assert self.dashboard_permissions().dashboard_can_restrict(self.dashboard)
 
     def test_dashboard_can_restrict_as_creator(self):
         self.dashboard.created_by = self.user
         self.dashboard.save()
 
-        assert self.dashboard_permissions().can_restrict
+        assert self.dashboard_permissions().dashboard_can_restrict(self.dashboard)
 
-    def test_dashboard_effective_privilege_level_when_everyone_can_edit(self):
         self.dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         self.dashboard.save()
 
-        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-    def test_dashboard_effective_privilege_level_when_collaborators_can_edit(self):
         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.dashboard.save()
 
-        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW
-
-    def test_dashboard_effective_privilege_level_priviledged(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-
-        DashboardPrivilege.objects.create(
-            user=self.user,
-            dashboard=self.dashboard,
-            level=Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-    def test_dashboard_effective_privilege_level_creator(self):
         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.dashboard.save()
         self.dashboard.created_by = self.user
         self.dashboard.save()
-
-        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-    def test_dashboard_can_edit_when_everyone_can(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        self.dashboard.save()
-
-        assert self.dashboard_permissions().can_edit
-
-    def test_dashboard_can_edit_not_collaborator(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-
-        assert not self.dashboard_permissions().can_edit
-
-    def test_dashboard_can_edit_creator(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-        self.dashboard.created_by = self.user
-        self.dashboard.save()
-
-        assert self.dashboard_permissions().can_edit
-
-    def test_dashboard_can_edit_priviledged(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-
-        DashboardPrivilege.objects.create(
-            user=self.user,
-            dashboard=self.dashboard,
-            level=Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-        assert self.dashboard_permissions().can_edit
 
 
 class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
@@ -392,11 +337,11 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
         self.tile2 = DashboardTile.objects.create(dashboard=self.dashboard2, insight=self.insight)
 
     def insight_permissions(self):
-        return self.permissions().insight(self.insight)
+        return self.permissions()
 
     def test_effective_restriction_level_limited(self):
         assert (
-            self.insight_permissions().effective_restriction_level
+            self.insight_permissions().insight_effective_restriction_level(self.insight)
             == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         )
 
@@ -404,7 +349,7 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
         Dashboard.objects.all().update(restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
 
         assert (
-            self.insight_permissions().effective_restriction_level
+            self.insight_permissions().insight_effective_restriction_level(self.insight)
             == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 
@@ -412,7 +357,7 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
         DashboardTile.objects.all().delete()
 
         assert (
-            self.insight_permissions().effective_restriction_level
+            self.insight_permissions().insight_effective_restriction_level(self.insight)
             == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 
@@ -421,29 +366,17 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
         self.organization.save()
 
         assert (
-            self.insight_permissions().effective_restriction_level
+            self.insight_permissions().insight_effective_restriction_level(self.insight)
             == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 
-    def test_effective_privilege_level_all_limited(self):
         Dashboard.objects.all().update(restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT)
 
-        assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW
-
-    def test_effective_privilege_level_some_limited(self):
-        assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-    def test_effective_privilege_level_all_limited_as_collaborator(self):
         Dashboard.objects.all().update(restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT)
         self.dashboard1.created_by = self.user
         self.dashboard1.save()
 
-        assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-    def test_effective_privilege_level_with_no_dashboards(self):
         DashboardTile.objects.all().delete()
-
-        assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
 
 
 class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
@@ -467,13 +400,10 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
         user_permissions = self.permissions()
         user_permissions.set_preloaded_dashboard_tiles(tiles)
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             assert user_permissions.current_team.effective_membership_level is not None
-            assert user_permissions.dashboard(dashboard).effective_restriction_level is not None
-            assert user_permissions.dashboard(dashboard).can_restrict is not None
-            assert user_permissions.dashboard(dashboard).effective_privilege_level is not None
-            assert user_permissions.dashboard(dashboard).can_edit is not None
+            assert user_permissions.dashboard_effective_restriction_level(dashboard) is not None
+            assert user_permissions.dashboard_can_restrict(dashboard) is not None
 
             for insight in insights:
-                assert user_permissions.insight(insight).effective_restriction_level is not None
-                assert user_permissions.insight(insight).effective_privilege_level is not None
+                assert user_permissions.insight_effective_restriction_level(insight) is not None

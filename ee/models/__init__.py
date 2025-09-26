@@ -5,7 +5,6 @@ from .assistant import (
     ConversationCheckpointWrite,
     CoreMemory,
 )
-from .dashboard_privilege import DashboardPrivilege
 from .event_definition import EnterpriseEventDefinition
 from .hook import Hook
 from .license import License
@@ -20,7 +19,6 @@ __all__ = [
     "ConversationCheckpointBlob",
     "ConversationCheckpointWrite",
     "CoreMemory",
-    "DashboardPrivilege",
     "Conversation",
     "EnterpriseEventDefinition",
     "EnterprisePropertyDefinition",

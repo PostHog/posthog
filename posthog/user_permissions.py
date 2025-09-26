@@ -26,8 +26,6 @@ class UserPermissions:
 
         self._tiles: Optional[list[DashboardTile]] = None
         self._team_permissions: dict[int, UserTeamPermissions] = {}
-        self._dashboard_permissions: dict[int, UserDashboardPermissions] = {}
-        self._insight_permissions: dict[int, UserInsightPermissions] = {}
 
     @cached_property
     def current_team(self) -> "UserTeamPermissions":
@@ -43,21 +41,52 @@ class UserPermissions:
             self._team_permissions[team.pk] = UserTeamPermissions(self, team)
         return self._team_permissions[team.pk]
 
-    def dashboard(self, dashboard: Dashboard) -> "UserDashboardPermissions":
-        if self._current_team is None:
-            raise ValueError("Cannot call .dashboard without passing current team to UserPermissions")
+    def dashboard_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
+        """
+        Get the effective restriction level for a dashboard.
+        Replacement for user_permissions.dashboard(dashboard).effective_restriction_level
+        """
+        return (
+            dashboard.restriction_level
+            if cast(Organization, self.current_organization).is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+            else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
 
-        if dashboard.pk not in self._dashboard_permissions:
-            self._dashboard_permissions[dashboard.pk] = UserDashboardPermissions(self, dashboard)
-        return self._dashboard_permissions[dashboard.pk]
+    def dashboard_can_restrict(self, dashboard: Dashboard) -> bool:
+        """
+        Check if user can change dashboard restriction level.
+        Replacement for user_permissions.dashboard(dashboard).can_restrict
+        """
+        # The owner (aka creator) has full permissions
+        if self.user.pk == dashboard.created_by_id:
+            return True
 
-    def insight(self, insight: Insight) -> "UserInsightPermissions":
-        if self._current_team is None:
-            raise ValueError("Cannot call .insight without passing current team to UsePermissions")
+        effective_project_membership_level = self.current_team.effective_membership_level
+        return (
+            effective_project_membership_level is not None
+            and effective_project_membership_level >= OrganizationMembership.Level.ADMIN
+        )
 
-        if insight.pk not in self._insight_permissions:
-            self._insight_permissions[insight.pk] = UserInsightPermissions(self, insight)
-        return self._insight_permissions[insight.pk]
+    def insight_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
+        """
+        Get the effective restriction level for an insight based on its dashboards.
+        Replacement for user_permissions.insight(insight).effective_restriction_level
+        """
+        insight_dashboards = self._get_insight_dashboards(insight)
+
+        if len(insight_dashboards) == 0:
+            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+
+        return max(self.dashboard_effective_restriction_level(dashboard) for dashboard in insight_dashboards)
+
+    def _get_insight_dashboards(self, insight: Insight) -> list[Dashboard]:
+        """Helper method to get dashboards for an insight"""
+        # If we're in dashboard(s) and have sped up lookups
+        if self.preloaded_insight_dashboards is not None:
+            return self.preloaded_insight_dashboards
+
+        dashboard_ids = set(DashboardTile.objects.filter(insight=insight.pk).values_list("dashboard_id", flat=True))
+        return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
     @cached_property
     def teams_visible_for_user(self) -> list[Team]:
@@ -94,16 +123,6 @@ class UserPermissions:
         memberships = OrganizationMembership.objects.filter(user=self.user).select_related("organization")
         return {membership.organization_id: membership for membership in memberships}
 
-    @cached_property
-    def dashboard_privileges(self) -> dict[int, Dashboard.PrivilegeLevel]:
-        try:
-            from ee.models import DashboardPrivilege
-
-            rows = DashboardPrivilege.objects.filter(user=self.user).values_list("dashboard_id", "level")
-            return {dashboard_id: cast(Dashboard.PrivilegeLevel, level) for dashboard_id, level in rows}
-        except ImportError:
-            return {}
-
     def set_preloaded_dashboard_tiles(self, tiles: list[DashboardTile]):
         """
         Allows for speeding up insight-related permissions code
@@ -117,13 +136,6 @@ class UserPermissions:
 
         dashboard_ids = {tile.dashboard_id for tile in self._tiles}
         return list(Dashboard.objects.filter(pk__in=dashboard_ids))
-
-    def reset_insights_dashboard_cached_results(self):
-        """
-        Resets cached results for insights/dashboards. Useful for update methods.
-        """
-        self._dashboard_permissions = {}
-        self._insight_permissions = {}
 
 
 class UserTeamPermissions:
@@ -206,90 +218,6 @@ class UserTeamPermissions:
 
         # No access found
         return None
-
-
-class UserDashboardPermissions:
-    def __init__(self, user_permissions: "UserPermissions", dashboard: Dashboard):
-        self.p = user_permissions
-        self.dashboard = dashboard
-
-    @cached_property
-    def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
-        return (
-            self.dashboard.restriction_level
-            if cast(Organization, self.p.current_organization).is_feature_available(
-                AvailableFeature.ADVANCED_PERMISSIONS
-            )
-            else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        )
-
-    @cached_property
-    def can_restrict(self) -> bool:
-        # Sync conditions with frontend hasInherentRestrictionsRights
-        from posthog.models.organization import OrganizationMembership
-
-        # The owner (aka creator) has full permissions
-        if self.p.user.pk == self.dashboard.created_by_id:
-            return True
-        effective_project_membership_level = self.p.current_team.effective_membership_level
-        return (
-            effective_project_membership_level is not None
-            and effective_project_membership_level >= OrganizationMembership.Level.ADMIN
-        )
-
-    @cached_property
-    def effective_privilege_level(self) -> Dashboard.PrivilegeLevel:
-        if (
-            # Checks can be skipped if the dashboard in on the lowest restriction level
-            self.effective_restriction_level == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-            # Users with restriction rights can do anything
-            or self.can_restrict
-        ):
-            # Returning the highest access level if no checks needed
-            return Dashboard.PrivilegeLevel.CAN_EDIT
-
-        # We return lowest access level if there's no explicit privilege for this user
-        return self.p.dashboard_privileges.get(self.dashboard.pk, Dashboard.PrivilegeLevel.CAN_VIEW)
-
-    @cached_property
-    def can_edit(self) -> bool:
-        if self.effective_restriction_level < Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
-            return True
-        return self.effective_privilege_level >= Dashboard.PrivilegeLevel.CAN_EDIT
-
-
-class UserInsightPermissions:
-    def __init__(self, user_permissions: "UserPermissions", insight: Insight):
-        self.p = user_permissions
-        self.insight = insight
-
-    @cached_property
-    def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
-        if len(self.insight_dashboards) == 0:
-            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-
-        return max(self.p.dashboard(dashboard).effective_restriction_level for dashboard in self.insight_dashboards)
-
-    @cached_property
-    def effective_privilege_level(self) -> Dashboard.PrivilegeLevel:
-        if len(self.insight_dashboards) == 0:
-            return Dashboard.PrivilegeLevel.CAN_EDIT
-
-        if any(self.p.dashboard(dashboard).can_edit for dashboard in self.insight_dashboards):
-            return Dashboard.PrivilegeLevel.CAN_EDIT
-        else:
-            return Dashboard.PrivilegeLevel.CAN_VIEW
-
-    @cached_property
-    def insight_dashboards(self):
-        # If we're in dashboard(s) and have sped up lookups
-        if self.p.preloaded_insight_dashboards is not None:
-            return self.p.preloaded_insight_dashboards
-
-        dashboard_ids = set(
-            DashboardTile.objects.filter(insight=self.insight.pk).values_list("dashboard_id", flat=True)
-        )
-        return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
 
 class UserPermissionsSerializerMixin:

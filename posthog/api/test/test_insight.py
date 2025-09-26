@@ -1090,7 +1090,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
             )
             self.assertEqual(
-                response_data["effective_privilege_level"],
                 Dashboard.PrivilegeLevel.CAN_EDIT,
             )
 

@@ -152,11 +152,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                         >
                             <LemonButton
                                 fullWidth
-                                disabledReason={
-                                    !featureFlag.can_edit
-                                        ? "You don't have permission to edit this feature flag."
-                                        : null
-                                }
+                                userAccessLevel={featureFlag.user_access_level}
                                 onClick={() => {
                                     if (featureFlag.id) {
                                         featureFlagLogic({ id: featureFlag.id }).mount()
@@ -207,17 +203,15 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                         lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
                                     })
                                 }}
-                                disabledReason={
-                                    !featureFlag.can_edit
-                                        ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                        : (featureFlag.features?.length || 0) > 0
-                                          ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                          : (featureFlag.experiment_set?.length || 0) > 0
-                                            ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                            : (featureFlag.surveys?.length || 0) > 0
-                                              ? 'This feature flag is linked to a survey. Delete the survey to delete this flag'
-                                              : null
-                                }
+                                userAccessLevel={featureFlag.user_access_level}
+                                disabledReasons={{
+                                    'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag':
+                                        (featureFlag.features?.length || 0) > 0,
+                                    'This feature flag is linked to an experiment. Delete the experiment to delete this flag':
+                                        (featureFlag.experiment_set?.length || 0) > 0,
+                                    'This feature flag is linked to a survey. Delete the survey to delete this flag':
+                                        (featureFlag.surveys?.length || 0) > 0,
+                                }}
                                 fullWidth
                             >
                                 Delete feature flag
@@ -271,7 +265,7 @@ export function OverViewTab({
                         title={
                             <>
                                 <span>{stringWithWBR(featureFlag.key, 17)}</span>
-                                {!featureFlag.can_edit && (
+                                {!['editor', 'manager'].includes(featureFlag.user_access_level || 'none') && (
                                     <Tooltip title="You don't have edit permissions for this feature flag.">
                                         <IconLock
                                             style={{

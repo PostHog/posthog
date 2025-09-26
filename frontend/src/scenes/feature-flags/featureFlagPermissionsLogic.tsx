@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
-import { AccessLevel, FeatureFlagAssociatedRoleType, Resource, RoleType } from '~/types'
+import { AccessControlLevel, FeatureFlagAssociatedRoleType, Resource, RoleType } from '~/types'
 
 import type { featureFlagPermissionsLogicType } from './featureFlagPermissionsLogicType'
 
@@ -42,7 +42,7 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
             {
                 loadPossibleRolesToAdd: async () => {
                     const response = await api.roles.list({
-                        feature_flags_access_level: AccessLevel.READ,
+                        feature_flags_access_level: AccessControlLevel.Viewer,
                     })
                     return response.results || []
                 },

@@ -124,19 +124,24 @@ export default function FeatureFlagSchedule(): JSX.Element {
             width: 0,
             render: function Render(_, scheduledChange: ScheduledChangeType) {
                 return (
-                    !scheduledChange.executed_at &&
-                    featureFlag.can_edit && (
-                        <More
-                            overlay={
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => deleteScheduledChange(scheduledChange.id)}
-                                    fullWidth
-                                >
-                                    Delete scheduled change
-                                </LemonButton>
-                            }
-                        />
+                    !scheduledChange.executed_at && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.FeatureFlag}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={featureFlag.user_access_level}
+                        >
+                            <More
+                                overlay={
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => deleteScheduledChange(scheduledChange.id)}
+                                        fullWidth
+                                    >
+                                        Delete scheduled change
+                                    </LemonButton>
+                                }
+                            />
+                        </AccessControlAction>
                     )
                 )
             },
@@ -145,86 +150,97 @@ export default function FeatureFlagSchedule(): JSX.Element {
 
     return (
         <div>
-            {featureFlag.can_edit ? (
-                <div>
-                    <h3 className="l3">Add a scheduled change</h3>
-                    <div className="mb-6">Automatically change flag properties at a future point in time.</div>
-                    <div className="inline-flex gap-10 mb-8">
+            <AccessControlAction
+                resourceType={AccessControlResourceType.FeatureFlag}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={featureFlag.user_access_level}
+            >
+                {({ disabledReason }) =>
+                    disabledReason ? (
+                        <LemonBanner type="info" className="mb-2">
+                            You don't have the necessary permissions to schedule changes to this flag. Contact your
+                            administrator to request editing rights.
+                        </LemonBanner>
+                    ) : (
                         <div>
-                            <div className="font-semibold leading-6 h-6 mb-1">Change type</div>
-                            <LemonSelect<ScheduledChangeOperationType>
-                                className="w-50"
-                                placeholder="Select variant"
-                                value={scheduledChangeOperation}
-                                onChange={(value) => value && setScheduledChangeOperation(value)}
-                                options={[
-                                    { label: 'Change status', value: ScheduledChangeOperationType.UpdateStatus },
-                                    {
-                                        label: 'Add a condition',
-                                        value: ScheduledChangeOperationType.AddReleaseCondition,
-                                    },
-                                ]}
-                            />
-                        </div>
-                        <div className="w-50">
-                            <div className="font-semibold leading-6 h-6 mb-1">Date and time</div>
-                            <LemonCalendarSelectInput
-                                value={scheduleDateMarker}
-                                onChange={(value) => setScheduleDateMarker(value)}
-                                placeholder="Select date"
-                                selectionPeriod="upcoming"
-                                granularity="minute"
-                            />
-                        </div>
-                    </div>
-
-                    <div className="deprecated-space-y-4">
-                        {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
-                            <>
-                                <div className="border rounded p-4">
-                                    <LemonCheckbox
-                                        id="flag-enabled-checkbox"
-                                        label="Enable feature flag"
-                                        onChange={(value) => {
-                                            setSchedulePayload(null, value)
-                                        }}
-                                        checked={schedulePayload.active}
+                            <h3 className="l3">Add a scheduled change</h3>
+                            <div className="mb-6">Automatically change flag properties at a future point in time.</div>
+                            <div className="inline-flex gap-10 mb-8">
+                                <div>
+                                    <div className="font-semibold leading-6 h-6 mb-1">Change type</div>
+                                    <LemonSelect<ScheduledChangeOperationType>
+                                        className="w-50"
+                                        placeholder="Select variant"
+                                        value={scheduledChangeOperation}
+                                        onChange={(value) => value && setScheduledChangeOperation(value)}
+                                        options={[
+                                            {
+                                                label: 'Change status',
+                                                value: ScheduledChangeOperationType.UpdateStatus,
+                                            },
+                                            {
+                                                label: 'Add a condition',
+                                                value: ScheduledChangeOperationType.AddReleaseCondition,
+                                            },
+                                        ]}
                                     />
                                 </div>
-                            </>
-                        )}
-                        {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
-                            <FeatureFlagReleaseConditions
-                                id={`schedule-release-conditions-${featureFlag.id}`}
-                                filters={scheduleFilters}
-                                onChange={(value, errors) => setSchedulePayload(value, null, errors)}
-                                hideMatchOptions
-                            />
-                        )}
-                        <div className="flex items-center justify-end">
-                            <LemonButton
-                                type="primary"
-                                onClick={createScheduledChange}
-                                disabledReason={
-                                    !scheduleDateMarker
-                                        ? 'Select the scheduled date and time'
-                                        : hasFormErrors(schedulePayloadErrors)
-                                          ? 'Fix release condition errors'
-                                          : undefined
-                                }
-                            >
-                                Schedule
-                            </LemonButton>
+                                <div className="w-50">
+                                    <div className="font-semibold leading-6 h-6 mb-1">Date and time</div>
+                                    <LemonCalendarSelectInput
+                                        value={scheduleDateMarker}
+                                        onChange={(value) => setScheduleDateMarker(value)}
+                                        placeholder="Select date"
+                                        selectionPeriod="upcoming"
+                                        granularity="minute"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="deprecated-space-y-4">
+                                {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
+                                    <>
+                                        <div className="border rounded p-4">
+                                            <LemonCheckbox
+                                                id="flag-enabled-checkbox"
+                                                label="Enable feature flag"
+                                                onChange={(value) => {
+                                                    setSchedulePayload(null, value)
+                                                }}
+                                                checked={schedulePayload.active}
+                                            />
+                                        </div>
+                                    </>
+                                )}
+                                {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
+                                    <FeatureFlagReleaseConditions
+                                        id={`schedule-release-conditions-${featureFlag.id}`}
+                                        filters={scheduleFilters}
+                                        onChange={(value, errors) => setSchedulePayload(value, null, errors)}
+                                        hideMatchOptions
+                                    />
+                                )}
+                                <div className="flex items-center justify-end">
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={createScheduledChange}
+                                        disabledReason={
+                                            !scheduleDateMarker
+                                                ? 'Select the scheduled date and time'
+                                                : hasFormErrors(schedulePayloadErrors)
+                                                  ? 'Fix release condition errors'
+                                                  : undefined
+                                        }
+                                    >
+                                        Schedule
+                                    </LemonButton>
+                                </div>
+                                <LemonDivider className="" />
+                            </div>
                         </div>
-                        <LemonDivider className="" />
-                    </div>
-                </div>
-            ) : (
-                <LemonBanner type="info" className="mb-2">
-                    You don't have the necessary permissions to schedule changes to this flag. Contact your
-                    administrator to request editing rights.
-                </LemonBanner>
-            )}
+                    )
+                }
+            </AccessControlAction>
             <LemonTable
                 rowClassName={(record) => (record.executed_at ? 'opacity-75' : '')}
                 className="mt-4"

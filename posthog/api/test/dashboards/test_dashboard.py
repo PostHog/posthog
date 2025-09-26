@@ -157,10 +157,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             response_data["restriction_level"],
             Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
         )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
 
     def test_create_basic_dashboard(self):
         # the front end sends an empty description even if not allowed to add one
@@ -173,10 +169,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(
             response_data["restriction_level"],
             Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
         instance = Dashboard.objects.get(id=response_data["id"])
@@ -199,10 +191,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(
             response_data["restriction_level"],
             Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
         dashboard.refresh_from_db()
@@ -1399,7 +1387,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "deleted": False,
                     "derived_name": None,
                     "description": None,
-                    "effective_privilege_level": 37,
                     "effective_restriction_level": 21,
                     "favorited": False,
                     "filters": {},
