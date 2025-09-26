@@ -473,14 +473,14 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             groupBy=RevenueAnalyticsTopCustomersGroupBy.MONTH,
             properties=[],
         )
-        response: dict[str, Any] = {
+        month_response: dict[str, Any] = {
             "results": [
                 ("cus_3", "John Smith", Decimal("615.997315"), date(2025, 2, 1)),
                 ("cus_2", "Jane Doe", Decimal("26.0100949999"), date(2025, 2, 1)),
                 ("cus_1", "John Doe", Decimal("5.2361453433"), date(2025, 2, 1)),
             ]
         }
-        result = await self.query_runner._compress_results(revenue_analytics_top_customers_query, response)
+        result = await self.query_runner._compress_results(revenue_analytics_top_customers_query, month_response)
         self.assertIn("Grouped by month", result)
         self.assertIn("John Smith", result)
         self.assertIn("Jane Doe", result)
@@ -491,14 +491,14 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             groupBy=RevenueAnalyticsTopCustomersGroupBy.ALL,
             properties=[],
         )
-        response: dict[str, Any] = {
+        all_response: dict[str, Any] = {
             "results": [
                 ("cus_3", "John Smith", Decimal("615.997315"), "all"),
                 ("cus_2", "Jane Doe", Decimal("26.0100949999"), "all"),
                 ("cus_1", "John Doe", Decimal("5.2361453433"), "all"),
             ]
         }
-        result = await self.query_runner._compress_results(revenue_analytics_top_customers_query_all, response)
+        result = await self.query_runner._compress_results(revenue_analytics_top_customers_query_all, all_response)
         self.assertNotIn("Grouped by month", result)
         self.assertIn("John Smith", result)
         self.assertIn("Jane Doe", result)
