@@ -34,6 +34,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.api.services.query import process_query_dict
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
@@ -1087,6 +1088,100 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(updated_query, RetentionQuery)
         assert updated_query.version == 2
         assert updated_query.retentionFilter.meanRetentionCalculation == MeanRetentionCalculation.SIMPLE
+
+    def test_query_deduplication_prevents_duplicate_execution(self):
+        """Test that identical queries are deduplicated and only one execution occurs."""
+        from posthog.schema import HogQLQuery
+
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                distinct_ids=["test-user"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(
+                team=self.team,
+                event="test_event",
+                distinct_id="test-user",
+                properties={"value": 42},
+            )
+        flush_persons_and_events()
+
+        query = HogQLQuery(query="SELECT count() FROM events WHERE event = 'test_event'")
+        query_data = {"query": query.model_dump(), "refresh": ExecutionMode.CALCULATE_ASYNC_ALWAYS}
+
+        with freeze_time("2020-01-10 12:14:00"):
+            response1 = self.client.post(f"/api/environments/{self.team.id}/query/", query_data)
+            response2 = self.client.post(f"/api/environments/{self.team.id}/query/", query_data)
+            response3 = self.client.post(f"/api/environments/{self.team.id}/query/", query_data)
+
+        self.assertEqual(response1.status_code, 202)
+        self.assertEqual(response2.status_code, 202)
+        self.assertEqual(response3.status_code, 202)
+
+        response1_data = response1.json()
+        response2_data = response2.json()
+        response3_data = response3.json()
+
+        query_id1 = response1_data["query_status"]["id"]
+        query_id2 = response2_data["query_status"]["id"]
+        query_id3 = response3_data["query_status"]["id"]
+
+        self.assertEqual(query_id1, query_id2, "First and second queries should have same ID")
+        self.assertEqual(query_id2, query_id3, "Second and third queries should have same ID")
+
+        self.assertIsNotNone(query_id1)
+        self.assertNotEqual(query_id1, "unknown")
+
+    def test_query_deduplication_different_queries_not_deduplicated(self):
+        """Test that different queries are not deduplicated."""
+        from posthog.schema import HogQLQuery
+
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                distinct_ids=["test-user"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(
+                team=self.team,
+                event="test_event",
+                distinct_id="test-user",
+                properties={"value": 42},
+            )
+        flush_persons_and_events()
+
+        query1 = HogQLQuery(query="SELECT count() FROM events WHERE event = 'test_event'")
+        query2 = HogQLQuery(query="SELECT count() FROM events WHERE event = 'other_event'")
+        query3 = HogQLQuery(query="SELECT count() FROM events WHERE properties.value = 42")
+
+        with freeze_time("2020-01-10 12:14:00"):
+            response1 = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": query1.model_dump(), "refresh": ExecutionMode.CALCULATE_ASYNC_ALWAYS},
+            )
+            response2 = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": query2.model_dump(), "refresh": ExecutionMode.CALCULATE_ASYNC_ALWAYS},
+            )
+            response3 = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": query3.model_dump(), "refresh": ExecutionMode.CALCULATE_ASYNC_ALWAYS},
+            )
+
+        self.assertEqual(response1.status_code, 202)
+        self.assertEqual(response2.status_code, 202)
+        self.assertEqual(response3.status_code, 202)
+
+        query_id1 = response1.json()["query_status"]["id"]
+        query_id2 = response2.json()["query_status"]["id"]
+        query_id3 = response3.json()["query_status"]["id"]
+
+        self.assertNotEqual(query_id1, query_id2, "Different queries should have different IDs")
+        self.assertNotEqual(query_id2, query_id3, "Different queries should have different IDs")
+        self.assertNotEqual(query_id1, query_id3, "Different queries should have different IDs")
 
 
 class TestQueryRetrieve(APIBaseTest):
