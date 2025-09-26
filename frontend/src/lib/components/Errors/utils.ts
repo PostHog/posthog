@@ -185,11 +185,11 @@ export function stringify(value: any): string {
 
     try {
         return JSON.stringify(value)
-    } catch (e) {}
+    } catch {}
 
     try {
         return value.toString()
-    } catch (e) {}
+    } catch {}
 
     return ''
 }
