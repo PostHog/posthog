@@ -52,7 +52,7 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
 class RevenueAnalyticsFilterNode(
     TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[RevenueAnalyticsAssistantFilters]]
 ):
-    """Node for generating filtering options for session replay."""
+    """Node for generating filtering options for revenue analytics."""
 
     def __init__(self, team: Team, user: User, toolkit_class: type[RevenueAnalyticsFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
