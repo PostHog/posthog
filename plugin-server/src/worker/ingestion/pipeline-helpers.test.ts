@@ -382,7 +382,12 @@ describe('sendMessageToDLQ', () => {
             offset: 123,
             key: 'test-key',
             size: 12,
-            headers: [{ team_id: Buffer.from('42') }, { distinct_id: Buffer.from('test-user') }, { event: 'pageview' }],
+            headers: [
+                { team_id: Buffer.from('42') },
+                { distinct_id: Buffer.from('test-user') },
+                { event: 'pageview' },
+                { uuid: 'test-uuid-123' },
+            ],
         } as Message
 
         mockCaptureIngestionWarning.mockResolvedValue(undefined)
@@ -398,6 +403,7 @@ describe('sendMessageToDLQ', () => {
         expect(mockLogger.warn).toHaveBeenCalledWith('Event sent to DLQ', {
             step: stepName,
             team_id: '42',
+            uuid: 'test-uuid-123',
             distinct_id: 'test-user',
             event: 'pageview',
             error: 'Test error',
@@ -409,7 +415,7 @@ describe('sendMessageToDLQ', () => {
             'pipeline_step_dlq',
             {
                 distinctId: 'test-user',
-                eventUuid: 'unknown',
+                eventUuid: 'test-uuid-123',
                 error: 'Test error',
                 event: 'pageview',
                 step: stepName,
@@ -511,6 +517,8 @@ describe('sendMessageToDLQ', () => {
 
         expect(mockLogger.error).toHaveBeenCalledWith('Failed to send event to DLQ', {
             step: stepName,
+            uuid: 'test-uuid-123',
+            event: 'pageview',
             team_id: '42',
             distinct_id: 'test-user',
             error: dlqError,
