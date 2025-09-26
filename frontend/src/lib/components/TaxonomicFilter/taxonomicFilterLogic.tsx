@@ -571,7 +571,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         },
                         footerMessage: hideBehavioralCohorts ? (
                             <>
-                                <Link to={COHORT_BEHAVIORAL_LIMITATIONS_URL}>
+                                <Link to={COHORT_BEHAVIORAL_LIMITATIONS_URL} target="_blank">
                                     Some cohorts excluded due to containing behavioral filters.
                                 </Link>
                             </>
