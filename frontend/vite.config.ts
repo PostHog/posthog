@@ -92,10 +92,9 @@ export default defineConfig(({ mode }) => {
             },
             // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
-            // Enable HTTP/2 for better parallel loading
-            https: false, // Keep false but increase connection limits
+            // Use keep-alive headers to reuse HTTP/1.1 connections for better performance
             headers: {
-                // Allow more concurrent connections
+                // Allow more concurrent connections via connection pooling
                 Connection: 'keep-alive',
                 'Keep-Alive': 'timeout=5, max=1000',
             },
