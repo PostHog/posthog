@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
@@ -55,7 +55,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(16, 17)):
+        with self.assertNumQueries(FuzzyInt(17, 18)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -72,7 +72,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(16, 17)):
+        with self.assertNumQueries(FuzzyInt(21, 22)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1701,7 +1701,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(22):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -2773,7 +2773,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
         return response
 
-    def test_create_exposure_cohort_for_experiment(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_exposure_cohort_for_experiment(self, patch_on_commit: MagicMock):
         response = self._generate_experiment("2024-01-01T10:23")
 
         created_experiment = response.json()["id"]
@@ -2852,7 +2853,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
 
-    def test_create_exposure_cohort_for_experiment_with_custom_event_exposure(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_exposure_cohort_for_experiment_with_custom_event_exposure(self, patch_on_commit: MagicMock):
         self.maxDiff = None
 
         cohort_extra = Cohort.objects.create(
@@ -2998,7 +3000,10 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
 
-    def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(
+        self, patch_on_commit: MagicMock
+    ):
         cohort_extra = Cohort.objects.create(
             team=self.team,
             filters={

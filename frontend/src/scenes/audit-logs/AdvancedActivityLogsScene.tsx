@@ -21,7 +21,7 @@ export const scene: SceneExport = {
 }
 
 export function AdvancedActivityLogsScene(): JSX.Element | null {
-    const { isFeatureFlagEnabled, exports, activeTab } = useValues(advancedActivityLogsLogic)
+    const { isFeatureFlagEnabled, activeTab } = useValues(advancedActivityLogsLogic)
     const { setActiveTab } = useActions(advancedActivityLogsLogic)
 
     if (!isFeatureFlagEnabled) {
@@ -29,12 +29,10 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
         return null
     }
 
-    const hasExports = exports && exports.length > 0
-
     const tabs = [
         {
             key: 'logs',
-            label: 'Activity logs',
+            label: 'Logs',
             content: (
                 <div className="space-y-4">
                     <AdvancedActivityLogFiltersPanel />
@@ -42,24 +40,20 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                 </div>
             ),
         },
-        ...(hasExports
-            ? [
-                  {
-                      key: 'exports',
-                      label: 'Exports',
-                      content: <ExportsList />,
-                  },
-              ]
-            : []),
+        {
+            key: 'exports',
+            label: 'Exports',
+            content: <ExportsList />,
+        },
     ]
 
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Advanced activity logs"
-                description="Track all changes and activities in your organization"
+                name="Activity logs"
+                description="Track all changes and activities in your organization with detailed filtering and export capabilities."
                 resourceType={{
-                    type: 'activity logs',
+                    type: 'team_activity',
                     forceIcon: <IconActivity />,
                 }}
             />
