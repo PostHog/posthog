@@ -7,8 +7,9 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { fetch } from '~/utils/request'
 
 import { Hub } from '../../../types'
-import { addTrackingToEmail, generateEmailTrackingCode } from './email-tracking.service'
+import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
+import { generateEmailTrackingCode } from './helpers/tracking-code'
 
 export class EmailService {
     ses: AWS.SES
@@ -200,6 +201,7 @@ export class EmailService {
                     },
                 },
             },
+            ConfigurationSetName: 'posthog-messaging', // This triggers the SNS notifications for email tracking
             Tags: [{ Name: 'ph_id', Value: trackingCode }],
         }
 
