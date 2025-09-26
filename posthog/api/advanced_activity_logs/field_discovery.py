@@ -206,11 +206,12 @@ class AdvancedActivityLogFieldDiscovery:
                             detail = None
                     records.append({"scope": scope, "detail": detail})
         else:
-            records = list(
-                ActivityLog.objects.filter(organization_id=self.organization_id, detail__isnull=False)
-                .values("scope", "detail")[offset : offset + limit]
-                .iterator()
-            )
+            records = [
+                {"scope": record["scope"], "detail": record["detail"]}
+                for record in ActivityLog.objects.filter(
+                    organization_id=self.organization_id, detail__isnull=False
+                ).values("scope", "detail")[offset : offset + limit]
+            ]
 
         batch_fields: dict[str, set[tuple[str, str]]] = {}
 
