@@ -212,6 +212,9 @@ export const sceneLogic = kea<sceneLogicType>([
         reorderTabs: (activeId: string, overId: string) => ({ activeId, overId }),
         duplicateTab: (tab: SceneTab) => ({ tab }),
         renameTab: (tab: SceneTab) => ({ tab }),
+        startTabEdit: (tab: SceneTab) => ({ tab }),
+        endTabEdit: true,
+        saveTabEdit: (tab: SceneTab, name: string) => ({ tab, name }),
     }),
     reducers({
         // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
@@ -302,16 +305,12 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                     return [...state.slice(0, idx + 1), cloned, ...state.slice(idx + 1)]
                 },
-                renameTab: (state, { tab }) => {
-                    const newName = prompt('Rename tab', tab.customTitle || tab.title)
-                    if (newName === null) {
-                        return state // User cancelled
-                    }
+                saveTabEdit: (state, { tab, name }) => {
                     return state.map((t) =>
                         t.id === tab.id
                             ? {
                                   ...t,
-                                  customTitle: newName.trim() === '' ? undefined : newName.trim(),
+                                  customTitle: name.trim() === '' ? undefined : name.trim(),
                               }
                             : t
                     )
@@ -340,6 +339,14 @@ export const sceneLogic = kea<sceneLogicType>([
                             : tab
                     )
                 },
+            },
+        ],
+        editingTabId: [
+            null as string | null,
+            {
+                startTabEdit: (_, { tab }) => tab.id,
+                endTabEdit: () => null,
+                saveTabEdit: () => null,
             },
         ],
         exportedScenes: [
@@ -556,6 +563,9 @@ export const sceneLogic = kea<sceneLogicType>([
         },
         setTabs: () => persistTabs(values.tabs),
         activateTab: () => persistTabs(values.tabs),
+        renameTab: ({ tab }) => {
+            actions.startTabEdit(tab)
+        },
         removeTab: ({ tab }) => {
             if (tab.active) {
                 // values.activeTab will already be the new active tab from the reducer

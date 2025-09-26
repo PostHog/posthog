@@ -2,6 +2,7 @@ import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '
 import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
+import React, { useEffect, useRef, useState } from 'react'
 
 import { IconPlus, IconSearch, IconX } from '@posthog/icons'
 
@@ -158,8 +159,29 @@ interface SceneTabProps {
 }
 
 function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
+    const inputRef = useRef<HTMLInputElement>(null)
     const canRemoveTab = true
-    const { clickOnTab, removeTab, renameTab } = useActions(sceneLogic)
+    const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
+    const { editingTabId } = useValues(sceneLogic)
+    const [editValue, setEditValue] = useState('')
+
+    const isEditing = editingTabId === tab.id
+
+    useEffect(() => {
+        if (isEditing && editValue === '') {
+            setEditValue(tab.customTitle || tab.title)
+        }
+    }, [isEditing, tab.customTitle, tab.title, editValue])
+
+    useEffect(() => {
+        if (isEditing && inputRef.current) {
+            clickOnTab(tab)
+            setTimeout(() => {
+                inputRef.current?.focus()
+            }, 100)
+        }
+    }, [isEditing])
+
     return (
         <Link
             onClick={(e) => {
@@ -179,8 +201,9 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             onDoubleClick={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
-                if (!isDragging) {
-                    renameTab(tab)
+                if (!isDragging && !isEditing) {
+                    startTabEdit(tab)
+                    setEditValue(tab.customTitle || tab.title)
                 }
             }}
             to={isDragging ? undefined : `${tab.pathname}${tab.search}${tab.hash}`}
@@ -203,9 +226,33 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             ) : (
                 iconForType(tab.iconType as FileSystemIconType)
             )}
-            <div className={cn('scene-tab-title flex-grow text-left truncate', tab.customTitle && 'italic')}>
-                {tab.customTitle || tab.title}
-            </div>
+            {isEditing ? (
+                <input
+                    ref={inputRef}
+                    className="scene-tab-title flex-grow text-left bg-transparent border-none outline-1 text-primary"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={() => {
+                        saveTabEdit(tab, editValue)
+                        endTabEdit()
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                            endTabEdit()
+                            setEditValue('')
+                        } else if (e.key === 'Enter') {
+                            saveTabEdit(tab, editValue)
+                            endTabEdit()
+                        }
+                    }}
+                    autoFocus
+                    onFocus={(e) => e.target.select()}
+                />
+            ) : (
+                <div className={cn('scene-tab-title flex-grow text-left truncate', tab.customTitle && 'italic')}>
+                    {tab.customTitle || tab.title}
+                </div>
+            )}
             {canRemoveTab && (
                 <ButtonPrimitive
                     onClick={(e) => {

@@ -20,7 +20,7 @@ import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut
 
 export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children: React.ReactElement }): JSX.Element {
     const { tabs } = useValues(sceneLogic)
-    const { setTabs, removeTab, duplicateTab, renameTab } = useActions(sceneLogic)
+    const { setTabs, removeTab, duplicateTab, startTabEdit } = useActions(sceneLogic)
 
     const openInNewWindow = (): void => {
         const fullUrl = `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
@@ -70,7 +70,7 @@ export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children
                     </ButtonPrimitive>
                 </ContextMenuItem>
                 <ContextMenuItem asChild>
-                    <ButtonPrimitive menuItem onClick={() => renameTab(tab)}>
+                    <ButtonPrimitive menuItem onClick={() => startTabEdit(tab)}>
                         <IconPencil /> Rename tab
                     </ButtonPrimitive>
                 </ContextMenuItem>
