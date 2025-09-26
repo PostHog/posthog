@@ -1,6 +1,7 @@
 import logging
 from typing import cast
 
+from django.db import transaction
 from django.utils import timezone
 
 from rest_framework import status, viewsets
@@ -11,10 +12,14 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
+from products.tasks.backend.lib.templates import CreateWorkflowFromTemplateOptions
+
 from .agents import get_all_agents
 from .models import Task, TaskProgress, TaskWorkflow, WorkflowStage
 from .serializers import AgentDefinitionSerializer, TaskSerializer, TaskWorkflowSerializer, WorkflowStageSerializer
 from .temporal.client import execute_task_processing_workflow
+
+logger = logging.getLogger(__name__)
 
 
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -47,17 +52,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return {**super().get_serializer_context(), "team": self.team}
 
     def perform_create(self, serializer):
-        import logging
-
-        logger = logging.getLogger(__name__)
         logger.info(f"Creating task with data: {serializer.validated_data}")
         serializer.save(team=self.team)
 
     def perform_update(self, serializer):
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         # Get the current task state before update
         task = cast(Task, serializer.instance)
         previous_status = task.current_stage.key if task.current_stage else "backlog"
@@ -91,10 +89,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=["patch"])
     def update_stage(self, request, pk=None):
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         logger.info(f"update_stage called for task {pk} with data: {request.data}")
 
         task = cast(Task, self.get_object())
@@ -372,19 +366,19 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Set this workflow as the team's default"""
         workflow = self.get_object()
 
-        # Unset current default
-        TaskWorkflow.objects.filter(team=self.team, is_default=True).update(is_default=False)
+        with transaction.atomic():
+            # Unset current default
+            TaskWorkflow.objects.filter(team=self.team, is_default=True).update(is_default=False)
 
-        # Set new default
-        workflow.is_default = True
-        workflow.save(update_fields=["is_default"])
+            # Set new default
+            workflow.is_default = True
+            workflow.save(update_fields=["is_default"])
 
         return Response(TaskWorkflowSerializer(workflow, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["post"])
     def deactivate(self, request, pk=None, **kwargs):
-        """Safely deactivate a workflow"""
-        workflow = self.get_object()
+        workflow = cast(TaskWorkflow, self.get_object())
 
         try:
             workflow.deactivate_safely()
@@ -396,10 +390,14 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def create_default(self, request):
         """Create a default workflow for the team"""
         existing_default = TaskWorkflow.objects.filter(team=self.team, is_default=True).first()
+
         if existing_default:
             return Response({"error": "Team already has a default workflow"}, status=status.HTTP_400_BAD_REQUEST)
 
-        workflow = TaskWorkflow.create_default_workflow(self.team)
+        workflow = TaskWorkflow.create_default_workflow(
+            options=CreateWorkflowFromTemplateOptions(team=self.team, default=True)
+        )
+
         return Response(TaskWorkflowSerializer(workflow, context=self.get_serializer_context()).data)
 
 

@@ -1,3 +1,5 @@
+from django.db import IntegrityError
+
 from rest_framework import serializers
 
 from posthog.models.integration import Integration
@@ -202,14 +204,7 @@ class TaskWorkflowSerializer(serializers.ModelSerializer):
         """Get number of tasks using this workflow"""
         return obj.get_tasks_in_workflow().count()
 
-    def get_can_delete(self, obj):
-        """Check if workflow can be safely deleted"""
-        can_delete, reason = obj.can_delete()
-        return {"can_delete": can_delete, "reason": reason}
-
     def create(self, validated_data):
-        from django.db import IntegrityError
-
         validated_data["team"] = self.context["team"]
         try:
             return super().create(validated_data)

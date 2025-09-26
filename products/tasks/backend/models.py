@@ -1,12 +1,17 @@
 import uuid
 from typing import Optional
 
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
 
 from products.tasks.backend.agents import get_agent_by_id
+from products.tasks.backend.lib.templates import (
+    DEFAULT_WORKFLOW_TEMPLATE,
+    CreateWorkflowFromTemplateOptions,
+    WorkflowTemplate,
+)
 
 
 class TaskWorkflow(models.Model):
@@ -36,130 +41,115 @@ class TaskWorkflow(models.Model):
         """Get all non-archived stages."""
         return self.stages.filter(is_archived=False)
 
-    def get_tasks_in_workflow(self):
-        """Get all tasks currently using this workflow."""
-        return Task.objects.filter(workflow=self)
-
-    def can_delete(self) -> tuple[bool, str]:
-        """Workflows can always be deleted; tasks will be moved to backlog (no workflow)."""
-        return True, ""
-
     def delete(self, *args, **kwargs):
         """Override delete to remove workflow from tasks so they go to backlog."""
-        from django.db import transaction
 
         with transaction.atomic():
             Task.objects.filter(workflow=self).update(workflow=None, current_stage=None)
             super().delete(*args, **kwargs)
 
-    def migrate_tasks_to_workflow(self, target_workflow: "TaskWorkflow"):
+    def migrate_tasks_to_workflow(self, target_workflow: "TaskWorkflow") -> int:
         """Migrate all tasks from this workflow to another workflow. Returns number of tasks updated."""
-        from django.db import transaction
 
-        # No-op if migrating to self
         if target_workflow.id == self.id:
             return 0
 
-        # Extra safety: ensure both workflows belong to the same team
         if self.team_id != target_workflow.team_id:
             raise ValueError("Source and target workflows must belong to the same team")
 
-        tasks_qs = self.get_tasks_in_workflow().select_related("current_stage")
-        if not tasks_qs.exists():
+        current_workflow_tasks_qs = self.get_tasks_in_workflow().select_related("current_stage")
+
+        if not current_workflow_tasks_qs.exists():
             return 0
 
         # Prefetch target stages once; preserve deterministic fallback using stage position ordering
         active_stages = list(target_workflow.stages.filter(is_archived=False).order_by("position"))
+
         stages_by_key = {stage.key: stage for stage in active_stages}
+
         fallback_stage = active_stages[0] if active_stages else None
 
         updated_tasks = []
-        with transaction.atomic():
-            for task in tasks_qs:
-                # Match by stage key when possible, otherwise fallback (which can be None)
-                next_stage = None
-                if task.current_stage and task.current_stage.key in stages_by_key:
-                    next_stage = stages_by_key[task.current_stage.key]
-                else:
-                    next_stage = fallback_stage
 
-                if task.workflow_id != target_workflow.id or task.current_stage != next_stage:
-                    task.workflow = target_workflow
-                    task.current_stage = next_stage
-                    updated_tasks.append(task)
+        for task in current_workflow_tasks_qs:
+            # Match by stage key when possible, otherwise fallback (which can be None)
+            next_stage = None
 
-            if updated_tasks:
-                Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
+            if task.current_stage and task.current_stage.key in stages_by_key:
+                next_stage = stages_by_key[task.current_stage.key]
+            else:
+                next_stage = fallback_stage
+
+            if task.workflow_id != target_workflow.id or task.current_stage != next_stage:
+                task.workflow = target_workflow
+                task.current_stage = next_stage
+                updated_tasks.append(task)
+
+        if updated_tasks:
+            Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
 
         return len(updated_tasks)
 
+    def unassign_tasks(self):
+        tasks = self.get_tasks_in_workflow()
+
+        updated_tasks = []
+
+        for task in tasks:
+            task.workflow = None
+            task.current_stage = None
+            updated_tasks.append(task)
+
+        Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
+
     def deactivate_safely(self):
         """Deactivate workflow and move tasks to team default."""
+
+        if not self.is_active:
+            return
+
         if self.is_default:
             raise ValueError("Cannot deactivate the default workflow")
 
-        # Find team's default workflow
-        default_workflow = (
-            TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).exclude(id=self.id).first()
-        )
-
-        if default_workflow:
-            self.migrate_tasks_to_workflow(default_workflow)
-        else:
-            # No default workflow, revert tasks to no workflow
-            tasks = self.get_tasks_in_workflow()
-            for task in tasks:
-                task.workflow = None
-                task.current_stage = None
-                task.save(update_fields=["workflow", "current_stage"])
-
-        self.is_active = False
-        self.save(update_fields=["is_active"])
-
-    @classmethod
-    def create_default_workflow(cls, team):
-        """Create a default workflow that matches the current hardcoded behavior."""
-        from django.db import transaction
+        default_workflow = TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
 
         with transaction.atomic():
-            # Create the workflow
+            if default_workflow:
+                self.migrate_tasks_to_workflow(default_workflow)
+            else:
+                self.unassign_tasks()
+
+            self.is_active = False
+            self.save(update_fields=["is_active"])
+
+    @classmethod
+    def from_template(cls, template: WorkflowTemplate, options: CreateWorkflowFromTemplateOptions):
+        with transaction.atomic():
             workflow = cls.objects.create(
-                team=team,
-                name="Default Code Generation Workflow",
-                description="Default workflow for code generation tasks",
-                is_default=True,
-                is_active=True,
+                team=options.team,
+                name=template.name,
+                description=template.description,
+                is_default=options.default,
+                is_active=options.active,
             )
 
             stages_data = [
-                {"key": "backlog", "name": "Backlog", "position": 0, "color": "#6b7280", "is_manual_only": True},
-                {"key": "todo", "name": "To Do", "position": 1, "color": "#3b82f6", "is_manual_only": True},
                 {
-                    "key": "in_progress",
-                    "name": "In Progress",
-                    "position": 2,
-                    "color": "#f59e0b",
-                    "is_manual_only": False,
-                },
-                {"key": "testing", "name": "Testing", "position": 3, "color": "#8b5cf6", "is_manual_only": False},
-                {"key": "done", "name": "Done", "position": 4, "color": "#10b981", "is_manual_only": True},
+                    "key": stage.key,
+                    "name": stage.name,
+                    "position": idx,
+                    "color": stage.color,
+                    "is_manual_only": stage.is_manual_only,
+                    "workflow_id": workflow.id,
+                }
+                for idx, stage in enumerate(template.stages)
             ]
 
-            stages = {}
-            for stage_data in stages_data:
-                stage = WorkflowStage.objects.create(workflow=workflow, **stage_data)
-                stages[stage.key] = stage
+            WorkflowStage.objects.bulk_create(stages_data)
 
-            # Assign agents to appropriate stages using agent names
-            stages["in_progress"].agent_name = "code_generation"  # Agent processes this stage
-            stages["testing"].agent_name = "code_generation"  # Agent processes this stage
-            # Other stages remain manual (no agent_name)
-
-            # Update stages with agent assignments
-            for stage in stages.values():
-                stage.save()
-
-            return workflow
+    @classmethod
+    def create_default_workflow(cls, options: CreateWorkflowFromTemplateOptions):
+        return TaskWorkflow.from_template(DEFAULT_WORKFLOW_TEMPLATE, options)
 
 
 class WorkflowStage(models.Model):
