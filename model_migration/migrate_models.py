@@ -51,12 +51,22 @@ class ImportTransformer(cst.CSTTransformer):
         return module_str == "posthog.models"
 
     def _is_direct_module_import(self, node: cst.ImportFrom) -> bool:
-        """Check if this is 'from posthog.models.experiment import ...'"""
+        """Check if this is 'from posthog.models.experiment import ...' or 'from posthog.models.error_tracking import ...'"""
         if not node.module:
             return False
 
         module_str = self._get_module_string(node.module)
-        return module_str == f"posthog.models.{self.module_name}"
+
+        # Handle both cases:
+        # 1. Direct file: 'from posthog.models.experiment import ...' (module_name = "experiment")
+        # 2. Subdirectory: 'from posthog.models.error_tracking import ...' (module_name = "error_tracking/error_tracking")
+        if "/" in self.module_name:
+            # For subdirectory case, check against subdirectory name
+            subdirectory_name = self.module_name.split("/")[0]
+            return module_str == f"posthog.models.{subdirectory_name}"
+        else:
+            # For direct file case, check against module name
+            return module_str == f"posthog.models.{self.module_name}"
 
     def _get_module_string(self, module: cst.CSTNode) -> str:
         """Convert module CST node to string"""
@@ -972,8 +982,17 @@ class {app_name.title()}Config(AppConfig):
 
         import subprocess
 
+        # Handle both direct files and subdirectories for search patterns
+        if "/" in module_name:
+            # For subdirectory case, use just the subdirectory name for imports
+            subdirectory_name = module_name.split("/")[0]
+            search_module_name = subdirectory_name
+        else:
+            # For direct file case, use the module name
+            search_module_name = module_name
+
         relevant_patterns = [
-            f"posthog.models.{module_name}",  # Direct module imports
+            f"posthog.models.{search_module_name}",  # Direct module imports
             "posthog.models import",  # General posthog.models imports
         ]
 
@@ -1033,9 +1052,20 @@ class {app_name.title()}Config(AppConfig):
             module_name = source_file.replace(".py", "")
             import re
 
-            # Pattern: from .MODULE import Class1, Class2
-            pattern = rf"from \.{re.escape(module_name)} import .+\n"
-            content = re.sub(pattern, "", content)
+            # Handle both direct files and subdirectories
+            if "/" in source_file:
+                # For subdirectory case like error_tracking/error_tracking.py
+                subdirectory_name = source_file.split("/")[0]
+                # Pattern for multiline imports: from .error_tracking import (\n    Class1,\n    Class2,\n)
+                pattern = rf"from \.{re.escape(subdirectory_name)} import \([^)]*\)\n?"
+                content = re.sub(pattern, "", content, flags=re.DOTALL)
+                # Also handle single line imports: from .error_tracking import Class1, Class2
+                pattern = rf"from \.{re.escape(subdirectory_name)} import .+\n"
+                content = re.sub(pattern, "", content)
+            else:
+                # For direct file case: from .MODULE import Class1, Class2
+                pattern = rf"from \.{re.escape(module_name)} import .+\n"
+                content = re.sub(pattern, "", content)
 
         with open(init_file, "w") as f:
             f.write(content)

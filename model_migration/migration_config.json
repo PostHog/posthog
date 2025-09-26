@@ -1,6 +1,14 @@
 {
     "migrations": [
         {
+            "name": "error_tracking",
+            "source_files": ["error_tracking/error_tracking.py"],
+            "target_app": "error_tracking",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "todo"
+        },
+        {
             "name": "batch_exports",
             "source_files": ["batch_imports.py"],
             "target_app": "batch_exports",
