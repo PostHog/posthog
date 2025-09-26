@@ -140,6 +140,57 @@ describe('ResultHandlingPipeline', () => {
             )
         })
 
+        it('should redirect messages with event and uuid headers', async () => {
+            const messagesWithHeaders: Message[] = [
+                {
+                    value: Buffer.from('redirect'),
+                    topic: 'test',
+                    partition: 0,
+                    offset: 1,
+                    size: 8,
+                    timestamp: 1234567891,
+                    headers: [
+                        { distinct_id: Buffer.from('user-456') },
+                        { token: Buffer.from('redirect-token') },
+                        { event: Buffer.from('$identify') },
+                        { uuid: Buffer.from('redirect-uuid-456') },
+                    ],
+                },
+            ]
+
+            const batchResults: BatchPipelineResultWithContext<any> = [
+                {
+                    result: redirect('test redirect', 'overflow-topic', false, true),
+                    context: { message: messagesWithHeaders[0] },
+                },
+            ]
+
+            const pipeline = createNewBatchPipeline()
+            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            resultPipeline.feed(batchResults)
+            const results = await resultPipeline.next()
+
+            expect(results).toEqual([])
+            expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
+                mockKafkaProducer,
+                mockPromiseScheduler,
+                messagesWithHeaders[0],
+                'overflow-topic',
+                'unknown',
+                false,
+                true
+            )
+
+            // Verify the message passed to redirect has the correct headers
+            const calledMessage = (mockRedirectMessageToTopic as jest.Mock).mock.calls[0][2]
+            expect(calledMessage.headers).toEqual([
+                { distinct_id: Buffer.from('user-456') },
+                { token: Buffer.from('redirect-token') },
+                { event: Buffer.from('$identify') },
+                { uuid: Buffer.from('redirect-uuid-456') },
+            ])
+        })
+
         it('should filter out dlq results and send to DLQ', async () => {
             const messages: Message[] = [
                 { value: Buffer.from('test1'), topic: 'test', partition: 0, offset: 1 } as Message,
@@ -168,6 +219,53 @@ describe('ResultHandlingPipeline', () => {
                 'unknown',
                 'test-dlq'
             )
+        })
+
+        it('should send DLQ messages with event and uuid headers', async () => {
+            const messagesWithHeaders: Message[] = [
+                {
+                    value: Buffer.from('dlq'),
+                    topic: 'test',
+                    partition: 0,
+                    offset: 1,
+                    size: 3,
+                    timestamp: 1234567890,
+                    headers: [
+                        { distinct_id: Buffer.from('user-123') },
+                        { token: Buffer.from('test-token') },
+                        { event: Buffer.from('$pageview') },
+                        { uuid: Buffer.from('event-uuid-123') },
+                    ],
+                },
+            ]
+
+            const testError = new Error('test error')
+            const batchResults: BatchPipelineResultWithContext<any> = [
+                { result: dlq('test dlq reason', testError), context: { message: messagesWithHeaders[0] } },
+            ]
+
+            const pipeline = createNewBatchPipeline()
+            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            resultPipeline.feed(batchResults)
+            const results = await resultPipeline.next()
+
+            expect(results).toEqual([])
+            expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
+                mockKafkaProducer,
+                messagesWithHeaders[0],
+                testError,
+                'unknown',
+                'test-dlq'
+            )
+
+            // Verify the message passed to DLQ has the correct headers
+            const calledMessage = (mockSendMessageToDLQ as jest.Mock).mock.calls[0][1]
+            expect(calledMessage.headers).toEqual([
+                { distinct_id: Buffer.from('user-123') },
+                { token: Buffer.from('test-token') },
+                { event: Buffer.from('$pageview') },
+                { uuid: Buffer.from('event-uuid-123') },
+            ])
         })
 
         it('should handle dlq result without error and create default error', async () => {
