@@ -186,12 +186,12 @@ export const isFunctionAction = (
 
 export const isTriggerFunction = (
     action: HogFlowAction
-): action is Extract<HogFlowAction, { type: 'trigger'; config: { type: 'webhook' } }> => {
+): action is Extract<HogFlowAction, { type: 'trigger'; config: { type: 'webhook' | 'tracking_pixel' } }> => {
     if (action.type !== 'trigger') {
         return false
     }
     const trigger = action as Extract<HogFlowAction, { type: 'trigger' }>
-    return trigger.config.type === 'webhook'
+    return ['webhook', 'tracking_pixel'].includes(trigger.config.type)
 }
 
 export interface HogflowTestResult {
