@@ -9,9 +9,9 @@ import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/But
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 import { WithinSidePanelContext, sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
@@ -189,7 +189,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 // For internal links, open in new PostHog tab
                 event.preventDefault()
                 event.stopPropagation()
-                sceneLogic.isMounted() ? sceneLogic.actions.newTab(to) : window.open(to)
+                newInternalTab(to)
             }
         }
 
