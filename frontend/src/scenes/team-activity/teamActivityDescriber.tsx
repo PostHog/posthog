@@ -96,7 +96,7 @@ function createArrayChangeHandler(
             return null
         }
 
-        const array = change.after as any[]
+        const array = (change.after || []) as any[]
         const displayArray = map ? array.map(map).filter(Boolean) : array
         const fieldNameElement = useEmphasis ? <em>{fieldName}</em> : fieldName
 
