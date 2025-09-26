@@ -9,7 +9,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Step 1: Just add the fingerprint field safely
         migrations.AddField(
             model_name="experimentmetricresult",
             name="fingerprint",

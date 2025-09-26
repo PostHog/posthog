@@ -35,7 +35,7 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
     actions({
         showSceneDashboardChoiceModal: () => true,
         closeSceneDashboardChoiceModal: () => true,
-        setSceneDashboardChoice: (dashboardId: number) => ({ dashboardId }),
+        setSceneDashboardChoice: (dashboardId: number | null) => ({ dashboardId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     reducers({
@@ -80,10 +80,10 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
             // TODO needs to report scene and dashboard
             if (props.scene === Scene.ProjectHomepage) {
                 // TODO be able to save individual or team level home dashboard
-                actions.updateCurrentTeam({ primary_dashboard: dashboardId })
+                actions.updateCurrentTeam({ primary_dashboard: dashboardId ?? undefined })
                 posthog.capture('primary dashboard changed')
             } else {
-                actions.setUserScenePersonalisation(props.scene, dashboardId)
+                actions.setUserScenePersonalisation(props.scene, dashboardId ?? 0)
                 posthog.capture('scene dashboard choice set', { scene: props.scene, dashboardId: dashboardId })
             }
         },

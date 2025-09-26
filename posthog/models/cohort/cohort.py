@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
-from django.db import connection, models
+from django.db import connection, models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
 from django.db.models.signals import post_delete
@@ -425,6 +425,64 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         batch_iterator = ArrayBatchIterator(items, batch_size=batchsize)
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
+    def insert_users_by_email(
+        self, items: list[str], *, team_id: Optional[int] = None, batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE
+    ) -> int:
+        """
+        Insert a list of users identified by their email address into the cohort, for the given team.
+        Args:
+            items: List of email addresses of users to be inserted into the cohort.
+            team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
+            batch_size: Number of records to process in each batch. Defaults to 1000.
+        """
+        if team_id is None:
+            team_id = self.team_id
+
+        if TEST:
+            from posthog.test.base import flush_persons_and_events
+
+            # Make sure persons are created in tests before running this
+            flush_persons_and_events()
+
+        # Process emails in batches to avoid memory issues
+        def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
+            """Create a batch of UUIDs from email addresses, excluding those already in cohort."""
+            start_idx = batch_index * batch_size
+            end_idx = start_idx + batch_size
+            batch_emails = items[start_idx:end_idx]
+            uuids = self._get_uuids_for_emails_batch(batch_emails, team_id)
+            return uuids
+
+        # Use FunctionBatchIterator to process emails in batches
+        batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
+
+        # Call the batching method with ClickHouse insertion enabled
+        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+
+    def _get_uuids_for_emails_batch(self, emails: list[str], team_id: int) -> list[str]:
+        """
+        Get UUIDs for a batch of email addresses, excluding those already in this cohort.
+
+        Args:
+            emails: List of email addresses to convert to UUIDs
+            team_id: Team ID to filter by
+
+        Returns:
+            List of UUIDs for persons with the given email addresses who are not already in this cohort
+        """
+        if not emails:
+            return []
+
+        uuids = [
+            str(uuid)
+            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id)
+            .filter(properties__email__in=emails)
+            .values_list("uuid", flat=True)
+        ]
+
+        return uuids
+
     def insert_users_list_by_uuid_into_pg_only(
         self,
         items: list[str],
@@ -624,6 +682,21 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             except Exception:
                 logger.exception("Failed to save cohort state on retry", cohort_id=self.id, team_id=team_id)
                 # If both attempts fail, the cohort may remain in an inconsistent state
+
+    def enqueue_calculation(self, *, initiating_user=None) -> None:
+        """
+        Enqueue this cohort to be recalculated.
+
+        Args:
+            initiating_user (User): The user who initiated the calculation.
+        """
+
+        def trigger_calculation():
+            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+
+            increment_version_and_enqueue_calculate_cohort(self, initiating_user=initiating_user)
+
+        transaction.on_commit(trigger_calculation)
 
     __repr__ = sane_repr("id", "name", "last_calculation")
 

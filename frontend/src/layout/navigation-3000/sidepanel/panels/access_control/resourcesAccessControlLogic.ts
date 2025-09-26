@@ -33,9 +33,9 @@ export type RoleResourceAccessControls = DefaultResourceAccessControls & {
 
 export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>([
     path(['scenes', 'accessControl', 'resourcesAccessControlLogic']),
-    connect({
+    connect(() => ({
         values: [roleAccessControlLogic, ['roles'], teamLogic, ['currentTeam'], membersLogic, ['sortedMembers']],
-    }),
+    })),
     actions({
         updateResourceAccessControls: (
             accessControls: Pick<

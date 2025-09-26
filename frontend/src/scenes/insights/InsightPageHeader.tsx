@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconCode2, IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash, IconWarning } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
@@ -417,7 +417,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         },
                                     })
                                 }}
+                                menuItem
                             >
+                                <IconPeople />
                                 Save as static cohort
                             </ButtonPrimitive>
                         )}
