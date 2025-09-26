@@ -12,7 +12,6 @@ import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
-
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
 // Helper class that can turn a hog flow action into a hog function
