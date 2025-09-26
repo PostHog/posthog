@@ -37,16 +37,16 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),
             ),
-            heartbeat_timeout=timedelta(minutes=2),
+            heartbeat_timeout=timedelta(seconds=10),
         )
 
         await workflow.execute_activity(
             delete_recording_blocks,
-            DeleteRecordingBlocksInput(blocks=recording_blocks),
+            DeleteRecordingBlocksInput(session_id=input.session_id, team_id=input.team_id, blocks=recording_blocks),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),
             ),
-            heartbeat_timeout=timedelta(minutes=2),
+            heartbeat_timeout=timedelta(seconds=10),
         )

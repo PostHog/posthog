@@ -4,14 +4,21 @@ from datetime import datetime
 from uuid import uuid4
 
 import pytz
-from asgiref.sync import sync_to_async
+from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.session_recordings.session_recording_api import SessionReplayEvents
-from posthog.session_recordings.session_recording_v2_service import RecordingBlock, build_block_list
+from posthog.session_recordings.session_recording_v2_service import (
+    RecordingBlock,
+    RecordingBlockListing,
+    build_block_list,
+)
 from posthog.storage import session_recording_v2_object_storage
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_write_only_logger
+
+LOGGER = get_write_only_logger()
 
 
 class DeleteRecordingError(Exception):
@@ -48,6 +55,10 @@ class LoadRecordingBlocksInput:
 @activity.defn(name="load_recording_blocks")
 async def load_recording_blocks(input: LoadRecordingBlocksInput) -> list[RecordingBlock]:
     async with Heartbeater():
+        bind_contextvars(session_id=input.session_id, team_id=input.team_id)
+        logger = LOGGER.bind()
+        logger.info("Loading recording blocks")
+
         query: str = SessionReplayEvents.get_block_listing_query(format="JSON")
         parameters = {
             "team_id": input.team_id,
@@ -63,20 +74,31 @@ async def load_recording_blocks(input: LoadRecordingBlocksInput) -> list[Recordi
             ) as ch_response:
                 raw_response = await ch_response.content.read()
 
-        block_listing = SessionReplayEvents.build_recording_block_listing(
+        block_listing: RecordingBlockListing = SessionReplayEvents.build_recording_block_listing(
             input.session_id, _parse_block_listing_response(raw_response)
         )
-        return build_block_list(input.session_id, input.team_id, block_listing)
+
+        logger.info("Building block list")
+        blocks: list[RecordingBlock] = build_block_list(input.session_id, input.team_id, block_listing)
+
+        logger.info(f"Successfully loaded {len(blocks)} blocks")
+        return blocks
 
 
 @dataclass(frozen=True)
 class DeleteRecordingBlocksInput:
+    session_id: str
+    team_id: int
     blocks: list[RecordingBlock]
 
 
 @activity.defn(name="delete_recording_block")
 async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
     async with Heartbeater():
-        storage = session_recording_v2_object_storage.client()
-        for block in input.blocks:
-            await sync_to_async(storage.delete_block)(block.url)
+        bind_contextvars(session_id=input.session_id, team_id=input.team_id, block_count=len(input.blocks))
+        logger = LOGGER.bind()
+        logger.info("Deleting recording blocks")
+        async with session_recording_v2_object_storage.async_client() as storage:
+            for block in input.blocks:
+                await storage.delete_block(block.url)
+        logger.info(f"Successfully deleted {len(input.blocks)} blocks")
