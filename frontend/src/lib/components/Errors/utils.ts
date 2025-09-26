@@ -134,7 +134,8 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
 
 export function getExceptionList(properties: ErrorEventProperties): ErrorTrackingException[] {
     const { $sentry_exception } = properties
-    let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
+
+    let exceptionList: ErrorTrackingException[] | undefined = ensureStringExceptionValues(properties.$exception_list)
     // exception autocapture sets $exception_list for all exceptions.
     // If it's not present, then this is probably a sentry exception. Get this list from the sentry_exception
     if (!exceptionList?.length && $sentry_exception) {
@@ -167,4 +168,28 @@ export function getSessionId(properties: ErrorEventProperties): string | undefin
 
 export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {
     return properties['$recording_status'] as string | undefined
+}
+
+// we had a bug where SDK was sending non-string values for exception value
+export function ensureStringExceptionValues(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
+    return exceptionList.map((exception) => ({
+        ...exception,
+        value: stringify(exception.value),
+    }))
+}
+
+export function stringify(value: any): string {
+    if (typeof value === 'string') {
+        return value
+    }
+
+    try {
+        return JSON.stringify(value)
+    } catch (e) {}
+
+    try {
+        return value.toString()
+    } catch (e) {}
+
+    return ''
 }
