@@ -418,7 +418,7 @@ services:
         environment:
             - LITELLM_MASTER_KEY=sk-1234
             - DATABASE_URL=postgresql://posthog:posthog@db:5432/litellm
-            - POSTHOG_API_URL=http://localhost:8000
+            - POSTHOG_API_URL=http://localhost:8010
             - POSTHOG_API_KEY
             - ANTHROPIC_API_KEY
         command: --config /app/config.yaml --detailed_debug
