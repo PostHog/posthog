@@ -40,9 +40,16 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs
-                tabKey="persons"
-                buttons={
+            <PersonsManagementSceneTabs tabKey="persons" />
+
+            <SceneTitleSection
+                name="People"
+                description="A catalog of all the people behind your events"
+                resourceType={{
+                    type: 'person',
+                    forceIcon: <IconPeople />,
+                }}
+                actions={
                     <LemonMenu
                         items={[
                             {
@@ -73,15 +80,6 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                         <LemonButton aria-label="more" icon={<IconEllipsis />} size="small" />
                     </LemonMenu>
                 }
-            />
-
-            <SceneTitleSection
-                name="People"
-                description="A catalog of all the people behind your events"
-                resourceType={{
-                    type: 'person',
-                    forceIcon: <IconPeople />,
-                }}
             />
             <SceneDivider />
 

@@ -152,8 +152,8 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BIG_QUERY,
-            caption="",
             iconPath="/static/services/bigquery.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
                 list[FieldType],
                 [

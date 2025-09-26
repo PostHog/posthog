@@ -347,6 +347,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             defaults: {
                 ...NEW_FLAG,
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+                _should_create_usage_dashboard: true,
             },
             errors: ({ key, filters, is_remote_configuration }) => {
                 return {
@@ -1238,8 +1239,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     key: Scene.FeatureFlags,
                     name: 'Feature Flags',
                     path: urls.featureFlags(),
+                    iconType: 'feature_flag',
                 },
-                { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
+                {
+                    key: [Scene.FeatureFlag, featureFlag.id || 'unknown'],
+                    name: featureFlag.key || 'Unnamed',
+                    iconType: 'feature_flag',
+                },
             ],
         ],
         projectTreeRef: [

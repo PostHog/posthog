@@ -1217,20 +1217,40 @@ describe('HogTransformer', () => {
                 workingFunction.id,
             ])
 
+            const queueAppMetricsSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueAppMetrics')
+            const queueLogsSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueLogs')
+
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             // Verify one transformation was applied and the other was skipped
-            expect(result.event?.properties?.error_filter_property).toBeUndefined()
-            expect(result.invocationResults[0].error).toContain('Global variable not found')
             expect(result.event?.properties?.$transformations_skipped).toContain(
                 `${errorFunction.name} (${errorFunction.id})`
+            )
+            expect(queueAppMetricsSpy).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        metric_name: 'filtering_failed',
+                    }),
+                ]),
+                'hog_function'
+            )
+            expect(queueLogsSpy).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        message: expect.stringContaining('Global variable not found'),
+                    }),
+                ]),
+                'hog_function'
             )
 
             expect(result.event?.properties?.working_property).toBe('working')
             expect(result.event?.properties?.$transformations_succeeded).toContain(
                 `${workingFunction.name} (${workingFunction.id})`
             )
+
+            queueAppMetricsSpy.mockRestore()
+            queueLogsSpy.mockRestore()
         })
 
         it('should skip transformation when none of multiple filters match', async () => {

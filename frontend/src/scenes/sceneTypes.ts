@@ -1,5 +1,6 @@
 import { LogicWrapper } from 'kea'
 
+import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SettingSectionId } from './settings/types'
@@ -21,6 +22,7 @@ export enum Scene {
     Cohort = 'Cohort',
     Cohorts = 'Cohorts',
     CustomCss = 'CustomCss',
+    CustomerAnalytics = 'CustomerAnalytics',
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
@@ -117,6 +119,7 @@ export enum Scene {
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     EmbeddedAnalytics = 'EmbeddedAnalytics',
+    QueryEndpoints = 'QueryEndpoints',
     Wizard = 'Wizard',
 }
 
@@ -153,6 +156,7 @@ export interface SceneTab {
     title: string
     active: boolean
     customTitle?: string
+    iconType: FileSystemIconType | 'loading' | 'blank'
 
     sceneId?: string
     sceneKey?: string
@@ -199,10 +203,12 @@ export interface SceneConfig {
     projectBased?: boolean
     /** Set the scope of the activity (affects activity and discussion panel) */
     activityScope?: ActivityScope | string
-    /** Default docs path - what the docs side panel will open by default if this scene is active  */
-    defaultDocsPath?: string
+    /** Default docs path - what the docs side panel will open by default when this scene is active  */
+    defaultDocsPath?: string | (() => string) | (() => Promise<string>)
     /** Component import, used only in manifests */
     import?: () => Promise<any>
+    /** Custom icon for the tabs */
+    iconType?: FileSystemIconType
 }
 
 // Map scenes to their access control resource types
@@ -223,8 +229,11 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.Notebook]: AccessControlResourceType.Notebook,
     [Scene.Notebooks]: AccessControlResourceType.Notebook,
 
-    // Session recordings
+    // Session recording
     [Scene.Replay]: AccessControlResourceType.SessionRecording,
     [Scene.ReplaySingle]: AccessControlResourceType.SessionRecording,
     [Scene.ReplayPlaylist]: AccessControlResourceType.SessionRecording,
+
+    // Revenue analytics
+    [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
 }

@@ -9,7 +9,7 @@ use crate::{
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
         custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, js::RawJSFrame,
-        node::RawNodeFrame, python::RawPythonFrame,
+        node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
     },
     metric_consts::PER_FRAME_TIME,
     sanitize_string,
@@ -27,6 +27,8 @@ pub mod resolver;
 pub enum RawFrame {
     #[serde(rename = "python")]
     Python(RawPythonFrame),
+    #[serde(rename = "ruby")]
+    Ruby(RawRubyFrame),
     #[serde(rename = "web:javascript")]
     JavaScriptWeb(RawJSFrame),
     #[serde(rename = "node:javascript")]
@@ -73,6 +75,7 @@ impl RawFrame {
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
+            RawFrame::Ruby(frame) => (Ok(frame.into()), "ruby"),
             RawFrame::Custom(frame) => (Ok(frame.into()), "custom"),
             RawFrame::Go(frame) => (Ok(frame.into()), "go"),
             RawFrame::Hermes(frame) => (frame.resolve(team_id, catalog).await, "hermes"),
@@ -103,7 +106,7 @@ impl RawFrame {
             // TODO - Python and Go frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
             // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
             // which we'd then use to do a join on the releases table to get release information)
-            RawFrame::Python(_) | RawFrame::Go(_) => None,
+            RawFrame::Python(_) | RawFrame::Ruby(_) | RawFrame::Go(_) => None,
             RawFrame::Custom(_) => None,
         }
     }
@@ -113,6 +116,7 @@ impl RawFrame {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
+            RawFrame::Ruby(raw) => raw.frame_id(),
             RawFrame::Go(raw) => raw.frame_id(),
             RawFrame::Custom(raw) => raw.frame_id(),
             RawFrame::Hermes(raw) => raw.frame_id(),

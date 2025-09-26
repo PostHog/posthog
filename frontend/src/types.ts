@@ -10,6 +10,7 @@ import { eventWithTime } from '@posthog/rrweb-types'
 
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { AlertType } from 'lib/components/Alerts/types'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
@@ -57,6 +58,7 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InsightQueryNode,
     InsightVizNode,
     MarketingAnalyticsConfig,
     Node,
@@ -196,7 +198,6 @@ export enum AvailableFeature {
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
-    DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
     AUTOMATIC_PROVISIONING = 'automatic_provisioning',
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
@@ -230,7 +231,6 @@ export enum ProductKey {
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
     SITE_APPS = 'site_apps',
-    DATA_PIPELINES = 'data_pipelines',
     GROUP_ANALYTICS = 'group_analytics',
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
@@ -241,6 +241,7 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
+    EMBEDDED_ANALYTICS = 'embedded_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -304,6 +305,7 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
+    RevenueAnalytics = 'revenue_analytics',
 }
 
 interface UserBaseType {
@@ -498,20 +500,8 @@ export interface OrganizationMemberScopedApiKeysResponse {
     }[]
 }
 
-export interface ExplicitTeamMemberType extends BaseMemberType {
-    /** Level at which the user explicitly is in the project. */
-    level: TeamMembershipLevel
-    /** Level at which the user is in the organization. */
-    parent_level: OrganizationMembershipLevel
-    /** Effective level of the user within the project, which may be higher than parent level, but not lower. */
-    effective_level: OrganizationMembershipLevel
-}
-
-export type EitherMemberType = OrganizationMemberType | ExplicitTeamMemberType
-
 /**
- * While OrganizationMemberType and ExplicitTeamMemberType refer to actual Django models,
- * this interface is only used in the frontend for fusing the data from these models together.
+ * This interface is only used in the frontend for fusing organization member data.
  */
 export interface FusedTeamMemberType extends BaseMemberType {
     /**
@@ -571,8 +561,6 @@ export interface TeamBasicType extends WithAccessControl {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
-    /** Whether the project is private. */
-    access_control: boolean
 }
 
 export interface CorrelationConfigType {
@@ -598,6 +586,8 @@ export interface TeamSurveyConfigType {
 }
 
 export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'
+
+export type SessionRecordingRetentionPeriod = 'legacy' | '30d' | '90d' | '1y' | '5y'
 
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
@@ -632,6 +622,7 @@ export interface TeamType extends TeamBasicType {
         | undefined
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
+    session_recording_retention_period: SessionRecordingRetentionPeriod | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
@@ -1080,7 +1071,6 @@ export type EncodedRecordingSnapshot = {
 // we have a strongly typed way to do it
 export const SnapshotSourceType = {
     blob: 'blob',
-    realtime: 'realtime',
     file: 'file',
     blob_v2: 'blob_v2',
 } as const
@@ -1477,6 +1467,7 @@ export interface CohortType {
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
+    _create_static_person_ids?: string[]
 }
 
 export interface InsightHistory {
@@ -2103,6 +2094,23 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
+export interface QueryEndpointType extends WithAccessControl {
+    id: string
+    name: string
+    description: string
+    query: HogQLQuery | InsightQueryNode
+    parameters: Record<string, any>
+    is_active: boolean
+    endpoint_path: string
+    created_at: string
+    updated_at: string
+    created_by: UserBasicType | null
+    /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
+    _highlight?: boolean
+    /** Last execution time from ClickHouse query_log table */
+    last_executed_at?: string
+}
+
 export interface DashboardBasicType extends WithAccessControl {
     id: number
     name: string
@@ -2398,7 +2406,11 @@ export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'>
 
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
+    // TODO: remove this as ActionsBar was meant to be for unstacked bar charts
+    // but with current logic for all insights with this setting saved in the query
+    // we still show them stacked bars
     ActionsBar = 'ActionsBar',
+    ActionsUnstackedBar = 'ActionsUnstackedBar',
     ActionsStackedBar = 'ActionsStackedBar',
     ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
@@ -3008,6 +3020,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Tile filters to override the ones in the query */
+    tileFiltersOverride?: TileFilters | null
     /** The tab of the scene if the insight is a full scene insight */
     tabId?: string | null
 }
@@ -3605,6 +3619,7 @@ export enum ItemMode {
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
+    CustomerAnalytics = 'customer-analytics', // When embedded on the customer analytics page
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
     FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
@@ -3997,6 +4012,7 @@ interface BreadcrumbBase {
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
     /** Whether to show a custom popover for the project */
     isPopoverProject?: boolean
+    iconType?: FileSystemIconType | 'blank' | 'loading'
 }
 export interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
@@ -4490,6 +4506,7 @@ export type APIScopeObject =
     | 'project'
     | 'property_definition'
     | 'query'
+    | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
@@ -4646,7 +4663,8 @@ export enum ActivityScope {
 
 export type CommentType = {
     id: string
-    content: string
+    content: string | null
+    rich_content: JSONContent | null
     version: number
     created_at: string
     created_by: UserBasicType | null
@@ -5575,6 +5593,27 @@ export enum ConversationType {
     ToolCall = 'tool_call',
     DeepResearch = 'deep_research',
 }
+
+export enum Category {
+    DEEP_RESEARCH = 'deep_research',
+}
+
+export enum DeepResearchType {
+    PLANNING = 'planning',
+    REPORT = 'report',
+}
+
+interface _NotebookBase {
+    notebook_id: string
+    title: string
+}
+
+export interface DeepResearchNotebook extends _NotebookBase {
+    category: Category.DEEP_RESEARCH
+    notebook_type?: DeepResearchType
+}
+
+export type NotebookInfo = DeepResearchNotebook
 
 export interface Conversation {
     id: string
