@@ -92,6 +92,13 @@ export default defineConfig(({ mode }) => {
             },
             // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
+            // Enable HTTP/2 for better parallel loading
+            https: false, // Keep false but increase connection limits
+            headers: {
+                // Allow more concurrent connections
+                Connection: 'keep-alive',
+                'Keep-Alive': 'timeout=5, max=1000',
+            },
         },
         define: {
             global: 'globalThis',
@@ -101,7 +108,28 @@ export default defineConfig(({ mode }) => {
             devSourcemap: true,
         },
         optimizeDeps: {
-            include: ['react', 'react-dom', 'buffer'],
+            // Force pre-bundling for development
+            force: true,
+            // Exclude heavy libraries that should be lazy-loaded
+            exclude: [
+                '@posthog/lemon-ui',
+                'monaco-editor',
+                'monaco-editor/*',
+                'elkjs',
+                'react-syntax-highlighter',
+                'mathjax-full',
+                '@tiptap/react/menus',
+                // Other heavy UI libs that aren't needed on first load
+                'react-grid-layout',
+                '@xyflow/react',
+            ],
+            // Entry points to analyze dependencies from
+            entries: ['src/index.tsx'],
+            // Manual chunking to reduce the number of dependency files
+            esbuildOptions: {
+                // Group small utilities into single chunks
+                splitting: false,
+            },
         },
     }
 })
