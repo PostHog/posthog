@@ -175,6 +175,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     };
 
     // Track 5XX errors with team_id if available
+    // If the team_id is not available, it means the error occurred before or during the team fetch
     if let Err(ref e) = result {
         if e.is_5xx() {
             let team_label = match team_id_for_metrics {
