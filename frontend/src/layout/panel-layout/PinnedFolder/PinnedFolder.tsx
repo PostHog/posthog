@@ -87,6 +87,8 @@ export function PinnedFolder(): JSX.Element {
                                         tooltip: 'Add shortcut',
                                         tooltipPlacement: 'top',
                                         children: <IconPlusSmall className="size-4 text-tertiary" />,
+                                        className:
+                                            'opacity-0 group-hover/panel-layout:opacity-100 data-[state=open]:opacity-100',
                                     }}
                                 />
                             ) : null}
