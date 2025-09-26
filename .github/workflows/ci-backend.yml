@@ -95,6 +95,8 @@ jobs:
                       migrations:
                         - 'posthog/migrations/*.py'
                         - 'products/**/migrations/*.py'
+                        - 'rust/persons_migrations/*.sql'
+                        - 'rust/bin/migrate-persons'
 
     check-migrations:
         needs: [changes]
@@ -129,6 +131,16 @@ jobs:
                   enable-cache: true
                   version: 0.7.8
 
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              with:
+                  toolchain: stable
+                  components: cargo
+
+            - name: Install sqlx-cli
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
               uses: actions/checkout@v4
@@ -146,7 +158,11 @@ jobs:
 
             - name: Run migrations up to master
               run: |
+                  # Run Django migrations first (excluding managed=False models)
                   python manage.py migrate
+                  # Then run persons migrations using sqlx; comment out until we've merged
+                  # sqlx database create
+                  # sqlx migrate run --source rust/persons_migrations/
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
@@ -173,8 +189,12 @@ jobs:
                   # Initialize comment body
                   COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
 
-                  # Process each changed migration file
+                  # Process each changed migration file (excluding Rust migrations)
                   for file in $CHANGED_FILES; do
+                    # Skip Rust migrations as they're handled separately by sqlx
+                    if [[ $file =~ rust/persons_migrations ]]; then
+                      continue
+                    fi
                     if [[ $file =~ migrations/([0-9]+)_ ]]; then
                       migration_number="${BASH_REMATCH[1]}"
                       # Get app name by looking at the directory structure
@@ -219,10 +239,14 @@ jobs:
 
             - name: Run migrations for this PR
               run: |
+                  # Run Django migrations first (excluding managed=False models)
                   python manage.py migrate
+                  # Then run persons migrations using sqlx
+                  sqlx migrate run --source rust/persons_migrations/
 
             - name: Check migrations
               run: |
+                  sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
                   # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
@@ -231,7 +255,7 @@ jobs:
                   # added (A) in posthog/migrations/. We also want to ignore
                   # initial migrations (0001_*) as these are guaranteed to be
                   # run on initial setup where there is no data.
-                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
+                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               run: |
