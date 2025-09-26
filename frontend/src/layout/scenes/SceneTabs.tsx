@@ -175,7 +175,9 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
 
     useEffect(() => {
         if (isEditing && inputRef.current) {
+            // bring the tab into focus
             clickOnTab(tab)
+            // focus the input with delay to ensure the tab input is rendered
             setTimeout(() => {
                 inputRef.current?.focus()
             }, 100)
@@ -217,7 +219,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 'focus:outline-none',
                 className
             )}
-            tooltip={tab.title}
+            tooltip={tab.customTitle || tab.title}
         >
             {tab.iconType === 'blank' ? (
                 <></>
@@ -229,7 +231,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             {isEditing ? (
                 <input
                     ref={inputRef}
-                    className="scene-tab-title flex-grow text-left bg-transparent border-none outline-1 text-primary"
+                    className="scene-tab-title flex-grow text-left bg-primary border-none outline-1 text-primary z-10"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
                     onBlur={() => {
