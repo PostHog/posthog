@@ -588,7 +588,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                     iconOnly
                                                                     isSideActionRight
                                                                     // We hide the side action button until hover (over group) / dropdown is active
-                                                                    className="z-2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 [&:has([data-state=open])]:opacity-100"
+                                                                    className="z-2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 data-[state=open]:opacity-100"
                                                                 >
                                                                     <IconEllipsis className="size-3 text-tertiary" />
                                                                 </ButtonPrimitive>
