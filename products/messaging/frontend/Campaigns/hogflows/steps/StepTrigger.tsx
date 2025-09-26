@@ -183,11 +183,11 @@ function StepTriggerConfigurationWebhook({
                                     <CodeSnippet thing="Webhook URL">{webhookUrl}</CodeSnippet>
                                 )}
 
-                                <p className="text-sm">
+                                <div className="text-sm">
                                     The webhook can be called with any JSON payload. You can then use the configuration
                                     options to parse the <code>request.body</code> or <code>request.headers</code> to
                                     map to the required fields.
-                                </p>
+                                </div>
                             </>
                         ),
                     },
@@ -251,20 +251,20 @@ function StepTriggerConfigurationTrackingPixel({
                                     <CodeSnippet thing="Tracking pixel URL">{trackingPixelUrl}</CodeSnippet>
                                 )}
 
-                                <p className="text-sm">
+                                <div className="text-sm">
                                     The tracking pixel can be called with a GET request to the URL above. You can embed
                                     it as an image or call it with an HTTP request in any other way.
-                                </p>
+                                </div>
 
                                 {trackingPixelUrl && (
                                     <CodeSnippet thing="Tracking pixel HTML">{trackingPixelHtml}</CodeSnippet>
                                 )}
 
-                                <p>
+                                <div>
                                     You can use query parameters to pass in data that you can parse into the event
                                     properties below, or you can hard code the values. This will not create a PostHog
                                     event by default, it will only be used to trigger the workflow.
-                                </p>
+                                </div>
                             </>
                         ),
                     },
