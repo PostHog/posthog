@@ -89,19 +89,21 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     def to_query(self) -> ast.SelectQuery:
         inner_select, outer_select = map(list, zip(*self.select_pairs()))
         order_by = [ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=self.order_direction)]
+        group_by = [ast.Field(chain=["id"])]
 
         events_select = ast.SelectQuery(
             select=inner_select,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
             where=self.where,
-            group_by=[ast.Field(chain=["id"])],
         )
 
         if not self.sort_by_revenue:
+            events_select.group_by = group_by
             events_select.order_by = order_by
             return events_select
 
-        events_select.group_by.append(ast.Field(chain=["e", self.revenue_entity, self.revenue_entity_key]))
+        group_by.append(ast.Field(chain=["e", self.revenue_entity, self.revenue_entity_key]))
+        events_select.group_by = group_by
 
         return ast.SelectQuery(
             select=outer_select,
