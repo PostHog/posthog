@@ -22,7 +22,7 @@ export interface SimpleOption {
     propertyFilterType?: PropertyFilterType
 }
 
-type TaxonomicFilterGroupValueMap = { [key in TaxonomicFilterGroupType]?: (PropertyKey | null)[] }
+export type TaxonomicFilterGroupValueMap = { [key in TaxonomicFilterGroupType]?: (PropertyKey | null)[] }
 export type ExcludedProperties = TaxonomicFilterGroupValueMap
 export type SelectedProperties = TaxonomicFilterGroupValueMap
 export type AllowedProperties = TaxonomicFilterGroupValueMap
