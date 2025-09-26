@@ -18,8 +18,8 @@ from posthog.tasks.email import send_discussions_mentioned
 class CommentSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     deleted = ClassicBehaviorBooleanFieldSerializer()
-    mentions = serializers.ListField(child=serializers.IntegerField(), write_only=True)
-    slug = serializers.CharField(write_only=True)
+    mentions = serializers.ListField(child=serializers.IntegerField(), write_only=True, required=False)
+    slug = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = Comment

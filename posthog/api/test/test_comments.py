@@ -65,10 +65,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
     def test_updates_content_and_increments_version(self) -> None:
         existing = self.client.post(
             f"/api/projects/{self.team.id}/comments",
-            {
-                "content": "This is a comment",
-                "scope": "Notebook",
-            },
+            {"content": "This is a comment", "scope": "Notebook"},
         )
 
         response = self.client.patch(
