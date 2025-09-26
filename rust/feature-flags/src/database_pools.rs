@@ -19,9 +19,10 @@ impl DatabasePools {
             get_pool(&config.read_database_url, config.max_pg_connections)
                 .await
                 .map_err(|e| {
-                    FlagError::DatabaseError(format!(
-                        "Failed to create non-persons reader pool: {e}"
-                    ))
+                    FlagError::DatabaseError(
+                        e,
+                        Some("Failed to create non-persons reader pool".to_string()),
+                    )
                 })?,
         );
 
@@ -29,9 +30,10 @@ impl DatabasePools {
             get_pool(&config.write_database_url, config.max_pg_connections)
                 .await
                 .map_err(|e| {
-                    FlagError::DatabaseError(format!(
-                        "Failed to create flag matching writer pool: {e}"
-                    ))
+                    FlagError::DatabaseError(
+                        e,
+                        Some("Failed to create flag matching writer pool".to_string()),
+                    )
                 })?,
         );
 
@@ -44,7 +46,10 @@ impl DatabasePools {
                 )
                 .await
                 .map_err(|e| {
-                    FlagError::DatabaseError(format!("Failed to create persons reader pool: {e}"))
+                    FlagError::DatabaseError(
+                        e,
+                        Some("Failed to create persons reader pool".to_string()),
+                    )
                 })?,
             )
         } else {
@@ -59,7 +64,10 @@ impl DatabasePools {
                 )
                 .await
                 .map_err(|e| {
-                    FlagError::DatabaseError(format!("Failed to create persons writer pool: {e}"))
+                    FlagError::DatabaseError(
+                        e,
+                        Some("Failed to create persons writer pool".to_string()),
+                    )
                 })?,
             )
         } else {

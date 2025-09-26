@@ -1,7 +1,7 @@
 import { createApplyPersonProcessingRestrictionsStep } from '../../../src/ingestion/event-preprocessing/apply-person-processing-restrictions'
+import { ok } from '../../../src/ingestion/pipelines/results'
 import { IncomingEventWithTeam } from '../../../src/types'
 import { EventIngestionRestrictionManager } from '../../../src/utils/event-ingestion-restriction-manager'
-import { success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 
 describe('createApplyPersonProcessingRestrictionsStep', () => {
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -50,7 +50,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties).toEqual({ defaultProp: 'defaultValue' })
         expect(input.eventWithTeam.event.token).toBe('valid-token-abc')
         expect(input.eventWithTeam.event.distinct_id).toBe('user-123')
@@ -67,7 +67,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
         expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
             'restricted-token-def',
@@ -85,7 +85,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
         expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
             'opt-out-token-ghi',
@@ -106,7 +106,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties).toMatchObject({
             customProp: 'customValue',
             $set: { a: 1, b: 2 },
@@ -133,7 +133,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties).toEqual({ customProp: 'customValue' })
         expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
             undefined,
@@ -154,7 +154,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success(input))
+        expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties).toMatchObject({
             customProp: 'customValue',
             $process_person_profile: false,

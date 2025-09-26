@@ -1,18 +1,23 @@
 use std::sync::Arc;
 use std::time::Duration;
-use tempfile::TempDir;
 
-use common_types::RawEvent;
-use kafka_deduplicator::checkpoint::{
-    export::CHECKPOINT_NAME_PREFIX, CheckpointConfig, CheckpointExporter, CheckpointUploader,
-};
-use kafka_deduplicator::kafka::types::Partition;
-use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
-
-use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+use kafka_deduplicator::checkpoint::{
+    CheckpointConfig, CheckpointExporter, CheckpointMode, CheckpointTarget, CheckpointUploader,
+    CheckpointWorker, CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
+};
+use kafka_deduplicator::checkpoint_manager::CheckpointManager;
+use kafka_deduplicator::kafka::types::Partition;
+use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
+use kafka_deduplicator::store_manager::StoreManager;
+
+use common_types::RawEvent;
+
+use anyhow::Result;
+use tempfile::TempDir;
 use tracing::info;
 
 /// Mock uploader for testing that stores files in local filesystem
@@ -183,14 +188,14 @@ impl CheckpointUploader for MockUploader {
         self.available
     }
 }
-fn create_test_dedup_store() -> (DeduplicationStore, TempDir) {
-    let temp_dir = TempDir::new().unwrap();
+
+fn create_test_dedup_store(tmp_dir: &TempDir, topic: &str, partition: i32) -> DeduplicationStore {
     let config = DeduplicationStoreConfig {
-        path: temp_dir.path().to_path_buf(),
+        path: tmp_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     };
-    let store = DeduplicationStore::new(config, "test_topic".to_string(), 0).unwrap();
-    (store, temp_dir)
+
+    DeduplicationStore::new(config, topic.to_string(), partition).unwrap()
 }
 
 fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> RawEvent {
@@ -211,35 +216,59 @@ fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> Ra
     }
 }
 
+fn find_local_checkpoint_files(base_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut checkpoint_files = Vec::new();
+    let mut stack = vec![base_dir.to_path_buf()];
+
+    while let Some(current_path) = stack.pop() {
+        let entries = std::fs::read_dir(&current_path)?;
+
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_file() {
+                checkpoint_files.push(path);
+            } else if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with(CHECKPOINT_TOPIC_PREFIX)
+                        || name.starts_with(CHECKPOINT_PARTITION_PREFIX)
+                        || name.chars().filter(|c| c.is_ascii_digit()).count() == name.len()
+                    {
+                        stack.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(checkpoint_files)
+}
+
 #[tokio::test]
 async fn test_checkpoint_exporter_creation() {
     let temp_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: temp_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
-        max_local_checkpoints: 3,
-        s3_timeout: Duration::from_secs(30),
+        ..Default::default()
     };
 
     let uploader = MockUploader::new().unwrap();
     let exporter = CheckpointExporter::new(config, Box::new(uploader));
-    let test_partition = Partition::new("test_topic".to_string(), 111);
-
-    assert!(!exporter.is_checkpointing(&test_partition).await);
-    assert!(exporter
-        .last_checkpoint_timestamp(&test_partition)
-        .await
-        .is_none());
+    assert!(exporter.is_available().await);
 }
 
 #[tokio::test]
-async fn test_manual_checkpoint() {
-    let temp_dir = TempDir::new().unwrap();
-    let (store, _store_temp) = create_test_dedup_store();
+async fn test_manual_checkpoint_export_incremental() {
+    let test_topic = "manual_cp_incremental";
+    let test_partition = 0;
+    let tmp_store_dir = TempDir::new().unwrap();
+    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
 
     // Add some test data
     let events = vec![
@@ -252,111 +281,83 @@ async fn test_manual_checkpoint() {
         assert!(result.unwrap()); // All events should be new
     }
 
+    let tmp_checkpoint_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        local_checkpoint_dir: temp_dir.path().to_string_lossy().to_string(),
+        cleanup_interval: Duration::from_secs(60),
+        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
-        max_local_checkpoints: 3,
-        s3_timeout: Duration::from_secs(30),
+        ..Default::default()
     };
 
-    let uploader = MockUploader::new().unwrap();
-    let exporter = CheckpointExporter::new(config, Box::new(uploader));
+    let uploader = Box::new(MockUploader::new().unwrap());
+    let exporter = Some(Arc::new(CheckpointExporter::new(
+        config.clone(),
+        uploader.clone(),
+    )));
+
+    let partition = Partition::new(test_topic.to_string(), test_partition);
+    let target =
+        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
+
+    let worker = CheckpointWorker::new(1, target.clone(), exporter.clone());
 
     // Perform checkpoint
-    let result = exporter.maybe_checkpoint(&store).await;
+    let result = worker
+        .checkpoint_partition(CheckpointMode::Incremental, &store)
+        .await;
     assert!(result.is_ok());
-    assert!(result.unwrap()); // Should return true indicating checkpoint was performed
 
-    // Check that checkpoint timestamp was updated
-    let test_partition = Partition::new(store.get_topic().to_string(), store.get_partition());
-    assert!(exporter
-        .last_checkpoint_timestamp(&test_partition)
-        .await
-        .is_some());
-}
+    let result = result.unwrap();
+    assert!(result.is_some());
 
-#[tokio::test]
-async fn test_checkpoint_skips_when_in_progress() {
-    let temp_dir = TempDir::new().unwrap();
-    let (store, _store_temp) = create_test_dedup_store();
-
-    let config = CheckpointConfig {
-        checkpoint_interval: Duration::from_secs(60),
-        local_checkpoint_dir: temp_dir.path().to_string_lossy().to_string(),
-        s3_bucket: "test-bucket".to_string(),
-        s3_key_prefix: "test-prefix".to_string(),
-        full_upload_interval: 5,
-        aws_region: "us-east-1".to_string(),
-        max_local_checkpoints: 3,
-        s3_timeout: Duration::from_secs(30),
-    };
-
-    let uploader = MockUploader::new().unwrap();
-    let exporter = Arc::new(CheckpointExporter::new(config, Box::new(uploader.clone())));
-    let store = Arc::new(store);
-
-    // Trigger 2 checkpoints concurrently
-    let exporter1 = exporter.clone();
-    let exporter2 = exporter.clone();
-    let store1 = store.clone();
-    let store2 = store.clone();
-
-    let (result1, result2) = tokio::join!(
-        exporter1.maybe_checkpoint(&store1),
-        exporter2.maybe_checkpoint(&store2)
-    );
-
-    // Both should succeed
-    assert!(result1.is_ok(), "First checkpoint should succeed");
-    assert!(result2.is_ok(), "Second checkpoint should succeed");
-
-    let first_completed = result1.unwrap();
-    let second_completed = result2.unwrap();
-
-    println!("First checkpoint completed: {first_completed}");
-    println!("Second checkpoint completed: {second_completed}");
-
-    // Exactly one should have completed the checkpoint, one should have been skipped
+    // the expected remote path will include the bucket prefix
+    // and the checkpoint mode path element
+    let expected = format!("test-prefix/incremental/{}", &target.remote_path);
     assert!(
-        (first_completed && !second_completed) || (!first_completed && second_completed),
-        "Exactly one checkpoint should complete, the other should be skipped"
+        result.as_ref().unwrap() == &expected,
+        "remote path should match {}, got: {:?}",
+        expected,
+        result.unwrap()
     );
 
-    // Verify only one set of files was uploaded (one checkpoint worth)
-    let uploaded_files = uploader.get_stored_files().await.unwrap();
-    let file_count = uploaded_files.len();
+    // there should be lots of checkpoint files collected from
+    let local_checkpoint_files = find_local_checkpoint_files(&target.local_path).unwrap();
+    assert!(!local_checkpoint_files.is_empty());
 
-    // Should have the typical checkpoint files: CURRENT, MANIFEST, OPTIONS, SST files
-    assert!(file_count > 0, "Should have uploaded checkpoint files");
+    // there should be lots of checkpoint files collected from
+    // various attempt directories of form /<base_path>/topic/partition/timestamp
+    assert!(local_checkpoint_files
+        .iter()
+        .any(|p| p.to_string_lossy().to_string().ends_with("CURRENT")));
+    assert!(local_checkpoint_files
+        .iter()
+        .any(|p| p.to_string_lossy().to_string().contains("MANIFEST")));
+    assert!(local_checkpoint_files
+        .iter()
+        .any(|p| p.to_string_lossy().to_string().contains("OPTIONS")));
+    assert!(local_checkpoint_files
+        .iter()
+        .any(|p| p.to_string_lossy().to_string().ends_with(".sst")));
+    assert!(local_checkpoint_files
+        .iter()
+        .any(|p| p.to_string_lossy().to_string().ends_with(".log")));
 
-    // All files should have the same checkpoint timestamp (same directory)
-    let checkpoint_dirs: std::collections::HashSet<_> = uploaded_files
+    let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
+    assert!(!remote_checkpoint_files.is_empty());
+    assert!(remote_checkpoint_files
         .keys()
-        .filter_map(|key| {
-            if let Some(start) = key.find(CHECKPOINT_NAME_PREFIX) {
-                let end = key[start..].find('/').map(|i| start + i)?;
-                Some(&key[start..end])
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    assert_eq!(
-        checkpoint_dirs.len(),
-        1,
-        "All files should belong to exactly one checkpoint directory, found: {checkpoint_dirs:?}"
-    );
+        .all(|k| k.contains("test-prefix/incremental/")));
 }
 
 #[tokio::test]
-async fn test_checkpoint_with_mock_uploader() {
-    let temp_dir = TempDir::new().unwrap();
-    let (store, _store_temp) = create_test_dedup_store();
+async fn test_checkpoint_manual_export_full() {
+    let tmp_store_dir = TempDir::new().unwrap();
+    let test_topic = "test_checkpoint_manual_full";
+    let test_partition = 0;
+    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
 
     // Add some test data
     let events = vec![
@@ -369,134 +370,243 @@ async fn test_checkpoint_with_mock_uploader() {
         assert!(result.unwrap()); // All events should be new
     }
 
+    let tmp_checkpoint_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        local_checkpoint_dir: temp_dir.path().to_string_lossy().to_string(),
+        cleanup_interval: Duration::from_secs(60),
+        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
-        max_local_checkpoints: 3,
-        s3_timeout: Duration::from_secs(30),
+        ..Default::default()
     };
 
-    let mock_uploader = MockUploader::new().unwrap();
-    let exporter = CheckpointExporter::new(config, Box::new(mock_uploader.clone()));
+    let uploader = Box::new(MockUploader::new().unwrap());
+    let exporter = Some(Arc::new(CheckpointExporter::new(
+        config.clone(),
+        uploader.clone(),
+    )));
 
-    // Perform checkpoint
-    let result = exporter.maybe_checkpoint(&store).await;
-    assert!(result.is_ok());
+    let partition = Partition::new(test_topic.to_string(), test_partition);
+    let target =
+        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
 
-    // Verify files were "uploaded" to mock storage
-    let file_count = mock_uploader.file_count().await.unwrap();
-    assert!(file_count > 0, "Should have uploaded some files");
+    let worker = CheckpointWorker::new(1, target.clone(), exporter.clone());
 
-    let stored_files = mock_uploader.get_stored_files().await.unwrap();
+    let result = worker
+        .checkpoint_partition(CheckpointMode::Full, &store)
+        .await;
     assert!(
-        !stored_files.is_empty(),
-        "Should have stored files in mock uploader"
+        result.is_ok(),
+        "checkpoint should succeed: {:?}",
+        result.err()
     );
+
+    // there should be lots of checkpoint files collected from
+    let local_checkpoint_files = find_local_checkpoint_files(&target.local_path).unwrap();
+    assert!(!local_checkpoint_files.is_empty());
+
+    // there should be lots of checkpoint files collected from
+    // various attempt directories of form /<base_path>/topic/partition/timestamp
+    assert!(local_checkpoint_files
+        .iter()
+        .any(|p| p.to_string_lossy().to_string().ends_with("CURRENT")));
+    assert!(local_checkpoint_files
+        .iter()
+        .any(|p| p.to_string_lossy().to_string().contains("MANIFEST")));
+    assert!(local_checkpoint_files
+        .iter()
+        .any(|p| p.to_string_lossy().to_string().contains("OPTIONS")));
+    assert!(local_checkpoint_files
+        .iter()
+        .any(|p| p.to_string_lossy().to_string().ends_with(".sst")));
+    assert!(local_checkpoint_files
+        .iter()
+        .any(|p| p.to_string_lossy().to_string().ends_with(".log")));
+
+    let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
+    assert!(!remote_checkpoint_files.is_empty());
+    assert!(remote_checkpoint_files
+        .keys()
+        .all(|k| k.contains("test-prefix/full/")));
 }
 
+// TODO: incremental snapshot and export is not implemented yet, but
+// the manager is wired up to track and perform N incrementals per
+// full snapshot. This test case exercises the config and staging logic
 #[tokio::test]
-async fn test_incremental_vs_full_upload() {
-    let temp_dir = TempDir::new().unwrap();
-    let (store, _store_temp) = create_test_dedup_store();
+async fn test_incremental_vs_full_upload_serial() {
+    let tmp_store_dir = TempDir::new().unwrap();
+    let test_topic = "test_incremental_vs_full_upload_serial";
+    let test_partition = 0;
+    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
 
-    let events = vec![create_test_raw_event("user1", "token1", "event1")];
+    // Add some test data
+    let events = vec![
+        create_test_raw_event("user1", "token1", "event1"),
+        create_test_raw_event("user2", "token1", "event2"),
+    ];
     for event in &events {
         let result = store.handle_event_with_raw(event);
         assert!(result.is_ok());
         assert!(result.unwrap()); // All events should be new
     }
 
+    let tmp_checkpoint_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
-        checkpoint_interval: Duration::from_secs(60),
-        local_checkpoint_dir: temp_dir.path().to_string_lossy().to_string(),
+        checkpoint_interval: Duration::from_millis(50),
+        cleanup_interval: Duration::from_secs(60),
+        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        full_upload_interval: 3, // Every 3 checkpoints
         aws_region: "us-east-1".to_string(),
-        max_local_checkpoints: 5,
-        s3_timeout: Duration::from_secs(30),
+        full_upload_interval: 2,
+        ..Default::default()
     };
 
-    let mock_uploader = MockUploader::new().unwrap();
-    let exporter = CheckpointExporter::new(config, Box::new(mock_uploader.clone()));
+    let uploader = Box::new(MockUploader::new().unwrap());
+    let exporter = Some(Arc::new(CheckpointExporter::new(
+        config.clone(),
+        uploader.clone(),
+    )));
 
-    // Perform multiple checkpoints
-    for i in 0..=5 {
-        let result = exporter.maybe_checkpoint(&store).await;
-        assert!(
-            result.is_ok(),
-            "Checkpoint {} should succeed: {:?}",
-            i,
-            result.err()
-        );
+    let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+        path: tmp_store_dir.path().to_path_buf(),
+        max_capacity: 1_000_000,
+    }));
 
-        let stored_files = mock_uploader.get_stored_files().await.unwrap();
+    let partition = Partition::new("test_topic".to_string(), 0);
+    store_manager
+        .stores()
+        .insert(partition.clone(), store.clone());
 
-        // Check if this was a full upload (every 3rd checkpoint)
-        let should_be_full = i % 3 == 0;
-        let has_full_uploads = stored_files.keys().any(|k| k.contains("/full/"));
-        let has_incremental_uploads = stored_files.keys().any(|k| k.contains("/incremental/"));
+    let mut manager = CheckpointManager::new(config, store_manager, exporter);
 
-        println!(
-            "Checkpoint {i}: should_be_full={should_be_full}, has_full={has_full_uploads}, has_incremental={has_incremental_uploads}"
-        );
-        println!("Keys: {:?}", stored_files.keys().collect::<Vec<_>>());
+    // let the checkpoint worker loop run long enough to perform some checkpoints
+    manager.start();
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    manager.stop().await;
 
-        // Clear the mock uploader between checks to isolate each checkpoint's uploads
-        mock_uploader.clear().await.unwrap();
+    // eval if some full and incremental uploads were performed
+    let stored_files = uploader.get_stored_files().await.unwrap();
 
-        if should_be_full {
-            assert!(
-                has_full_uploads,
-                "Checkpoint {i} should create full uploads"
-            );
-        } else {
-            assert!(
-                has_incremental_uploads,
-                "Checkpoint {i} should create incremental uploads"
-            );
-        }
-    }
+    // Check if this was a full upload (every 3rd checkpoint)
+    let full_upload_paths = stored_files
+        .keys()
+        .filter(|k| k.contains("test-prefix/full/"))
+        .collect::<Vec<_>>();
+    let incremental_upload_paths = stored_files
+        .keys()
+        .filter(|k| k.contains("test-prefix/incremental/"))
+        .collect::<Vec<_>>();
+
+    assert!(
+        full_upload_paths.len() >= 2,
+        "Should have performed at least two full uploads"
+    );
+    assert!(
+        incremental_upload_paths.len() >= 2,
+        "Should have performed at least two incremental uploads"
+    );
 }
 
 #[tokio::test]
 async fn test_unavailable_uploader() {
-    let temp_dir = TempDir::new().unwrap();
-    let (store, _store_temp) = create_test_dedup_store();
+    let tmp_store_dir = TempDir::new().unwrap();
+    let test_topic = "test_unavailable_uploader";
+    let test_partition = 0;
+    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
 
-    let events = vec![create_test_raw_event("user1", "token1", "event1")];
+    // Add some test data
+    let events = vec![
+        create_test_raw_event("user1", "token1", "event1"),
+        create_test_raw_event("user2", "token1", "event2"),
+    ];
     for event in &events {
         let result = store.handle_event_with_raw(event);
         assert!(result.is_ok());
         assert!(result.unwrap()); // All events should be new
     }
 
+    let tmp_checkpoint_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        local_checkpoint_dir: temp_dir.path().to_string_lossy().to_string(),
-        s3_bucket: "".to_string(), // Empty bucket means unavailable
+        cleanup_interval: Duration::from_secs(60),
+        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+        s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
-        max_local_checkpoints: 3,
-        s3_timeout: Duration::from_secs(30),
+        ..Default::default()
     };
 
-    let mock_uploader = MockUploader::new_unavailable().unwrap();
-    let exporter = CheckpointExporter::new(config, Box::new(mock_uploader.clone()));
+    let uploader = Box::new(MockUploader::new_unavailable().unwrap());
+    let exporter = Some(Arc::new(CheckpointExporter::new(
+        config.clone(),
+        uploader.clone(),
+    )));
 
-    // Checkpoint should still succeed even if uploader is unavailable
-    let result = exporter.maybe_checkpoint(&store).await;
-    assert!(result.is_ok());
+    let partition = Partition::new("test_topic".to_string(), 0);
+    let target =
+        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
 
-    // No files should be uploaded
-    let file_count = mock_uploader.file_count().await.unwrap();
+    let worker = CheckpointWorker::new(1, target, exporter.clone());
+
+    // The wrapper thread closure that is spawned to run this in
+    // production will catch and log/stat these errors
+    let result = worker
+        .checkpoint_partition(CheckpointMode::Full, &store)
+        .await;
+    assert!(result.is_err());
+
+    // No files should be uploaded when the remote storage is unavailable
+    let file_count = uploader.file_count().await.unwrap();
     assert_eq!(
         file_count, 0,
         "No files should be uploaded when uploader is unavailable"
     );
+}
+
+#[tokio::test]
+async fn test_unpopulated_exporter() {
+    let tmp_store_dir = TempDir::new().unwrap();
+    let test_topic = "test_unpopulated_exporter";
+    let test_partition = 0;
+    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
+
+    // Add some test data
+    let events = vec![
+        create_test_raw_event("user1", "token1", "event1"),
+        create_test_raw_event("user2", "token1", "event2"),
+    ];
+    for event in &events {
+        let result = store.handle_event_with_raw(event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // All events should be new
+    }
+
+    let tmp_checkpoint_dir = TempDir::new().unwrap();
+    let config = CheckpointConfig {
+        checkpoint_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_secs(60),
+        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+        s3_bucket: "test-bucket".to_string(),
+        s3_key_prefix: "test-prefix".to_string(),
+        aws_region: "us-east-1".to_string(),
+        ..Default::default()
+    };
+
+    let partition = Partition::new("test_topic".to_string(), 0);
+    let target =
+        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
+
+    // without an exporter supplied to the worker, the checkpoint will
+    // succeed and be created locally but never uploaded to remote storage
+    let worker = CheckpointWorker::new(1, target, None);
+
+    // Checkpoint should still succeed even if uploader is unavailable
+    let result = worker
+        .checkpoint_partition(CheckpointMode::Full, &store)
+        .await;
+    assert!(result.is_ok()); // Should return OK result
+    assert!(result.unwrap().is_none()); // Should be None since no remote upload was attempted
 }
