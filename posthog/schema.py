@@ -197,6 +197,7 @@ class AssistantHogQLQuery(BaseModel):
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
     TOOL = "tool"
+    CONTEXT = "context"
     AI = "ai"
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
@@ -445,6 +446,7 @@ class BaseAssistantMessage(BaseModel):
         extra="forbid",
     )
     id: Optional[str] = None
+    visible: Optional[bool] = None
 
 
 class BaseMathType(StrEnum):
@@ -609,6 +611,16 @@ class ConditionalFormattingRule(BaseModel):
     id: str
     input: str
     templateId: str
+
+
+class ContextMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    type: Literal["context"] = "context"
+    visible: Optional[bool] = None
 
 
 class CountPerActorMathType(StrEnum):
@@ -1277,6 +1289,7 @@ class FailureMessage(BaseModel):
     content: Optional[str] = None
     id: Optional[str] = None
     type: Literal["ai/failure"] = "ai/failure"
+    visible: Optional[bool] = None
 
 
 class FileSystemCount(BaseModel):
@@ -2188,6 +2201,7 @@ class ReasoningMessage(BaseModel):
     id: Optional[str] = None
     substeps: Optional[list[str]] = None
     type: Literal["ai/reasoning"] = "ai/reasoning"
+    visible: Optional[bool] = None
 
 
 class RecordingDurationFilter(BaseModel):
@@ -3302,6 +3316,7 @@ class AssistantMessageMetadata(BaseModel):
         extra="forbid",
     )
     form: Optional[AssistantForm] = None
+    thinking: Optional[list[dict[str, Any]]] = None
 
 
 class AssistantNumericValuePropertyFilter(BaseModel):
@@ -4193,6 +4208,7 @@ class NotebookUpdateMessage(BaseModel):
     notebook_type: Literal["deep_research"] = "deep_research"
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
+    visible: Optional[bool] = None
 
 
 class PathsFilter(BaseModel):
@@ -4966,6 +4982,7 @@ class TaskExecutionMessage(BaseModel):
     id: Optional[str] = None
     tasks: list[TaskExecutionItem]
     type: Literal["ai/task_execution"] = "ai/task_execution"
+    visible: Optional[bool] = None
 
 
 class TeamTaxonomyItem(BaseModel):
@@ -5666,6 +5683,7 @@ class AssistantMessage(BaseModel):
     meta: Optional[AssistantMessageMetadata] = None
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"
+    visible: Optional[bool] = None
 
 
 class AssistantRetentionFilter(BaseModel):
@@ -9203,6 +9221,7 @@ class PlanningMessage(BaseModel):
     id: Optional[str] = None
     steps: list[PlanningStep]
     type: Literal["ai/planning"] = "ai/planning"
+    visible: Optional[bool] = None
 
 
 class PropertyGroupFilterValue(BaseModel):
@@ -13796,6 +13815,7 @@ class VisualizationMessage(BaseModel):
     query: Optional[str] = ""
     short_id: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
+    visible: Optional[bool] = None
 
 
 class DatabaseSchemaQueryResponse(BaseModel):
@@ -13883,6 +13903,7 @@ class MultiVisualizationMessage(BaseModel):
     commentary: Optional[str] = None
     id: Optional[str] = None
     type: Literal["ai/multi_viz"] = "ai/multi_viz"
+    visible: Optional[bool] = None
     visualizations: list[VisualizationItem]
 
 
@@ -14481,6 +14502,7 @@ class HumanMessage(BaseModel):
     id: Optional[str] = None
     type: Literal["human"] = "human"
     ui_context: Optional[MaxUIContext] = None
+    visible: Optional[bool] = None
 
 
 class MaxDashboardContext(BaseModel):

@@ -321,11 +321,12 @@ interface MessageTemplateProps {
     action?: React.ReactNode
     className?: string
     boxClassName?: string
-    children: React.ReactNode
+    children?: React.ReactNode
+    header?: React.ReactNode
 }
 
 const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, action },
+    { type, children, className, boxClassName, action, header },
     ref
 ) {
     return (
@@ -337,15 +338,18 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
             )}
             ref={ref}
         >
-            <div
-                className={twMerge(
-                    'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
-                    type === 'human' && 'font-medium',
-                    boxClassName
-                )}
-            >
-                {children}
-            </div>
+            {header}
+            {children && (
+                <div
+                    className={twMerge(
+                        'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
+                        type === 'human' && 'font-medium',
+                        boxClassName
+                    )}
+                >
+                    {children}
+                </div>
+            )}
             {action}
         </div>
     )
@@ -397,10 +401,14 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             ref={ref}
             action={action}
         >
-            <MarkdownMessage
-                content={message.content || '*Max has failed to generate an answer. Please try again.*'}
-                id={message.id || 'error'}
-            />
+            {message.content ? (
+                <MarkdownMessage content={message.content} id={message.id || 'in-progress'} />
+            ) : (
+                <MarkdownMessage
+                    content={message.content || '*Max has failed to generate an answer. Please try again.*'}
+                    id={message.id || 'error'}
+                />
+            )}
         </MessageTemplate>
     )
 })
