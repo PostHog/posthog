@@ -374,7 +374,7 @@ class Task(models.Model):
 
 
 class TaskProgress(models.Model):
-    """Tracks real-time progress of Claude Code execution for tasks."""
+    """Tracks real-time progress of execution for tasks."""
 
     class Status(models.TextChoices):
         STARTED = "started", "Started"
