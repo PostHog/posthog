@@ -1,11 +1,15 @@
+import { generateHTML, generateText } from '@tiptap/core'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
+import { RichContentEditorType, RichContentNodeType } from 'lib/components/RichContentEditor/types'
+import { DEFAULT_EXTENSIONS } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { isEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
@@ -31,6 +35,8 @@ export type CommentContext = {
     callback?: (event: { sent: boolean }) => void
 }
 
+const discussionsSlug = (): string => `${window.location.pathname}#panel=discussion`
+
 export const commentsLogic = kea<commentsLogicType>([
     path(() => ['scenes', 'notebooks', 'Notebook', 'commentsLogic']),
     props({} as CommentsLogicProps),
@@ -38,7 +44,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
     connect(() => ({
         actions: [sidePanelDiscussionLogic, ['incrementCommentCount']],
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], sceneLogic, ['activeTab'], membersLogic, ['meFirstMembers']],
     })),
 
     actions({
@@ -142,13 +148,31 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     const mentions = values.richContentEditor?.getMentions() ?? []
 
+                    const content = values.richContentEditor?.getJSON()
+
+                    const textContent = content
+                        ? generateText(content, DEFAULT_EXTENSIONS, {
+                              textSerializers: {
+                                  [RichContentNodeType.Mention]: ({ node }) => {
+                                      const userId = node.attrs.id
+
+                                      const member = values.meFirstMembers.find((member) => member.user.id === userId)
+
+                                      return `@${member ? member.user.first_name : `user:${userId}`}`
+                                  },
+                              },
+                          })
+                        : ''
+
                     const newComment = await api.comments.create({
-                        rich_content: values.richContentEditor?.getJSON(),
+                        rich_content: content,
+                        content: textContent,
                         scope: props.scope,
                         item_id: props.item_id,
                         item_context: itemContext,
                         source_comment: values.replyingCommentId ?? undefined,
                         mentions,
+                        slug: discussionsSlug(),
                     })
 
                     values.itemContext?.callback?.({ sent: true })
@@ -178,7 +202,8 @@ export const commentsLogic = kea<commentsLogicType>([
                     const updatedComment = await api.comments.update(id, {
                         rich_content,
                         content: null,
-                        new_mentions: newMentions,
+                        mentions: newMentions,
+                        slug: discussionsSlug(),
                     })
                     return [...existingComments.filter((c) => c.id !== editedComment.id), updatedComment]
                 },

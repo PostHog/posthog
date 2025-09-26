@@ -4676,6 +4676,8 @@ export type CommentType = {
     deleted?: boolean
 }
 
+export type CommentCreationParams = { mentions?: number[]; slug?: string }
+
 export interface DataWarehouseCredential {
     access_key: string
     access_secret: string
