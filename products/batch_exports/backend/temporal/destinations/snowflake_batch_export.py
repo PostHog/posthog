@@ -560,9 +560,7 @@ class SnowflakeClient:
         file_stream: io.BufferedReader | io.BytesIO
         if isinstance(file, BatchExportTemporaryFile):
             file.rewind()
-            # We comply with the file-like interface of io.IOBase.
-            # So we ask mypy to be nice with us.
-            file_stream = io.BufferedReader(file)  # type: ignore
+            file_stream = io.BufferedReader(file)
         else:
             file.seek(0)
             file_stream = file
