@@ -1007,18 +1007,24 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 const toastId = `create-dynamic-cohort-for-survey${values.survey.id}-${Date.now()}`
                 lemonToast.info('Creating cohort...', { toastId, autoClose: false })
-                const cohortFormData = createDynamicCohortFormData(values.survey as Survey)
-                const cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
-                lemonToast.dismiss(toastId)
-                lemonToast.success('Cohort created. Please wait up to a few minutes for it to be calculated', {
-                    toastId: `cohort-created-${cohort.id}`,
-                    button: {
-                        label: 'View cohort',
-                        action: () => {
-                            router.actions.push(urls.cohort(cohort.id))
+                try {
+                    const cohortFormData = createDynamicCohortFormData(values.survey as Survey)
+                    const cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
+                    lemonToast.dismiss(toastId)
+                    lemonToast.success('Cohort created. Please wait up to a few minutes for it to be calculated', {
+                        toastId: `cohort-created-${cohort.id}`,
+                        button: {
+                            label: 'View cohort',
+                            action: () => {
+                                router.actions.push(urls.cohort(cohort.id))
+                            },
                         },
-                    },
-                })
+                    })
+                } catch (error: any) {
+                    lemonToast.dismiss(toastId)
+                    lemonToast.error('Failed to create cohort. Please try again.')
+                    console.error('Cohort creation failed:', error)
+                }
             },
         }
     }),
