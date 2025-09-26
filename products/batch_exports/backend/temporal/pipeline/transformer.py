@@ -496,6 +496,9 @@ class RedshiftQueryStreamTransformer:
                     yield Chunk(query_start, False)
                     is_query_start = False
 
+                else:
+                    yield Chunk(b",", False)
+
                 yield Chunk(chunk, False)
 
                 if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
