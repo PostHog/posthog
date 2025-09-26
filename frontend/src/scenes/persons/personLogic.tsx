@@ -1,8 +1,10 @@
 import { actions, afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
+import { hogql } from '~/queries/utils'
 import { PersonType } from '~/types'
 
 import type { personLogicType } from './personLogicType'
@@ -11,12 +13,19 @@ export interface PersonLogicProps {
     id: string
 }
 
+export interface Info {
+    sessionCount: number
+    eventCount: number
+    lastSeen: Date | null
+}
+
 export const personLogic = kea<personLogicType>([
     props({} as PersonLogicProps),
     key((props) => props.id),
     path((key) => ['scenes', 'persons', 'personLogic', key]),
     actions({
         loadPerson: true,
+        loadInfo: true,
     }),
     loaders(({ props }) => ({
         person: [
@@ -29,8 +38,50 @@ export const personLogic = kea<personLogicType>([
                 },
             },
         ],
+        info: [
+            null as Info | null,
+            {
+                loadInfo: async (): Promise<any> => {
+                    if (!props.id) {
+                        return null
+                    }
+
+                    const infoQuery = hogql`
+                    SELECT
+                        count(DISTINCT $session_id) as session_count,
+                        count(*) as event_count,
+                        max(timestamp) as last_seen
+                    FROM events
+                    WHERE person_id = ${props.id}
+                    AND timestamp >= now() - interval 30 day
+                    `
+                    try {
+                        const response = await api.queryHogQL(infoQuery)
+                        const row = response.results?.[0]
+                        if (!row) {
+                            return {
+                                sessionCount: 0,
+                                eventCount: 0,
+                                lastSeen: null,
+                            }
+                        }
+
+                        const [sessionCount, eventCount, lastSeen] = row
+                        return { sessionCount, eventCount, lastSeen }
+                    } catch (error: any) {
+                        posthog.captureException(error)
+                        return {
+                            sessionCount: 0,
+                            eventCount: 0,
+                            lastSeen: null,
+                        }
+                    }
+                },
+            },
+        ],
     })),
     afterMount(({ actions }) => {
         actions.loadPerson()
+        actions.loadInfo()
     }),
 ])
