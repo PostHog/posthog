@@ -41,7 +41,7 @@ export const personLogic = kea<personLogicType>([
         info: [
             null as Info | null,
             {
-                loadInfo: async (): Promise<any> => {
+                loadInfo: async (): Promise<Info | null> => {
                     if (!props.id) {
                         return null
                     }
