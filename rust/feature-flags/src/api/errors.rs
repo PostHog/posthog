@@ -287,3 +287,33 @@ impl From<sqlx::Error> for FlagError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_5xx() {
+        // Test 5XX errors
+        assert!(FlagError::Internal("test".to_string()).is_5xx());
+        assert!(FlagError::CacheUpdateError.is_5xx());
+        assert!(FlagError::DatabaseUnavailable.is_5xx());
+        assert!(FlagError::RedisUnavailable.is_5xx());
+        assert!(FlagError::TimeoutError.is_5xx());
+        assert!(FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).is_5xx());
+
+        // Test 4XX errors
+        assert!(
+            !FlagError::ClientFacing(ClientFacingError::BadRequest("test".to_string())).is_5xx()
+        );
+        assert!(
+            !FlagError::ClientFacing(ClientFacingError::Unauthorized("test".to_string())).is_5xx()
+        );
+        assert!(!FlagError::ClientFacing(ClientFacingError::RateLimited).is_5xx());
+        assert!(!FlagError::ClientFacing(ClientFacingError::BillingLimit).is_5xx());
+        assert!(!FlagError::MissingDistinctId.is_5xx());
+        assert!(!FlagError::NoTokenError.is_5xx());
+        assert!(!FlagError::TokenValidationError.is_5xx());
+        assert!(!FlagError::PersonNotFound.is_5xx());
+    }
+}
