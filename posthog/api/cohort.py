@@ -625,20 +625,15 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
-            from posthog.tasks.calculate_cohort import (
-                increment_version_and_enqueue_calculate_cohort,
-                insert_cohort_from_query,
-            )
+            from posthog.tasks.calculate_cohort import insert_cohort_from_query
 
             if cohort.is_static:
-                # You can't update a static cohort using the trend/stickiness thing
-                self._calculate_static_by_csv(request.FILES["csv"], cohort)
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
                 elif validated_data.get("query"):
                     insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
                 else:
-                    increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+                    raise ValidationError("Update must either have csv or query.")
             else:
                 cohort.enqueue_calculation(initiating_user=request.user)
 
