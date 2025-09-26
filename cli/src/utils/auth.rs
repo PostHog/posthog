@@ -111,6 +111,7 @@ pub fn token_validator(token: &str) -> Result<Validation, CustomUserError> {
 
 pub fn load_token() -> Result<Token, Error> {
     let env = EnvVarProvider;
+
     let env_err = match env.get_credentials() {
         Ok(token) => {
             info!("Using token from env var, for environment {}", token.env_id);
@@ -118,6 +119,7 @@ pub fn load_token() -> Result<Token, Error> {
         }
         Err(e) => e,
     };
+
     let provider = HomeDirProvider;
     let dir_err = match provider.get_credentials() {
         Ok(token) => {

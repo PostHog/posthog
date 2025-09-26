@@ -1,6 +1,7 @@
 pub mod login;
 pub mod query;
 pub mod sourcemap;
+pub mod status;
 pub mod tasks;
 
 use clap::{Parser, Subcommand};
@@ -25,6 +26,9 @@ pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
     /// environment variables `POSTHOG_CLI_TOKEN` and `POSTHOG_CLI_ENV_ID`
     Login,
+
+    /// Show the current authentication status and user information
+    Status,
 
     /// Experimental commands, not quite ready for prime time
     Exp {
@@ -122,6 +126,9 @@ impl Cli {
         match &command.command {
             Commands::Login => {
                 login::login()?;
+            }
+            Commands::Status => {
+                status::status()?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
