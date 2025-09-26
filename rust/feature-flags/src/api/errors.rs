@@ -74,10 +74,10 @@ pub enum FlagError {
 impl FlagError {
     pub fn is_5xx(&self) -> bool {
         let status = match self {
-            FlagError::ClientFacing(err) => match err {
-                ClientFacingError::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
-                _ => return false, // All other ClientFacing are 4XX
-            },
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+            FlagError::ClientFacing(_) => return false, // All other ClientFacing are 4XX
             FlagError::Internal(_)
             | FlagError::CacheUpdateError
             | FlagError::DeserializeFiltersError
@@ -93,18 +93,14 @@ impl FlagError {
             | FlagError::DatabaseUnavailable
             | FlagError::TimeoutError => StatusCode::SERVICE_UNAVAILABLE,
 
-            FlagError::CookielessError(err) => {
-                match err {
-                    CookielessManagerError::HashError(_)
-                    | CookielessManagerError::ChronoError(_)
-                    | CookielessManagerError::RedisError(_, _)
-                    | CookielessManagerError::SaltCacheError(_)
-                    | CookielessManagerError::InvalidIdentifyCount(_) => {
-                        StatusCode::INTERNAL_SERVER_ERROR
-                    }
-                    _ => return false, // Other CookielessErrors are 4XX
-                }
-            }
+            FlagError::CookielessError(
+                CookielessManagerError::HashError(_)
+                | CookielessManagerError::ChronoError(_)
+                | CookielessManagerError::RedisError(_, _)
+                | CookielessManagerError::SaltCacheError(_)
+                | CookielessManagerError::InvalidIdentifyCount(_),
+            ) => StatusCode::INTERNAL_SERVER_ERROR,
+            FlagError::CookielessError(_) => return false, // Other CookielessErrors are 4XX
             _ => return false, // Everything else is 4XX
         };
         status.is_server_error()
