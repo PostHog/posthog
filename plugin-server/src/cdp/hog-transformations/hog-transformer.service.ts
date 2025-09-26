@@ -146,6 +146,15 @@ export class HogTransformerService {
     }
 
     public transformEvent(event: PluginEvent, teamHogFunctions: HogFunctionType[]): Promise<TransformationResult> {
+        // Sanitize transform event properties
+        if (event.properties) {
+            for (const key of ['$transformations_failed', '$transformations_skipped', '$transformations_succeeded']) {
+                if (key in event.properties) {
+                    delete event.properties[key]
+                }
+            }
+        }
+
         return instrumentFn(`hogTransformer.transformEvent`, async () => {
             hogTransformationInvocations.inc()
             const results: CyclotronJobInvocationResult[] = []
