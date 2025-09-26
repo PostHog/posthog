@@ -172,7 +172,7 @@ async def _run_activity(
         table_name=table_name,
         team_id=team.pk,
         date_ranges=[(data_interval_start, data_interval_end)],
-        batch_export_model=batch_export_model,
+        batch_export_model=batch_export_model or batch_export_schema,
         exclude_events=exclude_events,
         properties_data_type=properties_data_type,
         sort_key=sort_key,
