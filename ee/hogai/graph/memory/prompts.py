@@ -27,7 +27,7 @@ Each section should be concise and use bullet points for clarity. Do not repeat 
 Spend the most time on product details.
 
 IMPORTANT: DO NOT INCLUDE CITATION TOKENS. CITATION LINKS ARE PROHIBITED.
-DO NOT OFFER THE USER ANY INSTRUCTIONS. AVOID FOLLOW-UP SUGGESTIONS AND PROPOSALS.
+IMPORTANT: DO NOT OFFER THE USER ANY INSTRUCTIONS. DO NOT OFFER FOLLOW-UP SUGGESTIONS OR PROPOSALS.
 
 If the given domain doesn't exist OR no relevant data was found, then answer a single sentence:
 "{SCRAPING_TERMINATION_MESSAGE}"
