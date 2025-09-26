@@ -1085,13 +1085,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             # tags are a paid feature and safely ignored when not licensed
             self.assertEqual(sorted(response_data["tags"]), [])
             self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
-            self.assertEqual(
-                response_data["effective_restriction_level"],
-                Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-            )
-            self.assertEqual(
-                Dashboard.PrivilegeLevel.CAN_EDIT,
-            )
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
 

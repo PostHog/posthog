@@ -70,7 +70,6 @@ DASHBOARD_SHARED_FIELDS = [
     "data_color_theme_id",
     "tags",
     "restriction_level",
-    "effective_restriction_level",
     "user_access_level",
     "access_control_version",
     "last_refresh",
@@ -162,7 +161,6 @@ class DashboardBasicSerializer(
     UserAccessControlSerializerMixin,
 ):
     created_by = UserBasicSerializer(read_only=True)
-    effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
 
@@ -181,18 +179,12 @@ class DashboardBasicSerializer(
             "creation_mode",
             "tags",
             "restriction_level",
-            "effective_restriction_level",
             "user_access_level",
             "access_control_version",
             "last_refresh",
             "team_id",
         ]
         read_only_fields = fields
-
-    def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
-        if self.context.get("is_shared"):
-            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        return self.user_permissions.dashboard_effective_restriction_level(dashboard)
 
     def get_access_control_version(self, dashboard: Dashboard) -> str:
         # This effectively means that the dashboard they are using the old dashboard permissions
@@ -205,7 +197,6 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
-    effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     breakdown_colors = serializers.JSONField(required=False)
@@ -216,7 +207,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     class Meta:
         model = Dashboard
         fields = DASHBOARD_SHARED_FIELDS
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+        read_only_fields = ["creation_mode", "is_shared", "user_access_level"]
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
@@ -250,7 +241,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "delete_insights",
             "_create_in_folder",
         ]
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+        read_only_fields = ["creation_mode", "is_shared", "user_access_level"]
 
     def validate_filters(self, value) -> dict:
         if not isinstance(value, dict):

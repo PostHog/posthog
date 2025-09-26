@@ -319,7 +319,6 @@ class InsightSerializer(InsightBasicSerializer):
     is_cached = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
-    effective_restriction_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     dashboards = serializers.PrimaryKeyRelatedField(
         help_text="""
@@ -373,7 +372,6 @@ class InsightSerializer(InsightBasicSerializer):
             "last_modified_at",
             "last_modified_by",
             "is_sample",
-            "effective_restriction_level",
             "user_access_level",
             "timezone",
             "is_cached",
@@ -391,7 +389,6 @@ class InsightSerializer(InsightBasicSerializer):
             "short_id",
             "updated_at",
             "is_sample",
-            "effective_restriction_level",
             "user_access_level",
             "timezone",
             "refreshing",
@@ -641,11 +638,6 @@ class InsightSerializer(InsightBasicSerializer):
         from posthog.api.alert import AlertSerializer
 
         return AlertSerializer(alerts, many=True, context=self.context).data
-
-    def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
-        if self.context.get("is_shared"):
-            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        return self.user_permissions.insight_effective_restriction_level(insight)
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)

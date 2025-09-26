@@ -19,7 +19,6 @@ import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { slugify } from 'lib/utils'
@@ -53,8 +52,6 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
-import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
@@ -497,14 +494,7 @@ function CollaboratorBubbles({
         return null
     }
 
-    const effectiveRestrictionLevelOption = DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level]
     const tooltipParts: string[] = []
-    if (
-        isLemonSelectSection(effectiveRestrictionLevelOption) &&
-        typeof effectiveRestrictionLevelOption?.title === 'string'
-    ) {
-        tooltipParts.push(effectiveRestrictionLevelOption.title)
-    }
     if (dashboard.is_shared) {
         tooltipParts.push('Shared publicly')
     }

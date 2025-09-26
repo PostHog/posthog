@@ -41,17 +41,6 @@ class UserPermissions:
             self._team_permissions[team.pk] = UserTeamPermissions(self, team)
         return self._team_permissions[team.pk]
 
-    def dashboard_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
-        """
-        Get the effective restriction level for a dashboard.
-        Replacement for user_permissions.dashboard(dashboard).effective_restriction_level
-        """
-        return (
-            dashboard.restriction_level
-            if cast(Organization, self.current_organization).is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-            else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        )
-
     def dashboard_can_restrict(self, dashboard: Dashboard) -> bool:
         """
         Check if user can change dashboard restriction level.
@@ -66,18 +55,6 @@ class UserPermissions:
             effective_project_membership_level is not None
             and effective_project_membership_level >= OrganizationMembership.Level.ADMIN
         )
-
-    def insight_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
-        """
-        Get the effective restriction level for an insight based on its dashboards.
-        Replacement for user_permissions.insight(insight).effective_restriction_level
-        """
-        insight_dashboards = self._get_insight_dashboards(insight)
-
-        if len(insight_dashboards) == 0:
-            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-
-        return max(self.dashboard_effective_restriction_level(dashboard) for dashboard in insight_dashboards)
 
     def _get_insight_dashboards(self, insight: Insight) -> list[Dashboard]:
         """Helper method to get dashboards for an insight"""

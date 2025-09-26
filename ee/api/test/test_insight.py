@@ -135,7 +135,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             self.assertEqual(sorted(response_data["tags"]), sorted(["add", "these", "tags"]))
             self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
             self.assertEqual(
-                response_data["effective_restriction_level"],
                 Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
             )
 
@@ -354,7 +353,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     def test_an_insight_on_no_dashboard_has_no_restrictions(self) -> None:
         _, response_data = self.dashboard_api.create_insight(data={"name": "not on a dashboard"})
         self.assertEqual(
-            response_data["effective_restriction_level"],
             Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
         )
 
@@ -364,7 +362,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             data={"name": "on an unrestricted dashboard", "dashboards": [dashboard.pk]}
         )
         self.assertEqual(
-            response_data["effective_restriction_level"],
             Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
         )
 
@@ -379,7 +376,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             data={"name": "on a restricted dashboard", "dashboards": [dashboard.pk]}
         )
         self.assertEqual(
-            response_data["effective_restriction_level"],
             Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
@@ -401,7 +397,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             }
         )
         self.assertEqual(
-            response_data["effective_restriction_level"],
             Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
@@ -425,7 +420,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             }
         )
         self.assertEqual(
-            response_data["effective_restriction_level"],
             Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 

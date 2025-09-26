@@ -1387,7 +1387,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "deleted": False,
                     "derived_name": None,
                     "description": None,
-                    "effective_restriction_level": 21,
                     "favorited": False,
                     "filters": {},
                     "filters_hash": ANY,
