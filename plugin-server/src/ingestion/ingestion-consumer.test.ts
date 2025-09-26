@@ -464,6 +464,52 @@ describe('IngestionConsumer', () => {
     })
 
     describe('dropping events', () => {
+        it('should drop $exception events', async () => {
+            const messages = createKafkaMessages([
+                createEvent({
+                    event: '$exception',
+                    properties: { $exception_message: 'Test error' },
+                }),
+            ])
+
+            await ingester.handleKafkaBatch(messages)
+
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+            expect(
+                mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_dlq_test')
+            ).toHaveLength(0)
+        })
+
+        it('should capture ingestion warning for $groupidentify with too long $group_key', async () => {
+            const longKey = 'x'.repeat(401)
+            const messages = createKafkaMessages([
+                createEvent({
+                    event: '$groupidentify',
+                    properties: {
+                        $group_key: longKey,
+                        $group_type: 'company',
+                        $group_set: { name: 'Test Company' },
+                    },
+                }),
+            ])
+
+            await ingester.handleKafkaBatch(messages)
+
+            // Event should be dropped
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+
+            // Should produce ingestion warning
+            const warningMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                'clickhouse_ingestion_warnings_test'
+            )
+            expect(warningMessages).toHaveLength(1)
+            expect(warningMessages[0].value).toMatchObject({
+                team_id: team.id,
+                type: 'group_key_too_long',
+                details: expect.stringContaining(longKey),
+            })
+        })
+
         describe.each(['headers', 'payload'] as const)('via %s', (kind) => {
             const addMessageHeaders = (message: Message, token?: string, distinctId?: string) => {
                 if (kind !== 'headers') {
@@ -736,6 +782,33 @@ describe('IngestionConsumer', () => {
 
             const ingester = await createIngestionConsumer(hub)
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
+        })
+
+        it('should emit failures to dead letter queue for non-retriable errors', async () => {
+            const error = new Error('Non-retriable processing error')
+            const errorAny = error as any
+            errorAny.isRetriable = false
+
+            // Mock the event pipeline runner v1 step to throw the error
+            jest.mocked(createEventPipelineRunnerV1Step).mockImplementation(() => {
+                return async function eventPipelineRunnerV1Step() {
+                    return Promise.reject(error)
+                }
+            })
+
+            const ingester = await createIngestionConsumer(hub)
+            await ingester.handleKafkaBatch(messages)
+
+            // Should not produce to clickhouse
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+
+            // Should produce to DLQ
+            const dlqMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                'events_plugin_ingestion_dlq_test'
+            )
+            expect(dlqMessages).toHaveLength(1)
+            expect(dlqMessages[0].value).toEqual(parseJSON(messages[0].value!.toString()))
+            expect(dlqMessages[0].headers!['dlq-reason']).toEqual(error.message)
         })
     })
 
@@ -1201,7 +1274,9 @@ describe('IngestionConsumer', () => {
                   {
                     "headers": {
                       "distinct_id": "user-1",
+                      "event": "$pageview",
                       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+                      "uuid": "<REPLACED-UUID-0>",
                     },
                     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
                     "topic": "testing_topic",

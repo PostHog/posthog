@@ -23,6 +23,7 @@ export function createValidateEventPropertiesStep<T extends { eventWithTeam: Inc
                         eventUuid: event.uuid,
                         event: event.event,
                         distinctId: event.distinct_id,
+                        groupKey,
                         groupKeyLength: groupKey.toString().length,
                         maxLength: 400,
                     },
