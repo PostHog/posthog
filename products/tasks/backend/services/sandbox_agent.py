@@ -37,7 +37,6 @@ class SandboxAgent:
     ) -> "SandboxAgent":
         environment_variables = {
             "REPOSITORY_URL": config.repository_url,
-            "GITHUB_TOKEN": config.github_token,
         }
 
         sandbox_config = SandboxEnvironmentConfig(
