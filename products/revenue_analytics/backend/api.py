@@ -38,7 +38,7 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
             break
 
     if union_view is None:
-        return Response([])
+        return []
 
     query = ast.SelectQuery(
         select=[ast.Field(chain=chain)],  # type: ignore
