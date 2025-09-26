@@ -10,6 +10,7 @@ use hogvm::{
 };
 use metrics::counter;
 use serde_json::Value;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -229,6 +230,10 @@ fn execute_transformations(
         let run_function = match executable.test_filter(current) {
             Ok(r) => r,
             Err(e) => {
+                warn!(
+                    "Filter for function {} ({:?}) failed: {}",
+                    executable.function.id, executable.function.name, e
+                );
                 results.push(TransformResult {
                     function_id: executable.function.id,
                     outcome: TransformOutcome::FilterFailure(e),
@@ -239,6 +244,10 @@ fn execute_transformations(
         };
 
         if !run_function {
+            debug!(
+                "Skipping function {} ({:?}) due to event being filtered out",
+                executable.function.id, executable.function.name
+            );
             results.push(TransformResult {
                 function_id: executable.function.id,
                 outcome: TransformOutcome::Skipped,
@@ -250,6 +259,12 @@ fn execute_transformations(
         // Apply it, storing the outcome into our final_event if it succeeds
         let result = match executable.apply_transform(current) {
             Ok((new, logs)) => {
+                debug!(
+                    "Function {} ({:?}) applied successfully, event dropped: {}",
+                    executable.function.id,
+                    executable.function.name,
+                    new.is_none()
+                );
                 final_event = new;
                 TransformResult {
                     function_id: executable.function.id,
@@ -257,11 +272,17 @@ fn execute_transformations(
                     logs,
                 }
             }
-            Err((e, logs)) => TransformResult {
-                function_id: executable.function.id,
-                outcome: TransformOutcome::TransformFailure(e),
-                logs,
-            },
+            Err((e, logs)) => {
+                warn!(
+                    "Function {} ({:?}) failed to apply: {}",
+                    executable.function.id, executable.function.name, e
+                );
+                TransformResult {
+                    function_id: executable.function.id,
+                    outcome: TransformOutcome::TransformFailure(e),
+                    logs,
+                }
+            }
         };
 
         results.push(result);

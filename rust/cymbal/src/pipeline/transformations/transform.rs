@@ -180,7 +180,13 @@ impl HogFunctionManager {
         // TODO - for now, all this does is this - need to coord with CDP. This is called when we failed to start executing
         // a function /at all/, which indicates either a cymbal bug or an invalid function, rather than the function failing
         // during execution.
-        debug!("Function {} disabled due to {}", function.id, s.to_string());
+        debug!(
+            "Function {} ({:?}) for team {} disabled due to {}",
+            function.id,
+            function.name,
+            function.team_id,
+            s.to_string()
+        );
         Ok(())
     }
 
