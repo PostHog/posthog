@@ -437,18 +437,28 @@ class ExperimentSerializer(serializers.ModelSerializer):
                     existing_flag_serializer.is_valid(raise_exception=True)
                     existing_flag_serializer.save()
 
-        # Add fingerprints to metrics
-        for metric_field in ["metrics", "metrics_secondary"]:
-            if metric_field in validated_data:
-                start_date = validated_data.get("start_date", instance.start_date)
+        # Always recalculate fingerprints for all metrics
+        # Fingerprints depend on start_date, stats_config, and exposure_criteria
+        start_date = validated_data.get("start_date", instance.start_date)
+        stats_config = validated_data.get("stats_config", instance.stats_config)
+        exposure_criteria = validated_data.get("exposure_criteria", instance.exposure_criteria)
 
-                for metric in validated_data[metric_field]:
-                    metric["fingerprint"] = compute_metric_fingerprint(
-                        metric,
+        for metric_field in ["metrics", "metrics_secondary"]:
+            # Use metrics from validated_data if present, otherwise use existing metrics
+            metrics = validated_data.get(metric_field, getattr(instance, metric_field, None))
+            if metrics:
+                updated_metrics = []
+                for metric in metrics:
+                    metric_copy = metric.copy() if metric_field not in validated_data else metric
+                    metric_copy["fingerprint"] = compute_metric_fingerprint(
+                        metric_copy,
                         start_date,
-                        validated_data.get("stats_config", instance.stats_config),
-                        validated_data.get("exposure_criteria", instance.exposure_criteria),
+                        stats_config,
+                        exposure_criteria,
                     )
+                    updated_metrics.append(metric_copy)
+
+                validated_data[metric_field] = updated_metrics
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
