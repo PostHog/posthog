@@ -343,7 +343,7 @@ export interface HogQLQueryModifiers {
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     bounceRateDurationSeconds?: number
-    sessionTableVersion?: 'auto' | 'v1' | 'v2'
+    sessionTableVersion?: 'auto' | 'v1' | 'v2' | 'v3'
     sessionsV2JoinMode?: 'string' | 'uuid'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
@@ -1523,7 +1523,7 @@ export type RefreshType =
 export interface NamedQueryRequest {
     name?: string
     description?: string
-    query?: HogQLQuery
+    query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
 }
 
@@ -1547,6 +1547,7 @@ export interface NamedQueryRunRequest {
     filters_override?: DashboardFilter
     variables_override?: Record<string, Record<string, any>>
     variables_values?: Record<string, any>
+    query_override?: Record<string, any>
 }
 
 export interface QueryRequest {
@@ -2437,6 +2438,8 @@ export type FileSystemIconType =
     | 'insight/lifecycle'
     | 'insight/stickiness'
     | 'insight/hog'
+    | 'team_activity'
+    | 'home'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2562,6 +2565,7 @@ export const enum ExperimentMetricType {
 export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
     uuid?: string
+    fingerprint?: string // # SHA256 hash of metric definition + experiment config
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
@@ -2673,6 +2677,12 @@ export interface LegacyExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
+export interface SessionData {
+    person_id: string
+    session_id: string
+    event_uuid: string
+}
+
 export interface ExperimentStatsBase {
     key: string
     number_of_samples: integer
@@ -2681,6 +2691,8 @@ export interface ExperimentStatsBase {
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
+    step_counts?: integer[]
+    step_sessions?: SessionData[][]
 }
 
 export enum ExperimentStatsValidationFailure {
@@ -3720,6 +3732,8 @@ export interface MarketingAnalyticsTableQuery
     draftConversionGoal?: ConversionGoalFilter | null
     /** Compare to date range */
     compareFilter?: CompareFilter
+    /** Include conversion goal rows even when they don't match campaign costs table */
+    includeAllConversions?: boolean
 }
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
@@ -3808,6 +3822,7 @@ export type MarketingAnalyticsSchemaFieldTypes =
 export type MarketingAnalyticsSchemaField = {
     type: MarketingAnalyticsSchemaFieldTypes[]
     required: boolean
+    isCurrency: boolean
 }
 
 export enum MarketingAnalyticsColumnsSchemaNames {
@@ -3822,16 +3837,29 @@ export enum MarketingAnalyticsColumnsSchemaNames {
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
-    [MarketingAnalyticsColumnsSchemaNames.Date]: { type: ['datetime', 'date', 'string'], required: true }, // self managed sources dates are not converted to date type
-    [MarketingAnalyticsColumnsSchemaNames.Source]: { type: ['string'], required: true },
-    [MarketingAnalyticsColumnsSchemaNames.Campaign]: { type: ['string'], required: true },
-    [MarketingAnalyticsColumnsSchemaNames.Cost]: { type: ['float', 'integer'], required: true },
-    [MarketingAnalyticsColumnsSchemaNames.Clicks]: { type: ['integer', 'number', 'float'], required: false },
-    [MarketingAnalyticsColumnsSchemaNames.Currency]: { type: ['string'], required: false },
-    [MarketingAnalyticsColumnsSchemaNames.Impressions]: { type: ['integer', 'number', 'float'], required: false },
+    [MarketingAnalyticsColumnsSchemaNames.Date]: {
+        type: ['datetime', 'date', 'string'],
+        required: true,
+        isCurrency: false,
+    }, // self managed sources dates are not converted to date type
+    [MarketingAnalyticsColumnsSchemaNames.Source]: { type: ['string'], required: true, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.Campaign]: { type: ['string'], required: true, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.Cost]: { type: ['float', 'integer'], required: true, isCurrency: true },
+    [MarketingAnalyticsColumnsSchemaNames.Clicks]: {
+        type: ['integer', 'number', 'float'],
+        required: false,
+        isCurrency: false,
+    },
+    [MarketingAnalyticsColumnsSchemaNames.Currency]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.Impressions]: {
+        type: ['integer', 'number', 'float'],
+        required: false,
+        isCurrency: false,
+    },
     [MarketingAnalyticsColumnsSchemaNames.ReportedConversion]: {
         type: ['integer', 'number', 'float'],
         required: false,
+        isCurrency: false,
     },
 }
 

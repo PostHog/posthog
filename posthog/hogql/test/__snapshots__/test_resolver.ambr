@@ -11,19 +11,15 @@
           ]
           type: {
             name: "uuid"
-            nullable: True
             table_type: {
               aliases: {}
               anonymous_tables: []
               columns: {
                 $group_0: {
                   alias: "$group_0"
-                  nullable: False
                   type: {
                     name: "$group_0"
-                    nullable: False
                     table_type: {
-                      nullable: True
                       table: {
                         fields: {
                           $group_0: {
@@ -42,6 +38,9 @@
                             hidden: False
                           },
                           $session_id: {
+                            hidden: False
+                          },
+                          $session_id_uuid: {
                             hidden: False
                           },
                           $window_id: {
@@ -151,133 +150,104 @@
                 },
                 $group_1: {
                   alias: "$group_1"
-                  nullable: False
                   type: {
                     name: "$group_1"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 $group_2: {
                   alias: "$group_2"
-                  nullable: False
                   type: {
                     name: "$group_2"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 $group_3: {
                   alias: "$group_3"
-                  nullable: False
                   type: {
                     name: "$group_3"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 $group_4: {
                   alias: "$group_4"
-                  nullable: False
                   type: {
                     name: "$group_4"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 $session_id: {
                   alias: "$session_id"
-                  nullable: False
                   type: {
                     name: "$session_id"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 $window_id: {
                   alias: "$window_id"
-                  nullable: False
                   type: {
                     name: "$window_id"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 created_at: {
                   alias: "created_at"
-                  nullable: False
                   type: {
                     name: "created_at"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 distinct_id: {
                   alias: "distinct_id"
-                  nullable: False
                   type: {
                     name: "distinct_id"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 elements_chain: {
                   alias: "elements_chain"
-                  nullable: False
                   type: {
                     name: "elements_chain"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 elements_chain_elements: {
                   alias: "elements_chain_elements"
-                  nullable: False
                   type: {
                     name: "elements_chain_elements"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 elements_chain_href: {
                   alias: "elements_chain_href"
-                  nullable: False
                   type: {
                     name: "elements_chain_href"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 elements_chain_ids: {
                   alias: "elements_chain_ids"
-                  nullable: False
                   type: {
                     name: "elements_chain_ids"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 elements_chain_texts: {
                   alias: "elements_chain_texts"
-                  nullable: False
                   type: {
                     name: "elements_chain_texts"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 event: {
                   alias: "event"
-                  nullable: False
                   type: {
                     name: "event"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 event_issue_id: {
                   alias: "event_issue_id"
-                  nullable: True
                   type: {
                     arg_types: [
                       {
@@ -286,7 +256,6 @@
                       }
                     ]
                     name: "toUUID"
-                    nullable: True
                     return_type: {
                       data_type: "unknown"
                       nullable: True
@@ -295,21 +264,18 @@
                 },
                 event_person_id: {
                   alias: "event_person_id"
-                  nullable: True
                   type: {
                     name: "event_person_id"
-                    nullable: True
                     table_type: <recursion ...>
                   }
                 },
                 issue_id: {
                   alias: "issue_id"
-                  nullable: True
                   type: {
                     arg_types: [
                       {
                         data_type: "unknown"
-                        nullable: False
+                        nullable: True
                       },
                       {
                         data_type: "str"
@@ -321,7 +287,6 @@
                       }
                     ]
                     name: "if"
-                    nullable: True
                     return_type: {
                       data_type: "unknown"
                       nullable: True
@@ -330,12 +295,11 @@
                 },
                 person_id: {
                   alias: "person_id"
-                  nullable: False
                   type: {
                     arg_types: [
                       {
                         data_type: "unknown"
-                        nullable: False
+                        nullable: True
                       },
                       {
                         data_type: "str"
@@ -347,44 +311,36 @@
                       }
                     ]
                     name: "if"
-                    nullable: False
                     return_type: {
                       data_type: "unknown"
-                      nullable: False
+                      nullable: True
                     }
                   }
                 },
                 properties: {
                   alias: "properties"
-                  nullable: False
                   type: {
                     name: "properties"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 timestamp: {
                   alias: "timestamp"
-                  nullable: False
                   type: {
                     name: "timestamp"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 uuid: {
                   alias: "uuid"
-                  nullable: False
                   type: {
                     name: "uuid"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 }
               }
               ctes: {}
               is_lambda_type: False
-              nullable: True
               tables: {
                 events: <recursion ...>
               }
@@ -394,7 +350,6 @@
         hidden: True
         type: {
           alias: "uuid"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -406,14 +361,12 @@
           ]
           type: {
             name: "event"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -425,14 +378,12 @@
           ]
           type: {
             name: "properties"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "properties"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -444,14 +395,12 @@
           ]
           type: {
             name: "timestamp"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "timestamp"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -463,14 +412,12 @@
           ]
           type: {
             name: "distinct_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "distinct_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -482,14 +429,12 @@
           ]
           type: {
             name: "elements_chain"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -501,14 +446,12 @@
           ]
           type: {
             name: "created_at"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "created_at"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -520,14 +463,12 @@
           ]
           type: {
             name: "$session_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$session_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -539,14 +480,12 @@
           ]
           type: {
             name: "$window_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$window_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -558,14 +497,12 @@
           ]
           type: {
             name: "person_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "person_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -577,14 +514,12 @@
           ]
           type: {
             name: "$group_0"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_0"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -596,14 +531,12 @@
           ]
           type: {
             name: "$group_1"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_1"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -615,14 +548,12 @@
           ]
           type: {
             name: "$group_2"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_2"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -634,14 +565,12 @@
           ]
           type: {
             name: "$group_3"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_3"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -653,14 +582,12 @@
           ]
           type: {
             name: "$group_4"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_4"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -672,14 +599,12 @@
           ]
           type: {
             name: "elements_chain_href"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_href"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -691,14 +616,12 @@
           ]
           type: {
             name: "elements_chain_texts"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_texts"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -710,14 +633,12 @@
           ]
           type: {
             name: "elements_chain_ids"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_ids"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -729,14 +650,12 @@
           ]
           type: {
             name: "elements_chain_elements"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_elements"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -748,14 +667,12 @@
           ]
           type: {
             name: "event_person_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event_person_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -767,14 +684,12 @@
           ]
           type: {
             name: "event_issue_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event_issue_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -786,14 +701,12 @@
           ]
           type: {
             name: "issue_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "issue_id"
-          nullable: True
           type: <recursion ...>
         }
       }
@@ -917,7 +830,6 @@
                             ]
                             type: {
                               name: "distinct_id"
-                              nullable: False
                               table_type: {
                                 field: "override"
                                 lazy_join: {
@@ -945,7 +857,6 @@
                                   },
                                   to_field: None
                                 }
-                                nullable: True
                                 table_type: <recursion ...>
                               }
                             }
@@ -953,7 +864,6 @@
                           hidden: True
                           type: {
                             alias: "distinct_id"
-                            nullable: False
                             type: <recursion ...>
                           }
                         }
@@ -968,9 +878,8 @@
                           }
                         ]
                         name: "empty"
-                        nullable: False
                         return_type: {
-                          data_type: "unknown"
+                          data_type: "int"
                           nullable: False
                         }
                       }
@@ -983,7 +892,6 @@
                       <recursion ...>
                     ]
                     name: "not"
-                    nullable: False
                     return_type: <recursion ...>
                   }
                 },
@@ -996,7 +904,6 @@
                     ]
                     type: {
                       name: "person_id"
-                      nullable: False
                       table_type: {
                         field: "override"
                         lazy_join: {
@@ -1024,7 +931,6 @@
                           },
                           to_field: None
                         }
-                        nullable: True
                         table_type: <recursion ...>
                       }
                     }
@@ -1032,7 +938,6 @@
                   hidden: True
                   type: {
                     alias: "person_id"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -1044,14 +949,12 @@
                     ]
                     type: {
                       name: "event_person_id"
-                      nullable: True
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "event_person_id"
-                    nullable: True
                     type: <recursion ...>
                   }
                 }
@@ -1192,16 +1095,13 @@
                       ]
                       field_type: {
                         name: "properties"
-                        nullable: False
                         table_type: <recursion ...>
                       }
-                      nullable: True
                     }
                   }
                   hidden: True
                   type: {
                     alias: "$exception_issue_id"
-                    nullable: True
                     type: <recursion ...>
                   }
                 }
@@ -1232,7 +1132,6 @@
                             ]
                             type: {
                               name: "issue_id"
-                              nullable: False
                               table_type: {
                                 field: "exception_issue_override"
                                 lazy_join: {
@@ -1257,7 +1156,6 @@
                                   },
                                   to_field: None
                                 }
-                                nullable: True
                                 table_type: <recursion ...>
                               }
                             }
@@ -1265,7 +1163,6 @@
                           hidden: True
                           type: {
                             alias: "issue_id"
-                            nullable: False
                             type: <recursion ...>
                           }
                         }
@@ -1280,9 +1177,8 @@
                           }
                         ]
                         name: "empty"
-                        nullable: False
                         return_type: {
-                          data_type: "unknown"
+                          data_type: "int"
                           nullable: False
                         }
                       }
@@ -1295,7 +1191,6 @@
                       <recursion ...>
                     ]
                     name: "not"
-                    nullable: False
                     return_type: <recursion ...>
                   }
                 },
@@ -1308,7 +1203,6 @@
                     ]
                     type: {
                       name: "issue_id"
-                      nullable: False
                       table_type: {
                         field: "exception_issue_override"
                         lazy_join: {
@@ -1333,7 +1227,6 @@
                           },
                           to_field: None
                         }
-                        nullable: True
                         table_type: <recursion ...>
                       }
                     }
@@ -1341,7 +1234,6 @@
                   hidden: True
                   type: {
                     alias: "issue_id"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -1364,16 +1256,13 @@
                             ]
                             field_type: {
                               name: "properties"
-                              nullable: False
                               table_type: <recursion ...>
                             }
-                            nullable: True
                           }
                         }
                         hidden: True
                         type: {
                           alias: "$exception_issue_id"
-                          nullable: True
                           type: <recursion ...>
                         }
                       }
@@ -1390,14 +1279,12 @@
                         }
                       ]
                       name: "toUUID"
-                      nullable: True
                       return_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "event_issue_id"
-                    nullable: True
                     type: <recursion ...>
                   }
                 }
@@ -1454,7 +1341,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {}
     }
   }
@@ -1472,9 +1358,7 @@
           ]
           type: {
             name: "uuid"
-            nullable: False
             table_type: {
-              nullable: True
               table: {
                 fields: {
                   $group_0: {
@@ -1493,6 +1377,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -1606,7 +1493,6 @@
         hidden: True
         type: {
           alias: "uuid"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1618,14 +1504,12 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1637,14 +1521,12 @@
           ]
           type: {
             name: "properties"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "properties"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1656,14 +1538,12 @@
           ]
           type: {
             name: "timestamp"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "timestamp"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1675,14 +1555,12 @@
           ]
           type: {
             name: "distinct_id"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "distinct_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1694,14 +1572,12 @@
           ]
           type: {
             name: "elements_chain"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1713,14 +1589,12 @@
           ]
           type: {
             name: "created_at"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "created_at"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1732,14 +1606,12 @@
           ]
           type: {
             name: "$session_id"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$session_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1751,14 +1623,12 @@
           ]
           type: {
             name: "$window_id"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$window_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1779,7 +1649,6 @@
                         ]
                         type: {
                           name: "distinct_id"
-                          nullable: False
                           table_type: {
                             field: "override"
                             lazy_join: {
@@ -1807,7 +1676,6 @@
                               },
                               to_field: None
                             }
-                            nullable: True
                             table_type: <recursion ...>
                           }
                         }
@@ -1815,7 +1683,6 @@
                       hidden: True
                       type: {
                         alias: "distinct_id"
-                        nullable: False
                         type: <recursion ...>
                       }
                     }
@@ -1830,9 +1697,8 @@
                       }
                     ]
                     name: "empty"
-                    nullable: False
                     return_type: {
-                      data_type: "unknown"
+                      data_type: "int"
                       nullable: False
                     }
                   }
@@ -1845,10 +1711,9 @@
                   <recursion ...>
                 ]
                 name: "not"
-                nullable: False
                 return_type: {
                   data_type: "unknown"
-                  nullable: False
+                  nullable: True
                 }
               }
             },
@@ -1861,7 +1726,6 @@
                 ]
                 type: {
                   name: "person_id"
-                  nullable: False
                   table_type: {
                     field: "override"
                     lazy_join: {
@@ -1889,7 +1753,6 @@
                       },
                       to_field: None
                     }
-                    nullable: True
                     table_type: <recursion ...>
                   }
                 }
@@ -1897,7 +1760,6 @@
               hidden: True
               type: {
                 alias: "person_id"
-                nullable: False
                 type: <recursion ...>
               }
             },
@@ -1909,14 +1771,12 @@
                 ]
                 type: {
                   name: "event_person_id"
-                  nullable: True
                   table_type: <recursion ...>
                 }
               }
               hidden: True
               type: {
                 alias: "event_person_id"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -1936,17 +1796,15 @@
               }
             ]
             name: "if"
-            nullable: False
             return_type: {
               data_type: "unknown"
-              nullable: False
+              nullable: True
             }
           }
         }
         hidden: True
         type: {
           alias: "person_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1958,14 +1816,12 @@
           ]
           type: {
             name: "$group_0"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_0"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1977,14 +1833,12 @@
           ]
           type: {
             name: "$group_1"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_1"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -1996,14 +1850,12 @@
           ]
           type: {
             name: "$group_2"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_2"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2015,14 +1867,12 @@
           ]
           type: {
             name: "$group_3"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_3"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2034,14 +1884,12 @@
           ]
           type: {
             name: "$group_4"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_4"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2053,14 +1901,12 @@
           ]
           type: {
             name: "elements_chain_href"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_href"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2072,14 +1918,12 @@
           ]
           type: {
             name: "elements_chain_texts"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_texts"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2091,14 +1935,12 @@
           ]
           type: {
             name: "elements_chain_ids"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_ids"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2110,14 +1952,12 @@
           ]
           type: {
             name: "elements_chain_elements"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_elements"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2129,14 +1969,12 @@
           ]
           type: {
             name: "event_person_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event_person_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -2159,16 +1997,13 @@
                   ]
                   field_type: {
                     name: "properties"
-                    nullable: False
                     table_type: <recursion ...>
                   }
-                  nullable: True
                 }
               }
               hidden: True
               type: {
                 alias: "$exception_issue_id"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -2185,7 +2020,6 @@
               }
             ]
             name: "toUUID"
-            nullable: True
             return_type: {
               data_type: "unknown"
               nullable: True
@@ -2195,7 +2029,6 @@
         hidden: True
         type: {
           alias: "event_issue_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -2216,7 +2049,6 @@
                         ]
                         type: {
                           name: "issue_id"
-                          nullable: False
                           table_type: {
                             field: "exception_issue_override"
                             lazy_join: {
@@ -2241,7 +2073,6 @@
                               },
                               to_field: None
                             }
-                            nullable: True
                             table_type: <recursion ...>
                           }
                         }
@@ -2249,7 +2080,6 @@
                       hidden: True
                       type: {
                         alias: "issue_id"
-                        nullable: False
                         type: <recursion ...>
                       }
                     }
@@ -2264,9 +2094,8 @@
                       }
                     ]
                     name: "empty"
-                    nullable: False
                     return_type: {
-                      data_type: "unknown"
+                      data_type: "int"
                       nullable: False
                     }
                   }
@@ -2279,10 +2108,9 @@
                   <recursion ...>
                 ]
                 name: "not"
-                nullable: False
                 return_type: {
                   data_type: "unknown"
-                  nullable: False
+                  nullable: True
                 }
               }
             },
@@ -2295,7 +2123,6 @@
                 ]
                 type: {
                   name: "issue_id"
-                  nullable: False
                   table_type: {
                     field: "exception_issue_override"
                     lazy_join: {
@@ -2320,7 +2147,6 @@
                       },
                       to_field: None
                     }
-                    nullable: True
                     table_type: <recursion ...>
                   }
                 }
@@ -2328,7 +2154,6 @@
               hidden: True
               type: {
                 alias: "issue_id"
-                nullable: False
                 type: <recursion ...>
               }
             },
@@ -2351,16 +2176,13 @@
                         ]
                         field_type: {
                           name: "properties"
-                          nullable: False
                           table_type: <recursion ...>
                         }
-                        nullable: True
                       }
                     }
                     hidden: True
                     type: {
                       alias: "$exception_issue_id"
-                      nullable: True
                       type: <recursion ...>
                     }
                   }
@@ -2377,7 +2199,6 @@
                     }
                   ]
                   name: "toUUID"
-                  nullable: True
                   return_type: {
                     data_type: "unknown"
                     nullable: True
@@ -2387,7 +2208,6 @@
               hidden: True
               type: {
                 alias: "event_issue_id"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -2404,7 +2224,6 @@
               <recursion ...>
             ]
             name: "if"
-            nullable: True
             return_type: {
               data_type: "unknown"
               nullable: True
@@ -2414,7 +2233,6 @@
         hidden: True
         type: {
           alias: "issue_id"
-          nullable: True
           type: <recursion ...>
         }
       }
@@ -2457,7 +2275,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         events: <recursion ...>
       }
@@ -2478,12 +2295,9 @@
           ]
           type: {
             name: "session_id"
-            nullable: False
             table_type: {
               alias: "e"
-              nullable: True
               table_type: {
-                nullable: True
                 table: {
                   fields: {
                     active_milliseconds: {
@@ -2574,7 +2388,6 @@
         hidden: True
         type: {
           alias: "session_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2587,14 +2400,12 @@
           ]
           type: {
             name: "distinct_id"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "distinct_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2607,14 +2418,12 @@
           ]
           type: {
             name: "first_url"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "first_url"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -2627,14 +2436,12 @@
           ]
           type: {
             name: "all_urls"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "all_urls"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -2647,14 +2454,12 @@
           ]
           type: {
             name: "click_count"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "click_count"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2667,14 +2472,12 @@
           ]
           type: {
             name: "keypress_count"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "keypress_count"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2687,14 +2490,12 @@
           ]
           type: {
             name: "mouse_activity_count"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "mouse_activity_count"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2707,14 +2508,12 @@
           ]
           type: {
             name: "active_milliseconds"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "active_milliseconds"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2727,14 +2526,12 @@
           ]
           type: {
             name: "console_log_count"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "console_log_count"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2747,14 +2544,12 @@
           ]
           type: {
             name: "console_warn_count"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "console_warn_count"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2767,14 +2562,12 @@
           ]
           type: {
             name: "console_error_count"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "console_error_count"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2787,14 +2580,12 @@
           ]
           type: {
             name: "size"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "size"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2807,14 +2598,12 @@
           ]
           type: {
             name: "event_count"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event_count"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2827,14 +2616,12 @@
           ]
           type: {
             name: "message_count"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "message_count"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2847,14 +2634,12 @@
           ]
           type: {
             name: "snapshot_source"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "snapshot_source"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -2867,14 +2652,12 @@
           ]
           type: {
             name: "retention_period_days"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "retention_period_days"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -2887,14 +2670,12 @@
           ]
           type: {
             name: "start_time"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "start_time"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -2907,14 +2688,12 @@
           ]
           type: {
             name: "end_time"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "end_time"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -2935,12 +2714,9 @@
                 ]
                 type: {
                   name: "session_id"
-                  nullable: True
                   table_type: {
                     alias: "s"
-                    nullable: True
                     table_type: {
-                      nullable: True
                       table: {
                         fields: {
                           $autocapture_count: {
@@ -3100,7 +2876,6 @@
               hidden: True
               type: {
                 alias: "session_id"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -3114,14 +2889,12 @@
                 ]
                 type: {
                   name: "session_id"
-                  nullable: False
                   table_type: <recursion ...>
                 }
               }
               hidden: True
               type: {
                 alias: "session_id"
-                nullable: False
                 type: <recursion ...>
               }
             }
@@ -3173,7 +2946,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         e: <recursion ...>,
         s: <recursion ...>
@@ -3195,15 +2967,12 @@
           ]
           type: {
             name: "a"
-            nullable: True
             table_type: {
               alias: "x"
-              nullable: True
               select_query_type: {
                 aliases: {
                   a: {
                     alias: "a"
-                    nullable: False
                     type: {
                       data_type: "int"
                       nullable: False
@@ -3211,7 +2980,6 @@
                   },
                   b: {
                     alias: "b"
-                    nullable: False
                     type: {
                       data_type: "int"
                       nullable: False
@@ -3225,7 +2993,6 @@
                 }
                 ctes: {}
                 is_lambda_type: False
-                nullable: True
                 tables: {}
               }
             }
@@ -3234,7 +3001,6 @@
         hidden: True
         type: {
           alias: "a"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -3247,14 +3013,12 @@
           ]
           type: {
             name: "b"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "b"
-          nullable: True
           type: <recursion ...>
         }
       }
@@ -3275,14 +3039,12 @@
                 ]
                 type: {
                   name: "a"
-                  nullable: True
                   table_type: <recursion ...>
                 }
               }
               hidden: True
               type: {
                 alias: "a"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -3296,15 +3058,12 @@
                 ]
                 type: {
                   name: "a"
-                  nullable: True
                   table_type: {
                     alias: "y"
-                    nullable: True
                     select_query_type: {
                       aliases: {
                         a: {
                           alias: "a"
-                          nullable: False
                           type: {
                             data_type: "int"
                             nullable: False
@@ -3312,7 +3071,6 @@
                         },
                         b: {
                           alias: "b"
-                          nullable: False
                           type: {
                             data_type: "int"
                             nullable: False
@@ -3326,7 +3084,6 @@
                       }
                       ctes: {}
                       is_lambda_type: False
-                      nullable: True
                       tables: {}
                     }
                   }
@@ -3335,7 +3092,6 @@
               hidden: True
               type: {
                 alias: "a"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -3405,7 +3161,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         x: <recursion ...>,
         y: <recursion ...>
@@ -3426,19 +3181,15 @@
           ]
           type: {
             name: "uuid"
-            nullable: True
             table_type: {
               aliases: {}
               anonymous_tables: []
               columns: {
                 $group_0: {
                   alias: "$group_0"
-                  nullable: False
                   type: {
                     name: "$group_0"
-                    nullable: False
                     table_type: {
-                      nullable: True
                       table: {
                         fields: {
                           $group_0: {
@@ -3457,6 +3208,9 @@
                             hidden: False
                           },
                           $session_id: {
+                            hidden: False
+                          },
+                          $session_id_uuid: {
                             hidden: False
                           },
                           $window_id: {
@@ -3566,133 +3320,104 @@
                 },
                 $group_1: {
                   alias: "$group_1"
-                  nullable: False
                   type: {
                     name: "$group_1"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 $group_2: {
                   alias: "$group_2"
-                  nullable: False
                   type: {
                     name: "$group_2"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 $group_3: {
                   alias: "$group_3"
-                  nullable: False
                   type: {
                     name: "$group_3"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 $group_4: {
                   alias: "$group_4"
-                  nullable: False
                   type: {
                     name: "$group_4"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 $session_id: {
                   alias: "$session_id"
-                  nullable: False
                   type: {
                     name: "$session_id"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 $window_id: {
                   alias: "$window_id"
-                  nullable: False
                   type: {
                     name: "$window_id"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 created_at: {
                   alias: "created_at"
-                  nullable: False
                   type: {
                     name: "created_at"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 distinct_id: {
                   alias: "distinct_id"
-                  nullable: False
                   type: {
                     name: "distinct_id"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 elements_chain: {
                   alias: "elements_chain"
-                  nullable: False
                   type: {
                     name: "elements_chain"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 elements_chain_elements: {
                   alias: "elements_chain_elements"
-                  nullable: False
                   type: {
                     name: "elements_chain_elements"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 elements_chain_href: {
                   alias: "elements_chain_href"
-                  nullable: False
                   type: {
                     name: "elements_chain_href"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 elements_chain_ids: {
                   alias: "elements_chain_ids"
-                  nullable: False
                   type: {
                     name: "elements_chain_ids"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 elements_chain_texts: {
                   alias: "elements_chain_texts"
-                  nullable: False
                   type: {
                     name: "elements_chain_texts"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 event: {
                   alias: "event"
-                  nullable: False
                   type: {
                     name: "event"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 event_issue_id: {
                   alias: "event_issue_id"
-                  nullable: True
                   type: {
                     arg_types: [
                       {
@@ -3701,7 +3426,6 @@
                       }
                     ]
                     name: "toUUID"
-                    nullable: True
                     return_type: {
                       data_type: "unknown"
                       nullable: True
@@ -3710,21 +3434,18 @@
                 },
                 event_person_id: {
                   alias: "event_person_id"
-                  nullable: True
                   type: {
                     name: "event_person_id"
-                    nullable: True
                     table_type: <recursion ...>
                   }
                 },
                 issue_id: {
                   alias: "issue_id"
-                  nullable: True
                   type: {
                     arg_types: [
                       {
                         data_type: "unknown"
-                        nullable: False
+                        nullable: True
                       },
                       {
                         data_type: "str"
@@ -3736,7 +3457,6 @@
                       }
                     ]
                     name: "if"
-                    nullable: True
                     return_type: {
                       data_type: "unknown"
                       nullable: True
@@ -3745,12 +3465,11 @@
                 },
                 person_id: {
                   alias: "person_id"
-                  nullable: False
                   type: {
                     arg_types: [
                       {
                         data_type: "unknown"
-                        nullable: False
+                        nullable: True
                       },
                       {
                         data_type: "str"
@@ -3762,44 +3481,36 @@
                       }
                     ]
                     name: "if"
-                    nullable: False
                     return_type: {
                       data_type: "unknown"
-                      nullable: False
+                      nullable: True
                     }
                   }
                 },
                 properties: {
                   alias: "properties"
-                  nullable: False
                   type: {
                     name: "properties"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 timestamp: {
                   alias: "timestamp"
-                  nullable: False
                   type: {
                     name: "timestamp"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
                 uuid: {
                   alias: "uuid"
-                  nullable: False
                   type: {
                     name: "uuid"
-                    nullable: False
                     table_type: <recursion ...>
                   }
                 }
               }
               ctes: {}
               is_lambda_type: False
-              nullable: True
               tables: {
                 events: <recursion ...>
               }
@@ -3809,7 +3520,6 @@
         hidden: True
         type: {
           alias: "uuid"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -3821,14 +3531,12 @@
           ]
           type: {
             name: "event"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -3840,14 +3548,12 @@
           ]
           type: {
             name: "properties"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "properties"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -3859,14 +3565,12 @@
           ]
           type: {
             name: "timestamp"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "timestamp"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -3878,14 +3582,12 @@
           ]
           type: {
             name: "distinct_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "distinct_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -3897,14 +3599,12 @@
           ]
           type: {
             name: "elements_chain"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -3916,14 +3616,12 @@
           ]
           type: {
             name: "created_at"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "created_at"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -3935,14 +3633,12 @@
           ]
           type: {
             name: "$session_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$session_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -3954,14 +3650,12 @@
           ]
           type: {
             name: "$window_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$window_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -3973,14 +3667,12 @@
           ]
           type: {
             name: "person_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "person_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -3992,14 +3684,12 @@
           ]
           type: {
             name: "$group_0"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_0"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -4011,14 +3701,12 @@
           ]
           type: {
             name: "$group_1"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_1"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -4030,14 +3718,12 @@
           ]
           type: {
             name: "$group_2"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_2"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -4049,14 +3735,12 @@
           ]
           type: {
             name: "$group_3"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_3"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -4068,14 +3752,12 @@
           ]
           type: {
             name: "$group_4"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_4"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -4087,14 +3769,12 @@
           ]
           type: {
             name: "elements_chain_href"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_href"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -4106,14 +3786,12 @@
           ]
           type: {
             name: "elements_chain_texts"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_texts"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -4125,14 +3803,12 @@
           ]
           type: {
             name: "elements_chain_ids"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_ids"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -4144,14 +3820,12 @@
           ]
           type: {
             name: "elements_chain_elements"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_elements"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -4163,14 +3837,12 @@
           ]
           type: {
             name: "event_person_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event_person_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -4182,14 +3854,12 @@
           ]
           type: {
             name: "event_issue_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event_issue_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -4201,14 +3871,12 @@
           ]
           type: {
             name: "issue_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "issue_id"
-          nullable: True
           type: <recursion ...>
         }
       }
@@ -4333,7 +4001,6 @@
                               ]
                               type: {
                                 name: "distinct_id"
-                                nullable: False
                                 table_type: {
                                   field: "override"
                                   lazy_join: {
@@ -4361,7 +4028,6 @@
                                     },
                                     to_field: None
                                   }
-                                  nullable: True
                                   table_type: <recursion ...>
                                 }
                               }
@@ -4369,7 +4035,6 @@
                             hidden: True
                             type: {
                               alias: "distinct_id"
-                              nullable: False
                               type: <recursion ...>
                             }
                           }
@@ -4384,9 +4049,8 @@
                             }
                           ]
                           name: "empty"
-                          nullable: False
                           return_type: {
-                            data_type: "unknown"
+                            data_type: "int"
                             nullable: False
                           }
                         }
@@ -4399,7 +4063,6 @@
                         <recursion ...>
                       ]
                       name: "not"
-                      nullable: False
                       return_type: <recursion ...>
                     }
                   },
@@ -4412,7 +4075,6 @@
                       ]
                       type: {
                         name: "person_id"
-                        nullable: False
                         table_type: {
                           field: "override"
                           lazy_join: {
@@ -4440,7 +4102,6 @@
                             },
                             to_field: None
                           }
-                          nullable: True
                           table_type: <recursion ...>
                         }
                       }
@@ -4448,7 +4109,6 @@
                     hidden: True
                     type: {
                       alias: "person_id"
-                      nullable: False
                       type: <recursion ...>
                     }
                   },
@@ -4460,14 +4120,12 @@
                       ]
                       type: {
                         name: "event_person_id"
-                        nullable: True
                         table_type: <recursion ...>
                       }
                     }
                     hidden: True
                     type: {
                       alias: "event_person_id"
-                      nullable: True
                       type: <recursion ...>
                     }
                   }
@@ -4608,16 +4266,13 @@
                         ]
                         field_type: {
                           name: "properties"
-                          nullable: False
                           table_type: <recursion ...>
                         }
-                        nullable: True
                       }
                     }
                     hidden: True
                     type: {
                       alias: "$exception_issue_id"
-                      nullable: True
                       type: <recursion ...>
                     }
                   }
@@ -4648,7 +4303,6 @@
                               ]
                               type: {
                                 name: "issue_id"
-                                nullable: False
                                 table_type: {
                                   field: "exception_issue_override"
                                   lazy_join: {
@@ -4673,7 +4327,6 @@
                                     },
                                     to_field: None
                                   }
-                                  nullable: True
                                   table_type: <recursion ...>
                                 }
                               }
@@ -4681,7 +4334,6 @@
                             hidden: True
                             type: {
                               alias: "issue_id"
-                              nullable: False
                               type: <recursion ...>
                             }
                           }
@@ -4696,9 +4348,8 @@
                             }
                           ]
                           name: "empty"
-                          nullable: False
                           return_type: {
-                            data_type: "unknown"
+                            data_type: "int"
                             nullable: False
                           }
                         }
@@ -4711,7 +4362,6 @@
                         <recursion ...>
                       ]
                       name: "not"
-                      nullable: False
                       return_type: <recursion ...>
                     }
                   },
@@ -4724,7 +4374,6 @@
                       ]
                       type: {
                         name: "issue_id"
-                        nullable: False
                         table_type: {
                           field: "exception_issue_override"
                           lazy_join: {
@@ -4749,7 +4398,6 @@
                             },
                             to_field: None
                           }
-                          nullable: True
                           table_type: <recursion ...>
                         }
                       }
@@ -4757,7 +4405,6 @@
                     hidden: True
                     type: {
                       alias: "issue_id"
-                      nullable: False
                       type: <recursion ...>
                     }
                   },
@@ -4780,16 +4427,13 @@
                               ]
                               field_type: {
                                 name: "properties"
-                                nullable: False
                                 table_type: <recursion ...>
                               }
-                              nullable: True
                             }
                           }
                           hidden: True
                           type: {
                             alias: "$exception_issue_id"
-                            nullable: True
                             type: <recursion ...>
                           }
                         }
@@ -4806,14 +4450,12 @@
                           }
                         ]
                         name: "toUUID"
-                        nullable: True
                         return_type: <recursion ...>
                       }
                     }
                     hidden: True
                     type: {
                       alias: "event_issue_id"
-                      nullable: True
                       type: <recursion ...>
                     }
                   }
@@ -4849,9 +4491,7 @@
                     ]
                     type: {
                       name: "uuid"
-                      nullable: False
                       table_type: {
-                        nullable: True
                         table: {
                           fields: {
                             $group_0: {
@@ -4870,6 +4510,9 @@
                               hidden: False
                             },
                             $session_id: {
+                              hidden: False
+                            },
+                            $session_id_uuid: {
                               hidden: False
                             },
                             $window_id: {
@@ -4980,7 +4623,6 @@
                   hidden: True
                   type: {
                     alias: "uuid"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -4992,14 +4634,12 @@
                     ]
                     type: {
                       name: "event"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "event"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5011,14 +4651,12 @@
                     ]
                     type: {
                       name: "properties"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "properties"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5030,14 +4668,12 @@
                     ]
                     type: {
                       name: "timestamp"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "timestamp"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5049,14 +4685,12 @@
                     ]
                     type: {
                       name: "distinct_id"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "distinct_id"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5068,14 +4702,12 @@
                     ]
                     type: {
                       name: "elements_chain"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "elements_chain"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5087,14 +4719,12 @@
                     ]
                     type: {
                       name: "created_at"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "created_at"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5106,14 +4736,12 @@
                     ]
                     type: {
                       name: "$session_id"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "$session_id"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5125,14 +4753,12 @@
                     ]
                     type: {
                       name: "$window_id"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "$window_id"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5153,7 +4779,6 @@
                                   ]
                                   type: {
                                     name: "distinct_id"
-                                    nullable: False
                                     table_type: {
                                       field: "override"
                                       lazy_join: {
@@ -5181,7 +4806,6 @@
                                         },
                                         to_field: None
                                       }
-                                      nullable: True
                                       table_type: <recursion ...>
                                     }
                                   }
@@ -5189,7 +4813,6 @@
                                 hidden: True
                                 type: {
                                   alias: "distinct_id"
-                                  nullable: False
                                   type: <recursion ...>
                                 }
                               }
@@ -5204,9 +4827,8 @@
                                 }
                               ]
                               name: "empty"
-                              nullable: False
                               return_type: {
-                                data_type: "unknown"
+                                data_type: "int"
                                 nullable: False
                               }
                             }
@@ -5219,10 +4841,9 @@
                             <recursion ...>
                           ]
                           name: "not"
-                          nullable: False
                           return_type: {
                             data_type: "unknown"
-                            nullable: False
+                            nullable: True
                           }
                         }
                       },
@@ -5235,7 +4856,6 @@
                           ]
                           type: {
                             name: "person_id"
-                            nullable: False
                             table_type: {
                               field: "override"
                               lazy_join: {
@@ -5263,7 +4883,6 @@
                                 },
                                 to_field: None
                               }
-                              nullable: True
                               table_type: <recursion ...>
                             }
                           }
@@ -5271,7 +4890,6 @@
                         hidden: True
                         type: {
                           alias: "person_id"
-                          nullable: False
                           type: <recursion ...>
                         }
                       },
@@ -5283,14 +4901,12 @@
                           ]
                           type: {
                             name: "event_person_id"
-                            nullable: True
                             table_type: <recursion ...>
                           }
                         }
                         hidden: True
                         type: {
                           alias: "event_person_id"
-                          nullable: True
                           type: <recursion ...>
                         }
                       }
@@ -5310,17 +4926,15 @@
                         }
                       ]
                       name: "if"
-                      nullable: False
                       return_type: {
                         data_type: "unknown"
-                        nullable: False
+                        nullable: True
                       }
                     }
                   }
                   hidden: True
                   type: {
                     alias: "person_id"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5332,14 +4946,12 @@
                     ]
                     type: {
                       name: "$group_0"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "$group_0"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5351,14 +4963,12 @@
                     ]
                     type: {
                       name: "$group_1"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "$group_1"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5370,14 +4980,12 @@
                     ]
                     type: {
                       name: "$group_2"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "$group_2"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5389,14 +4997,12 @@
                     ]
                     type: {
                       name: "$group_3"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "$group_3"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5408,14 +5014,12 @@
                     ]
                     type: {
                       name: "$group_4"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "$group_4"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5427,14 +5031,12 @@
                     ]
                     type: {
                       name: "elements_chain_href"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "elements_chain_href"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5446,14 +5048,12 @@
                     ]
                     type: {
                       name: "elements_chain_texts"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "elements_chain_texts"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5465,14 +5065,12 @@
                     ]
                     type: {
                       name: "elements_chain_ids"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "elements_chain_ids"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5484,14 +5082,12 @@
                     ]
                     type: {
                       name: "elements_chain_elements"
-                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "elements_chain_elements"
-                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -5503,14 +5099,12 @@
                     ]
                     type: {
                       name: "event_person_id"
-                      nullable: True
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "event_person_id"
-                    nullable: True
                     type: <recursion ...>
                   }
                 },
@@ -5533,16 +5127,13 @@
                             ]
                             field_type: {
                               name: "properties"
-                              nullable: False
                               table_type: <recursion ...>
                             }
-                            nullable: True
                           }
                         }
                         hidden: True
                         type: {
                           alias: "$exception_issue_id"
-                          nullable: True
                           type: <recursion ...>
                         }
                       }
@@ -5559,7 +5150,6 @@
                         }
                       ]
                       name: "toUUID"
-                      nullable: True
                       return_type: {
                         data_type: "unknown"
                         nullable: True
@@ -5569,7 +5159,6 @@
                   hidden: True
                   type: {
                     alias: "event_issue_id"
-                    nullable: True
                     type: <recursion ...>
                   }
                 },
@@ -5590,7 +5179,6 @@
                                   ]
                                   type: {
                                     name: "issue_id"
-                                    nullable: False
                                     table_type: {
                                       field: "exception_issue_override"
                                       lazy_join: {
@@ -5615,7 +5203,6 @@
                                         },
                                         to_field: None
                                       }
-                                      nullable: True
                                       table_type: <recursion ...>
                                     }
                                   }
@@ -5623,7 +5210,6 @@
                                 hidden: True
                                 type: {
                                   alias: "issue_id"
-                                  nullable: False
                                   type: <recursion ...>
                                 }
                               }
@@ -5638,9 +5224,8 @@
                                 }
                               ]
                               name: "empty"
-                              nullable: False
                               return_type: {
-                                data_type: "unknown"
+                                data_type: "int"
                                 nullable: False
                               }
                             }
@@ -5653,10 +5238,9 @@
                             <recursion ...>
                           ]
                           name: "not"
-                          nullable: False
                           return_type: {
                             data_type: "unknown"
-                            nullable: False
+                            nullable: True
                           }
                         }
                       },
@@ -5669,7 +5253,6 @@
                           ]
                           type: {
                             name: "issue_id"
-                            nullable: False
                             table_type: {
                               field: "exception_issue_override"
                               lazy_join: {
@@ -5694,7 +5277,6 @@
                                 },
                                 to_field: None
                               }
-                              nullable: True
                               table_type: <recursion ...>
                             }
                           }
@@ -5702,7 +5284,6 @@
                         hidden: True
                         type: {
                           alias: "issue_id"
-                          nullable: False
                           type: <recursion ...>
                         }
                       },
@@ -5725,16 +5306,13 @@
                                   ]
                                   field_type: {
                                     name: "properties"
-                                    nullable: False
                                     table_type: <recursion ...>
                                   }
-                                  nullable: True
                                 }
                               }
                               hidden: True
                               type: {
                                 alias: "$exception_issue_id"
-                                nullable: True
                                 type: <recursion ...>
                               }
                             }
@@ -5751,7 +5329,6 @@
                               }
                             ]
                             name: "toUUID"
-                            nullable: True
                             return_type: {
                               data_type: "unknown"
                               nullable: True
@@ -5761,7 +5338,6 @@
                         hidden: True
                         type: {
                           alias: "event_issue_id"
-                          nullable: True
                           type: <recursion ...>
                         }
                       }
@@ -5778,7 +5354,6 @@
                         <recursion ...>
                       ]
                       name: "if"
-                      nullable: True
                       return_type: {
                         data_type: "unknown"
                         nullable: True
@@ -5788,7 +5363,6 @@
                   hidden: True
                   type: {
                     alias: "issue_id"
-                    nullable: True
                     type: <recursion ...>
                   }
                 }
@@ -5831,7 +5405,6 @@
                 }
                 ctes: {}
                 is_lambda_type: False
-                nullable: True
                 tables: {
                   events: <recursion ...>
                 }
@@ -5841,7 +5414,6 @@
           }
         ]
         type: {
-          nullable: True
           types: [
             <recursion ...>,
             <recursion ...>
@@ -5881,7 +5453,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {}
     }
   }
@@ -5899,12 +5470,10 @@
           ]
           type: {
             name: "a"
-            nullable: True
             table_type: {
               aliases: {
                 a: {
                   alias: "a"
-                  nullable: False
                   type: {
                     data_type: "int"
                     nullable: False
@@ -5912,7 +5481,6 @@
                 },
                 b: {
                   alias: "b"
-                  nullable: False
                   type: {
                     data_type: "int"
                     nullable: False
@@ -5926,7 +5494,6 @@
               }
               ctes: {}
               is_lambda_type: False
-              nullable: True
               tables: {}
             }
           }
@@ -5934,7 +5501,6 @@
         hidden: True
         type: {
           alias: "a"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -5946,14 +5512,12 @@
           ]
           type: {
             name: "b"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "b"
-          nullable: True
           type: <recursion ...>
         }
       }
@@ -5995,7 +5559,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {}
     }
   }
@@ -6014,15 +5577,12 @@
           ]
           type: {
             name: "a"
-            nullable: True
             table_type: {
               alias: "x"
-              nullable: True
               select_query_type: {
                 aliases: {
                   a: {
                     alias: "a"
-                    nullable: False
                     type: {
                       data_type: "int"
                       nullable: False
@@ -6030,7 +5590,6 @@
                   },
                   b: {
                     alias: "b"
-                    nullable: False
                     type: {
                       data_type: "int"
                       nullable: False
@@ -6044,7 +5603,6 @@
                 }
                 ctes: {}
                 is_lambda_type: False
-                nullable: True
                 tables: {}
               }
             }
@@ -6053,7 +5611,6 @@
         hidden: True
         type: {
           alias: "a"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -6066,14 +5623,12 @@
           ]
           type: {
             name: "b"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "b"
-          nullable: True
           type: <recursion ...>
         }
       }
@@ -6114,7 +5669,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         x: <recursion ...>
       }
@@ -6134,9 +5688,7 @@
           ]
           type: {
             name: "uuid"
-            nullable: False
             table_type: {
-              nullable: True
               table: {
                 fields: {
                   $group_0: {
@@ -6155,6 +5707,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -6265,7 +5820,6 @@
         hidden: True
         type: {
           alias: "uuid"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6277,14 +5831,12 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6296,14 +5848,12 @@
           ]
           type: {
             name: "properties"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "properties"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6315,14 +5865,12 @@
           ]
           type: {
             name: "timestamp"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "timestamp"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6334,14 +5882,12 @@
           ]
           type: {
             name: "distinct_id"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "distinct_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6353,14 +5899,12 @@
           ]
           type: {
             name: "elements_chain"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6372,14 +5916,12 @@
           ]
           type: {
             name: "created_at"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "created_at"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6391,14 +5933,12 @@
           ]
           type: {
             name: "$session_id"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$session_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6410,14 +5950,12 @@
           ]
           type: {
             name: "$window_id"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$window_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6438,7 +5976,6 @@
                         ]
                         type: {
                           name: "distinct_id"
-                          nullable: False
                           table_type: {
                             field: "override"
                             lazy_join: {
@@ -6466,7 +6003,6 @@
                               },
                               to_field: None
                             }
-                            nullable: True
                             table_type: <recursion ...>
                           }
                         }
@@ -6474,7 +6010,6 @@
                       hidden: True
                       type: {
                         alias: "distinct_id"
-                        nullable: False
                         type: <recursion ...>
                       }
                     }
@@ -6489,9 +6024,8 @@
                       }
                     ]
                     name: "empty"
-                    nullable: False
                     return_type: {
-                      data_type: "unknown"
+                      data_type: "int"
                       nullable: False
                     }
                   }
@@ -6504,10 +6038,9 @@
                   <recursion ...>
                 ]
                 name: "not"
-                nullable: False
                 return_type: {
                   data_type: "unknown"
-                  nullable: False
+                  nullable: True
                 }
               }
             },
@@ -6520,7 +6053,6 @@
                 ]
                 type: {
                   name: "person_id"
-                  nullable: False
                   table_type: {
                     field: "override"
                     lazy_join: {
@@ -6548,7 +6080,6 @@
                       },
                       to_field: None
                     }
-                    nullable: True
                     table_type: <recursion ...>
                   }
                 }
@@ -6556,7 +6087,6 @@
               hidden: True
               type: {
                 alias: "person_id"
-                nullable: False
                 type: <recursion ...>
               }
             },
@@ -6568,14 +6098,12 @@
                 ]
                 type: {
                   name: "event_person_id"
-                  nullable: True
                   table_type: <recursion ...>
                 }
               }
               hidden: True
               type: {
                 alias: "event_person_id"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -6595,17 +6123,15 @@
               }
             ]
             name: "if"
-            nullable: False
             return_type: {
               data_type: "unknown"
-              nullable: False
+              nullable: True
             }
           }
         }
         hidden: True
         type: {
           alias: "person_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6617,14 +6143,12 @@
           ]
           type: {
             name: "$group_0"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_0"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6636,14 +6160,12 @@
           ]
           type: {
             name: "$group_1"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_1"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6655,14 +6177,12 @@
           ]
           type: {
             name: "$group_2"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_2"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6674,14 +6194,12 @@
           ]
           type: {
             name: "$group_3"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_3"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6693,14 +6211,12 @@
           ]
           type: {
             name: "$group_4"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_4"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6712,14 +6228,12 @@
           ]
           type: {
             name: "elements_chain_href"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_href"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6731,14 +6245,12 @@
           ]
           type: {
             name: "elements_chain_texts"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_texts"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6750,14 +6262,12 @@
           ]
           type: {
             name: "elements_chain_ids"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_ids"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6769,14 +6279,12 @@
           ]
           type: {
             name: "elements_chain_elements"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_elements"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -6788,14 +6296,12 @@
           ]
           type: {
             name: "event_person_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event_person_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -6818,16 +6324,13 @@
                   ]
                   field_type: {
                     name: "properties"
-                    nullable: False
                     table_type: <recursion ...>
                   }
-                  nullable: True
                 }
               }
               hidden: True
               type: {
                 alias: "$exception_issue_id"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -6844,7 +6347,6 @@
               }
             ]
             name: "toUUID"
-            nullable: True
             return_type: {
               data_type: "unknown"
               nullable: True
@@ -6854,7 +6356,6 @@
         hidden: True
         type: {
           alias: "event_issue_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -6875,7 +6376,6 @@
                         ]
                         type: {
                           name: "issue_id"
-                          nullable: False
                           table_type: {
                             field: "exception_issue_override"
                             lazy_join: {
@@ -6900,7 +6400,6 @@
                               },
                               to_field: None
                             }
-                            nullable: True
                             table_type: <recursion ...>
                           }
                         }
@@ -6908,7 +6407,6 @@
                       hidden: True
                       type: {
                         alias: "issue_id"
-                        nullable: False
                         type: <recursion ...>
                       }
                     }
@@ -6923,9 +6421,8 @@
                       }
                     ]
                     name: "empty"
-                    nullable: False
                     return_type: {
-                      data_type: "unknown"
+                      data_type: "int"
                       nullable: False
                     }
                   }
@@ -6938,10 +6435,9 @@
                   <recursion ...>
                 ]
                 name: "not"
-                nullable: False
                 return_type: {
                   data_type: "unknown"
-                  nullable: False
+                  nullable: True
                 }
               }
             },
@@ -6954,7 +6450,6 @@
                 ]
                 type: {
                   name: "issue_id"
-                  nullable: False
                   table_type: {
                     field: "exception_issue_override"
                     lazy_join: {
@@ -6979,7 +6474,6 @@
                       },
                       to_field: None
                     }
-                    nullable: True
                     table_type: <recursion ...>
                   }
                 }
@@ -6987,7 +6481,6 @@
               hidden: True
               type: {
                 alias: "issue_id"
-                nullable: False
                 type: <recursion ...>
               }
             },
@@ -7010,16 +6503,13 @@
                         ]
                         field_type: {
                           name: "properties"
-                          nullable: False
                           table_type: <recursion ...>
                         }
-                        nullable: True
                       }
                     }
                     hidden: True
                     type: {
                       alias: "$exception_issue_id"
-                      nullable: True
                       type: <recursion ...>
                     }
                   }
@@ -7036,7 +6526,6 @@
                     }
                   ]
                   name: "toUUID"
-                  nullable: True
                   return_type: {
                     data_type: "unknown"
                     nullable: True
@@ -7046,7 +6535,6 @@
               hidden: True
               type: {
                 alias: "event_issue_id"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -7063,7 +6551,6 @@
               <recursion ...>
             ]
             name: "if"
-            nullable: True
             return_type: {
               data_type: "unknown"
               nullable: True
@@ -7073,7 +6560,6 @@
         hidden: True
         type: {
           alias: "issue_id"
-          nullable: True
           type: <recursion ...>
         }
       }
@@ -7116,7 +6602,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         events: <recursion ...>
       }
@@ -7136,12 +6621,9 @@
           ]
           type: {
             name: "uuid"
-            nullable: False
             table_type: {
               alias: "e"
-              nullable: True
               table_type: {
-                nullable: True
                 table: {
                   fields: {
                     $group_0: {
@@ -7160,6 +6642,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -7271,7 +6756,6 @@
         hidden: True
         type: {
           alias: "uuid"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7283,14 +6767,12 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7302,14 +6784,12 @@
           ]
           type: {
             name: "properties"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "properties"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7321,14 +6801,12 @@
           ]
           type: {
             name: "timestamp"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "timestamp"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7340,14 +6818,12 @@
           ]
           type: {
             name: "distinct_id"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "distinct_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7359,14 +6835,12 @@
           ]
           type: {
             name: "elements_chain"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7378,14 +6852,12 @@
           ]
           type: {
             name: "created_at"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "created_at"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7397,14 +6869,12 @@
           ]
           type: {
             name: "$session_id"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$session_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7416,14 +6886,12 @@
           ]
           type: {
             name: "$window_id"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$window_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7444,7 +6912,6 @@
                         ]
                         type: {
                           name: "distinct_id"
-                          nullable: False
                           table_type: {
                             field: "override"
                             lazy_join: {
@@ -7472,7 +6939,6 @@
                               },
                               to_field: None
                             }
-                            nullable: True
                             table_type: <recursion ...>
                           }
                         }
@@ -7480,7 +6946,6 @@
                       hidden: True
                       type: {
                         alias: "distinct_id"
-                        nullable: False
                         type: <recursion ...>
                       }
                     }
@@ -7495,9 +6960,8 @@
                       }
                     ]
                     name: "empty"
-                    nullable: False
                     return_type: {
-                      data_type: "unknown"
+                      data_type: "int"
                       nullable: False
                     }
                   }
@@ -7510,10 +6974,9 @@
                   <recursion ...>
                 ]
                 name: "not"
-                nullable: False
                 return_type: {
                   data_type: "unknown"
-                  nullable: False
+                  nullable: True
                 }
               }
             },
@@ -7526,7 +6989,6 @@
                 ]
                 type: {
                   name: "person_id"
-                  nullable: False
                   table_type: {
                     field: "override"
                     lazy_join: {
@@ -7554,7 +7016,6 @@
                       },
                       to_field: None
                     }
-                    nullable: True
                     table_type: <recursion ...>
                   }
                 }
@@ -7562,7 +7023,6 @@
               hidden: True
               type: {
                 alias: "person_id"
-                nullable: False
                 type: <recursion ...>
               }
             },
@@ -7574,14 +7034,12 @@
                 ]
                 type: {
                   name: "event_person_id"
-                  nullable: True
                   table_type: <recursion ...>
                 }
               }
               hidden: True
               type: {
                 alias: "event_person_id"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -7601,17 +7059,15 @@
               }
             ]
             name: "if"
-            nullable: False
             return_type: {
               data_type: "unknown"
-              nullable: False
+              nullable: True
             }
           }
         }
         hidden: True
         type: {
           alias: "person_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7623,14 +7079,12 @@
           ]
           type: {
             name: "$group_0"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_0"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7642,14 +7096,12 @@
           ]
           type: {
             name: "$group_1"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_1"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7661,14 +7113,12 @@
           ]
           type: {
             name: "$group_2"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_2"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7680,14 +7130,12 @@
           ]
           type: {
             name: "$group_3"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_3"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7699,14 +7147,12 @@
           ]
           type: {
             name: "$group_4"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$group_4"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7718,14 +7164,12 @@
           ]
           type: {
             name: "elements_chain_href"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_href"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7737,14 +7181,12 @@
           ]
           type: {
             name: "elements_chain_texts"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_texts"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7756,14 +7198,12 @@
           ]
           type: {
             name: "elements_chain_ids"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_ids"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7775,14 +7215,12 @@
           ]
           type: {
             name: "elements_chain_elements"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "elements_chain_elements"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -7794,14 +7232,12 @@
           ]
           type: {
             name: "event_person_id"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event_person_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -7824,16 +7260,13 @@
                   ]
                   field_type: {
                     name: "properties"
-                    nullable: False
                     table_type: <recursion ...>
                   }
-                  nullable: True
                 }
               }
               hidden: True
               type: {
                 alias: "$exception_issue_id"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -7850,7 +7283,6 @@
               }
             ]
             name: "toUUID"
-            nullable: True
             return_type: {
               data_type: "unknown"
               nullable: True
@@ -7860,7 +7292,6 @@
         hidden: True
         type: {
           alias: "event_issue_id"
-          nullable: True
           type: <recursion ...>
         }
       },
@@ -7881,7 +7312,6 @@
                         ]
                         type: {
                           name: "issue_id"
-                          nullable: False
                           table_type: {
                             field: "exception_issue_override"
                             lazy_join: {
@@ -7906,7 +7336,6 @@
                               },
                               to_field: None
                             }
-                            nullable: True
                             table_type: <recursion ...>
                           }
                         }
@@ -7914,7 +7343,6 @@
                       hidden: True
                       type: {
                         alias: "issue_id"
-                        nullable: False
                         type: <recursion ...>
                       }
                     }
@@ -7929,9 +7357,8 @@
                       }
                     ]
                     name: "empty"
-                    nullable: False
                     return_type: {
-                      data_type: "unknown"
+                      data_type: "int"
                       nullable: False
                     }
                   }
@@ -7944,10 +7371,9 @@
                   <recursion ...>
                 ]
                 name: "not"
-                nullable: False
                 return_type: {
                   data_type: "unknown"
-                  nullable: False
+                  nullable: True
                 }
               }
             },
@@ -7960,7 +7386,6 @@
                 ]
                 type: {
                   name: "issue_id"
-                  nullable: False
                   table_type: {
                     field: "exception_issue_override"
                     lazy_join: {
@@ -7985,7 +7410,6 @@
                       },
                       to_field: None
                     }
-                    nullable: True
                     table_type: <recursion ...>
                   }
                 }
@@ -7993,7 +7417,6 @@
               hidden: True
               type: {
                 alias: "issue_id"
-                nullable: False
                 type: <recursion ...>
               }
             },
@@ -8016,16 +7439,13 @@
                         ]
                         field_type: {
                           name: "properties"
-                          nullable: False
                           table_type: <recursion ...>
                         }
-                        nullable: True
                       }
                     }
                     hidden: True
                     type: {
                       alias: "$exception_issue_id"
-                      nullable: True
                       type: <recursion ...>
                     }
                   }
@@ -8042,7 +7462,6 @@
                     }
                   ]
                   name: "toUUID"
-                  nullable: True
                   return_type: {
                     data_type: "unknown"
                     nullable: True
@@ -8052,7 +7471,6 @@
               hidden: True
               type: {
                 alias: "event_issue_id"
-                nullable: True
                 type: <recursion ...>
               }
             }
@@ -8069,7 +7487,6 @@
               <recursion ...>
             ]
             name: "if"
-            nullable: True
             return_type: {
               data_type: "unknown"
               nullable: True
@@ -8079,7 +7496,6 @@
         hidden: True
         type: {
           alias: "issue_id"
-          nullable: True
           type: <recursion ...>
         }
       }
@@ -8123,7 +7539,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         e: <recursion ...>
       }
@@ -8145,9 +7560,7 @@
               ]
               type: {
                 name: "timestamp"
-                nullable: False
                 table_type: {
-                  nullable: True
                   table: {
                     fields: {
                       $group_0: {
@@ -8166,6 +7579,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -8276,7 +7692,6 @@
             hidden: True
             type: {
               alias: "timestamp"
-              nullable: False
               type: <recursion ...>
             }
           }
@@ -8291,10 +7706,9 @@
             }
           ]
           name: "max"
-          nullable: False
           return_type: {
             data_type: "unknown"
-            nullable: False
+            nullable: True
           }
         }
       }
@@ -8316,7 +7730,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         events: <recursion ...>
       }
@@ -8338,12 +7751,9 @@
             ]
             type: {
               name: "properties"
-              nullable: False
               table_type: {
                 alias: "e"
-                nullable: True
                 table_type: {
-                  nullable: True
                   table: {
                     fields: {
                       $group_0: {
@@ -8362,6 +7772,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -8476,14 +7889,12 @@
           hidden: True
           type: {
             alias: "properties"
-            nullable: False
             type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "some_expr"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -8497,12 +7908,9 @@
             ]
             type: {
               name: "properties"
-              nullable: False
               table_type: {
                 alias: "p"
-                nullable: True
                 table_type: {
-                  nullable: True
                   table: {
                     fields: {
                       $virt_initial_channel_type: {
@@ -8552,14 +7960,12 @@
           hidden: True
           type: {
             alias: "properties"
-            nullable: False
             type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "some_expr"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -8580,14 +7986,12 @@
                 ]
                 type: {
                   name: "uuid"
-                  nullable: False
                   table_type: <recursion ...>
                 }
               }
               hidden: True
               type: {
                 alias: "uuid"
-                nullable: False
                 type: <recursion ...>
               }
             }
@@ -8601,14 +8005,12 @@
                 ]
                 type: {
                   name: "id"
-                  nullable: False
                   table_type: <recursion ...>
                 }
               }
               hidden: True
               type: {
                 alias: "id"
-                nullable: False
                 type: <recursion ...>
               }
             }
@@ -8643,7 +8045,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         e: <recursion ...>,
         p: <recursion ...>
@@ -8720,7 +8121,6 @@
       columns: {}
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {}
     }
   }
@@ -8839,7 +8239,6 @@
       columns: {}
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {}
     }
   }
@@ -8857,9 +8256,7 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: {
-              nullable: True
               table: {
                 fields: {
                   $group_0: {
@@ -8878,6 +8275,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -8988,7 +8388,6 @@
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -9001,14 +8400,12 @@
           ]
           type: {
             name: "timestamp"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "timestamp"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -9031,7 +8428,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         events: <recursion ...>
       }
@@ -9046,14 +8442,12 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -9085,12 +8479,9 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: {
               alias: "e"
-              nullable: True
               table_type: {
-                nullable: True
                 table: {
                   fields: {
                     $group_0: {
@@ -9109,6 +8500,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -9220,7 +8614,6 @@
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -9233,14 +8626,12 @@
           ]
           type: {
             name: "timestamp"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "timestamp"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -9264,7 +8655,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         e: <recursion ...>
       }
@@ -9279,14 +8669,12 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -9320,12 +8708,9 @@
             ]
             type: {
               name: "event"
-              nullable: False
               table_type: {
                 alias: "e"
-                nullable: True
                 table_type: {
-                  nullable: True
                   table: {
                     fields: {
                       $group_0: {
@@ -9344,6 +8729,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -9455,14 +8843,12 @@
           hidden: True
           type: {
             alias: "event"
-            nullable: False
             type: <recursion ...>
           }
         }
         hidden: False
         type: {
           alias: "ee"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -9483,7 +8869,6 @@
         hidden: False
         type: {
           alias: "e"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -9496,14 +8881,12 @@
           ]
           type: {
             name: "timestamp"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "timestamp"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -9531,7 +8914,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         e: <recursion ...>
       }
@@ -9546,14 +8928,12 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -9585,23 +8965,17 @@
           ]
           type: {
             name: "b"
-            nullable: True
             table_type: {
               alias: "e"
-              nullable: True
               select_query_type: {
                 aliases: {
                   b: {
                     alias: "b"
-                    nullable: False
                     type: {
                       alias: "event"
-                      nullable: False
                       type: {
                         name: "event"
-                        nullable: False
                         table_type: {
-                          nullable: True
                           table: {
                             fields: {
                               $group_0: {
@@ -9620,6 +8994,9 @@
                                 hidden: False
                               },
                               $session_id: {
+                                hidden: False
+                              },
+                              $session_id_uuid: {
                                 hidden: False
                               },
                               $window_id: {
@@ -9730,13 +9107,10 @@
                   },
                   c: {
                     alias: "c"
-                    nullable: False
                     type: {
                       alias: "timestamp"
-                      nullable: False
                       type: {
                         name: "timestamp"
-                        nullable: False
                         table_type: <recursion ...>
                       }
                     }
@@ -9749,7 +9123,6 @@
                 }
                 ctes: {}
                 is_lambda_type: False
-                nullable: True
                 tables: {
                   events: <recursion ...>
                 }
@@ -9760,7 +9133,6 @@
         hidden: True
         type: {
           alias: "b"
-          nullable: True
           type: <recursion ...>
         }
       }
@@ -9823,7 +9195,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         e: <recursion ...>
       }
@@ -9838,14 +9209,12 @@
           ]
           type: {
             name: "b"
-            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "b"
-          nullable: True
           type: <recursion ...>
         }
       }
@@ -9877,9 +9246,7 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: {
-              nullable: True
               table: {
                 fields: {
                   $group_0: {
@@ -9898,6 +9265,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -10008,7 +9378,6 @@
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -10022,7 +9391,6 @@
           ]
           type: {
             name: "id"
-            nullable: False
             table_type: {
               field: "person"
               lazy_join: {
@@ -10034,7 +9402,6 @@
                 join_table: "persons",
                 to_field: None
               }
-              nullable: True
               table_type: {
                 field: "pdi"
                 lazy_join: {
@@ -10062,7 +9429,6 @@
                   },
                   to_field: None
                 }
-                nullable: True
                 table_type: <recursion ...>
               }
             }
@@ -10071,7 +9437,6 @@
         hidden: True
         type: {
           alias: "id"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -10094,7 +9459,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         events: <recursion ...>
       }
@@ -10114,12 +9478,9 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: {
               alias: "e"
-              nullable: True
               table_type: {
-                nullable: True
                 table: {
                   fields: {
                     $group_0: {
@@ -10138,6 +9499,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -10249,7 +9613,6 @@
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -10264,7 +9627,6 @@
           ]
           type: {
             name: "id"
-            nullable: False
             table_type: {
               field: "person"
               lazy_join: {
@@ -10276,7 +9638,6 @@
                 join_table: "persons",
                 to_field: None
               }
-              nullable: True
               table_type: {
                 field: "pdi"
                 lazy_join: {
@@ -10304,7 +9665,6 @@
                   },
                   to_field: None
                 }
-                nullable: True
                 table_type: <recursion ...>
               }
             }
@@ -10313,7 +9673,6 @@
         hidden: True
         type: {
           alias: "id"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -10337,7 +9696,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         e: <recursion ...>
       }
@@ -10357,9 +9715,7 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: {
-              nullable: True
               table: {
                 fields: {
                   $group_0: {
@@ -10378,6 +9734,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -10488,7 +9847,6 @@
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -10501,7 +9859,6 @@
           ]
           type: {
             name: "person_id"
-            nullable: False
             table_type: {
               field: "pdi"
               lazy_join: {
@@ -10529,7 +9886,6 @@
                 },
                 to_field: None
               }
-              nullable: True
               table_type: <recursion ...>
             }
           }
@@ -10537,7 +9893,6 @@
         hidden: True
         type: {
           alias: "person_id"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -10560,7 +9915,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         events: <recursion ...>
       }
@@ -10580,12 +9934,9 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: {
               alias: "e"
-              nullable: True
               table_type: {
-                nullable: True
                 table: {
                   fields: {
                     $group_0: {
@@ -10604,6 +9955,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -10715,7 +10069,6 @@
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -10729,7 +10082,6 @@
           ]
           type: {
             name: "person_id"
-            nullable: False
             table_type: {
               field: "pdi"
               lazy_join: {
@@ -10757,7 +10109,6 @@
                 },
                 to_field: None
               }
-              nullable: True
               table_type: <recursion ...>
             }
           }
@@ -10765,7 +10116,6 @@
         hidden: True
         type: {
           alias: "person_id"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -10789,7 +10139,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         e: <recursion ...>
       }
@@ -10809,9 +10158,7 @@
           ]
           type: {
             name: "distinct_id"
-            nullable: False
             table_type: {
-              nullable: True
               table: {
                 fields: {
                   distinct_id: {
@@ -10835,7 +10182,6 @@
         hidden: True
         type: {
           alias: "distinct_id"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -10848,7 +10194,6 @@
           ]
           type: {
             name: "id"
-            nullable: False
             table_type: {
               field: "person"
               lazy_join: {
@@ -10860,7 +10205,6 @@
                 join_table: "persons",
                 to_field: None
               }
-              nullable: True
               table_type: <recursion ...>
             }
           }
@@ -10868,7 +10212,6 @@
         hidden: True
         type: {
           alias: "id"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -10891,7 +10234,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         person_distinct_ids: <recursion ...>
       }
@@ -10912,9 +10254,7 @@
             ]
             type: {
               name: "event"
-              nullable: False
               table_type: {
-                nullable: True
                 table: {
                   fields: {
                     $group_0: {
@@ -10933,6 +10273,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -11043,7 +10386,6 @@
           hidden: True
           type: {
             alias: "event"
-            nullable: False
             type: <recursion ...>
           }
         },
@@ -11055,14 +10397,12 @@
             ]
             type: {
               name: "timestamp"
-              nullable: False
               table_type: <recursion ...>
             }
           }
           hidden: True
           type: {
             alias: "timestamp"
-            nullable: False
             type: <recursion ...>
           }
         }
@@ -11085,7 +10425,6 @@
         }
         ctes: {}
         is_lambda_type: False
-        nullable: True
         tables: {
           events: <recursion ...>
         }
@@ -11103,9 +10442,7 @@
                 ]
                 type: {
                   name: "event"
-                  nullable: False
                   table_type: {
-                    nullable: True
                     table: {
                       fields: {
                         $group_0: {
@@ -11124,6 +10461,9 @@
                           hidden: False
                         },
                         $session_id: {
+                          hidden: False
+                        },
+                        $session_id_uuid: {
                           hidden: False
                         },
                         $window_id: {
@@ -11234,7 +10574,6 @@
               hidden: True
               type: {
                 alias: "event"
-                nullable: False
                 type: <recursion ...>
               }
             },
@@ -11246,14 +10585,12 @@
                 ]
                 type: {
                   name: "timestamp"
-                  nullable: False
                   table_type: <recursion ...>
                 }
               }
               hidden: True
               type: {
                 alias: "timestamp"
-                nullable: False
                 type: <recursion ...>
               }
             }
@@ -11276,7 +10613,6 @@
             }
             ctes: {}
             is_lambda_type: False
-            nullable: True
             tables: {
               events: <recursion ...>
             }
@@ -11286,7 +10622,6 @@
       }
     ]
     type: {
-      nullable: True
       types: [
         <recursion ...>,
         <recursion ...>
@@ -11307,9 +10642,7 @@
           ]
           type: {
             name: "event"
-            nullable: False
             table_type: {
-              nullable: True
               table: {
                 fields: {
                   $group_0: {
@@ -11328,6 +10661,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -11438,7 +10774,6 @@
         hidden: True
         type: {
           alias: "event"
-          nullable: False
           type: <recursion ...>
         }
       },
@@ -11451,10 +10786,8 @@
           ]
           type: {
             name: "id"
-            nullable: False
             table_type: {
               field: "poe"
-              nullable: True
               table_type: <recursion ...>
               virtual_table: {
                 fields: {
@@ -11491,7 +10824,6 @@
         hidden: True
         type: {
           alias: "id"
-          nullable: False
           type: <recursion ...>
         }
       }
@@ -11514,7 +10846,6 @@
       }
       ctes: {}
       is_lambda_type: False
-      nullable: True
       tables: {
         events: <recursion ...>
       }

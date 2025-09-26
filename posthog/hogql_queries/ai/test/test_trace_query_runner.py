@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, TypedDict
 from uuid import UUID
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 
@@ -991,3 +992,371 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].events[0].event, "$ai_generation")
         self.assertEqual(response.results[0].events[1].event, "$ai_metric")
         self.assertEqual(response.results[0].events[2].event, "$ai_feedback")
+
+    def test_latency_missing_intermediate_levels(self):
+        """
+        Test that latency is calculated from grandchildren when intermediate levels lack latency.
+
+        Tree structure:
+        Trace "trace_missing_intermediate" (no latency)
+        ├── Span A ($ai_span_id="span_a", no latency)
+        │   ├── Generation A1 ($ai_parent_id="span_a", 100ms)
+        │   └── Generation A2 ($ai_parent_id="span_a", 150ms)
+        └── Span B ($ai_span_id="span_b", no latency)
+            └── Generation B1 ($ai_parent_id="span_b", 200ms)
+
+        Expected: 450ms (sum of all generations)
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_missing_intermediate"
+
+        # Create spans with no latency, using realistic span_id structure
+        _create_ai_span_event(
+            trace_id=trace_id,
+            span_name="span_a",
+            input_state={},
+            output_state={},
+            team=self.team,
+            distinct_id="person1",
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_span_id": "span_a", "$ai_parent_id": trace_id},
+            # No $ai_latency property
+        )
+        _create_ai_span_event(
+            trace_id=trace_id,
+            span_name="span_b",
+            input_state={},
+            output_state={},
+            team=self.team,
+            distinct_id="person1",
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={"$ai_span_id": "span_b", "$ai_parent_id": trace_id},
+            # No $ai_latency property
+        )
+
+        # Create generations with latency as children of spans (no span_id = automatic leaves)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 2),
+            properties={"$ai_latency": 100, "$ai_parent_id": "span_a"},
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 3),
+            properties={"$ai_latency": 150, "$ai_parent_id": "span_a"},
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 4),
+            properties={"$ai_latency": 200, "$ai_parent_id": "span_b"},
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        # Should sum all generation latencies: 100 + 150 + 200 = 450
+        self.assertEqual(response.results[0].totalLatency, 450.0)
+
+    @pytest.mark.skip(
+        reason="This case is currently broken as is. Implementing a fix would require figuring out efficient trace tree traversal."
+    )
+    def test_latency_inconsistent_hierarchy_levels(self):
+        """
+        Test latency calculation with mixed levels having latency data.
+
+        Tree structure:
+        Trace "trace_inconsistent" (no latency)
+        ├── Span A ($ai_span_id="span_a", 250ms)
+        └── Span B ($ai_span_id="span_b", no latency)
+            └── Generation B1 ($ai_parent_id="span_b", 200ms)
+
+        Expected: 450ms (Span A + Generation B1)
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_inconsistent"
+
+        # Span A has latency and is direct child of trace
+        _create_ai_span_event(
+            trace_id=trace_id,
+            span_name="span_a",
+            input_state={},
+            output_state={},
+            team=self.team,
+            distinct_id="person1",
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_span_id": "span_a", "$ai_parent_id": trace_id, "$ai_latency": 250},
+        )
+
+        # Span B has no latency
+        _create_ai_span_event(
+            trace_id=trace_id,
+            span_name="span_b",
+            input_state={},
+            output_state={},
+            team=self.team,
+            distinct_id="person1",
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={"$ai_span_id": "span_b", "$ai_parent_id": trace_id},
+            # No $ai_latency property
+        )
+
+        # Generation B1 is grandchild with latency (no span_id = automatic leaf)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 2),
+            properties={"$ai_latency": 200, "$ai_parent_id": "span_b"},
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        # Should sum: Span A (250) + Generation B1 (200) = 450
+        self.assertEqual(response.results[0].totalLatency, 450.0)
+
+    def test_latency_no_double_counting_when_parent_has_latency(self):
+        """
+        Test that we don't double count when parent latency equals sum of children.
+
+        Tree structure:
+        Trace "trace_double_count" (no latency)
+        ├── Span A ($ai_span_id="span_a", 250ms = sum of children)
+        │   ├── Generation A1 ($ai_parent_id="span_a", 100ms)
+        │   └── Generation A2 ($ai_parent_id="span_a", 150ms)
+        └── Generation B ($ai_parent_id=trace_id, 200ms, direct child)
+
+        Expected: 450ms (Span A + Generation B, no double counting)
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_double_count"
+
+        # Span A has latency equal to sum of its children
+        _create_ai_span_event(
+            trace_id=trace_id,
+            span_name="span_a",
+            input_state={},
+            output_state={},
+            team=self.team,
+            distinct_id="person1",
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_span_id": "span_a", "$ai_parent_id": trace_id, "$ai_latency": 250},
+        )
+
+        # Children of Span A (no span_id = automatic leaves, but should be excluded due to parent having latency)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={"$ai_latency": 100, "$ai_parent_id": "span_a"},
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 2),
+            properties={"$ai_latency": 150, "$ai_parent_id": "span_a"},
+        )
+
+        # Direct child of trace (should be counted, no span_id = automatic leaf)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 3),
+            properties={"$ai_latency": 200, "$ai_parent_id": trace_id},
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        # Should count: Span A (250) + Direct Generation (200) = 450
+        # Should NOT double-count the children of Span A
+        self.assertEqual(response.results[0].totalLatency, 450.0)
+
+    def test_latency_no_span_id_automatic_leaves(self):
+        """
+        Test events without $ai_span_id are automatic leaves.
+
+        Tree structure:
+        Trace "trace_no_span_id" (no latency)
+        ├── Generation A (no $ai_span_id, $ai_parent_id=trace_id, 100ms)
+        ├── Generation B (no $ai_span_id, $ai_parent_id=trace_id, 150ms)
+        └── Generation C (no $ai_span_id, no $ai_parent_id, 200ms)
+
+        Expected: 450ms (all are leaves, all counted)
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_no_span_id"
+
+        # Generation A: no span_id, parent_id=trace_id, has latency (automatic leaf)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_latency": 100, "$ai_parent_id": trace_id},
+            # No $ai_span_id = automatic leaf
+        )
+
+        # Generation B: no span_id, parent_id=trace_id, has latency (automatic leaf)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={"$ai_latency": 150, "$ai_parent_id": trace_id},
+            # No $ai_span_id = automatic leaf
+        )
+
+        # Generation C: no span_id, no parent_id, has latency (root leaf)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 2),
+            properties={"$ai_latency": 200},
+            # No $ai_span_id = automatic leaf, no $ai_parent_id = root child
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        # Should sum all generation latencies: 100 + 150 + 200 = 450
+        self.assertEqual(response.results[0].totalLatency, 450.0)
+
+    def test_latency_no_parent_id_root_leaves(self):
+        """
+        Test events with no $ai_parent_id become root children.
+
+        Tree structure:
+        Trace "trace_no_parent_id" (no latency)
+        ├── Generation A ($ai_span_id="gen_a", no $ai_parent_id, 100ms)
+        └── Generation B ($ai_span_id="gen_b", no $ai_parent_id, 150ms)
+
+        Expected: 250ms (both are root children)
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_no_parent_id"
+
+        # Generation A: has span_id, no parent_id, has latency (root child)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_span_id": "gen_a", "$ai_latency": 100},
+            # No $ai_parent_id = root child
+        )
+
+        # Generation B: has span_id, no parent_id, has latency (root child)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={"$ai_span_id": "gen_b", "$ai_latency": 150},
+            # No $ai_parent_id = root child
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        # Should sum both root children: 100 + 150 = 250
+        self.assertEqual(response.results[0].totalLatency, 250.0)
+
+    def test_latency_mixed_span_id_presence(self):
+        """
+        Test mixed presence of $ai_span_id in hierarchy.
+
+        Tree structure:
+        Trace "trace_mixed_span_id" (no latency)
+        ├── Span A ($ai_span_id="span_a", 100ms)
+        │   └── Generation A1 (no $ai_span_id, $ai_parent_id="span_a", 50ms)
+        └── Generation B (no $ai_span_id, $ai_parent_id=trace_id, 200ms)
+
+        Expected: 300ms (Span A 100ms + Generation B 200ms, exclude A1)
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_mixed_span_id"
+
+        # Span A: has span_id and latency (can be referenced by children)
+        _create_ai_span_event(
+            trace_id=trace_id,
+            span_name="span_a",
+            input_state={},
+            output_state={},
+            team=self.team,
+            distinct_id="person1",
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_span_id": "span_a", "$ai_parent_id": trace_id, "$ai_latency": 100},
+        )
+
+        # Generation A1: no span_id (leaf), parent="span_a" which has latency (should be excluded)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={"$ai_latency": 50, "$ai_parent_id": "span_a"},
+            # No $ai_span_id = automatic leaf, but parent has latency so excluded
+        )
+
+        # Generation B: no span_id (leaf), parent=trace_id (root leaf, should be included)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 2),
+            properties={"$ai_latency": 200, "$ai_parent_id": trace_id},
+            # No $ai_span_id = automatic leaf, root child so included
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        # Should sum: Span A (100) + Generation B (200) = 300, exclude Generation A1
+        self.assertEqual(response.results[0].totalLatency, 300.0)

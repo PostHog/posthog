@@ -613,14 +613,53 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_hogql_unnecessary_ifnull(self):
+    def test_hogql_groupby_unnecessary_ifnull(self):
         # https://github.com/PostHog/posthog/issues/23077
         query = """
-            select toDate(timestamp) as timestamp, count()
+            select toDate(timestamp) as timestamp, count() as cnt
             from events
             where timestamp >= addDays(today(), -10)
             group by timestamp
-            limit 100
+            having cnt > 10
+            limit 1
+        """
+        with freeze_time("2025-02-15 22:52:00"):
+            response = execute_hogql_query(query, team=self.team, pretty=False)
+            self.assertEqual(response.results, [])
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_hogql_unnecessary_ifnull(self):
+        # https://github.com/PostHog/posthog/issues/23077
+        query = """
+            select
+                toDate(timestamp) as timestamp,
+                JSONExtractInt(properties, 'field') as json_int
+            from events
+            where timestamp >= addDays(today(), -10) and json_int = 17
+            limit 1
+        """
+        with freeze_time("2025-02-15 22:52:00"):
+            response = execute_hogql_query(query, team=self.team, pretty=False)
+            self.assertEqual(response.results, [])
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_hogql_proper_ifnull(self):
+        # latest_os_version is Nullable, splitByChar does not access Nullable argument
+        query = """
+            WITH latest_events AS (
+                SELECT distinct_id, argMax(properties.$os_version, timestamp) AS latest_os_version
+                FROM events
+                WHERE properties.$os = 'iOS' AND timestamp >= now() - INTERVAL 30 DAY GROUP BY distinct_id),
+            major_versions AS (
+                SELECT distinct_id, latest_os_version, splitByChar('.', ifNull(latest_os_version, ''))[1] AS major_version
+                FROM latest_events)
+            SELECT major_version, count() AS user_count, round(100 * count() / sum(count()) OVER (), 2) AS percentage
+            FROM major_versions
+            WHERE major_version IN ('17', '18', '26')
+            GROUP BY major_version
+            ORDER BY major_version
         """
         with freeze_time("2025-02-15 22:52:00"):
             response = execute_hogql_query(query, team=self.team, pretty=False)
