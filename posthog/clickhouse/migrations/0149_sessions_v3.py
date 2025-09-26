@@ -1,3 +1,4 @@
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.raw_sessions.sql_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3,
