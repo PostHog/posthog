@@ -30,6 +30,7 @@ from posthog.schema import ActorsQuery, HogQLQuery
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.hogql.context import HogQLContext
 
+from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.person import get_funnel_actor_class
@@ -196,6 +197,20 @@ class CSVConfig:
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
         FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
+
+
+class AddPersonsToStaticCohortRequest(BaseModel, extra="forbid"):
+    person_ids: list[str] = Field(
+        description="A list of person ids to add to the static cohort.",
+        min_length=1,
+        max_length=DEFAULT_COHORT_INSERT_BATCH_SIZE,
+    )
+
+
+class RemovePersonFromStaticCohortRequest(BaseModel, extra="forbid"):
+    person_id: str = Field(
+        description="The person's id which you want to remove from the static cohort.",
+    )
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -852,7 +867,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
-    @action(methods=["PATCH"], detail=True)
+    @extend_schema(request=AddPersonsToStaticCohortRequest, description="Add persons to a static cohort")
+    @action(methods=["PATCH"], detail=True, required_scopes=["cohort:write"])
     def add_persons_to_static_cohort(self, request: request.Request, **kwargs):
         cohort: Cohort = self.get_object()
         if not cohort.is_static:
@@ -885,7 +901,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
         return Response({"success": True}, status=200)
 
-    @action(methods=["PATCH"], detail=True)
+    @extend_schema(request=RemovePersonFromStaticCohortRequest, description="Remove a person from a static cohort")
+    @action(methods=["PATCH"], detail=True, required_scopes=["cohort:write"])
     def remove_person_from_static_cohort(self, request: request.Request, **kwargs):
         cohort: Cohort = self.get_object()
         if not cohort.is_static:
