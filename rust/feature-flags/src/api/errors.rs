@@ -101,7 +101,7 @@ impl FlagError {
                 | CookielessManagerError::InvalidIdentifyCount(_),
             ) => StatusCode::INTERNAL_SERVER_ERROR,
             FlagError::CookielessError(_) => return false, // Other CookielessErrors are 4XX
-            _ => return false, // Everything else is 4XX
+            _ => return false,                             // Everything else is 4XX
         };
         status.is_server_error()
     }
