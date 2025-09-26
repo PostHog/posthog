@@ -379,7 +379,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         excludedProperties:
                             excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
-                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
+                        propertyAllowList:
+                            propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
@@ -552,7 +553,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
-                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties],
+                        propertyAllowList:
+                            propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(true),
                     },
                     {
@@ -696,12 +698,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.SessionProperties,
                         ...(propertyAllowList
                             ? {
-                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]?.map(
-                                      (property: string) => ({
+                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]
+                                      ?.filter(isString)
+                                      ?.map((property: string) => ({
                                           name: property,
                                           value: property,
-                                      })
-                                  ),
+                                      })),
                               }
                             : {
                                   endpoint: `api/environments/${teamId}/sessions/property_definitions`,

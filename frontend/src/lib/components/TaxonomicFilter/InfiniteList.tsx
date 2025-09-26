@@ -257,7 +257,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
 
         const isHighlighted = rowIndex === index && isActiveTab
 
-        const isActive = selectedProperties[listGroupType] && selectedProperties[listGroupType].includes(itemValue)
+        const isActive = itemValue ? !!selectedProperties[listGroupType]?.includes(itemValue) : false
 
         // Show create custom event option when there are no results
         if (showNonCapturedEventOption && rowIndex === 0) {
