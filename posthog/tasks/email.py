@@ -595,7 +595,8 @@ def send_discussions_mentioned(comment: Comment, mentioned_user_ids: list[int], 
     team = comment.team
     commenter = comment.created_by
     memberships_to_email = get_members_to_notify(team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
-    if not memberships_to_email:
+
+    if not memberships_to_email or not commenter:
         return
 
     # Filter the memberships list to only include users mentioned
@@ -610,7 +611,7 @@ def send_discussions_mentioned(comment: Comment, mentioned_user_ids: list[int], 
     campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
     message = EmailMessage(
         campaign_key=campaign_key,
-        subject=f"[Discussions]: {commenter.name} mentioned you in project '{team}'",
+        subject=f"[Discussions]: {commenter.first_name} mentioned you in project '{team}'",
         template_name="discussions_mentioned",
         template_context={
             "commenter": commenter,
