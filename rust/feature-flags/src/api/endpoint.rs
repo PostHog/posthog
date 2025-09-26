@@ -52,11 +52,13 @@ fn extract_client_ip(headers: &HeaderMap, fallback_ip: IpAddr) -> IpAddr {
             // Take the first IP from the comma-separated list
             if let Some(first_ip) = forwarded_str.split(',').next() {
                 let trimmed = first_ip.trim();
-                
+
                 // Strip port from IP address if present (Azure gateway compatibility)
                 let ip_without_port = if trimmed.starts_with('[') {
                     // IPv6 with port (e.g., "[::1]:8080")
-                    trimmed.split(']').next()
+                    trimmed
+                        .split(']')
+                        .next()
                         .and_then(|s| s.strip_prefix('['))
                         .unwrap_or(trimmed)
                 } else if trimmed.contains('.') {
@@ -83,7 +85,7 @@ fn extract_client_ip(headers: &HeaderMap, fallback_ip: IpAddr) -> IpAddr {
                     // IPv6 can have colons as part of the address, so don't strip
                     trimmed
                 };
-                
+
                 // Try to parse the IP address
                 if let Ok(parsed_ip) = ip_without_port.parse::<IpAddr>() {
                     return parsed_ip;
@@ -91,7 +93,7 @@ fn extract_client_ip(headers: &HeaderMap, fallback_ip: IpAddr) -> IpAddr {
             }
         }
     }
-    
+
     // Fall back to the direct client IP
     fallback_ip
 }
@@ -205,7 +207,7 @@ pub async fn flags(
     body: Bytes,
 ) -> Result<Response, FlagError> {
     let request_id = extract_request_id(&headers);
-    
+
     // Extract client IP, checking X-Forwarded-For header first
     let ip = extract_client_ip(&headers, direct_ip);
 
@@ -513,62 +515,86 @@ mod tests {
     fn test_extract_client_ip() {
         use axum::http::HeaderValue;
         use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-        
+
         let fallback = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        
+
         // Test case 1: X-Forwarded-For with single IP
         let mut headers = HeaderMap::new();
-        headers.insert("X-Forwarded-For", HeaderValue::from_str("192.168.1.1").unwrap());
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("192.168.1.1").unwrap(),
+        );
         let ip = extract_client_ip(&headers, fallback);
         assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)));
-        
+
         // Test case 2: X-Forwarded-For with multiple IPs (should take the first)
         headers.clear();
-        headers.insert("X-Forwarded-For", HeaderValue::from_str("10.0.0.1, 192.168.1.1, 172.16.0.1").unwrap());
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("10.0.0.1, 192.168.1.1, 172.16.0.1").unwrap(),
+        );
         let ip = extract_client_ip(&headers, fallback);
         assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
-        
+
         // Test case 3: X-Forwarded-For with IPv4 and port (Azure gateway compatibility)
         headers.clear();
-        headers.insert("X-Forwarded-For", HeaderValue::from_str("203.0.113.195:8080").unwrap());
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("203.0.113.195:8080").unwrap(),
+        );
         let ip = extract_client_ip(&headers, fallback);
         assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(203, 0, 113, 195)));
-        
+
         // Test case 4: X-Forwarded-For with IPv6
         headers.clear();
-        headers.insert("X-Forwarded-For", HeaderValue::from_str("2001:db8::8a2e:370:7334").unwrap());
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("2001:db8::8a2e:370:7334").unwrap(),
+        );
         let ip = extract_client_ip(&headers, fallback);
-        assert_eq!(ip, IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0x8a2e, 0x370, 0x7334)));
-        
+        assert_eq!(
+            ip,
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0x8a2e, 0x370, 0x7334))
+        );
+
         // Test case 5: X-Forwarded-For with IPv6 and port
         headers.clear();
-        headers.insert("X-Forwarded-For", HeaderValue::from_str("[2001:db8::1]:8080").unwrap());
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("[2001:db8::1]:8080").unwrap(),
+        );
         let ip = extract_client_ip(&headers, fallback);
-        assert_eq!(ip, IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)));
-        
+        assert_eq!(
+            ip,
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))
+        );
+
         // Test case 6: No X-Forwarded-For header (should use fallback)
         headers.clear();
         let ip = extract_client_ip(&headers, fallback);
         assert_eq!(ip, fallback);
-        
+
         // Test case 7: Invalid IP in X-Forwarded-For (should use fallback)
         headers.clear();
-        headers.insert("X-Forwarded-For", HeaderValue::from_str("invalid-ip").unwrap());
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("invalid-ip").unwrap(),
+        );
         let ip = extract_client_ip(&headers, fallback);
         assert_eq!(ip, fallback);
-        
+
         // Test case 8: Empty X-Forwarded-For (should use fallback)
         headers.clear();
         headers.insert("X-Forwarded-For", HeaderValue::from_str("").unwrap());
         let ip = extract_client_ip(&headers, fallback);
         assert_eq!(ip, fallback);
-        
+
         // Test case 9: IPv6 address that could be confused with IPv4:port
         headers.clear();
         headers.insert("X-Forwarded-For", HeaderValue::from_str("::1").unwrap());
         let ip = extract_client_ip(&headers, fallback);
         assert_eq!(ip, IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)));
-        
+
         // Test case 10: Compact IPv6 address with few colons
         headers.clear();
         headers.insert("X-Forwarded-For", HeaderValue::from_str("fe80::1").unwrap());
