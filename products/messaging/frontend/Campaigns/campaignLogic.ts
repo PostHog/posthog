@@ -83,27 +83,23 @@ function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): strin
     }
 }
 
-function sanitizeCampaign(
-    campaign: Partial<HogFlow>,
+export function sanitizeCampaign(
+    campaign: HogFlow,
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
-): Partial<HogFlow> {
+): HogFlow {
     // Sanitize all function-like actions the same as we would a hog function
-    const actions = campaign.actions
-
-    if (actions) {
-        actions.forEach((action) => {
-            if (isFunctionAction(action) || isTriggerFunction(action)) {
-                const inputs = action.config.inputs
-                const template = hogFunctionTemplatesById[action.config.template_id]
-                if (template) {
-                    action.config.inputs = sanitizeInputs({
-                        inputs_schema: template.inputs_schema,
-                        inputs: inputs,
-                    })
-                }
+    campaign.actions.forEach((action) => {
+        if (isFunctionAction(action) || isTriggerFunction(action)) {
+            const inputs = action.config.inputs
+            const template = hogFunctionTemplatesById[action.config.template_id]
+            if (template) {
+                action.config.inputs = sanitizeInputs({
+                    inputs_schema: template.inputs_schema,
+                    inputs: inputs,
+                })
             }
-        })
-    }
+        }
+    })
     return campaign
 }
 
@@ -121,6 +117,7 @@ export const campaignLogic = kea<campaignLogicType>([
         setCampaignActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         // NOTE: This is a wrapper for setCampaignValues, to get around some weird typegen issues
         setCampaignInfo: (campaign: Partial<HogFlow>) => ({ campaign }),
+        saveCampaignPartial: (campaign: Partial<HogFlow>) => ({ campaign }),
         discardChanges: true,
     }),
     loaders(({ props, values }) => ({
@@ -134,7 +131,7 @@ export const campaignLogic = kea<campaignLogicType>([
 
                     return api.hogFlows.getHogFlow(props.id)
                 },
-                saveCampaign: async (updates: Partial<HogFlow>) => {
+                saveCampaign: async (updates: HogFlow) => {
                     updates = sanitizeCampaign(updates, values.hogFunctionTemplatesById)
 
                     if (!props.id || props.id === 'new') {
@@ -302,6 +299,13 @@ export const campaignLogic = kea<campaignLogicType>([
             (s) => [s.campaign],
             (campaign): TriggerAction | null => {
                 return (campaign.actions.find((action) => action.type === 'trigger') as TriggerAction) ?? null
+            },
+        ],
+
+        campaignSanitized: [
+            (s) => [s.campaign, s.hogFunctionTemplatesById],
+            (campaign, hogFunctionTemplatesById): HogFlow => {
+                return sanitizeCampaign(campaign, hogFunctionTemplatesById)
             },
         ],
     }),

@@ -3,7 +3,15 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconBolt, IconPlusSmall, IconWebhooks } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonLabel, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonDivider,
+    LemonLabel,
+    LemonSelect,
+    LemonTag,
+    lemonToast,
+} from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -204,36 +212,53 @@ function StepTriggerConfigurationTrackingPixel({
     const trackingPixelUrl =
         campaign.id !== 'new' ? `${publicWebhooksHostOrigin()}/public/webhooks/${campaign.id}` : null
 
-    return (
-        <>
-            <div className="p-2 rounded border deprecated-space-y-2 bg-surface-secondary">
-                <LemonLabel>Tracking pixel</LemonLabel>
-                {!trackingPixelUrl ? (
-                    <div className="text-xs text-muted italic border rounded p-1 bg-surface-primary">
-                        The tracking pixel URL will be shown here once you save the workflow
-                    </div>
-                ) : (
-                    <CodeSnippet thing="Tracking pixel URL">{trackingPixelUrl}</CodeSnippet>
-                )}
-
-                <p className="text-sm">
-                    The tracking pixel can be called with a GET request to the URL above. You can embed it as an image
-                    or call it with an HTTP request in any other way.
-                </p>
-
-                {trackingPixelUrl && (
-                    <CodeSnippet thing="Tracking pixel HTML">{`<img 
+    const trackingPixelHtml = trackingPixelUrl
+        ? `<img 
     src="${trackingPixelUrl}.gif"
     width="1" height="1" style="display:none;" alt=""
-/>`}</CodeSnippet>
-                )}
+/>`
+        : null
 
-                <p>
-                    You can use query parameters to pass in data that you can parse into the event properties below, or
-                    you can hard code the values. This will not create a PostHog event by default, it will only be used
-                    to trigger the workflow.
-                </p>
-            </div>
+    return (
+        <>
+            <LemonCollapse
+                className="shrink-0"
+                defaultActiveKey="instructions"
+                panels={[
+                    {
+                        key: 'instructions',
+                        header: 'Usage instructions',
+                        className: 'p-3 bg-surface-secondary flex flex-col gap-2',
+                        content: (
+                            <>
+                                {!trackingPixelUrl ? (
+                                    <div className="text-xs text-muted italic border rounded p-1 bg-surface-primary">
+                                        The tracking pixel URL will be shown here once you save the workflow
+                                    </div>
+                                ) : (
+                                    <CodeSnippet thing="Tracking pixel URL">{trackingPixelUrl}</CodeSnippet>
+                                )}
+
+                                <p className="text-sm">
+                                    The tracking pixel can be called with a GET request to the URL above. You can embed
+                                    it as an image or call it with an HTTP request in any other way.
+                                </p>
+
+                                {trackingPixelUrl && (
+                                    <CodeSnippet thing="Tracking pixel HTML">{trackingPixelHtml}</CodeSnippet>
+                                )}
+
+                                <p>
+                                    You can use query parameters to pass in data that you can parse into the event
+                                    properties below, or you can hard code the values. This will not create a PostHog
+                                    event by default, it will only be used to trigger the workflow.
+                                </p>
+                            </>
+                        ),
+                    },
+                ]}
+            />
+
             <HogFlowFunctionConfiguration
                 templateId={config.template_id}
                 inputs={config.inputs}
