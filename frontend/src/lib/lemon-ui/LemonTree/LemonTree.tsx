@@ -390,7 +390,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3',
                                             // pr-1 to maximize available rendering space, when hovering, show the side action,
                                             // add padding to the right (follow button primmitive group padding)
-                                            'pr-1 group-hover/lemon-tree-button-group:pr-[var(--button-height-base)]',
+                                            'pr-1 group-hover/lemon-tree-button-group:pr-[var(--button-height-base)] group-has-[.data-[state=open]]:pr-[var(--button-height-base)]',
                                             {
                                                 'bg-fill-button-tertiary-hover':
                                                     ((selectMode === 'folder-only' || selectMode === 'all') &&
@@ -579,17 +579,20 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             !isEmptyFolder &&
                                             size === 'default' && (
                                                 <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-                                                        {itemSideActionButton?.(item) ?? (
-                                                            <ButtonPrimitive
-                                                                iconOnly
-                                                                isSideActionRight
-                                                                className="z-2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 data-[state=open]:opacity-100 transition-opacity"
-                                                            >
-                                                                <IconEllipsis className="size-3 text-tertiary" />
-                                                            </ButtonPrimitive>
-                                                        )}
-                                                    </DropdownMenuTrigger>
+                                                    {/* We hide the side action button until hover (over group) / dropdown is active */}
+                                                    <div className="opacity-0 group-hover/lemon-tree-button-group:opacity-100 [&:has([data-state=open])]:opacity-100">
+                                                        <DropdownMenuTrigger asChild>
+                                                            {itemSideActionButton?.(item) ?? (
+                                                                <ButtonPrimitive
+                                                                    iconOnly
+                                                                    isSideActionRight
+                                                                    className="z-2"
+                                                                >
+                                                                    <IconEllipsis className="size-3 text-tertiary" />
+                                                                </ButtonPrimitive>
+                                                            )}
+                                                        </DropdownMenuTrigger>
+                                                    </div>
 
                                                     {/* The Dropdown content menu */}
                                                     {!!itemSideAction(item) && (
