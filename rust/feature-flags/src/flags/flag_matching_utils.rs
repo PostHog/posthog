@@ -1971,7 +1971,7 @@ mod tests {
         assert!(!should_retry_on_error(&column_error));
 
         // Test that other error types don't trigger retries
-        let timeout_error_variant = FlagError::TimeoutError;
+        let timeout_error_variant = FlagError::TimeoutError(None);
         assert!(!should_retry_on_error(&timeout_error_variant));
 
         let missing_id_error = FlagError::MissingDistinctId;
