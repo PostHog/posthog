@@ -1,4 +1,5 @@
 import os
+import uuid
 import warnings
 
 import pytest
@@ -136,6 +137,7 @@ async def _run_activity(
         exclude_events=exclude_events,
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
+        batch_export_id=str(uuid.uuid4()),
         properties_data_type=properties_data_type,
         **redshift_config,
     )
