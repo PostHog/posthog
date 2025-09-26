@@ -226,8 +226,8 @@ class TestEmailIntegration:
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
-            "mailjet_verified": False,
-            "aws_ses_verified": False,
+            "verified": False,
+            "provider": "mailjet",
         }
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
@@ -274,8 +274,8 @@ class TestEmailIntegration:
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
-            "mailjet_verified": False,
-            "aws_ses_verified": False,
+            "verified": False,
+            "provider": "mailjet",
         }
 
     @patch("posthog.models.integration.MailjetProvider")
@@ -318,8 +318,8 @@ class TestEmailIntegration:
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
-            "mailjet_verified": True,
-            "aws_ses_verified": False,
+            "verified": True,
+            "provider": "mailjet",
         }
 
     @patch("posthog.models.integration.MailjetProvider")
@@ -371,10 +371,10 @@ class TestEmailIntegration:
             self.user,
         )
 
-        assert not integration1.config["mailjet_verified"]
-        assert not integration2.config["mailjet_verified"]
-        assert not integrationOtherDomain.config["mailjet_verified"]
-        assert not integrationOtherTeam.config["mailjet_verified"]
+        assert not integration1.config["verified"]
+        assert not integration2.config["verified"]
+        assert not integrationOtherDomain.config["verified"]
+        assert not integrationOtherTeam.config["verified"]
 
         email_integration = EmailIntegration(integration1)
         verification_result = email_integration.verify()
@@ -385,7 +385,7 @@ class TestEmailIntegration:
         integrationOtherDomain.refresh_from_db()
         integrationOtherTeam.refresh_from_db()
 
-        assert integration1.config["mailjet_verified"]
-        assert integration2.config["mailjet_verified"]
-        assert not integrationOtherDomain.config["mailjet_verified"]
-        assert not integrationOtherTeam.config["mailjet_verified"]
+        assert integration1.config["verified"]
+        assert integration2.config["verified"]
+        assert not integrationOtherDomain.config["verified"]
+        assert not integrationOtherTeam.config["verified"]

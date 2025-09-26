@@ -292,8 +292,6 @@ mod tests {
             )
             .await;
 
-        println!("Flags: {:?}", result.flags);
-
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(!legacy_response.errors_while_computing_flags);
         assert_eq!(
@@ -1242,6 +1240,7 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         }
     }
 
@@ -4159,6 +4158,7 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         };
 
         // Test user "11" - should get first-variant
@@ -5193,8 +5193,6 @@ mod tests {
             )
             .await;
 
-        println!("Flags in result: {:?}", result.flags);
-
         assert!(!result.errors_while_computing_flags);
         // The flag should evaluate using DB properties for condition 1 (which has feature_access="full")
         // and overrides for condition 2 (which won't match the billing_email).
@@ -5427,6 +5425,7 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         };
 
         let router = context.create_postgres_router();

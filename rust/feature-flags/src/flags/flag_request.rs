@@ -65,6 +65,8 @@ pub struct FlagRequest {
     pub timezone: Option<String>,
     #[serde(default)]
     pub cookieless_hash_extra: Option<String>,
+    #[serde(default)]
+    pub evaluation_environments: Option<Vec<String>>,
 }
 
 impl FlagRequest {

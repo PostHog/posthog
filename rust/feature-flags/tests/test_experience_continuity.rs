@@ -36,6 +36,7 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
         ensure_experience_continuity: Some(true),
         version: Some(1),
         evaluation_runtime: None,
+        evaluation_tags: None,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 
@@ -160,6 +161,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
         ensure_experience_continuity: Some(true),
         version: Some(1),
         evaluation_runtime: None,
+        evaluation_tags: None,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 
