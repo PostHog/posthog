@@ -71,13 +71,110 @@ curl -o /dev/null -L --header "Content-Type: application/json" -d "{
     \"event\": \"magic_curl_install_start\"
 }" https://us.i.posthog.com/batch/ &> /dev/null
 
+# function to detect package manager
+detect_pkg_manager() {
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "apt-get"
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "dnf"
+    elif command -v yum >/dev/null 2>&1; then
+        echo "yum"
+    elif command -v zypper >/dev/null 2>&1; then
+        echo "zypper"
+    elif command -v pacman >/dev/null 2>&1; then
+        echo "pacman"
+    elif command -v apk >/dev/null 2>&1; then
++        echo "apk"
+    else
+        echo "unsupported"
+    fi
+}
+
+# function to update pm cache once
+update_cache_once() {
+    local pm=$1
+
+    if [ "$CACHE_UPDATED" = false ]; then
+        case "$pm" in
+            apt-get)
+                sudo apt-get update -y
+                ;;
+            dnf)
+                sudo dnf makecache -y
+                ;;
+            yum)
+                sudo yum makecache -y
+                ;;
+            zypper)
+                sudo zypper refresh
+                ;;
+            pacman)
+                sudo pacman -Sy --noconfirm
+                ;;
+            apk)
+                sudo apk update
+                ;;
+        esac
+        CACHE_UPDATED=true
+    fi
+}
+
+# install function specific each pm
+install_packages() {
+    # Parse generic flags; -y is handled per manager, --no-install-recommends is mapped where supported.
+    local NO_RECOMMENDS=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --no-install-recommends) NO_RECOMMENDS=true; shift ;;
+            --) shift; break ;;
+            -*) shift ;; # swallow unknown flags to avoid treating them as packages
+            *) break ;;
+        esac
+    done
+    local pkgs=("$@")
+    local pm
+    pm=$(detect_pkg_manager)
+    if [[ "$pm" == "unsupported" ]]; then
+        echo "Error: No supported package manager found on this system." >&2
+        exit 1
+    fi
+
+    update_cache_once "$pm"
+    case "$pm" in
+        apt-get)
+            local apt_opts=()
+            if [ "$NO_RECOMMENDS" = true ]; then apt_opts+=(--no-install-recommends); fi
+            sudo apt-get install -y "${apt_opts[@]}" "${pkgs[@]}"
+            ;;
+        dnf)
+            local dnf_opts=()
+            if [ "$NO_RECOMMENDS" = true ]; then dnf_opts+=(--setopt=install_weak_deps=False); fi
+            sudo dnf install -y "${dnf_opts[@]}" "${pkgs[@]}"
+            ;;
+        yum)
+            sudo yum install -y "${pkgs[@]}"
+            ;;
+        zypper)
+            local zypper_opts=()
+            if [ "$NO_RECOMMENDS" = true ]; then zypper_opts+=(--no-recommends); fi
+            sudo zypper install -y "${zypper_opts[@]}" "${pkgs[@]}"
+            ;;
+        pacman)
+            sudo pacman -S --noconfirm "${pkgs[@]}"
+            ;;
+        apk)
+            sudo apk add --no-cache "${pkgs[@]}"
+            ;;
+    esac
+}
+
 # update apt cache
 echo "Grabbing latest apt caches"
-sudo apt update
+update_cache_once "$(detect_pkg_manager)"
 
 # clone posthog
 echo "Installing PostHog 🦔 from Github"
-sudo apt install -y git
+install_packages git
 # try to clone - if folder is already there pull latest for that branch
 git clone https://github.com/PostHog/posthog.git &> /dev/null || true
 cd posthog
@@ -141,8 +238,7 @@ EOF
 
 # Download GeoLite2-City.mmdb if it doesn't exist
 echo "Downloading GeoIP database file"
-apt-get update && 
-apt-get install -y --no-install-recommends curl ca-certificates brotli && 
+install_packages --no-install-recommends curl ca-certificates brotli && 
 mkdir -p ./share && 
 if [ ! -f ./share/GeoLite2-City.mmdb ]; then 
     curl -L 'https://mmdbcdn.posthog.net/' --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb && 
