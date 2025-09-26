@@ -43,7 +43,7 @@ export function AuditLogTableRow({ logItem }: AuditLogTableRowProps): JSX.Elemen
                 data-attr="audit-log-row"
             >
                 <div className="col-span-4">
-                    <div className="truncate [&_div]:inline [&_div]:mr-1">
+                    <div className="truncate [&_*]:inline [&_*]:mr-1">
                         {typeof logItem.description === 'string'
                             ? logItem.description
                             : logItem.description || 'No description'}
