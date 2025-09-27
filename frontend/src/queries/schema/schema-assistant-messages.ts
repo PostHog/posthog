@@ -10,7 +10,16 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
-import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from './schema-general'
+import {
+    FunnelsQuery,
+    HogQLQuery,
+    RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsTopCustomersQuery,
+    TrendsQuery,
+} from './schema-general'
 
 // re-export MaxBillingContext to make it available in the schema
 export type { MaxBillingContext }
@@ -103,7 +112,15 @@ export type AnyAssistantGeneratedQuery =
 /**
  * The union type with all supported base queries for the assistant.
  */
-export type AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+export type AnyAssistantSupportedQuery =
+    | TrendsQuery
+    | FunnelsQuery
+    | RetentionQuery
+    | HogQLQuery
+    | RevenueAnalyticsGrossRevenueQuery
+    | RevenueAnalyticsMetricsQuery
+    | RevenueAnalyticsMRRQuery
+    | RevenueAnalyticsTopCustomersQuery
 
 export interface VisualizationItem {
     /** @default '' */

@@ -5,6 +5,7 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -276,6 +277,18 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         topCustomersGroupBy === 'all'
                     ),
                 }
+            },
+        ],
+
+        maxContext: [
+            (s) => [s.queries],
+            (queries): MaxContextInput[] => {
+                return [
+                    createMaxContextHelpers.insight({ query: queries[RevenueAnalyticsQuery.MRR] }),
+                    createMaxContextHelpers.insight({ query: queries[RevenueAnalyticsQuery.GROSS_REVENUE] }),
+                    createMaxContextHelpers.insight({ query: queries[RevenueAnalyticsQuery.METRICS] }),
+                    createMaxContextHelpers.insight({ query: queries[RevenueAnalyticsQuery.TOP_CUSTOMERS] }),
+                ]
             },
         ],
     }),
