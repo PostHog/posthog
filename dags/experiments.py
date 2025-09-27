@@ -210,7 +210,7 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
         query_from_utc = experiment.start_date if experiment.start_date else experiment.created_at
         query_to_utc = datetime.now(ZoneInfo("UTC"))
 
-        experiment_metric_result, created = ExperimentMetricResult.objects.update_or_create(
+        ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
             fingerprint=fingerprint,
