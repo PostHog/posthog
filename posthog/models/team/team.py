@@ -285,11 +285,7 @@ class Team(UUIDTClassicModel):
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
     onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
-    autocapture_opt_out = models.BooleanField(null=True, blank=True)
-    autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
-    autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
-    autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
-    autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+
     person_processing_opt_out = models.BooleanField(null=True, default=False)
     secret_api_token = models.CharField(
         max_length=200,
@@ -301,6 +297,8 @@ class Team(UUIDTClassicModel):
         null=True,
         blank=True,
     )
+
+    # Session recording
     session_recording_opt_in = field_access_control(models.BooleanField(default=False), "session_recording", "editor")
     session_recording_sample_rate = field_access_control(
         models.DecimalField(
@@ -356,16 +354,31 @@ class Team(UUIDTClassicModel):
         choices=SessionRecordingRetentionPeriod.choices,
         default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
-    survey_config = models.JSONField(null=True, blank=True)
+
+    # Surveys
+    survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
+    surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "survey", "editor")
+
+    # Capture / Autocapture
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
     capture_performance_opt_in = models.BooleanField(null=True, blank=True, default=True)
     capture_dead_clicks = models.BooleanField(null=True, blank=True, default=False)
-    surveys_opt_in = models.BooleanField(null=True, blank=True)
+    autocapture_opt_out = models.BooleanField(null=True, blank=True)
+    autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
+    autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
+    autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
+    autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+
+    # Heatmaps
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
+
+    # Web analytics
     web_analytics_pre_aggregated_tables_enabled = models.BooleanField(default=False, null=True)
     web_analytics_pre_aggregated_tables_version = models.CharField(
         max_length=10, default="v2", null=True, choices=[("v1", "v1"), ("v2", "v2")]
     )
+
+    # Feature flags
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_message = models.TextField(null=True, blank=True)

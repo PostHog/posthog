@@ -13,7 +13,7 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlAction, userHasAccess } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
@@ -38,7 +38,14 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    ProductKey,
+    ProgressStatus,
+    Survey,
+} from '~/types'
 
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_CREATED_SOURCE, SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
@@ -55,55 +62,55 @@ function NewSurveyButton(): JSX.Element {
     const { user } = useValues(userLogic)
 
     return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.Survey}
-            minAccessLevel={AccessControlLevel.Editor}
+        <MaxTool
+            identifier="create_survey"
+            initialMaxPrompt="Create a survey to collect "
+            suggestions={[
+                'Create an NPS survey for customers who completed checkout',
+                'Create a feedback survey asking about our new dashboard',
+                'Create a product-market fit survey for trial users',
+                'Create a quick satisfaction survey for support interactions',
+            ]}
+            context={{
+                user_id: user?.uuid,
+            }}
+            callback={(toolOutput: {
+                survey_id?: string
+                survey_name?: string
+                error?: string
+                error_message?: string
+            }) => {
+                addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: toolOutput.survey_id,
+                        source: SURVEY_CREATED_SOURCE.MAX_AI,
+                        created_successfully: !toolOutput?.error,
+                    },
+                })
+
+                if (toolOutput?.error || !toolOutput?.survey_id) {
+                    return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.MAX_AI)
+                }
+
+                // Refresh surveys list to show new survey, then redirect to it
+                loadSurveys()
+                router.actions.push(urls.survey(toolOutput.survey_id))
+            }}
+            position="bottom-right"
+            active={!!user?.uuid && userHasAccess(AccessControlResourceType.Survey, AccessControlLevel.Editor)}
+            className={cn('mr-3')}
         >
-            <MaxTool
-                identifier="create_survey"
-                initialMaxPrompt="Create a survey to collect "
-                suggestions={[
-                    'Create an NPS survey for customers who completed checkout',
-                    'Create a feedback survey asking about our new dashboard',
-                    'Create a product-market fit survey for trial users',
-                    'Create a quick satisfaction survey for support interactions',
-                ]}
-                context={{
-                    user_id: user?.uuid,
-                }}
-                callback={(toolOutput: {
-                    survey_id?: string
-                    survey_name?: string
-                    error?: string
-                    error_message?: string
-                }) => {
-                    addProductIntent({
-                        product_type: ProductKey.SURVEYS,
-                        intent_context: ProductIntentContext.SURVEY_CREATED,
-                        metadata: {
-                            survey_id: toolOutput.survey_id,
-                            source: SURVEY_CREATED_SOURCE.MAX_AI,
-                            created_successfully: !toolOutput?.error,
-                        },
-                    })
-
-                    if (toolOutput?.error || !toolOutput?.survey_id) {
-                        return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.MAX_AI)
-                    }
-
-                    // Refresh surveys list to show new survey, then redirect to it
-                    loadSurveys()
-                    router.actions.push(urls.survey(toolOutput.survey_id))
-                }}
-                position="bottom-right"
-                active={!!user?.uuid}
-                className={cn('mr-3')}
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Survey}
+                minAccessLevel={AccessControlLevel.Editor}
             >
                 <LemonButton size="small" to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
                     <span className="pr-3">New survey</span>
                 </LemonButton>
-            </MaxTool>
-        </AccessControlAction>
+            </AccessControlAction>
+        </MaxTool>
     )
 }
 
@@ -323,214 +330,229 @@ function Surveys(): JSX.Element {
                                                                 View
                                                             </LemonButton>
                                                             {!survey.start_date && (
-                                                                <LemonButton
-                                                                    fullWidth
-                                                                    disabledReason={
-                                                                        !survey.user_access_level ||
-                                                                        !accessLevelSatisfied(
-                                                                            AccessControlResourceType.Survey,
-                                                                            survey.user_access_level,
-                                                                            'editor'
-                                                                        )
-                                                                            ? 'You do not have permission to launch this survey.'
-                                                                            : undefined
-                                                                    }
-                                                                    onClick={() =>
-                                                                        LemonDialog.open({
-                                                                            title: 'Launch this survey?',
-                                                                            content: (
-                                                                                <div className="text-sm text-secondary">
-                                                                                    The survey will immediately start
-                                                                                    displaying to users matching the
-                                                                                    display conditions.
-                                                                                </div>
-                                                                            ),
-                                                                            primaryButton: {
-                                                                                children: 'Launch',
-                                                                                type: 'primary',
-                                                                                onClick: () => {
-                                                                                    updateSurvey({
-                                                                                        id: survey.id,
-                                                                                        updatePayload: {
-                                                                                            start_date:
-                                                                                                dayjs().toISOString(),
-                                                                                        },
-                                                                                        intentContext:
-                                                                                            ProductIntentContext.SURVEY_LAUNCHED,
-                                                                                    })
-                                                                                },
-                                                                                size: 'small',
-                                                                            },
-                                                                            secondaryButton: {
-                                                                                children: 'Cancel',
-                                                                                type: 'tertiary',
-                                                                                size: 'small',
-                                                                            },
-                                                                        })
-                                                                    }
+                                                                <AccessControlAction
+                                                                    resourceType={AccessControlResourceType.Survey}
+                                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                                    userAccessLevel={survey.user_access_level}
                                                                 >
-                                                                    Launch survey
-                                                                </LemonButton>
+                                                                    <LemonButton
+                                                                        fullWidth
+                                                                        onClick={() =>
+                                                                            LemonDialog.open({
+                                                                                title: 'Launch this survey?',
+                                                                                content: (
+                                                                                    <div className="text-sm text-secondary">
+                                                                                        The survey will immediately
+                                                                                        start displaying to users
+                                                                                        matching the display conditions.
+                                                                                    </div>
+                                                                                ),
+                                                                                primaryButton: {
+                                                                                    children: 'Launch',
+                                                                                    type: 'primary',
+                                                                                    onClick: () => {
+                                                                                        updateSurvey({
+                                                                                            id: survey.id,
+                                                                                            updatePayload: {
+                                                                                                start_date:
+                                                                                                    dayjs().toISOString(),
+                                                                                            },
+                                                                                            intentContext:
+                                                                                                ProductIntentContext.SURVEY_LAUNCHED,
+                                                                                        })
+                                                                                    },
+                                                                                    size: 'small',
+                                                                                },
+                                                                                secondaryButton: {
+                                                                                    children: 'Cancel',
+                                                                                    type: 'tertiary',
+                                                                                    size: 'small',
+                                                                                },
+                                                                            })
+                                                                        }
+                                                                    >
+                                                                        Launch survey
+                                                                    </LemonButton>
+                                                                </AccessControlAction>
                                                             )}
                                                             {isSurveyRunning(survey) && (
-                                                                <LemonButton
-                                                                    fullWidth
-                                                                    disabledReason={
-                                                                        !survey.user_access_level ||
-                                                                        !accessLevelSatisfied(
-                                                                            AccessControlResourceType.Survey,
-                                                                            survey.user_access_level,
-                                                                            'editor'
-                                                                        )
-                                                                            ? 'You do not have permission to stop this survey.'
-                                                                            : undefined
-                                                                    }
-                                                                    onClick={() => {
-                                                                        LemonDialog.open({
-                                                                            title: 'Stop this survey?',
-                                                                            content: (
-                                                                                <div className="text-sm text-secondary">
-                                                                                    The survey will no longer be visible
-                                                                                    to your users.
-                                                                                </div>
-                                                                            ),
-                                                                            primaryButton: {
-                                                                                children: 'Stop',
-                                                                                type: 'primary',
-                                                                                onClick: () => {
-                                                                                    updateSurvey({
-                                                                                        id: survey.id,
-                                                                                        updatePayload: {
-                                                                                            end_date:
-                                                                                                dayjs().toISOString(),
-                                                                                        },
-                                                                                        intentContext:
-                                                                                            ProductIntentContext.SURVEY_COMPLETED,
-                                                                                    })
-                                                                                },
-                                                                                size: 'small',
-                                                                            },
-                                                                            secondaryButton: {
-                                                                                children: 'Cancel',
-                                                                                type: 'tertiary',
-                                                                                size: 'small',
-                                                                            },
-                                                                        })
-                                                                    }}
+                                                                <AccessControlAction
+                                                                    resourceType={AccessControlResourceType.Survey}
+                                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                                    userAccessLevel={survey.user_access_level}
                                                                 >
-                                                                    Stop survey
-                                                                </LemonButton>
+                                                                    <LemonButton
+                                                                        fullWidth
+                                                                        onClick={() => {
+                                                                            LemonDialog.open({
+                                                                                title: 'Stop this survey?',
+                                                                                content: (
+                                                                                    <div className="text-sm text-secondary">
+                                                                                        The survey will no longer be
+                                                                                        visible to your users.
+                                                                                    </div>
+                                                                                ),
+                                                                                primaryButton: {
+                                                                                    children: 'Stop',
+                                                                                    type: 'primary',
+                                                                                    onClick: () => {
+                                                                                        updateSurvey({
+                                                                                            id: survey.id,
+                                                                                            updatePayload: {
+                                                                                                end_date:
+                                                                                                    dayjs().toISOString(),
+                                                                                            },
+                                                                                            intentContext:
+                                                                                                ProductIntentContext.SURVEY_COMPLETED,
+                                                                                        })
+                                                                                    },
+                                                                                    size: 'small',
+                                                                                },
+                                                                                secondaryButton: {
+                                                                                    children: 'Cancel',
+                                                                                    type: 'tertiary',
+                                                                                    size: 'small',
+                                                                                },
+                                                                            })
+                                                                        }}
+                                                                    >
+                                                                        Stop survey
+                                                                    </LemonButton>
+                                                                </AccessControlAction>
                                                             )}
                                                             {survey.end_date && !survey.archived && (
-                                                                <LemonButton
-                                                                    fullWidth
-                                                                    disabledReason={
-                                                                        !survey.user_access_level ||
-                                                                        !accessLevelSatisfied(
-                                                                            AccessControlResourceType.Survey,
-                                                                            survey.user_access_level,
-                                                                            'editor'
-                                                                        )
-                                                                            ? 'You do not have permission to resume this survey.'
-                                                                            : undefined
-                                                                    }
-                                                                    onClick={() => {
-                                                                        LemonDialog.open({
-                                                                            title: 'Resume this survey?',
-                                                                            content: (
-                                                                                <div className="text-sm text-secondary">
-                                                                                    Once resumed, the survey will be
-                                                                                    visible to your users again.
-                                                                                </div>
-                                                                            ),
-                                                                            primaryButton: {
-                                                                                children: 'Resume',
-                                                                                type: 'primary',
-                                                                                onClick: () => {
-                                                                                    updateSurvey({
-                                                                                        id: survey.id,
-                                                                                        updatePayload: {
-                                                                                            end_date: null,
-                                                                                        },
-                                                                                        intentContext:
-                                                                                            ProductIntentContext.SURVEY_RESUMED,
-                                                                                    })
-                                                                                },
-                                                                                size: 'small',
-                                                                            },
-                                                                            secondaryButton: {
-                                                                                children: 'Cancel',
-                                                                                type: 'tertiary',
-                                                                                size: 'small',
-                                                                            },
-                                                                        })
-                                                                    }}
+                                                                <AccessControlAction
+                                                                    resourceType={AccessControlResourceType.Survey}
+                                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                                    userAccessLevel={survey.user_access_level}
                                                                 >
-                                                                    Resume survey
-                                                                </LemonButton>
+                                                                    <LemonButton
+                                                                        fullWidth
+                                                                        onClick={() => {
+                                                                            LemonDialog.open({
+                                                                                title: 'Resume this survey?',
+                                                                                content: (
+                                                                                    <div className="text-sm text-secondary">
+                                                                                        Once resumed, the survey will be
+                                                                                        visible to your users again.
+                                                                                    </div>
+                                                                                ),
+                                                                                primaryButton: {
+                                                                                    children: 'Resume',
+                                                                                    type: 'primary',
+                                                                                    onClick: () => {
+                                                                                        updateSurvey({
+                                                                                            id: survey.id,
+                                                                                            updatePayload: {
+                                                                                                end_date: null,
+                                                                                            },
+                                                                                            intentContext:
+                                                                                                ProductIntentContext.SURVEY_RESUMED,
+                                                                                        })
+                                                                                    },
+                                                                                    size: 'small',
+                                                                                },
+                                                                                secondaryButton: {
+                                                                                    children: 'Cancel',
+                                                                                    type: 'tertiary',
+                                                                                    size: 'small',
+                                                                                },
+                                                                            })
+                                                                        }}
+                                                                    >
+                                                                        Resume survey
+                                                                    </LemonButton>
+                                                                </AccessControlAction>
                                                             )}
                                                             <LemonDivider />
                                                             {survey.end_date && survey.archived && (
-                                                                <LemonButton
-                                                                    fullWidth
-                                                                    disabledReason={
-                                                                        !survey.user_access_level ||
-                                                                        !accessLevelSatisfied(
-                                                                            AccessControlResourceType.Survey,
-                                                                            survey.user_access_level,
-                                                                            'editor'
-                                                                        )
-                                                                            ? 'You do not have permission to unarchive this survey.'
-                                                                            : undefined
-                                                                    }
-                                                                    onClick={() => {
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: { archived: false },
-                                                                            intentContext:
-                                                                                ProductIntentContext.SURVEY_UNARCHIVED,
-                                                                        })
-                                                                    }}
+                                                                <AccessControlAction
+                                                                    resourceType={AccessControlResourceType.Survey}
+                                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                                    userAccessLevel={survey.user_access_level}
                                                                 >
-                                                                    Unarchive
-                                                                </LemonButton>
+                                                                    <LemonButton
+                                                                        fullWidth
+                                                                        onClick={() => {
+                                                                            updateSurvey({
+                                                                                id: survey.id,
+                                                                                updatePayload: { archived: false },
+                                                                                intentContext:
+                                                                                    ProductIntentContext.SURVEY_UNARCHIVED,
+                                                                            })
+                                                                        }}
+                                                                    >
+                                                                        Unarchive
+                                                                    </LemonButton>
+                                                                </AccessControlAction>
                                                             )}
                                                             {survey.end_date && !survey.archived && (
+                                                                <AccessControlAction
+                                                                    resourceType={AccessControlResourceType.Survey}
+                                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                                    userAccessLevel={survey.user_access_level}
+                                                                >
+                                                                    <LemonButton
+                                                                        fullWidth
+                                                                        onClick={() => {
+                                                                            LemonDialog.open({
+                                                                                title: 'Archive this survey?',
+                                                                                content: (
+                                                                                    <div className="text-sm text-secondary">
+                                                                                        This action will remove the
+                                                                                        survey from your active surveys
+                                                                                        list. It can be restored at any
+                                                                                        time.
+                                                                                    </div>
+                                                                                ),
+                                                                                primaryButton: {
+                                                                                    children: 'Archive',
+                                                                                    type: 'primary',
+                                                                                    onClick: () => {
+                                                                                        updateSurvey({
+                                                                                            id: survey.id,
+                                                                                            updatePayload: {
+                                                                                                archived: true,
+                                                                                            },
+                                                                                            intentContext:
+                                                                                                ProductIntentContext.SURVEY_ARCHIVED,
+                                                                                        })
+                                                                                    },
+                                                                                    size: 'small',
+                                                                                },
+                                                                                secondaryButton: {
+                                                                                    children: 'Cancel',
+                                                                                    type: 'tertiary',
+                                                                                    size: 'small',
+                                                                                },
+                                                                            })
+                                                                        }}
+                                                                    >
+                                                                        Archive
+                                                                    </LemonButton>
+                                                                </AccessControlAction>
+                                                            )}
+                                                            <AccessControlAction
+                                                                resourceType={AccessControlResourceType.Survey}
+                                                                minAccessLevel={AccessControlLevel.Editor}
+                                                                userAccessLevel={survey.user_access_level}
+                                                            >
                                                                 <LemonButton
-                                                                    fullWidth
-                                                                    disabledReason={
-                                                                        !survey.user_access_level ||
-                                                                        !accessLevelSatisfied(
-                                                                            AccessControlResourceType.Survey,
-                                                                            survey.user_access_level,
-                                                                            'editor'
-                                                                        )
-                                                                            ? 'You do not have permission to archive this survey.'
-                                                                            : undefined
-                                                                    }
+                                                                    status="danger"
                                                                     onClick={() => {
                                                                         LemonDialog.open({
-                                                                            title: 'Archive this survey?',
+                                                                            title: 'Delete this survey?',
                                                                             content: (
                                                                                 <div className="text-sm text-secondary">
-                                                                                    This action will remove the survey
-                                                                                    from your active surveys list. It
-                                                                                    can be restored at any time.
+                                                                                    This action cannot be undone. All
+                                                                                    survey data will be permanently
+                                                                                    removed.
                                                                                 </div>
                                                                             ),
                                                                             primaryButton: {
-                                                                                children: 'Archive',
+                                                                                children: 'Delete',
                                                                                 type: 'primary',
-                                                                                onClick: () => {
-                                                                                    updateSurvey({
-                                                                                        id: survey.id,
-                                                                                        updatePayload: {
-                                                                                            archived: true,
-                                                                                        },
-                                                                                        intentContext:
-                                                                                            ProductIntentContext.SURVEY_ARCHIVED,
-                                                                                    })
-                                                                                },
+                                                                                onClick: () => deleteSurvey(survey.id),
                                                                                 size: 'small',
                                                                             },
                                                                             secondaryButton: {
@@ -540,48 +562,11 @@ function Surveys(): JSX.Element {
                                                                             },
                                                                         })
                                                                     }}
+                                                                    fullWidth
                                                                 >
-                                                                    Archive
+                                                                    Delete
                                                                 </LemonButton>
-                                                            )}
-                                                            <LemonButton
-                                                                status="danger"
-                                                                disabledReason={
-                                                                    !survey.user_access_level ||
-                                                                    !accessLevelSatisfied(
-                                                                        AccessControlResourceType.Survey,
-                                                                        survey.user_access_level,
-                                                                        'editor'
-                                                                    )
-                                                                        ? 'You do not have permission to delete this survey.'
-                                                                        : undefined
-                                                                }
-                                                                onClick={() => {
-                                                                    LemonDialog.open({
-                                                                        title: 'Delete this survey?',
-                                                                        content: (
-                                                                            <div className="text-sm text-secondary">
-                                                                                This action cannot be undone. All survey
-                                                                                data will be permanently removed.
-                                                                            </div>
-                                                                        ),
-                                                                        primaryButton: {
-                                                                            children: 'Delete',
-                                                                            type: 'primary',
-                                                                            onClick: () => deleteSurvey(survey.id),
-                                                                            size: 'small',
-                                                                        },
-                                                                        secondaryButton: {
-                                                                            children: 'Cancel',
-                                                                            type: 'tertiary',
-                                                                            size: 'small',
-                                                                        },
-                                                                    })
-                                                                }}
-                                                                fullWidth
-                                                            >
-                                                                Delete
-                                                            </LemonButton>
+                                                            </AccessControlAction>
                                                         </>
                                                     }
                                                 />

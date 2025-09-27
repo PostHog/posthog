@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -14,7 +15,7 @@ import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surve
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { SurveyAppearance } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, SurveyAppearance } from '~/types'
 
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { NEW_SURVEY, defaultSurveyAppearance } from './constants'
@@ -31,22 +32,27 @@ function SurveyPopupToggle(): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             {currentTeam?.surveys_opt_in !== undefined && (
-                <LemonSwitch
-                    data-attr="opt-in-surveys-switch"
-                    onChange={(checked) => {
-                        updateCurrentTeam({
-                            surveys_opt_in: checked,
-                        })
-                    }}
-                    fullWidth
-                    bordered={false}
-                    label="Enable surveys"
-                    labelClassName="text-base font-semibold"
-                    checked={currentTeam.surveys_opt_in}
-                    className="p-0"
-                    disabled={currentTeamLoading}
-                    disabledReason={currentTeamLoading ? 'Loading...' : undefined}
-                />
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Survey}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonSwitch
+                        data-attr="opt-in-surveys-switch"
+                        onChange={(checked) => {
+                            updateCurrentTeam({
+                                surveys_opt_in: checked,
+                            })
+                        }}
+                        fullWidth
+                        bordered={false}
+                        label="Enable surveys"
+                        labelClassName="text-base font-semibold"
+                        checked={currentTeam.surveys_opt_in}
+                        className="p-0"
+                        disabled={currentTeamLoading}
+                        disabledReason={currentTeamLoading ? 'Loading...' : undefined}
+                    />
+                </AccessControlAction>
             )}
             <span>
                 Please note your website needs to have the{' '}
@@ -126,46 +132,68 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
             <SurveyPopupToggle />
             <LemonDivider className="m-0" />
 
-            <div className="flex items-center gap-1 flex-1 justify-between">
-                <LemonField.Pure label="Default appearance" className="text-base gap-1">
-                    <span className="text-sm">These settings apply to new surveys in this organization.</span>
-                </LemonField.Pure>
-                {globalSurveyAppearanceConfigAvailable && (
-                    <LemonButton type="primary" onClick={updateSurveySettings} className="">
-                        Save appearance changes
-                    </LemonButton>
-                )}
-            </div>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Survey}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                {({ disabledReason }) => {
+                    // The disabledReason is set if the user doesn't have access to the survey resource
+                    if (disabledReason) {
+                        return null
+                    }
 
-            <div className="flex gap-8">
-                <div className="min-w-1/2">
-                    <Customization
-                        survey={templatedSurvey}
-                        hasBranchingLogic={false}
-                        hasRatingButtons={true}
-                        hasPlaceholderText={true}
-                        onAppearanceChange={(appearance) => {
-                            const newAppearance = {
-                                ...editableSurveyConfig,
-                                ...appearance,
-                            }
-                            const errors = validateSurveyAppearance(newAppearance, true, templatedSurvey.type)
-                            setValidationErrors(errors)
-                            setEditableSurveyConfig(newAppearance)
-                            setTemplatedSurvey({
-                                ...templatedSurvey,
-                                appearance: newAppearance,
-                            })
-                        }}
-                        validationErrors={validationErrors}
-                    />
-                </div>
-                {globalSurveyAppearanceConfigAvailable && (
-                    <div className="max-w-1/2 pt-8 pr-8 overflow-auto">
-                        <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
-                    </div>
-                )}
-            </div>
+                    return (
+                        <>
+                            <div className="flex items-center gap-1 flex-1 justify-between">
+                                <LemonField.Pure label="Default appearance" className="text-base gap-1">
+                                    <span className="text-sm">
+                                        These settings apply to new surveys in this organization.
+                                    </span>
+                                </LemonField.Pure>
+                                {globalSurveyAppearanceConfigAvailable && (
+                                    <LemonButton type="primary" onClick={updateSurveySettings} className="">
+                                        Save appearance changes
+                                    </LemonButton>
+                                )}
+                            </div>
+
+                            <div className="flex gap-8">
+                                <div className="min-w-1/2">
+                                    <Customization
+                                        survey={templatedSurvey}
+                                        hasBranchingLogic={false}
+                                        hasRatingButtons={true}
+                                        hasPlaceholderText={true}
+                                        onAppearanceChange={(appearance) => {
+                                            const newAppearance = {
+                                                ...editableSurveyConfig,
+                                                ...appearance,
+                                            }
+                                            const errors = validateSurveyAppearance(
+                                                newAppearance,
+                                                true,
+                                                templatedSurvey.type
+                                            )
+                                            setValidationErrors(errors)
+                                            setEditableSurveyConfig(newAppearance)
+                                            setTemplatedSurvey({
+                                                ...templatedSurvey,
+                                                appearance: newAppearance,
+                                            })
+                                        }}
+                                        validationErrors={validationErrors}
+                                    />
+                                </div>
+                                {globalSurveyAppearanceConfigAvailable && (
+                                    <div className="max-w-1/2 pt-8 pr-8 overflow-auto">
+                                        <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    )
+                }}
+            </AccessControlAction>
         </div>
     )
 }

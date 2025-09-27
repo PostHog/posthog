@@ -160,7 +160,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         resourceType={{
                             type: 'survey',
                         }}
-                        canEdit
+                        canEdit={userHasAccess(
+                            AccessControlResourceType.Survey,
+                            AccessControlLevel.Editor,
+                            survey.user_access_level
+                        )}
                         onNameChange={(name) => updateSurvey({ id, name })}
                         onDescriptionChange={(description) => updateSurvey({ id, description })}
                         renameDebounceMs={1000}
@@ -183,13 +187,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     </LemonButton>
                                 </AccessControlAction>
                                 {!survey.start_date ? (
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.Survey}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={survey.user_access_level}
-                                    >
-                                        <LaunchSurveyButton />
-                                    </AccessControlAction>
+                                    <LaunchSurveyButton />
                                 ) : survey.end_date && !survey.archived ? (
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.Survey}
@@ -204,7 +202,8 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     title: 'Resume this survey?',
                                                     content: (
                                                         <div className="text-sm text-secondary">
-                                                            Once resumed, the survey will be visible to your users again.
+                                                            Once resumed, the survey will be visible to your users
+                                                            again.
                                                         </div>
                                                     ),
                                                     primaryButton: {
