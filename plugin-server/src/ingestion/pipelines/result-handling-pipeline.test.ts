@@ -55,7 +55,7 @@ describe('ResultHandlingPipeline', () => {
     })
 
     describe('basic functionality', () => {
-        it('should process successful results and return values', async () => {
+        it('should process successful results and return batch pipeline results', async () => {
             const messages: Message[] = [
                 { value: Buffer.from('test1'), topic: 'test', partition: 0, offset: 1 } as Message,
                 { value: Buffer.from('test2'), topic: 'test', partition: 0, offset: 2 } as Message,
@@ -72,7 +72,11 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([{ processed: 'test1' }, { processed: 'test2' }])
+            expect(results).not.toBeNull()
+            expect(results).toEqual([
+                createContext(ok({ processed: 'test1' }), { message: messages[0] }),
+                createContext(ok({ processed: 'test2' }), { message: messages[1] }),
+            ])
         })
 
         it('should handle empty batch', async () => {
@@ -86,7 +90,7 @@ describe('ResultHandlingPipeline', () => {
     })
 
     describe('result handling', () => {
-        it('should filter out dropped results and log them', async () => {
+        it('should handle dropped results and log them', async () => {
             const messages: Message[] = [
                 { value: Buffer.from('test1'), topic: 'test', partition: 0, offset: 1 } as Message,
                 { value: Buffer.from('drop'), topic: 'test', partition: 0, offset: 2 } as Message,
@@ -105,11 +109,18 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([{ processed: 'test1' }, { processed: 'test3' }])
+            expect(results).not.toBeNull()
+            expect(results).toEqual([
+                createContext(ok({ processed: 'test1' }), { message: messages[0] }),
+                createContext(drop('test drop reason'), { message: messages[1] }),
+                createContext(ok({ processed: 'test3' }), { message: messages[2] }),
+            ])
             expect(mockLogDroppedMessage).toHaveBeenCalledWith(messages[1], 'test drop reason', 'unknown')
         })
 
-        it('should filter out redirected results and redirect them', async () => {
+        it('should handle redirected results and add side effects', async () => {
+            mockRedirectMessageToTopic.mockResolvedValue(undefined)
+
             const messages: Message[] = [
                 { value: Buffer.from('test1'), topic: 'test', partition: 0, offset: 1 } as Message,
                 { value: Buffer.from('redirect'), topic: 'test', partition: 0, offset: 2 } as Message,
@@ -128,7 +139,19 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([{ processed: 'test1' }, { processed: 'test3' }])
+            // Should return all results including redirect result with side effects
+            expect(results).not.toBeNull()
+            expect(results).toHaveLength(3)
+            expect(results![0]).toEqual(createContext(ok({ processed: 'test1' }), { message: messages[0] }))
+            expect(results![1].result).toEqual(redirect('test redirect', 'overflow-topic', true, false))
+            expect(results![1].context.sideEffects).toHaveLength(1)
+            expect(results![2]).toEqual(createContext(ok({ processed: 'test3' }), { message: messages[2] }))
+
+            // Extract and await side effects
+            const sideEffects = results![1].context.sideEffects
+            await Promise.all(sideEffects)
+
+            // Now verify the mock was called
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 mockPromiseScheduler,
@@ -141,6 +164,8 @@ describe('ResultHandlingPipeline', () => {
         })
 
         it('should redirect messages with event and uuid headers', async () => {
+            mockRedirectMessageToTopic.mockResolvedValue(undefined)
+
             const messagesWithHeaders: Message[] = [
                 {
                     value: Buffer.from('redirect'),
@@ -169,7 +194,17 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([])
+            // Should return the redirect result with side effects
+            expect(results).not.toBeNull()
+            expect(results).toHaveLength(1)
+            expect(results![0].result).toEqual(redirect('test redirect', 'overflow-topic', false, true))
+            expect(results![0].context.sideEffects).toHaveLength(1)
+
+            // Extract and await side effects
+            const sideEffects = results![0].context.sideEffects
+            await Promise.all(sideEffects)
+
+            // Now verify the mock was called
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 mockPromiseScheduler,
@@ -190,7 +225,9 @@ describe('ResultHandlingPipeline', () => {
             ])
         })
 
-        it('should filter out dlq results and send to DLQ', async () => {
+        it('should handle dlq results and add side effects', async () => {
+            mockSendMessageToDLQ.mockResolvedValue(undefined)
+
             const messages: Message[] = [
                 { value: Buffer.from('test1'), topic: 'test', partition: 0, offset: 1 } as Message,
                 { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 2 } as Message,
@@ -210,7 +247,19 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([{ processed: 'test1' }, { processed: 'test3' }])
+            // Should return all results including dlq result with side effects
+            expect(results).not.toBeNull()
+            expect(results).toHaveLength(3)
+            expect(results![0]).toEqual(createContext(ok({ processed: 'test1' }), { message: messages[0] }))
+            expect(results![1].result).toEqual(dlq('test dlq reason', testError))
+            expect(results![1].context.sideEffects).toHaveLength(1)
+            expect(results![2]).toEqual(createContext(ok({ processed: 'test3' }), { message: messages[2] }))
+
+            // Extract and await side effects
+            const sideEffects = results![1].context.sideEffects
+            await Promise.all(sideEffects)
+
+            // Now verify the mock was called
             expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 messages[1],
@@ -221,6 +270,8 @@ describe('ResultHandlingPipeline', () => {
         })
 
         it('should send DLQ messages with event and uuid headers', async () => {
+            mockSendMessageToDLQ.mockResolvedValue(undefined)
+
             const messagesWithHeaders: Message[] = [
                 {
                     value: Buffer.from('dlq'),
@@ -248,7 +299,17 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([])
+            // Should return the dlq result with side effects
+            expect(results).not.toBeNull()
+            expect(results).toHaveLength(1)
+            expect(results![0].result).toEqual(dlq('test dlq reason', testError))
+            expect(results![0].context.sideEffects).toHaveLength(1)
+
+            // Extract and await side effects
+            const sideEffects = results![0].context.sideEffects
+            await Promise.all(sideEffects)
+
+            // Now verify the mock was called
             expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 messagesWithHeaders[0],
@@ -268,6 +329,8 @@ describe('ResultHandlingPipeline', () => {
         })
 
         it('should handle dlq result without error and create default error', async () => {
+            mockSendMessageToDLQ.mockResolvedValue(undefined)
+
             const messages: Message[] = [
                 { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 1 } as Message,
             ]
@@ -282,7 +345,17 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([])
+            // Should return the dlq result with side effects
+            expect(results).not.toBeNull()
+            expect(results).toHaveLength(1)
+            expect(results![0].result).toEqual(dlq('test dlq reason'))
+            expect(results![0].context.sideEffects).toHaveLength(1)
+
+            // Extract and await side effects
+            const sideEffects = results![0].context.sideEffects
+            await Promise.all(sideEffects)
+
+            // Now verify the mock was called
             expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 messages[0],
@@ -296,6 +369,9 @@ describe('ResultHandlingPipeline', () => {
         })
 
         it('should handle mixed results correctly', async () => {
+            mockRedirectMessageToTopic.mockResolvedValue(undefined)
+            mockSendMessageToDLQ.mockResolvedValue(undefined)
+
             const messages: Message[] = [
                 { value: Buffer.from('success1'), topic: 'test', partition: 0, offset: 1 } as Message,
                 { value: Buffer.from('drop'), topic: 'test', partition: 0, offset: 2 } as Message,
@@ -318,7 +394,21 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([{ processed: 'success1' }, { processed: 'success2' }])
+            // Should return all results including non-success ones
+            expect(results).not.toBeNull()
+            expect(results).toHaveLength(5)
+            expect(results![0]).toEqual(createContext(ok({ processed: 'success1' }), { message: messages[0] }))
+            expect(results![1]).toEqual(createContext(drop('dropped item'), { message: messages[1] }))
+            expect(results![2]).toEqual(createContext(ok({ processed: 'success2' }), { message: messages[2] }))
+            expect(results![3].result).toEqual(redirect('redirected item', 'overflow-topic'))
+            expect(results![3].context.sideEffects).toHaveLength(1)
+            expect(results![4].result).toEqual(dlq('dlq item', new Error('processing error')))
+            expect(results![4].context.sideEffects).toHaveLength(1)
+
+            // Extract and await side effects from redirect and dlq results
+            const redirectSideEffects = results![3].context.sideEffects
+            const dlqSideEffects = results![4].context.sideEffects
+            await Promise.all([...redirectSideEffects, ...dlqSideEffects])
 
             // Verify all non-success results were handled
             expect(mockLogDroppedMessage).toHaveBeenCalledWith(messages[1], 'dropped item', 'unknown')
@@ -369,7 +459,9 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([{ processed: 'success' }])
+            // Should return all results including non-success ones
+            expect(results).not.toBeNull()
+            expect(results).toHaveLength(4)
 
             // Verify all last steps were reported
             expect(mockPipelineLastStepCounter.labels).toHaveBeenCalledWith('validationStep')
@@ -396,7 +488,8 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([{ processed: 'success' }])
+            expect(results).not.toBeNull()
+            expect(results).toEqual([createContext(ok({ processed: 'success' }), { message: messages[0] })])
 
             // Verify no last step was reported
             expect(mockPipelineLastStepCounter.labels).not.toHaveBeenCalled()
@@ -423,12 +516,19 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([{ count: 2 }, { count: 4 }, { count: 6 }])
+            expect(results).not.toBeNull()
+            expect(results).toEqual([
+                createContext(ok({ count: 2 }), { message: messages[0] }),
+                createContext(ok({ count: 4 }), { message: messages[1] }),
+                createContext(ok({ count: 6 }), { message: messages[2] }),
+            ])
         })
     })
 
     describe('redirect result with default parameters', () => {
         it('should use default preserveKey and awaitAck when not specified', async () => {
+            mockRedirectMessageToTopic.mockResolvedValue(undefined)
+
             const messages: Message[] = [
                 { value: Buffer.from('redirect'), topic: 'test', partition: 0, offset: 1 } as Message,
             ]
@@ -443,7 +543,17 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            expect(results).toEqual([])
+            // Should return the redirect result with side effects
+            expect(results).not.toBeNull()
+            expect(results).toHaveLength(1)
+            expect(results![0].result).toEqual(redirect('test redirect', 'overflow-topic'))
+            expect(results![0].context.sideEffects).toHaveLength(1)
+
+            // Extract and await side effects
+            const sideEffects = results![0].context.sideEffects
+            await Promise.all(sideEffects)
+
+            // Now verify the mock was called with default parameters
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 mockPromiseScheduler,
