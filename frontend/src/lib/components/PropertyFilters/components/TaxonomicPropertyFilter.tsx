@@ -176,9 +176,9 @@ export function TaxonomicPropertyFilter({
                         ...(filter.type === PropertyFilterType.Cohort ? { cohort_name: filter.cohort_name } : {}),
                     } as AnyPropertyFilter)
                 }
-                if (newOperator && newValue && !isOperatorMulti(newOperator) && !isOperatorRegex(newOperator)) {
-                    onComplete()
-                }
+            }}
+            onApply={() => {
+                onComplete?.()
             }}
             groupTypeIndex={
                 isGroupPropertyFilter(filter) && typeof filter?.group_type_index === 'number'

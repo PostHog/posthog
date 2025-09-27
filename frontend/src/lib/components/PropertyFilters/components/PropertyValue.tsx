@@ -31,6 +31,7 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction
+    onApply?: () => void
     value?: PropertyFilterValue
     operator: PropertyOperator
     autoFocus?: boolean
@@ -49,6 +50,7 @@ export function PropertyValue({
     endpoint = undefined,
     placeholder = undefined,
     onSet,
+    onApply,
     value,
     operator,
     size,
@@ -215,7 +217,6 @@ export function PropertyValue({
         return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
     }
 
-    // Disable comma splitting for user agent properties that contain commas in their values
     const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
 
     return (
@@ -239,6 +240,15 @@ export function PropertyValue({
                       : undefined
             }
             popoverClassName="max-w-200"
+            dropdownFooter={
+                onApply && !isMultiSelect ? (
+                    <div className="flex justify-end p-2 border-t">
+                        <LemonButton type="primary" size="small" onClick={onApply}>
+                            Apply
+                        </LemonButton>
+                    </div>
+                ) : undefined
+            }
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
                 return {
