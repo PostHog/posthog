@@ -47,15 +47,22 @@ export function processCohort(cohort: CohortType): CohortType {
         filters: {
             properties: {
                 ...cohort.filters.properties,
-                values: (cohort.filters.properties?.values?.map((group) =>
-                    'values' in group
-                        ? {
-                              ...group,
-                              values: (group.values as AnyCohortCriteriaType[]).map((c) => processCohortCriteria(c)),
-                              sort_key: uuidv4(),
-                          }
-                        : group
-                ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                values: (cohort.filters.properties?.values?.map((group) => {
+                    if ('values' in group) {
+                        return {
+                            ...group,
+                            values: (group.values as AnyCohortCriteriaType[]).map((c) => processCohortCriteria(c)),
+                            sort_key: group.sort_key || uuidv4(),
+                        }
+                    }
+                    const processedCriteria = processCohortCriteria(group as AnyCohortCriteriaType)
+                    return {
+                        id: processedCriteria.sort_key || uuidv4(),
+                        type: cohort.filters.properties?.type || FilterLogicalOperator.Or,
+                        values: [processedCriteria],
+                        sort_key: uuidv4(),
+                    }
+                }) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
             },
         },
     }

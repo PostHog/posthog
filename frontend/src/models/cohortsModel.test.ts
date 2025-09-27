@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { CohortType, FilterLogicalOperator } from '~/types'
 
-import { cohortsModel } from './cohortsModel'
+import { cohortsModel, processCohort } from './cohortsModel'
 
 const MOCK_COHORTS = {
     count: 2,
@@ -168,6 +168,110 @@ describe('cohortsModel', () => {
                         2: expect.objectContaining({ id: 2, name: 'Cohort two' }),
                     }),
                 })
+        })
+    })
+
+    describe('processCohort', () => {
+        it('correctly processes cohort with flat criteria array', () => {
+            const cohortWithFlatCriteria: CohortType = {
+                id: 1,
+                name: 'Test cohort',
+                count: 0,
+                groups: [],
+                filters: {
+                    properties: {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: 'person',
+                                key: 'email',
+                                operator: 'icontains',
+                                value: 'domain1',
+                            },
+                            {
+                                type: 'person',
+                                key: 'email',
+                                operator: 'exact',
+                                value: 'user@example.com',
+                            },
+                        ],
+                    },
+                },
+                is_calculating: false,
+                is_static: false,
+            }
+
+            const processed = processCohort(cohortWithFlatCriteria)
+
+            // Should wrap flat criteria in group structure
+            expect(processed.filters.properties.values).toHaveLength(1)
+            expect(processed.filters.properties.values[0]).toMatchObject({
+                type: FilterLogicalOperator.Or,
+                values: [
+                    expect.objectContaining({
+                        type: 'person',
+                        key: 'email',
+                        operator: 'icontains',
+                        value: 'domain1',
+                        value_property: 'domain1', // Should be processed by processCohortCriteria
+                    }),
+                    expect.objectContaining({
+                        type: 'person',
+                        key: 'email',
+                        operator: 'exact',
+                        value: 'user@example.com',
+                        value_property: 'user@example.com', // Should be processed by processCohortCriteria
+                    }),
+                ],
+            })
+        })
+
+        it('correctly processes cohort with existing group structure', () => {
+            const cohortWithGroups: CohortType = {
+                id: 1,
+                name: 'Test cohort',
+                count: 0,
+                groups: [],
+                filters: {
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                id: 'group1',
+                                type: FilterLogicalOperator.Or,
+                                values: [
+                                    {
+                                        type: 'person',
+                                        key: 'email',
+                                        operator: 'icontains',
+                                        value: 'domain1',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+                is_calculating: false,
+                is_static: false,
+            }
+
+            const processed = processCohort(cohortWithGroups)
+
+            // Should preserve existing group structure
+            expect(processed.filters.properties.values).toHaveLength(1)
+            expect(processed.filters.properties.values[0]).toMatchObject({
+                id: 'group1',
+                type: FilterLogicalOperator.Or,
+                values: [
+                    expect.objectContaining({
+                        type: 'person',
+                        key: 'email',
+                        operator: 'icontains',
+                        value: 'domain1',
+                        value_property: 'domain1',
+                    }),
+                ],
+            })
         })
     })
 })
