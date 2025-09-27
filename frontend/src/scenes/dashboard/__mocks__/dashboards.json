@@ -18,10 +18,7 @@
                 "date_to": null,
                 "date_from": "-7d"
             },
-            "tags": [],
-            "restriction_level": 21,
-            "effective_restriction_level": 21,
-            "effective_privilege_level": 37
+            "tags": []
         },
         {
             "id": 3,
@@ -41,10 +38,7 @@
             "deleted": false,
             "creation_mode": "default",
             "filters": {},
-            "tags": [],
-            "restriction_level": 37,
-            "effective_restriction_level": 37,
-            "effective_privilege_level": 21
+            "tags": []
         }
     ]
 }

@@ -633,8 +633,6 @@
         "is_email_verified": null
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37,
     "timezone": "UTC",
     "is_cached": true,
     "tags": [],

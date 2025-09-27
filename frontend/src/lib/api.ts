@@ -62,7 +62,6 @@ import {
     CreateGroupParams,
     CyclotronJobFiltersType,
     CyclotronJobTestInvocationResult,
-    DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
     DashboardTemplateType,
@@ -183,7 +182,6 @@ import {
 import {
     ACTIVITY_PAGE_SIZE,
     COHORT_PERSONS_QUERY_LIMIT,
-    DashboardPrivilegeLevel,
     EVENT_DEFINITIONS_PER_PAGE,
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     LOGS_PORTION_LIMIT,
@@ -742,13 +740,6 @@ export class ApiRequest {
         return this.dashboards(teamId).addPathComponent(dashboardId)
     }
 
-    public dashboardCollaborators(
-        dashboardId: DashboardType['id'],
-        projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId() // Collaborators endpoint is project-level, not team-level
-    ): ApiRequest {
-        return this.dashboardsDetail(dashboardId, projectId).addPathComponent('collaborators')
-    }
-
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
     }
@@ -763,14 +754,6 @@ export class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardSharingPasswords(dashboardId, teamId).addPathComponent(passwordId)
-    }
-
-    public dashboardCollaboratorsDetail(
-        dashboardId: DashboardType['id'],
-        userUuid: UserType['uuid'],
-        projectId?: ProjectType['id']
-    ): ApiRequest {
-        return this.dashboardCollaborators(dashboardId, projectId).addPathComponent(userUuid)
     }
 
     // # Dashboard templates
@@ -2357,27 +2340,6 @@ const api = {
             }).catch(onError)
 
             return () => abortController.abort()
-        },
-
-        collaborators: {
-            async list(dashboardId: DashboardType['id']): Promise<DashboardCollaboratorType[]> {
-                return await new ApiRequest().dashboardCollaborators(dashboardId).get()
-            },
-            async create(
-                dashboardId: DashboardType['id'],
-                userUuid: UserType['uuid'],
-                level: DashboardPrivilegeLevel
-            ): Promise<DashboardCollaboratorType> {
-                return await new ApiRequest().dashboardCollaborators(dashboardId).create({
-                    data: {
-                        user_uuid: userUuid,
-                        level,
-                    },
-                })
-            },
-            async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
-                return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
-            },
         },
     },
 

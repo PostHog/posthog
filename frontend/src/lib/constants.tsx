@@ -71,23 +71,6 @@ export enum DashboardRestrictionLevel {
     OnlyCollaboratorsCanEdit = 37,
 }
 
-/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
-export enum DashboardPrivilegeLevel {
-    CanView = 21,
-    CanEdit = 37,
-    /** This is not a value that can be set in the DB – it's inferred. */
-    _ProjectAdmin = 888,
-    /** This is not a value that can be set in the DB – it's inferred. */
-    _Owner = 999,
-}
-
-export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
-    [DashboardPrivilegeLevel.CanView]: 'can view',
-    [DashboardPrivilegeLevel.CanEdit]: 'can edit',
-    [DashboardPrivilegeLevel._Owner]: 'owner',
-    [DashboardPrivilegeLevel._ProjectAdmin]: 'can edit',
-}
-
 // Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
 export const PERSON_DISPLAY_NAME_COLUMN_NAME = 'person_display_name -- Person'
