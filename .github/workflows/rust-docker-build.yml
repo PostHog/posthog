@@ -8,6 +8,7 @@ on:
             - '.github/workflows/rust-docker-build.yml'
         branches:
             - 'master'
+            - 'frank/avro-log-capture'
 jobs:
     build:
         name: build ${{ matrix.image }}
