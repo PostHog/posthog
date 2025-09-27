@@ -1,9 +1,11 @@
+import asyncio
 from collections.abc import Iterable
 from functools import cached_property
 from typing import Optional, Union, cast
 from xml.etree import ElementTree as ET
 
 import yaml
+from asgiref.sync import async_to_sync
 from langchain_core.agents import AgentAction
 from pydantic import BaseModel
 
@@ -11,6 +13,7 @@ from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     CachedActorsPropertyTaxonomyQueryResponse,
     CachedEventTaxonomyQueryResponse,
+    EventTaxonomyItem,
     EventTaxonomyQuery,
 )
 
@@ -23,6 +26,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action, Team
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.sync import database_sync_to_async
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from .tools import (
@@ -99,6 +103,7 @@ class TaxonomyAgentToolkit:
 
     def __init__(self, team: Team):
         self._team = team
+        self.MAX_ENTITIES_PER_BATCH = 6
 
     @property
     def _groups(self):
@@ -141,14 +146,17 @@ class TaxonomyAgentToolkit:
         return enriched_props
 
     def _format_property_values(
-        self, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
+        self, property_name: str, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
     ) -> str:
         if len(sample_values) == 0 or sample_count == 0:
-            return f"The property does not have any values in the taxonomy."
+            data = {
+                "property": property_name,
+                "values": [],
+                "message": f"The property does not have any values in the taxonomy.",
+            }
+            return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
-        # Add quotes to the String type, so the LLM can easily infer a type.
-        # Strings like "true" or "10" are interpreted as booleans or numbers without quotes, so the schema generation fails.
-        # Remove the floating point the value is an integer.
+        # Format values for YAML
         formatted_sample_values: list[str] = []
         for value in sample_values:
             if format_as_string:
@@ -157,16 +165,14 @@ class TaxonomyAgentToolkit:
                 formatted_sample_values.append(str(int(value)))
             else:
                 formatted_sample_values.append(str(value))
-        prop_values = ", ".join(formatted_sample_values)
 
-        # If there wasn't an exact match with the user's search, we provide a hint that LLM can use an arbitrary value.
         if sample_count is None:
-            return f"{prop_values} and many more distinct values."
+            formatted_sample_values.append("and many more distinct values")
         elif sample_count > len(sample_values):
-            diff = sample_count - len(sample_values)
-            return f"{prop_values} and {diff} more distinct value{'' if diff == 1 else 's'}."
-
-        return prop_values
+            remaining = sample_count - len(sample_values)
+            formatted_sample_values.append(f"and {remaining} more distinct values")
+        data = {"property": property_name, "values": formatted_sample_values}
+        return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
     def _retrieve_session_properties(self, property_name: str) -> str:
         """
@@ -192,18 +198,25 @@ class TaxonomyAgentToolkit:
         else:
             return TaxonomyErrorMessages.property_values_not_found(property_name, "session")
 
-        return self._format_property_values(sample_values, sample_count, format_as_string=is_str)
+        return self._format_property_values(property_name, sample_values, sample_count, format_as_string=is_str)
 
-    def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
+    def _retrieve_event_or_action_taxonomy(
+        self, event_name_or_action_id: str | int, properties: list[str] | None = None
+    ):
+        """
+        Retrieve event/action taxonomy with efficient caching.
+        Multiple properties are batched in a single query to maximize cache hits.
+        """
         is_event = isinstance(event_name_or_action_id, str)
         if is_event:
-            query = EventTaxonomyQuery(event=event_name_or_action_id, maxPropertyValues=25)
+            query = EventTaxonomyQuery(event=event_name_or_action_id, maxPropertyValues=25, properties=properties)
             verbose_name = f"event {event_name_or_action_id}"
         else:
-            query = EventTaxonomyQuery(actionId=event_name_or_action_id, maxPropertyValues=25)
+            query = EventTaxonomyQuery(actionId=event_name_or_action_id, maxPropertyValues=25, properties=properties)
             verbose_name = f"action with ID {event_name_or_action_id}"
         runner = EventTaxonomyQueryRunner(query, self._team)
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            # Use cache-first execution mode for optimal performance
             response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
         return response, verbose_name
 
@@ -321,66 +334,128 @@ class TaxonomyAgentToolkit:
 
         return self._format_properties(props)
 
-    def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
-        """Retrieve property values for an entity."""
-        if entity not in self._entity_names:
-            return TaxonomyErrorMessages.entity_not_found(entity, self._entity_names)
+    def retrieve_entity_property_values(self, entity_properties: dict[str, list[str]]) -> dict[str, list[str]]:
+        result = async_to_sync(self._parallel_entity_processing)(entity_properties, self._entity_names, self._groups)
+        return result
 
-        if entity == "session":
-            return self._retrieve_session_properties(property_name)
-        if entity == "person":
-            query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=25)
-        elif entity == "event":
-            query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=50)
+    async def _handle_entity_batch(
+        self, batch: dict[str, list[str]], entity_names: list[str], groups: list[GroupTypeMapping]
+    ) -> dict[str, list[str]]:
+        entity_tasks = [
+            self._retrieve_multiple_entity_property_values(entity, property_names, entity_names, groups)
+            for entity, property_names in batch.items()
+        ]
+        batch_results = await asyncio.gather(*entity_tasks)
+        return dict(zip(batch.keys(), batch_results))
+
+    async def _parallel_entity_processing(
+        self, entity_properties: dict[str, list[str]], entity_names: list[str], groups: list[GroupTypeMapping]
+    ) -> dict[str, list[str]]:
+        entity_items = list(entity_properties.items())
+        if len(entity_items) > self.MAX_ENTITIES_PER_BATCH:
+            # Process in batches
+            results = {}
+            for i in range(0, len(entity_items), self.MAX_ENTITIES_PER_BATCH):
+                batch = dict(entity_items[i : i + self.MAX_ENTITIES_PER_BATCH])
+                batch_results = await self._handle_entity_batch(batch, entity_names, groups)
+                results.update(batch_results)
+            return results
         else:
-            group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
+            return await self._handle_entity_batch(entity_properties, entity_names, groups)
+
+    async def _retrieve_multiple_entity_property_values(
+        self, entity: str, property_names: list[str], entity_names: list[str], groups: list[GroupTypeMapping]
+    ) -> list[str]:
+        """Retrieve property values for multiple entities and properties efficiently."""
+        results = []
+        if entity not in entity_names:
+            results.append(TaxonomyErrorMessages.entity_not_found(entity, entity_names))
+            return results
+        if entity == "session":
+            for property_name in property_names:
+                results.append(self._retrieve_session_properties(property_name))
+            return results
+
+        query = self._build_query(entity, property_names, groups)
+        if query is None:
+            results.append(TaxonomyErrorMessages.entity_not_found(entity))
+            return results
+
+        property_values_response = await database_sync_to_async(self._run_actors_taxonomy_query)(query)
+
+        if not isinstance(property_values_response, CachedActorsPropertyTaxonomyQueryResponse):
+            results.append(TaxonomyErrorMessages.entity_not_found(entity))
+            return results
+
+        if not property_values_response.results:
+            for property_name in property_names:
+                results.append(TaxonomyErrorMessages.property_values_not_found(property_name, entity))
+            return results
+
+        if isinstance(property_values_response.results, list):
+            property_values_results = property_values_response.results
+        else:
+            property_values_results = [property_values_response.results]
+
+        property_definitions: dict[str, PropertyDefinition] = await database_sync_to_async(
+            self._get_definitions_for_entity
+        )(entity, property_names, query)
+
+        results.extend(
+            self._process_property_values(
+                property_names, property_values_results, property_definitions, entity, is_indexed=True
+            )
+        )
+        return results
+
+    def _get_definitions_for_entity(
+        self, entity: str, property_names: list[str], query: ActorsPropertyTaxonomyQuery
+    ) -> dict[str, PropertyDefinition]:
+        """Get property definitions for one entity and properties."""
+        if not property_names:
+            return {}
+
+        if query.groupTypeIndex is not None:
+            prop_type = PropertyDefinition.Type.GROUP
+            group_type_index = query.groupTypeIndex
+        elif entity == "event":
+            prop_type = PropertyDefinition.Type.EVENT
+            group_type_index = None
+        else:
+            prop_type = PropertyDefinition.Type.PERSON
+            group_type_index = None
+
+        property_definitions = PropertyDefinition.objects.filter(
+            team=self._team,
+            name__in=property_names,
+            type=prop_type,
+            group_type_index=group_type_index,
+        )
+        return {prop.name: prop for prop in property_definitions}
+
+    def _build_query(
+        self, entity: str, properties: list[str], groups: list[GroupTypeMapping]
+    ) -> ActorsPropertyTaxonomyQuery | None:
+        """Build a query for the given entity and property names."""
+        if entity == "person":
+            query = ActorsPropertyTaxonomyQuery(properties=properties, maxPropertyValues=25)
+        elif entity == "event":
+            query = ActorsPropertyTaxonomyQuery(properties=properties, maxPropertyValues=50)
+        else:
+            group_index = next((group.group_type_index for group in groups if group.group_type == entity), None)
             if group_index is None:
-                return TaxonomyErrorMessages.entity_not_found(entity)
-            query = ActorsPropertyTaxonomyQuery(
-                groupTypeIndex=group_index, properties=[property_name], maxPropertyValues=25
-            )
+                return None
+            query = ActorsPropertyTaxonomyQuery(groupTypeIndex=group_index, properties=properties, maxPropertyValues=25)
+        return query
 
-        try:
-            if query.groupTypeIndex is not None:
-                prop_type = PropertyDefinition.Type.GROUP
-                group_type_index = query.groupTypeIndex
-            elif entity == "event":
-                prop_type = PropertyDefinition.Type.EVENT
-                group_type_index = None
-            else:
-                prop_type = PropertyDefinition.Type.PERSON
-                group_type_index = None
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team,
-                name=property_name,
-                type=prop_type,
-                group_type_index=group_type_index,
-            )
-        except PropertyDefinition.DoesNotExist:
-            return TaxonomyErrorMessages.property_not_found(property_name, entity)
-
+    def _run_actors_taxonomy_query(self, query):
+        """
+        Run actors taxonomy query with proper context - sync method for database_sync_to_async.
+        """
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
-            response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
+            return ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
-
-        if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
-            return TaxonomyErrorMessages.entity_not_found(entity)
-
-        if not response.results:
-            return TaxonomyErrorMessages.property_values_not_found(property_name, entity)
-
-        # TRICKY. Remove when the toolkit supports multiple results.
-        if isinstance(response.results, list):
-            unpacked_results = response.results[0]
-        else:
-            unpacked_results = response.results
-
-        return self._format_property_values(
-            unpacked_results.sample_values,
-            unpacked_results.sample_count,
-            format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
-        )
 
     def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
@@ -397,7 +472,7 @@ class TaxonomyAgentToolkit:
             return TaxonomyErrorMessages.generic_not_found("Properties")
         if not response.results:
             return TaxonomyErrorMessages.event_properties_not_found(verbose_name)
-        # Intersect properties with their types.
+
         qs = PropertyDefinition.objects.filter(
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
@@ -413,44 +488,122 @@ class TaxonomyAgentToolkit:
             return TaxonomyErrorMessages.event_properties_not_found(verbose_name)
         return self._format_properties(self._enrich_props_with_descriptions("event", props))
 
-    def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
+    def retrieve_event_or_action_property_values(
+        self, event_properties: dict[str | int, list[str]]
+    ) -> dict[str | int, list[str]]:
+        """Retrieve property values for an event/action. Supports single property or list of properties."""
+        result = async_to_sync(self._parallel_event_processing)(event_properties)
+        return result
+
+    async def _parallel_event_processing(
+        self, event_properties: dict[str | int, list[str]]
+    ) -> dict[str | int, list[str]]:
+        event_tasks = [
+            self._retrieve_multiple_event_or_action_property_values(event_name_or_action_id, property_names)
+            for event_name_or_action_id, property_names in event_properties.items()
+        ]
+        results = await asyncio.gather(*event_tasks)
+        return dict(zip(event_properties.keys(), results))
+
+    @database_sync_to_async
+    def _get_definitions_for_event_or_action(self, property_names: list[str]) -> dict[str, PropertyDefinition]:
+        return {
+            prop.name: prop
+            for prop in PropertyDefinition.objects.filter(
+                team=self._team,
+                name__in=property_names,
+                type=PropertyDefinition.Type.EVENT,
+            )
+        }
+
+    async def _retrieve_multiple_event_or_action_property_values(
+        self, event_name_or_action_id: str | int, property_names: list[str]
+    ) -> list[str]:
+        """Retrieve property values for multiple events/actions and properties efficiently."""
+        results = []
         try:
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
+            definitions_map: dict[str, PropertyDefinition] = await self._get_definitions_for_event_or_action(
+                property_names
             )
         except PropertyDefinition.DoesNotExist:
-            return TaxonomyErrorMessages.property_not_found(property_name)
+            definitions_map = {}
 
-        response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
-        if not isinstance(response, CachedEventTaxonomyQueryResponse):
-            return TaxonomyErrorMessages.event_not_found(verbose_name)
-        if not response.results:
-            return TaxonomyErrorMessages.property_values_not_found(property_name, verbose_name)
-
-        prop = next((item for item in response.results if item.property == property_name), None)
-        if not prop:
-            return TaxonomyErrorMessages.property_not_found(property_name, verbose_name)
-
-        return self._format_property_values(
-            prop.sample_values,
-            prop.sample_count,
-            format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
+        response, verbose_name = await database_sync_to_async(self._retrieve_event_or_action_taxonomy)(
+            event_name_or_action_id, property_names
         )
+
+        if not isinstance(response, CachedEventTaxonomyQueryResponse):
+            results.append(TaxonomyErrorMessages.event_not_found(verbose_name))
+            return results
+        if not response.results:
+            for property_name in property_names:
+                results.append(TaxonomyErrorMessages.property_values_not_found(property_name, verbose_name))
+            return results
+
+        # Create a map of property name to taxonomy result for efficient lookup
+        taxonomy_results_map: dict[str, EventTaxonomyItem] = {item.property: item for item in response.results}
+
+        results.extend(
+            self._process_property_values(
+                property_names, list(taxonomy_results_map.values()), definitions_map, verbose_name, is_indexed=False
+            )
+        )
+
+        return results
+
+    def _process_property_values(
+        self,
+        property_names: list[str],
+        property_results: list,
+        property_definitions: dict[str, PropertyDefinition],
+        entity_name: str,
+        is_indexed: bool = False,
+    ) -> list[str]:
+        """Common logic for processing property values from taxonomy results."""
+        results = []
+
+        for i, property_name in enumerate(property_names):
+            property_definition = property_definitions.get(property_name)
+
+            if property_definition is None:
+                results.append(TaxonomyErrorMessages.property_not_found(property_name, entity_name))
+                continue
+
+            if is_indexed:
+                if i >= len(property_results):
+                    results.append(TaxonomyErrorMessages.property_not_found(property_name, entity_name))
+                    continue
+                prop_result = property_results[i]
+            else:
+                prop_result = next((r for r in property_results if r.property == property_name), None)
+                if prop_result is None:
+                    results.append(TaxonomyErrorMessages.property_not_found(property_name, entity_name))
+                    continue
+
+            result = self._format_property_values(
+                property_name,
+                prop_result.sample_values,
+                prop_result.sample_count,
+                format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
+            )
+            results.append(result)
+
+        return results
 
     def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
         # Here we handle the tool execution for base taxonomy tools.
         if tool_name == "retrieve_entity_property_values":
-            result = self.retrieve_entity_property_values(
-                tool_input.arguments.entity,  # type: ignore
-                tool_input.arguments.property_name,  # type: ignore
-            )
+            entity = tool_input.arguments.entity  # type: ignore
+            property_name = tool_input.arguments.property_name  # type: ignore
+            result = self.retrieve_entity_property_values({entity: [property_name]})[entity][0]
         elif tool_name == "retrieve_entity_properties":
             result = self.retrieve_entity_properties(tool_input.arguments.entity)  # type: ignore
         elif tool_name == "retrieve_event_property_values":
-            result = self.retrieve_event_or_action_property_values(
-                tool_input.arguments.event_name,  # type: ignore
-                tool_input.arguments.property_name,  # type: ignore
-            )
+            event_name_or_action_id = tool_input.arguments.event_name  # type: ignore
+            property_name = tool_input.arguments.property_name  # type: ignore
+            result = self.retrieve_event_or_action_property_values({event_name_or_action_id: [property_name]})[
+                event_name_or_action_id
+            ][0]
         elif tool_name == "retrieve_event_properties":
             result = self.retrieve_event_or_action_properties(tool_input.arguments.event_name)  # type: ignore
         elif tool_name == "ask_user_for_help":
