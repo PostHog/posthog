@@ -1,3 +1,4 @@
+import { disposablesPlugin } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import { KeaPlugin, resetContext } from 'kea'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
@@ -57,6 +58,7 @@ export function initKea({
 }: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
+        disposablesPlugin,
         localStoragePlugin(),
         windowValuesPlugin({ window: window }),
         routerPlugin({
