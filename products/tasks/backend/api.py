@@ -1,8 +1,10 @@
 import logging
+import traceback
 from typing import cast
 
 from django.db import transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -56,6 +58,20 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logger.info(f"Creating task with data: {serializer.validated_data}")
         serializer.save(team=self.team)
 
+    def _trigger_workflow(self, task: Task) -> None:
+        try:
+            logger.info(f"Attempting to trigger workflow for task {task.id}")
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                team_id=task.team.id,
+                user_id=getattr(self.request.user, "id", None),
+            )
+            logger.info(f"Workflow trigger completed for task {task.id}")
+        except Exception as e:
+            logger.exception(f"Failed to trigger workflow for task {task.id}: {e}")
+
+            logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
+
     def perform_update(self, serializer):
         # Get the current task state before update
         task = cast(Task, serializer.instance)
@@ -64,27 +80,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logger.info(f"perform_update called for task {task.id} with validated_data: {serializer.validated_data}")
 
         # Save the changes
-        serializer.save()
+        serializer.save()  # NOTE: Should we move this to the end of the method, if not let's move this to a signal?
 
         # Check if current_stage changed and trigger workflow
         new_stage = serializer.validated_data.get("current_stage")
         new_status = new_stage.key if new_stage else "backlog"
         if new_status != previous_status:
             logger.info(f"Task {task.id} status changed from {previous_status} to {new_status}")
-
-            try:
-                logger.info(f"Attempting to trigger workflow for task {task.id}")
-                execute_task_processing_workflow(
-                    task_id=str(task.id),
-                    team_id=task.team.id,
-                    user_id=getattr(self.request.user, "id", None),
-                )
-                logger.info(f"Workflow trigger completed for task {task.id}")
-            except Exception as e:
-                logger.exception(f"Failed to trigger task processing workflow for task {task.id}: {e}")
-                import traceback
-
-                logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
+            self._trigger_workflow(task)
         else:
             logger.info(f"Task {task.id} updated but status unchanged ({previous_status})")
 
@@ -97,51 +100,42 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         logger.info(f"Task {task.id}: current_stage={task.current_stage}, new_stage={new_stage_id}")
 
-        if new_stage_id:
-            from .models import WorkflowStage
+        if not new_stage_id:
+            return Response({"error": "Stage is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-            try:
-                new_stage = WorkflowStage.objects.get(id=new_stage_id)
-                previous_status = task.current_stage.key if task.current_stage else "backlog"
-                task.current_stage = new_stage
-                task.save()
+        try:
+            new_stage = WorkflowStage.objects.get(id=new_stage_id)
+        except WorkflowStage.DoesNotExist:
+            logger.warning(f"Invalid stage '{new_stage_id}' for task {pk}")
+            return Response({"error": "Invalid stage"}, status=status.HTTP_400_BAD_REQUEST)
 
-                new_status = task.current_stage.key if task.current_stage else "backlog"
+        previous_status = task.current_stage.key if task.current_stage else "backlog"
 
-                logger.info(f"Task {task.id} stage updated from {previous_status} to {new_status}")
+        task.current_stage = new_stage
+        task.save()
 
-                # Trigger Temporal workflow for background processing
-                try:
-                    logger.info(f"Attempting to trigger workflow for task {task.id}")
-                    execute_task_processing_workflow(
-                        task_id=str(task.id),
-                        team_id=task.team.id,
-                        user_id=getattr(request.user, "id", None),
-                    )
-                    logger.info(f"Workflow trigger completed for task {task.id}")
-                except Exception as e:
-                    # Log the error but don't fail the stage update
-                    logger.exception(f"Failed to trigger task processing workflow for task {task.id}: {e}")
-                    import traceback
+        new_status = task.current_stage.key if task.current_stage else "backlog"
 
-                    logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
+        logger.info(f"Task {task.id} stage updated from {previous_status} to {new_status}")
 
-                return Response(TaskSerializer(task).data)
-            except WorkflowStage.DoesNotExist:
-                logger.warning(f"Invalid stage '{new_stage_id}' for task {pk}")
-                return Response({"error": "Invalid stage"}, status=status.HTTP_400_BAD_REQUEST)
+        # Trigger Temporal workflow for background processing
+        self._trigger_workflow(task)
 
-        return Response({"error": "Stage is required"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(TaskSerializer(task).data)
 
     @action(detail=True, methods=["patch"])
     def update_position(self, request, pk=None):
         task = self.get_object()
+
         new_position = request.data.get("position")
-        if new_position is not None:
-            task.position = new_position
-            task.save()
-            return Response(TaskSerializer(task).data)
-        return Response({"error": "Position is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if new_position is None:
+            return Response({"error": "Position is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        task.position = new_position
+        task.save()
+
+        return Response(TaskSerializer(task).data)
 
     @action(detail=False, methods=["post"], url_path="bulk_reorder")
     def bulk_reorder(self, request, *args, **kwargs):
@@ -159,7 +153,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Only the provided IDs will be updated. Positions are assigned based on array order (0..n-1),
         and status is set to the column key.
         """
-        from django.db import transaction
 
         payload = request.data or {}
         columns = payload.get("columns") or {}
@@ -255,83 +248,68 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def progress(self, request, pk=None, **kwargs):
         """Get the latest progress for a task's Claude Code execution."""
         task = self.get_object()
-        try:
-            # Get the most recent progress record for this task
-            progress = TaskProgress.objects.filter(task=task, team=self.team).order_by("-created_at").first()
 
-            if not progress:
-                return Response({"has_progress": False, "message": "No execution progress found for this task"})
+        # Get the most recent progress record for this task
+        progress = TaskProgress.objects.filter(task=task, team=self.team).order_by("-created_at").first()
 
-            return Response(
-                {
-                    "has_progress": True,
-                    "id": progress.id,
-                    "status": progress.status,
-                    "current_step": progress.current_step,
-                    "completed_steps": progress.completed_steps,
-                    "total_steps": progress.total_steps,
-                    "progress_percentage": progress.progress_percentage,
-                    "output_log": progress.output_log,
-                    "error_message": progress.error_message,
-                    "created_at": progress.created_at,
-                    "updated_at": progress.updated_at,
-                    "completed_at": progress.completed_at,
-                    "workflow_id": progress.workflow_id,
-                    "workflow_run_id": progress.workflow_run_id,
-                }
-            )
+        if not progress:
+            return Response({"has_progress": False, "message": "No execution progress found for this task"})
 
-        except Exception:
-            logging.exception("Error fetching task progress")
-            return Response(
-                {"error": "An internal error occurred while fetching progress."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        return Response(
+            {
+                "has_progress": True,
+                "id": progress.id,
+                "status": progress.status,
+                "current_step": progress.current_step,
+                "completed_steps": progress.completed_steps,
+                "total_steps": progress.total_steps,
+                "progress_percentage": progress.progress_percentage,
+                "output_log": progress.output_log,
+                "error_message": progress.error_message,
+                "created_at": progress.created_at,
+                "updated_at": progress.updated_at,
+                "completed_at": progress.completed_at,
+                "workflow_id": progress.workflow_id,
+                "workflow_run_id": progress.workflow_run_id,
+            }
+        )
 
     @action(detail=True, methods=["get"])
     def progress_stream(self, request, pk=None, **kwargs):
         """Get real-time progress updates (polling endpoint)."""
+
         task = self.get_object()
+
         since = request.query_params.get("since")  # Timestamp to get updates since
+        since_dt = parse_datetime(since) if since else None
 
-        try:
-            queryset = TaskProgress.objects.filter(task=task, team=self.team).order_by("-created_at")
+        queryset = TaskProgress.objects.filter(task=task, team=self.team).order_by("-created_at")
 
-            if since:
-                from django.utils.dateparse import parse_datetime
+        if since_dt:
+            queryset = queryset.filter(updated_at__gt=since_dt)
 
-                since_dt = parse_datetime(since)
-                if since_dt:
-                    queryset = queryset.filter(updated_at__gt=since_dt)
+        progress_records = queryset[:5]  # Limit to 5 most recent
 
-            progress_records = queryset[:5]  # Limit to 5 most recent
-
-            return Response(
-                {
-                    "progress_updates": [
-                        {
-                            "id": p.id,
-                            "status": p.status,
-                            "current_step": p.current_step,
-                            "completed_steps": p.completed_steps,
-                            "total_steps": p.total_steps,
-                            "progress_percentage": p.progress_percentage,
-                            "output_log": p.output_log,
-                            "error_message": p.error_message,
-                            "updated_at": p.updated_at,
-                            "workflow_id": p.workflow_id,
-                        }
-                        for p in progress_records
-                    ],
-                    "server_time": timezone.now().isoformat(),
-                }
-            )
-
-        except Exception:
-            return Response(
-                {"error": "An internal error occurred while fetching progress stream."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        return Response(
+            {
+                "progress_updates": [
+                    {
+                        "id": p.id,
+                        "status": p.status,
+                        "current_step": p.current_step,
+                        "completed_steps": p.completed_steps,
+                        "total_steps": p.total_steps,
+                        "progress_percentage": p.progress_percentage,
+                        "output_log": p.output_log,
+                        "error_message": p.error_message,
+                        "updated_at": p.updated_at,
+                        "workflow_id": p.workflow_id,
+                    }
+                    for p in progress_records
+                ],
+                "server_time": timezone.now().isoformat(),
+            }
+        )
 
 
 class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -419,7 +397,9 @@ class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def archive(self, request, pk=None):
         """Archive a stage instead of deleting it"""
         stage = self.get_object()
+
         stage.archive()
+
         return Response({"message": "Stage archived successfully"})
 
 
