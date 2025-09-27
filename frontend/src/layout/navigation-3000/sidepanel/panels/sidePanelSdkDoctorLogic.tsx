@@ -104,7 +104,7 @@ export type SdkHealthStatus = 'healthy' | 'warning' | 'critical'
 /*
 const fetchGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
-        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100')
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=4')
         if (!response.ok) {
             throw new Error(`GitHub API error: ${response.status}`)
         }
@@ -131,7 +131,7 @@ const fetchGitHubReleaseDates = async (): Promise<Record<string, string>> => {
 // Fetch Python SDK release dates from GitHub Releases API for time-based detection
 const fetchPythonGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
-        const response = await fetch('https://api.github.com/repos/PostHog/posthog-python/releases?per_page=100')
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-python/releases?per_page=4')
         if (!response.ok) {
             throw new Error(`GitHub API error: ${response.status}`)
         }
@@ -160,7 +160,7 @@ const fetchPythonGitHubReleaseDates = async (): Promise<Record<string, string>> 
 // Fetch React Native SDK release dates from GitHub Releases API for time-based detection
 const fetchReactNativeGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
-        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100')
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=4')
         if (!response.ok) {
             throw new Error(`GitHub API error: ${response.status}`)
         }
@@ -188,7 +188,7 @@ const fetchReactNativeGitHubReleaseDates = async (): Promise<Record<string, stri
 // Fetch Flutter SDK release dates from GitHub Releases API for time-based detection
 const fetchFlutterGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
-        const response = await fetch('https://api.github.com/repos/PostHog/posthog-flutter/releases?per_page=100')
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-flutter/releases?per_page=4')
         if (!response.ok) {
             throw new Error(`GitHub API error: ${response.status}`)
         }
@@ -216,7 +216,7 @@ const fetchFlutterGitHubReleaseDates = async (): Promise<Record<string, string>>
 // Fetch iOS SDK release dates from GitHub Releases API for time-based detection
 const fetchiOSGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
-        const response = await fetch('https://api.github.com/repos/PostHog/posthog-ios/releases?per_page=100')
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-ios/releases?per_page=4')
         if (!response.ok) {
             throw new Error(`GitHub API error: ${response.status}`)
         }
@@ -245,7 +245,7 @@ const fetchiOSGitHubReleaseDates = async (): Promise<Record<string, string>> => 
 const fetchAndroidGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
         console.info('[SDK Doctor] Starting Android GitHub API fetch...')
-        const response = await fetch('https://api.github.com/repos/PostHog/posthog-android/releases?per_page=100')
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-android/releases?per_page=4')
         console.info(`[SDK Doctor] Android GitHub API response status: ${response.status}`)
 
         if (!response.ok) {
@@ -277,7 +277,7 @@ const fetchAndroidGitHubReleaseDates = async (): Promise<Record<string, string>>
 // Fetch Ruby SDK release dates from GitHub Releases API for time-based detection
 const fetchRubyGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
-        const response = await fetch('https://api.github.com/repos/PostHog/posthog-ruby/releases?per_page=100')
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-ruby/releases?per_page=4')
         if (!response.ok) {
             throw new Error(`GitHub API error: ${response.status}`)
         }
@@ -306,7 +306,7 @@ const fetchRubyGitHubReleaseDates = async (): Promise<Record<string, string>> =>
 // Fetch Node.js SDK release dates from GitHub Releases API for time-based detection
 const fetchNodeGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
-        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100')
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=4')
         if (!response.ok) {
             throw new Error(`GitHub API error: ${response.status}`)
         }
@@ -406,9 +406,7 @@ const fetchSdkData = async (
                 changelogUrl = 'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/browser/CHANGELOG.md'
                 versionRegex = /^## (\d+\.\d+\.\d+)$/gm
                 githubFetcher = async () => {
-                    const response = await fetch(
-                        'https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100'
-                    )
+                    const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=4')
                     if (!response.ok) {
                         throw new Error(`GitHub API error: ${response.status}`)
                     }
@@ -540,9 +538,7 @@ const fetchSdkData = async (
                     'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/react-native/CHANGELOG.md'
                 versionRegex = /^## (\d+\.\d+\.\d+)$/gm
                 githubFetcher = async () => {
-                    const response = await fetch(
-                        'https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100'
-                    )
+                    const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=4')
                     if (!response.ok) {
                         throw new Error(`GitHub API error: ${response.status}`)
                     }
@@ -563,7 +559,7 @@ const fetchSdkData = async (
                 versionRegex = /^## (\d+\.\d+\.\d+)$/gm
                 githubFetcher = async () => {
                     const response = await fetch(
-                        'https://api.github.com/repos/PostHog/posthog-flutter/releases?per_page=100'
+                        'https://api.github.com/repos/PostHog/posthog-flutter/releases?per_page=4'
                     )
                     if (!response.ok) {
                         throw new Error(`GitHub API error: ${response.status}`)
@@ -729,7 +725,7 @@ const fetchSdkData = async (
             case 'dotnet':
                 // .NET SDK uses GitHub Releases (format: "v2.0.0")
                 const dotnetReleasesResponse = await fetch(
-                    'https://api.github.com/repos/PostHog/posthog-dotnet/releases?per_page=100'
+                    'https://api.github.com/repos/PostHog/posthog-dotnet/releases?per_page=4'
                 )
                 if (!dotnetReleasesResponse.ok) {
                     throw new Error(`Failed to fetch .NET GitHub releases: ${dotnetReleasesResponse.status}`)
@@ -769,7 +765,7 @@ const fetchSdkData = async (
                 versionRegex = /^## (\d+\.\d+\.\d+)/gm
                 githubFetcher = async () => {
                     const response = await fetch(
-                        'https://api.github.com/repos/PostHog/posthog-ruby/releases?per_page=100'
+                        'https://api.github.com/repos/PostHog/posthog-ruby/releases?per_page=4'
                     )
                     if (!response.ok) {
                         throw new Error(`GitHub API error: ${response.status}`)

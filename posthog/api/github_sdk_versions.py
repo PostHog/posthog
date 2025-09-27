@@ -396,7 +396,7 @@ def fetch_dotnet_sdk_data() -> Optional[dict[str, Any]]:
     """Fetch .NET SDK data from GitHub releases API (simplified logic)"""
     try:
         # Fetch GitHub releases for versions
-        response = requests.get("https://api.github.com/repos/PostHog/posthog-dotnet/releases?per_page=100", timeout=10)
+        response = requests.get("https://api.github.com/repos/PostHog/posthog-dotnet/releases?per_page=4", timeout=10)
         if not response.ok:
             return None
 
@@ -428,7 +428,7 @@ def fetch_github_release_dates(repo: str) -> dict[str, str]:
     Returns dict mapping version to ISO date string.
     """
     try:
-        response = requests.get(f"https://api.github.com/repos/{repo}/releases?per_page=100", timeout=10)
+        response = requests.get(f"https://api.github.com/repos/{repo}/releases?per_page=4", timeout=10)
         if not response.ok:
             return {}
 
