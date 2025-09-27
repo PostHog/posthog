@@ -40,6 +40,18 @@ def create_usage_summary(**kwargs) -> dict[str, Any]:
     return data
 
 
+def create_billing_usage_summary(**kwargs) -> dict[str, Any]:
+    data = create_usage_summary(**kwargs)
+
+    # Transform keys to match what billing service actually sends
+    if "surveys" in data:
+        data["survey_responses"] = data.pop("surveys")
+    if "cdp_invocations" in data:
+        data["cdp_trigger_events"] = data.pop("cdp_invocations")
+
+    return data
+
+
 def create_billing_response(**kwargs) -> dict[str, Any]:
     data: Any = {"license": {"type": "cloud"}}
     data.update(kwargs)
@@ -58,7 +70,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
             current_period_start="2022-10-07T11:12:48",
             current_period_end="2022-11-07T11:12:48",
         ),
-        usage_summary=create_usage_summary(),
+        usage_summary=create_billing_usage_summary(),
         free_trial_until=None,
         available_product_features=[],
     )
@@ -150,7 +162,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
             current_period_start="2022-10-07T11:12:48",
             current_period_end="2022-11-07T11:12:48",
         ),
-        usage_summary=create_usage_summary(),
+        usage_summary=create_billing_usage_summary(),
         free_trial_until=None,
     )
     data.update(kwargs)
@@ -439,7 +451,7 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "usage_summary": create_usage_summary(),
+            "usage_summary": create_billing_usage_summary(),
             "free_trial_until": None,
         }
 
@@ -559,7 +571,7 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "usage_summary": create_usage_summary(),
+            "usage_summary": create_billing_usage_summary(),
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
