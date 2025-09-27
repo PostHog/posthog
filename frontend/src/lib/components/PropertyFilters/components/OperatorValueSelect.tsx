@@ -48,6 +48,7 @@ export interface OperatorValueSelectProps {
      * i.e. it limits the options shown from the options that would have been shown
      * **/
     operatorAllowlist?: Array<PropertyOperator>
+    excludedProperties?: { [key: string]: string[] }
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -93,6 +94,7 @@ export function OperatorValueSelect({
     editable,
     startVisible,
     operatorAllowlist,
+    excludedProperties,
 }: OperatorValueSelectProps): JSX.Element {
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
@@ -236,6 +238,7 @@ export function OperatorValueSelect({
                         groupTypeIndex={groupTypeIndex}
                         editable={editable}
                         size={size}
+                        excludedProperties={excludedProperties}
                     />
                 </div>
             )}
