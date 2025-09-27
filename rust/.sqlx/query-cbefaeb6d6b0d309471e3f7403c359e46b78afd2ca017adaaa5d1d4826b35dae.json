@@ -1,0 +1,142 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    id,\n                    template_id,\n                    sha,\n                    name,\n                    description,\n                    code,\n                    code_language,\n                    inputs_schema,\n                    bytecode,\n                    type,\n                    status,\n                    category,\n                    kind,\n                    free,\n                    icon_url,\n                    filters,\n                    masking,\n                    mapping_templates,\n                    mappings,\n                    created_at,\n                    updated_at\n                FROM posthog_hogfunctiontemplate\n                WHERE id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "template_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "sha",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "code_language",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "inputs_schema",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "bytecode",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "status",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "category",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 13,
+        "name": "free",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
+        "name": "icon_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 15,
+        "name": "filters",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 16,
+        "name": "masking",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 17,
+        "name": "mapping_templates",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 18,
+        "name": "mappings",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 19,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 20,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "cbefaeb6d6b0d309471e3f7403c359e46b78afd2ca017adaaa5d1d4826b35dae"
+}

@@ -5,10 +5,11 @@ use serde_json::{Number, Value as JsonValue};
 use crate::VmError;
 
 // A top-level hog program - functionally the body of a "main" function, if hog had such a thing
+#[derive(Debug, Clone)]
 pub struct Program {
-    bytecode: Vec<JsonValue>,
-    version: u64,
-    program_start_offset: usize,
+    pub bytecode: Vec<JsonValue>,
+    pub version: u64,
+    pub program_start_offset: usize,
 }
 
 // A referenceable module, exporting a set of functions. Top level programs can jump into module code

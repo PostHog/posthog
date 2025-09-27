@@ -53,6 +53,8 @@ pub struct AppContext {
 
     pub filtered_teams: Vec<i32>,
     pub filter_mode: FilterMode,
+
+    pub encrypted_secrets_keys: Vec<String>,
 }
 
 impl AppContext {
@@ -192,6 +194,11 @@ impl AppContext {
             billing_limiter,
             filtered_teams,
             filter_mode,
+            encrypted_secrets_keys: config
+                .encryption_keys
+                .split(',')
+                .map(|s| s.to_string())
+                .collect(),
         })
     }
 }

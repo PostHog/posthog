@@ -139,6 +139,13 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub auto_assignment_enabled: bool, // Comma seperated list of users to either filter in (process) or filter out (ignore)
+
+    #[envconfig(default = "http://localhost:8010")]
+    pub site_url: String, // Used for hog transformation input building
+
+    // Same test key as the plugin server
+    #[envconfig(default = "00beef0000beef0000beef0000beef00")]
+    pub encryption_keys: String, // comma separated list of fernet keys
 }
 
 impl Config {
