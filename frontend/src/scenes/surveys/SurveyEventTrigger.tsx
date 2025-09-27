@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { PropertyMatchType } from 'posthog-js'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonCheckbox, LemonCollapse } from '@posthog/lemon-ui'
@@ -11,11 +11,13 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyPropertyFilter,
     EventPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
+    PropertyType,
     SurveyEventsWithProperties,
 } from '~/types'
 
@@ -24,6 +26,7 @@ import { surveyLogic } from './surveyLogic'
 export function SurveyEventTrigger(): JSX.Element {
     const { survey, surveyRepeatedActivationAvailable } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
+    const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
     const [addEventPopoverOpen, setAddEventPopoverOpen] = useState(false)
 
     // Only include operators supported by the SDK's property matching system
@@ -40,6 +43,19 @@ export function SurveyEventTrigger(): JSX.Element {
         'lt',
         'lte',
     ] as PropertyOperator[]
+
+    const excludedObjectProperties = useMemo(() => {
+        const eventProperties = propertyDefinitionsByType('event')
+        const objectProperties = eventProperties.filter((prop) => {
+            // Exclude StringArray (arrays/objects) and undefined property types. Only primitive types are supported for
+            // comparison purposes in the JS SDK.
+            return !prop.property_type || prop.property_type === PropertyType.StringArray
+        })
+
+        return {
+            [TaxonomicFilterGroupType.EventProperties]: objectProperties.map((prop) => prop.name),
+        }
+    }, [propertyDefinitionsByType])
 
     const events: SurveyEventsWithProperties[] = survey.conditions?.events?.values || []
 
@@ -180,6 +196,7 @@ export function SurveyEventTrigger(): JSX.Element {
                                                         }}
                                                         pageKey={`survey-event-${event.name}-${index}`}
                                                         taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                                        excludedProperties={excludedObjectProperties}
                                                         eventNames={[event.name]}
                                                         buttonText="Add property filter"
                                                         buttonSize="small"
