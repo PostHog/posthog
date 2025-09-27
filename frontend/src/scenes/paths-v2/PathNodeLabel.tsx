@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
@@ -68,7 +69,15 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
                                 ? [
                                       { label: 'Set as path end', onClick: setAsPathEnd },
                                       { label: 'Exclude path item', onClick: excludePathItem },
-                                      { label: 'View funnel', onClick: viewFunnel },
+                                      {
+                                          label: (
+                                              <div className="flex justify-between items-center w-full">
+                                                  <span>View funnel</span>
+                                                  <IconOpenInNew />
+                                              </div>
+                                          ),
+                                          onClick: viewFunnel,
+                                      },
                                   ]
                                 : []),
                             { label: 'Copy path item name', onClick: copyName },
