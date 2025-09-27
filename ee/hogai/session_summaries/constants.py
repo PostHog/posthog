@@ -33,3 +33,11 @@ FAILED_PATTERNS_ENRICHMENT_MIN_RATIO = 0.75  # If less than 75% of patterns were
 
 # Logging
 MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH = 150  # Maximum string of combined session ids to log in a readable format
+
+# Videos to validate issues in summaries
+SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO = 5
+VALIDATION_VIDEO_DURATION = 10
+FAILED_MOMENTS_MIN_RATIO = 0.5  # If less than 50% of moments failed to generate videos, fail the analysis
+EXPIRES_AFTER_DAYS = 90  # How long to store the videos used for validation
+DEFAULT_EXPORT_MIME_TYPE = "video/mp4"
+DEFAULT_VIDEO_UNDERSTANDING_MODEL = "gemini-2.5-flash"

@@ -5,6 +5,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 import structlog
+import posthoganalytics
 from langchain_core.agents import AgentAction
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -85,6 +86,18 @@ class SessionSummarizationNode(AssistantNode):
             )
         # Stream the notebook update
         await self._write_message(notebook_message)
+
+    def _has_video_validation_feature_flag(self) -> bool:
+        """
+        Check if the user has the video validation for session summaries feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "max-session-summarization-video-validation",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
@@ -396,6 +409,7 @@ class _SessionSummarizer:
         """Summarize sessions individually with progress updates."""
         total = len(session_ids)
         completed = 0
+        video_validation_enabled = self._node._has_video_validation_feature_flag()
 
         async def _summarize(session_id: str) -> dict[str, Any]:
             nonlocal completed
@@ -404,6 +418,7 @@ class _SessionSummarizer:
                 user_id=self._node._user.id,
                 team=self._node._team,
                 model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
+                video_validation_enabled=video_validation_enabled,
             )
             completed += 1
             # Update the user on the progress
@@ -426,6 +441,8 @@ class _SessionSummarizer:
     ) -> str:
         """Summarize sessions as a group (for larger sets)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._node._team)
+        # Check if the summaries should be validated with videos
+        video_validation_enabled = self._node._has_video_validation_feature_flag()
         # Initialize intermediate state with plan
         self._intermediate_state = SummaryNotebookIntermediateState(
             team_name=self._node._team.name, summary_title=summary_title
@@ -441,7 +458,7 @@ class _SessionSummarizer:
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
             extra_summary_context=None,
-            local_reads_prod=False,
+            video_validation_enabled=video_validation_enabled,
         ):
             # Max "reasoning" text update message
             if update_type == SessionSummaryStreamUpdate.UI_STATUS:
