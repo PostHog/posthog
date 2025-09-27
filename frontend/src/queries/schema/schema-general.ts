@@ -1298,6 +1298,8 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 /** @asType integer */
