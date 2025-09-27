@@ -81,7 +81,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         props.append(f"toString(person.properties.{key})")
                     else:
                         props.append(f"toString(person.properties.`{key}`)")
-                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
+                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id), distinct_id)"
                 select_input.append(expr)
             else:
                 select_input.append(col)
@@ -314,6 +314,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     row[column_index] = {
                         "display_name": result[column_index][0],
                         "id": str(result[column_index][1]),
+                        "distinct_id": str(result[column_index][2]),
                     }
                     self.paginator.results[index] = row
 

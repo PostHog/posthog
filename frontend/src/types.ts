@@ -4093,6 +4093,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
         personsValues?: (Person | undefined | null)[]
         index?: number
+        formula?: number
         /** Value (count) for specific data point; only valid in the context of an xy intercept */
         pointValue?: number
         /** Value (count) for specific data point; only valid in the context of an xy intercept */
