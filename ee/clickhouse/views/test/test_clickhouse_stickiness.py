@@ -38,7 +38,7 @@ class TestClickhouseStickiness(
         _create_action,
         get_earliest_timestamp,
     ),
-):  # type: ignore
+):
     @snapshot_clickhouse_queries
     def test_filter_by_group_properties(self):
         create_group(
