@@ -3,10 +3,10 @@ import { Message } from 'node-rdkafka'
 import { DB } from '~/utils/db/db'
 import { TeamManager } from '~/utils/team-manager'
 
-import { createResolveTeamStep } from '../../../src/ingestion/event-preprocessing/resolve-team'
-import { drop, ok } from '../../../src/ingestion/pipelines/results'
-import { EventHeaders, Hub, IncomingEvent, Team } from '../../../src/types'
-import { getMetricValues, resetMetrics } from '../../helpers/metrics'
+import { getMetricValues, resetMetrics } from '../../../tests/helpers/metrics'
+import { EventHeaders, Hub, IncomingEvent, Team } from '../../types'
+import { drop, ok } from '../pipelines/results'
+import { createResolveTeamStep } from './resolve-team'
 
 const pipelineEvent = {
     event: '$pageview',

@@ -1,7 +1,7 @@
-import { createApplyPersonProcessingRestrictionsStep } from '../../../src/ingestion/event-preprocessing/apply-person-processing-restrictions'
-import { ok } from '../../../src/ingestion/pipelines/results'
-import { IncomingEventWithTeam } from '../../../src/types'
-import { EventIngestionRestrictionManager } from '../../../src/utils/event-ingestion-restriction-manager'
+import { IncomingEventWithTeam } from '../../types'
+import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { ok } from '../pipelines/results'
+import { createApplyPersonProcessingRestrictionsStep } from './apply-person-processing-restrictions'
 
 describe('createApplyPersonProcessingRestrictionsStep', () => {
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -40,7 +40,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         step = createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager)
     })
 
-    it('should not modify event if no skip conditions', () => {
+    it('should not modify event if no skip conditions', async () => {
         const eventWithTeam = createEventWithTeam({
             event: { token: 'valid-token-abc', distinct_id: 'user-123', properties: { defaultProp: 'defaultValue' } },
             team: { person_processing_opt_out: false },
@@ -48,7 +48,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
 
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties).toEqual({ defaultProp: 'defaultValue' })
@@ -57,7 +57,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith('valid-token-abc', 'user-123')
     })
 
-    it('should set $process_person_profile to false if there is a restriction', () => {
+    it('should set $process_person_profile to false if there is a restriction', async () => {
         const eventWithTeam = createEventWithTeam({
             event: { token: 'restricted-token-def', distinct_id: 'restricted-user-456' },
             team: { person_processing_opt_out: false },
@@ -65,7 +65,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
 
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
@@ -75,7 +75,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         )
     })
 
-    it('should set $process_person_profile to false if team opted out of person processing', () => {
+    it('should set $process_person_profile to false if team opted out of person processing', async () => {
         const eventWithTeam = createEventWithTeam({
             event: { token: 'opt-out-token-ghi', distinct_id: 'opt-out-user-789' },
             team: { person_processing_opt_out: true },
@@ -83,7 +83,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
 
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
@@ -93,7 +93,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         )
     })
 
-    it('should preserve existing properties when setting $process_person_profile', () => {
+    it('should preserve existing properties when setting $process_person_profile', async () => {
         const eventWithTeam = createEventWithTeam({
             event: {
                 token: 'preserve-token-jkl',
@@ -104,7 +104,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
 
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties).toMatchObject({
@@ -120,7 +120,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         )
     })
 
-    it('should call shouldSkipPerson when token is undefined', () => {
+    it('should call shouldSkipPerson when token is undefined', async () => {
         const eventWithTeam = createEventWithTeam({
             event: {
                 token: undefined,
@@ -131,7 +131,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
 
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties).toEqual({ customProp: 'customValue' })
@@ -141,7 +141,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         )
     })
 
-    it('should set $process_person_profile to false when token is undefined and shouldSkipPerson returns true', () => {
+    it('should set $process_person_profile to false when token is undefined and shouldSkipPerson returns true', async () => {
         const eventWithTeam = createEventWithTeam({
             event: {
                 token: undefined,
@@ -152,7 +152,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
 
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok(input))
         expect(input.eventWithTeam.event.properties).toMatchObject({

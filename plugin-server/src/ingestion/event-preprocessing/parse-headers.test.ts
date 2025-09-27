@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { createParseHeadersStep } from '../../../src/ingestion/event-preprocessing/parse-headers'
-import { ok } from '../../../src/ingestion/pipelines/results'
-import { parseEventHeaders } from '../../../src/kafka/consumer'
-import { EventHeaders } from '../../../src/types'
+import { parseEventHeaders } from '../../kafka/consumer'
+import { EventHeaders } from '../../types'
+import { ok } from '../pipelines/results'
+import { createParseHeadersStep } from './parse-headers'
 
 // Mock dependencies
 jest.mock('../../../src/kafka/consumer', () => ({
@@ -19,7 +19,7 @@ describe('createParseHeadersStep', () => {
         step = createParseHeadersStep()
     })
 
-    it('should parse headers and return success with headers', () => {
+    it('should parse headers and return success with headers', async () => {
         const input = {
             message: {
                 headers: [{ token: Buffer.from('test-token') }, { distinct_id: Buffer.from('test-user') }],
@@ -33,13 +33,13 @@ describe('createParseHeadersStep', () => {
 
         mockParseEventHeaders.mockReturnValue(expectedHeaders)
 
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
-    it('should preserve additional input properties', () => {
+    it('should preserve additional input properties', async () => {
         const expectedHeaders: EventHeaders = {
             token: 'test-token',
         }
@@ -53,7 +53,7 @@ describe('createParseHeadersStep', () => {
             customField: 'custom-value',
             anotherField: 42,
         }
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(
             ok({
@@ -64,7 +64,7 @@ describe('createParseHeadersStep', () => {
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
-    it('should handle empty headers', () => {
+    it('should handle empty headers', async () => {
         const expectedHeaders: EventHeaders = {}
 
         mockParseEventHeaders.mockReturnValue(expectedHeaders)
@@ -74,13 +74,13 @@ describe('createParseHeadersStep', () => {
                 headers: [],
             } as Pick<Message, 'headers'>,
         }
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
-    it('should handle undefined headers', () => {
+    it('should handle undefined headers', async () => {
         const expectedHeaders: EventHeaders = {}
 
         mockParseEventHeaders.mockReturnValue(expectedHeaders)
@@ -90,13 +90,13 @@ describe('createParseHeadersStep', () => {
                 headers: undefined,
             } as Pick<Message, 'headers'>,
         }
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
-    it('should handle headers with duplicate keys (last value wins)', () => {
+    it('should handle headers with duplicate keys (last value wins)', async () => {
         const expectedHeaders: EventHeaders = {
             token: 'second-token',
             distinct_id: 'second-user',
@@ -114,13 +114,13 @@ describe('createParseHeadersStep', () => {
                 ],
             } as Pick<Message, 'headers'>,
         }
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
-    it('should handle complex headers with multiple supported fields', () => {
+    it('should handle complex headers with multiple supported fields', async () => {
         const expectedHeaders: EventHeaders = {
             token: 'complex-token',
             distinct_id: 'complex-user',
@@ -138,13 +138,13 @@ describe('createParseHeadersStep', () => {
                 ],
             } as Pick<Message, 'headers'>,
         }
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
-    it('should handle string values in headers', () => {
+    it('should handle string values in headers', async () => {
         const expectedHeaders: EventHeaders = {
             token: 'string-token',
             distinct_id: 'string-user',
@@ -162,13 +162,13 @@ describe('createParseHeadersStep', () => {
                 ],
             } as Pick<Message, 'headers'>,
         }
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
-    it('should handle mixed Buffer and string values in headers', () => {
+    it('should handle mixed Buffer and string values in headers', async () => {
         const expectedHeaders: EventHeaders = {
             token: 'buffer-token',
             distinct_id: 'string-user',
@@ -186,13 +186,13 @@ describe('createParseHeadersStep', () => {
                 ],
             } as Pick<Message, 'headers'>,
         }
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
-    it('should ignore unsupported headers and only parse supported ones', () => {
+    it('should ignore unsupported headers and only parse supported ones', async () => {
         const expectedHeaders: EventHeaders = {
             token: 'test-token',
             distinct_id: 'test-user',
@@ -212,7 +212,7 @@ describe('createParseHeadersStep', () => {
                 ],
             } as Pick<Message, 'headers'>,
         }
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)

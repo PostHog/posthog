@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { createParseKafkaMessageStep } from '../../../src/ingestion/event-preprocessing/parse-kafka-message'
-import { drop, ok } from '../../../src/ingestion/pipelines/results'
-import { logger } from '../../../src/utils/logger'
+import { logger } from '../../utils/logger'
+import { drop, ok } from '../pipelines/results'
+import { createParseKafkaMessageStep } from './parse-kafka-message'
 
 // Mock dependencies
 jest.mock('../../../src/utils/logger')
@@ -17,7 +17,7 @@ describe('createParseKafkaMessageStep', () => {
     })
 
     describe('successful parsing', () => {
-        it('should parse valid Kafka message with complete event data', () => {
+        it('should parse valid Kafka message with complete event data', async () => {
             const mockMessage: Message = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -39,7 +39,7 @@ describe('createParseKafkaMessageStep', () => {
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(
                 ok({
@@ -67,7 +67,7 @@ describe('createParseKafkaMessageStep', () => {
             )
         })
 
-        it('should parse message with minimal event data', () => {
+        it('should parse message with minimal event data', async () => {
             const mockMessage: Message = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -80,7 +80,7 @@ describe('createParseKafkaMessageStep', () => {
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(
                 ok({
@@ -97,7 +97,7 @@ describe('createParseKafkaMessageStep', () => {
             )
         })
 
-        it('should handle message with additional raw event fields', () => {
+        it('should handle message with additional raw event fields', async () => {
             const mockMessage: Message = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -112,7 +112,7 @@ describe('createParseKafkaMessageStep', () => {
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(
                 ok({
@@ -131,7 +131,7 @@ describe('createParseKafkaMessageStep', () => {
             )
         })
 
-        it('should preserve all properties from both data and raw event', () => {
+        it('should preserve all properties from both data and raw event', async () => {
             const mockMessage: Message = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -147,7 +147,7 @@ describe('createParseKafkaMessageStep', () => {
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(
                 ok({
@@ -165,7 +165,7 @@ describe('createParseKafkaMessageStep', () => {
             )
         })
 
-        it('should normalize event data during parsing', () => {
+        it('should normalize event data during parsing', async () => {
             const mockMessage: Message = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -184,7 +184,7 @@ describe('createParseKafkaMessageStep', () => {
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(
                 ok({
@@ -210,13 +210,13 @@ describe('createParseKafkaMessageStep', () => {
     })
 
     describe('error handling', () => {
-        it('should return null when message value is null', () => {
+        it('should return null when message value is null', async () => {
             const mockMessage: Message = {
                 value: null,
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
@@ -224,13 +224,13 @@ describe('createParseKafkaMessageStep', () => {
             })
         })
 
-        it('should return null when message value is undefined', () => {
+        it('should return null when message value is undefined', async () => {
             const mockMessage: Message = {
                 value: undefined,
             } as unknown as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
@@ -238,13 +238,13 @@ describe('createParseKafkaMessageStep', () => {
             })
         })
 
-        it('should return null when outer JSON is invalid', () => {
+        it('should return null when outer JSON is invalid', async () => {
             const mockMessage: Message = {
                 value: Buffer.from('invalid json'),
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
@@ -252,7 +252,7 @@ describe('createParseKafkaMessageStep', () => {
             })
         })
 
-        it('should return null when data field JSON is invalid', () => {
+        it('should return null when data field JSON is invalid', async () => {
             const mockMessage: Message = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -263,7 +263,7 @@ describe('createParseKafkaMessageStep', () => {
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
@@ -273,7 +273,7 @@ describe('createParseKafkaMessageStep', () => {
     })
 
     describe('edge cases', () => {
-        it('should handle empty data field', () => {
+        it('should handle empty data field', async () => {
             const mockMessage: Message = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -284,7 +284,7 @@ describe('createParseKafkaMessageStep', () => {
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
@@ -292,7 +292,7 @@ describe('createParseKafkaMessageStep', () => {
             })
         })
 
-        it('should handle data field with only whitespace', () => {
+        it('should handle data field with only whitespace', async () => {
             const mockMessage: Message = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -303,7 +303,7 @@ describe('createParseKafkaMessageStep', () => {
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
@@ -311,7 +311,7 @@ describe('createParseKafkaMessageStep', () => {
             })
         })
 
-        it('should handle message with empty object in data', () => {
+        it('should handle message with empty object in data', async () => {
             const mockMessage: Message = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -322,7 +322,7 @@ describe('createParseKafkaMessageStep', () => {
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(
                 ok({
@@ -339,7 +339,7 @@ describe('createParseKafkaMessageStep', () => {
             )
         })
 
-        it('should handle message with null values', () => {
+        it('should handle message with null values', async () => {
             const mockMessage: Message = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -354,7 +354,7 @@ describe('createParseKafkaMessageStep', () => {
             } as Message
 
             const input = { message: mockMessage }
-            const result = step(input)
+            const result = await step(input)
 
             expect(result).toEqual(
                 ok({

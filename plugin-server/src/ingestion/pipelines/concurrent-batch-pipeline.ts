@@ -1,4 +1,3 @@
-import { instrumentFn } from '../../common/tracing/tracing-utils'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { GatheringBatchPipeline } from './gathering-batch-pipeline'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
@@ -22,12 +21,10 @@ export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput>
         const previousResults = await this.previousPipeline.next()
 
         if (previousResults !== null) {
-            const processorName = this.processor.constructor.name || 'anonymousProcessor'
-
             previousResults.forEach((resultWithContext) => {
                 const result = resultWithContext.result
                 if (isOkResult(result)) {
-                    const promise = instrumentFn(processorName, () => this.processor.process(resultWithContext))
+                    const promise = this.processor.process(resultWithContext)
                     this.promiseQueue.push(promise)
                 } else {
                     this.promiseQueue.push(
