@@ -102,8 +102,8 @@ export interface BooleanVariable extends VariableBase {
 export interface ListVariable extends VariableBase {
     type: 'List'
     values: string[]
-    default_value: string
-    value?: string
+    default_value: string | string[]
+    value?: string | string[]
 }
 
 export interface DateVariable extends VariableBase {
