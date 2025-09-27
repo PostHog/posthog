@@ -117,6 +117,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         loadAllFlagKeys: (flagIds: string[]) => ({ flagIds }),
         setFlagKeys: (flagKeys: Record<string, string>) => ({ flagKeys }),
         setFlagKeysLoading: (isLoading: boolean) => ({ isLoading }),
+        resetAffectedUsers: true,
     }),
     defaults(({ props }) => ({
         filters: ensureSortKeys(props.filters),
@@ -232,6 +233,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 setAffectedUsers: (state, { index, count }) => ({
                     ...state,
                     [index]: count,
+                }),
+                resetAffectedUsers: () => ({
+                    0: undefined,
                 }),
             },
         ],
@@ -431,6 +435,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         },
         moveConditionSetDown: ({ index }) => {
             swapAffectedUsers(values.affectedUsers, actions, index, index + 1)
+        },
+        resetAffectedUsers: () => {
+            actions.setAffectedUsers(0, values.totalUsers ?? undefined)
         },
     })),
     selectors({
