@@ -16,7 +16,7 @@ import {
     CyclotronJobQueueKind,
     CyclotronJobQueueSource,
 } from '../../types'
-import { CyclotronJobQueueDelay } from './job-queue-delay'
+import { CyclotronJobQueueDelay, getDelayQueue } from './job-queue-delay'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './job-queue-postgres'
 
@@ -189,6 +189,15 @@ export class CyclotronJobQueue {
         ) {
             // Kafka doesn't support delays so if enabled we should force scheduled jobs to postgres
             return 'postgres'
+        }
+
+        if (
+            invocation.queueScheduledAt &&
+            invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS }) &&
+            invocation.state
+        ) {
+            invocation.state.returnTopic = invocation.queue
+            invocation.queue = getDelayQueue(invocation.queueScheduledAt)
         }
 
         const teamId = invocation.teamId
