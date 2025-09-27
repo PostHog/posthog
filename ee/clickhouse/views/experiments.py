@@ -750,7 +750,9 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
 
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
-        start_date = experiment.start_date.date() if experiment.start_date else experiment.created_at.date()
+        if not experiment.start_date:
+            raise ValidationError("Experiment has not been started yet")
+        start_date = experiment.start_date.date()
         end_date = experiment.end_date.date() if experiment.end_date else date.today()
 
         experiment_dates = []

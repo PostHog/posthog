@@ -49,10 +49,8 @@ def compute_metric_fingerprint(
 
     fingerprint_data = {
         "metric": clean_metric,
-        "experiment": {
-            "start_date": start_date_str,
-            "stats_config": stats_config,
-        },
+        "start_date": start_date_str,
+        "stats_config": stats_config,
     }
 
     if exposure_criteria:
