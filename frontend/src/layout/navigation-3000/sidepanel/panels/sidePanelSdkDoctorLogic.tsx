@@ -616,7 +616,7 @@ const fetchSdkData = async (
             case 'android':
                 // Android SDK has special handling - dates are in CHANGELOG.md
                 const androidChangelogResponse = await fetch(
-                    'https://raw.githubusercontent.com/PostHog/posthog-android/main/CHANGELOG.md'
+                    'https://raw.githubusercontent.com/PostHog/posthog-android/main/posthog-android/CHANGELOG.md'
                 )
                 if (!androidChangelogResponse.ok) {
                     throw new Error(`Failed to fetch Android CHANGELOG.md: ${androidChangelogResponse.status}`)
@@ -627,6 +627,8 @@ const fetchSdkData = async (
                 const androidMatches = [...androidChangelogText.matchAll(/^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})/gm)]
                 const androidVersions = androidMatches.map((match) => match[1])
                 const androidReleaseDates: Record<string, string> = {}
+
+                console.info(`[SDK Doctor] Android CHANGELOG fetch successful: ${androidMatches.length} versions found`)
 
                 androidMatches.forEach((match) => {
                     const version = match[1]
@@ -1013,21 +1015,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             >,
             {
                 loadLatestSdkVersions: async () => {
-                    // TEMPORARY: Return empty result to avoid all GitHub API calls
-                    // Go SDK will use async per-SDK fetching instead
-                    console.info('[SDK Doctor] Skipping bulk GitHub API fetch - using per-SDK approach for Go only')
-
-                    const result: Record<
-                        SdkType,
-                        { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
-                    > = {} as Record<
+                    // No bulk fetching needed - individual SDKs are processed via per-SDK server endpoints
+                    // This loader exists only to trigger the success handler for async time-based detection
+                    return {} as Record<
                         SdkType,
                         { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
                     >
-
-                    // Skip all bulk fetching to avoid GitHub API rate limits
-                    // Individual SDKs will be processed as needed via async per-SDK approach
-                    return result
                 },
             },
         ],
@@ -1083,11 +1076,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     const limitedEvents = recentEvents.slice(0, 15)
 
                     // Filter out PostHog's internal UI events (URLs containing /project/1/)
-                    // In dev mode, also filter out test@posthog.com email events (dev UI interactions)
+                    // In dev mode, also filter out test@posthog.com events (dev UI interactions)
                     const customerEvents = limitedEvents.filter(
                         (event) =>
                             !event.properties?.$current_url?.includes('/project/1') &&
-                            !(isDemoMode() && event.properties?.email === 'test@posthog.com')
+                            !(
+                                isDemoMode() &&
+                                (event.properties?.email === 'test@posthog.com' ||
+                                    event.distinct_id === 'test@posthog.com')
+                            )
                     )
 
                     // Filter for web events from the last 10 minutes
@@ -1331,13 +1328,95 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                     // Filter out PostHog's internal UI events (URLs containing /project/1/) when in development
                     // Also filter out posthog-js-lite events as requested
-                    // In dev mode, also filter out test@posthog.com email events (dev UI interactions)
-                    const customerEvents = limitedEvents.filter(
-                        (event) =>
-                            !event.properties?.$current_url?.includes('/project/1') &&
-                            event.properties?.$lib !== 'posthog-js-lite' &&
-                            !(isDemoMode() && event.properties?.email === 'test@posthog.com')
-                    )
+                    // In dev mode, also filter out test@posthog.com events (dev UI interactions)
+                    const customerEvents = limitedEvents.filter((event) => {
+                        // Always filter these
+                        if (event.properties?.$current_url?.includes('/project/1')) {
+                            return false
+                        }
+                        if (event.properties?.$lib === 'posthog-js-lite') {
+                            return false
+                        }
+
+                        // Additional filtering in dev mode
+                        if (isDemoMode()) {
+                            // Filter test@posthog.com events
+                            if (
+                                event.properties?.email === 'test@posthog.com' ||
+                                event.distinct_id === 'test@posthog.com'
+                            ) {
+                                return false
+                            }
+
+                            // Filter PostHog's internal Python SDK events more aggressively
+                            if (event.properties?.$lib === 'posthog-python') {
+                                // Check if this looks like an internal PostHog backend event
+                                // Internal events often lack user-specific properties but have system properties
+                                const hasTestDistinctId = event.distinct_id?.startsWith('test-')
+                                const hasUserEmail =
+                                    event.properties?.email && event.properties.email !== 'test@posthog.com'
+                                const hasCustomUrl =
+                                    event.properties?.$current_url &&
+                                    !event.properties.$current_url.includes('localhost')
+
+                                // If it's a test event (distinct_id starts with 'test-'), allow it
+                                if (hasTestDistinctId) {
+                                    console.info('[SDK Doctor] Allowing test Python event:', event.distinct_id)
+                                    return true
+                                }
+
+                                // If it has real user properties, allow it
+                                if (hasUserEmail || hasCustomUrl) {
+                                    return true
+                                }
+
+                                // Otherwise, it's likely an internal PostHog backend event - filter it
+                                console.info('[SDK Doctor] Filtering internal Python event:', {
+                                    distinct_id: event.distinct_id,
+                                    email: event.properties?.email,
+                                    url: event.properties?.$current_url,
+                                    lib_version: event.properties?.$lib_version,
+                                })
+                                return false
+                            }
+
+                            // Filter localhost web SDK events from PostHog's own frontend
+                            if (event.properties?.$lib === 'web' && event.properties?.$host?.includes('localhost')) {
+                                return false
+                            }
+                        }
+
+                        return true
+                    })
+
+                    if (isDemoMode()) {
+                        const filtered = limitedEvents.length - customerEvents.length
+                        if (filtered > 0) {
+                            console.info(
+                                `[SDK Doctor] Dev mode: Filtered out ${filtered} internal events (${limitedEvents.length} -> ${customerEvents.length})`
+                            )
+                        }
+
+                        // CRITICAL FIX: If all events were filtered out in dev mode, clear the SDK map
+                        if (customerEvents.length === 0 && limitedEvents.length > 0) {
+                            console.info('[SDK Doctor] Dev mode: All events filtered - clearing SDK detections')
+                            return {} // Return empty map to clear all detections
+                        }
+
+                        // Log details about Python SDK events for debugging
+                        const pythonEvents = customerEvents.filter((e) => e.properties?.$lib === 'posthog-python')
+                        if (pythonEvents.length > 0) {
+                            console.info(
+                                `[SDK Doctor] Dev mode: Found ${pythonEvents.length} Python SDK events after filtering:`,
+                                pythonEvents.map((e) => ({
+                                    distinct_id: e.distinct_id,
+                                    email: e.properties?.email,
+                                    url: e.properties?.$current_url,
+                                    lib_version: e.properties?.$lib_version,
+                                }))
+                            )
+                        }
+                    }
 
                     const webEvents = customerEvents.filter((e) => e.properties?.$lib === 'web')
 
@@ -1462,6 +1541,18 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         }
                     })
 
+                    // Clean up stale detections: Remove SDKs from state that weren't seen in current events
+                    // This prevents Python SDK from persisting between scans when it's been filtered out
+                    if (isDemoMode()) {
+                        const currentSDKTypes = new Set(Object.values(sdkVersionsMap).map((info) => info.type))
+                        for (const [key, info] of Object.entries(state)) {
+                            if (!sdkVersionsMap[key] && currentSDKTypes.size > 0) {
+                                // This SDK was in previous state but not in current events
+                                console.info(`[SDK Doctor] Removing stale ${info.type} SDK detection: ${info.version}`)
+                            }
+                        }
+                    }
+
                     return sdkVersionsMap
                 },
                 loadLatestSdkVersionsSuccess: (state, { latestSdkVersions }) => {
@@ -1553,6 +1644,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             lastSeenTimestamp: new Date().toISOString(), // Current processing time
                             error,
                         }
+                    }
+
+                    // If no SDKs were detected after filtering, return empty map in dev mode
+                    // This prevents stale detections from persisting
+                    if (isDemoMode() && Object.keys(updatedMap).length === 0) {
+                        return {} // Clear all detections
                     }
 
                     // For Go SDK, we'll handle async processing in a listener
@@ -1648,6 +1745,14 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             actions.loadLatestSdkVersions()
         },
         loadLatestSdkVersionsSuccess: async () => {
+            // Skip async processing if SDK map is empty (all events were filtered in dev mode)
+            if (Object.keys(values.sdkVersionsMap).length === 0) {
+                if (isDemoMode()) {
+                    console.info('[SDK Doctor] Dev mode: SDK map is empty after filtering, skipping async processing')
+                }
+                return
+            }
+
             // Handle async processing for all time-based detection SDKs
             const updatedMap = { ...values.sdkVersionsMap }
             const timeBasedSdks = [
@@ -2297,7 +2402,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 const sdkData = await fetchSdkData('android')
 
                                 if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
-                                    console.warn('[SDK Doctor] Android SDK: No version data available')
+                                    const debugInfo = `sdkData=${!!sdkData}, versions=${sdkData?.versions?.length || 0}`
+                                    console.warn(`[SDK Doctor] Android SDK: No version data available (${debugInfo})`)
+                                    console.warn(
+                                        '[SDK Doctor] Android SDK: This will show "Unavailable" badge - check CHANGELOG.md URL and network connectivity'
+                                    )
                                     updatedMap[key] = {
                                         ...info,
                                         isOutdated: false,
@@ -2775,9 +2884,12 @@ function determineSamplingStrategy(estimatedEventsPerMinute: number): SamplingSt
             maxEvents: 20, // Reasonable sample size
             minEventsForAnalysis: 3,
             contextBalancing: false, // Simple for demos
-            intervalMs: 3000, // 3 seconds - responsive for demos
+            intervalMs: 5000, // 5 seconds - responsive for demos
         }
     }
+
+    // Production mode: All customers get 30-minute intervals
+    // SDK Doctor scans on session start + every 30 minutes + manual scans
     if (estimatedEventsPerMinute > 1000) {
         // High-volume customers
         return {
@@ -2785,7 +2897,7 @@ function determineSamplingStrategy(estimatedEventsPerMinute: number): SamplingSt
             maxEvents: 100, // Larger sample
             minEventsForAnalysis: 20,
             contextBalancing: true, // Ensure both mobile/desktop representation
-            intervalMs: 10000, // 10 seconds - less frequent for high volume
+            intervalMs: 1800000, // 30 minutes - production interval
         }
     } else if (estimatedEventsPerMinute > 50) {
         // Medium-volume customers
@@ -2794,7 +2906,7 @@ function determineSamplingStrategy(estimatedEventsPerMinute: number): SamplingSt
             maxEvents: 50,
             minEventsForAnalysis: 10,
             contextBalancing: true,
-            intervalMs: 5000, // 5 seconds - standard
+            intervalMs: 1800000, // 30 minutes - production interval
         }
     }
     // Low-volume customers
@@ -2803,7 +2915,7 @@ function determineSamplingStrategy(estimatedEventsPerMinute: number): SamplingSt
         maxEvents: 30,
         minEventsForAnalysis: 5,
         contextBalancing: false, // Take what we can get
-        intervalMs: 2000, // 2 seconds - more responsive for low volume
+        intervalMs: 1800000, // 30 minutes - production interval
     }
 }
 

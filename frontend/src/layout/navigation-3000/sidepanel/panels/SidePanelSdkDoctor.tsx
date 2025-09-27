@@ -110,9 +110,11 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
                             ? 'danger'
                             : menuIconStatus === 'critical'
                               ? 'danger'
-                              : menuIconStatus === 'warning'
-                                ? 'warning'
-                                : 'success'
+                              : outdatedSdkCount > 0
+                                ? 'danger' // Red circle for any outdated SDKs
+                                : menuIconStatus === 'warning'
+                                  ? 'warning'
+                                  : 'success'
                     }
                 >
                     <IconStethoscope />
@@ -154,7 +156,7 @@ const sdkDocsLinks: Record<SdkType, { releases: string; docs: string }> = {
         docs: 'https://posthog.com/docs/libraries/android',
     },
     node: {
-        releases: 'https://github.com/PostHog/posthog-js-lite/blob/main/posthog-node/CHANGELOG.md',
+        releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/node/CHANGELOG.md',
         docs: 'https://posthog.com/docs/libraries/node',
     },
     python: {
@@ -653,7 +655,10 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             {/* Show documentation links for all SDKs in this category */}
                             {allSDKsInCategory.length > 0 && (
                                 <div className="mt-2">
-                                    <SdkLinks sdkType={allSDKsInCategory[0].type} />
+                                    {/* Get unique SDK types in this category */}
+                                    {Array.from(new Set(allSDKsInCategory.map((sdk) => sdk.type))).map((sdkType) => (
+                                        <SdkLinks key={sdkType} sdkType={sdkType} />
+                                    ))}
                                 </div>
                             )}
                         </div>

@@ -266,7 +266,7 @@ def fetch_android_sdk_data() -> Optional[dict[str, Any]]:
     try:
         # Fetch CHANGELOG.md for versions
         changelog_response = requests.get(
-            "https://raw.githubusercontent.com/PostHog/posthog-android/main/CHANGELOG.md", timeout=10
+            "https://raw.githubusercontent.com/PostHog/posthog-android/main/posthog-android/CHANGELOG.md", timeout=10
         )
         if not changelog_response.ok:
             return None
