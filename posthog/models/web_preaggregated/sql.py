@@ -180,7 +180,9 @@ WEB_BOUNCES_V2_PRODUCTION_COLUMNS = """
     bounces_count_state AggregateFunction(sum, UInt64),
     total_session_duration_state AggregateFunction(sum, Int64),
     total_session_count_state AggregateFunction(sum, UInt64),
-    mat_metadata_loggedIn Nullable(Bool)
+    mat_metadata_loggedIn Nullable(Bool),
+    session_duration_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+    session_bounce_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(UInt64)))
 """
 
 # Production ORDER BY clauses extracted from production tables
@@ -327,6 +329,8 @@ def get_web_bounces_insert_columns():
         "bounces_count_state",
         "total_session_duration_state",
         "total_session_count_state",
+        "session_duration_map_state",
+        "session_bounce_map_state",
     ]
     return get_insert_columns(WEB_BOUNCES_DIMENSIONS, aggregate_columns)
 
@@ -345,7 +349,9 @@ WEB_BOUNCES_COLUMNS = f"""
     pageviews_count_state AggregateFunction(sum, UInt64),
     bounces_count_state AggregateFunction(sum, UInt64),
     total_session_duration_state AggregateFunction(sum, Int64),
-    total_session_count_state AggregateFunction(sum, UInt64)
+    total_session_count_state AggregateFunction(sum, UInt64),
+    session_duration_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+    session_bounce_map_state AggregateFunction(sumMap, Tuple(Array(String), Array(UInt64)))
 """
 
 
@@ -750,7 +756,9 @@ def WEB_BOUNCES_INSERT_SQL(
         sumState(pageview_count) AS pageviews_count_state,
         sumState(toUInt64(ifNull(is_bounce, 0))) AS bounces_count_state,
         sumState(session_duration) AS total_session_duration_state,
-        sumState(total_session_count_state) AS total_session_count_state
+        sumState(total_session_count_state) AS total_session_count_state,
+        sumMapState(session_duration_tuple) AS session_duration_map_state,
+        sumMapState(session_bounce_tuple) AS session_bounce_map_state
     FROM
     (
         SELECT
@@ -782,6 +790,8 @@ def WEB_BOUNCES_INSERT_SQL(
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
             toUInt64(1) AS total_session_count_state,
+            ([events__session.session_id], [any(events__session.session_duration)]) AS session_duration_tuple,
+            ([events__session.session_id], [toUInt64(ifNull(any(events__session.is_bounce), 0))]) AS session_bounce_tuple,
             events__session.session_id AS session_id,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
