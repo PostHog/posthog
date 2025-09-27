@@ -454,12 +454,79 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
     })),
     afterMount(({ actions, values, cache }) => {
+        // Set up real-time scroll event listener for immediate updates
+        cache.onScroll = () => {
+            const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
+            if (values.heatmapScrollY !== scrollY) {
+                actions.setHeatmapScrollY(scrollY)
+            }
+        }
+
+        const addScrollListeners = () => {
+            document.addEventListener('scroll', cache.onScroll, { capture: true, passive: true })
+            window.addEventListener('scroll', cache.onScroll, { capture: true, passive: true })
+
+            document.addEventListener('wheel', cache.onScroll, { capture: true, passive: true })
+
+            document.addEventListener('touchmove', cache.onScroll, { capture: true, passive: true })
+
+            // Find and track all scrollable elements for nested scroll support
+            cache.scrollableElementPositions = new Map()
+            const findScrollableElements = () => {
+                const allElements = document.querySelectorAll('*')
+                allElements.forEach((element) => {
+                    const computedStyle = window.getComputedStyle(element)
+                    if (computedStyle.overflow === 'auto' || computedStyle.overflow === 'scroll' ||
+                        computedStyle.overflowY === 'auto' || computedStyle.overflowY === 'scroll') {
+                        const rect = element.getBoundingClientRect()
+                        cache.scrollableElementPositions.set(element, {
+                            rect: { top: rect.top, bottom: rect.bottom },
+                            scrollTop: element.scrollTop || 0
+                        })
+                        
+                        // Add scroll listener to this specific element
+                        element.addEventListener('scroll', () => {
+                            const currentRect = element.getBoundingClientRect()
+                            const scrollInfo = cache.scrollableElementPositions.get(element)
+                            if (scrollInfo) {
+                                scrollInfo.rect = { top: currentRect.top, bottom: currentRect.bottom }
+                                scrollInfo.scrollTop = element.scrollTop || 0
+                            }
+                            // Trigger heatmap update when nested element scrolls
+                            actions.updateElementMetrics([])
+                        }, { passive: true })
+                    }
+                })
+            }
+            
+            findScrollableElements()
+        }
+
+        // Remove all scroll listeners
+        cache.removeScrollListeners = () => {
+            document.removeEventListener('scroll', cache.onScroll, { capture: true })
+            window.removeEventListener('scroll', cache.onScroll, { capture: true })
+            document.removeEventListener('wheel', cache.onScroll, { capture: true })
+            document.removeEventListener('touchmove', cache.onScroll, { capture: true })
+
+            // Remove nested scroll listeners
+            if (cache.scrollableElementPositions) {
+                cache.scrollableElementPositions.forEach((scrollInfo, element) => {
+                    element.removeEventListener('scroll', cache.onScroll, { passive: true })
+                })
+                cache.scrollableElementPositions.clear()
+            }
+        }
+
+        // Initial setup of scroll listeners
+        addScrollListeners()
+
         cache.scrollCheckTimer = setInterval(() => {
             const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
             if (values.heatmapScrollY !== scrollY) {
                 actions.setHeatmapScrollY(scrollY)
             }
-        }, 100)
+        }, 500) // Increased interval since we have real-time listeners now
 
         // we bundle the whole app with the toolbar, which means we don't need ES5 support
         // so we can use IntersectionObserver
@@ -475,10 +542,28 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         // Store for cleanup
         cache.intersectionObserver = intersectionObserver
+
+        cache.mutationObserver = new MutationObserver(() => {
+            const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
+            if (values.heatmapScrollY !== scrollY) {
+                actions.setHeatmapScrollY(scrollY)
+            }
+        })
+
+        cache.mutationObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['style', 'class'],
+        })
     }),
     beforeUnmount(({ cache }) => {
         clearInterval(cache.scrollCheckTimer)
         cache.intersectionObserver?.disconnect()
+        cache.mutationObserver?.disconnect()
+        cache.removeScrollListeners?.()
+        // Clean up the scroll handler function reference
+        cache.onScroll = undefined
     }),
 ])
 
