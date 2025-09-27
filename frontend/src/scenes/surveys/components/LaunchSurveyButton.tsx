@@ -16,7 +16,11 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
     const { launchSurvey } = useActions(surveyLogic)
 
     return (
-        <AccessControlAction resourceType={AccessControlResourceType.Survey} minAccessLevel={AccessControlLevel.Editor}>
+        <AccessControlAction
+            resourceType={AccessControlResourceType.Survey}
+            minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={survey.user_access_level}
+        >
             <LemonButton
                 type="primary"
                 data-attr="launch-survey"
