@@ -433,6 +433,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (insightId === 'new') {
                 insightId = `new-${values.tabId}` as InsightShortId
             }
+            const currentInsightId = values.insightId
 
             const currentScene = sceneLogic.findMounted()?.values
 
@@ -497,7 +498,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     if (initial) {
                         validatingQuery = true
                         actions.upgradeQuery(validQuery)
-                    } else {
+                    } else if (currentInsightId !== insightId) {
                         queryFromUrl = typeof q === 'string' ? parseDraftQueryFromURL(q) : null
                     }
                 } else {
