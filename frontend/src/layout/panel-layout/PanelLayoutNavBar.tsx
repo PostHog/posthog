@@ -311,7 +311,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         activePanelIdentifier === item.identifier ||
                                                         activePanelIdentifierFromUrl === item.identifier
                                                     }
-                                                    className="group"
+                                                    className="group pr-1"
                                                     menuItem={!isLayoutNavCollapsed}
                                                     iconOnly={isLayoutNavCollapsed}
                                                     tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
@@ -347,7 +347,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             .toLowerCase()}`}
                                                         buttonProps={{
                                                             menuItem: !isLayoutNavCollapsed,
-                                                            className: 'group',
+                                                            className: 'group pr-1',
                                                             iconOnly: isLayoutNavCollapsed,
                                                             active: isStaticNavItemActive(item.identifier),
                                                         }}
@@ -476,6 +476,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement="right"
                                     iconOnly={isLayoutNavCollapsed}
                                     data-attr="menu-item-me"
+                                    className="pr-1"
                                 >
                                     <ProfilePicture user={user} size={isLayoutNavCollapsed ? 'md' : 'xs'} />
                                     {!isLayoutNavCollapsed && (
