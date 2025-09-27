@@ -93,7 +93,7 @@ export function loadPostHogJS(): void {
                         This could be due to the presence of adblockers running in your browser or due to a network
                         issue (e.g. slow wifi). This might affect the usability of the PostHog platform since some
                         features might not be available. Note: This does NOT mean your PostHog feature flags are
-                        affected.
+                        affected - you can avoid this issue for your own flags by using a reverse proxy.
                     </span>
                 </div>,
                 {
