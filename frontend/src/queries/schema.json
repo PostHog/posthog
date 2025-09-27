@@ -779,6 +779,7 @@
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
                 "create_message_template",
+                "create_campaign",
                 "navigate",
                 "filter_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
