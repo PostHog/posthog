@@ -88,10 +88,12 @@ export function loadPostHogJS(): void {
 
             lemonToast.warning(
                 <div className="flex flex-col gap-2">
-                    <span>We couldn't load our feature flags.</span>
+                    <span>We couldn't load our internal feature flags.</span>
                     <span>
-                        This could be due to the presence of adblockers running in your browser. This might affect the
-                        platform usability since some features might not be available.
+                        This could be due to the presence of adblockers running in your browser or due to a network
+                        issue (e.g. slow wifi). This might affect the usability of the PostHog platform since some
+                        features might not be available. Note: This does NOT mean your PostHog feature flags are
+                        affected.
                     </span>
                 </div>,
                 {
