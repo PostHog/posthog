@@ -105,6 +105,24 @@ describe('cohortEditLogic', () => {
         expect(api.update).toHaveBeenCalledTimes(1)
     })
 
+    it('restore cohort', async () => {
+        await initCohortLogic({ id: 1 })
+        await expectLogic(logic, async () => {
+            logic.actions.setCohort({ ...mockCohort, deleted: true })
+            logic.actions.restoreCohort()
+        })
+            .toFinishAllListeners()
+            .toDispatchActions(['setCohort', 'restoreCohort'])
+        expect(api.update).toHaveBeenCalledTimes(1)
+        expect(api.update).toHaveBeenCalledWith(
+            expect.anything(),
+            {
+                deleted: false,
+            },
+            expect.anything()
+        )
+    })
+
     describe('form validation', () => {
         it('save with valid cohort', async () => {
             await initCohortLogic({ id: 1 })

@@ -128,6 +128,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 <LemonBanner type="error">The cohort '{cohort.name}' has been soft deleted.</LemonBanner>
                 <ScenePanel>
                     <ButtonPrimitive
+                        disabled={cohortLoading}
                         onClick={() => {
                             restoreCohort()
                         }}
