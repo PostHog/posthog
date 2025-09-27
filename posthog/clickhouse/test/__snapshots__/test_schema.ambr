@@ -1050,7 +1050,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
-  Order By (team_id, group_type_index, group_key)
+  ORDER BY (team_id, group_type_index, group_key)
   
   
   '''
@@ -1059,7 +1059,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS groups_mv ON CLUSTER 'posthog'
-  TO posthog_test.groups
+  TO writable_groups
   AS SELECT
   group_type_index,
   group_key,
@@ -1068,7 +1068,7 @@
   group_properties,
   _timestamp,
   _offset
-  FROM posthog_test.kafka_groups
+  FROM kafka_groups
   
   '''
 # ---
@@ -4940,7 +4940,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
-  Order By (team_id, group_type_index, group_key)
+  ORDER BY (team_id, group_type_index, group_key)
   SETTINGS storage_policy = 'hot_to_cold'
   
   '''
