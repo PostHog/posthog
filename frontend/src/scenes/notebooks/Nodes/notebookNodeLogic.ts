@@ -313,7 +313,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                         return ''
                     }
 
-                    return `${key}='${JSON.stringify(value)}'`
+                    return `${key}='${btoa(JSON.stringify(value))}'`
                 })
                 .filter((x) => !!x)
                 .join(' ')
