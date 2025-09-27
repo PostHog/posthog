@@ -368,6 +368,8 @@ class AssistantNodeName(StrEnum):
     HOGQL_GENERATOR_TOOLS = "hogql_generator_tools"
     SESSION_REPLAY_FILTER = "session_replay_filter"
     SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
+    REVENUE_ANALYTICS_FILTER = "revenue_analytics_filter"
+    REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
 
 
 class AssistantMode(StrEnum):
