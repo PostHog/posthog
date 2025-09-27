@@ -107,7 +107,6 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
-        .route("/pprof/profile", get(handle_profile))
         .route(
             "/_liveness",
             get(move || async move {
@@ -127,6 +126,12 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
                 status
             }),
         );
+
+    let router = if config.enable_pprof {
+        router.route("/pprof/profile", get(handle_profile))
+    } else {
+        router
+    };
 
     // Don't install metrics unless asked to
     // Installing a global recorder when capture is used as a library (during tests etc)
