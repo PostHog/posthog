@@ -205,7 +205,7 @@ export const sceneLogic = kea<sceneLogicType>([
         }),
         reloadBrowserDueToImportError: true,
 
-        newTab: (href?: string | null) => ({ href }),
+        newTab: (href?: string | null, parentTabId?: string | null) => ({ href, parentTabId }),
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
         removeTab: (tab: SceneTab) => ({ tab }),
         activateTab: (tab: SceneTab) => ({ tab }),
@@ -223,20 +223,45 @@ export const sceneLogic = kea<sceneLogicType>([
             [] as SceneTab[],
             {
                 setTabs: (_, { tabs }) => tabs,
-                newTab: (state, { href }) => {
+                newTab: (state, { href, parentTabId }) => {
                     const { pathname, search, hash } = combineUrl(href || '/new')
-                    return [
-                        ...state.map((tab) => (tab.active ? { ...tab, active: false } : tab)),
-                        {
-                            id: generateTabId(),
-                            active: true,
-                            pathname: addProjectIdIfMissing(pathname),
-                            search,
-                            hash,
-                            title: 'New tab',
-                            iconType: 'blank',
-                        },
-                    ]
+                    const newTab: SceneTab = {
+                        id: generateTabId(),
+                        active: true,
+                        pathname: addProjectIdIfMissing(pathname),
+                        search,
+                        hash,
+                        title: 'New tab',
+                        iconType: 'blank',
+                        parentTabId: parentTabId || undefined,
+                    }
+
+                    // Deactivate all existing tabs
+                    const deactivatedTabs = state.map((tab) => (tab.active ? { ...tab, active: false } : tab))
+
+                    // If there's a parent tab, insert the new tab right after it
+                    if (parentTabId) {
+                        const parentIndex = deactivatedTabs.findIndex((tab) => tab.id === parentTabId)
+                        if (parentIndex !== -1) {
+                            // Insert after parent and any existing children
+                            let insertIndex = parentIndex + 1
+                            // Find the last child of this parent to insert after all siblings
+                            while (
+                                insertIndex < deactivatedTabs.length &&
+                                deactivatedTabs[insertIndex].parentTabId === parentTabId
+                            ) {
+                                insertIndex++
+                            }
+                            return [
+                                ...deactivatedTabs.slice(0, insertIndex),
+                                newTab,
+                                ...deactivatedTabs.slice(insertIndex),
+                            ]
+                        }
+                    }
+
+                    // Fallback: append at the end if no parent found
+                    return [...deactivatedTabs, newTab]
                 },
                 removeTab: (state, { tab }) => {
                     let index = state.findIndex((t) => t === tab)
@@ -245,10 +270,22 @@ export const sceneLogic = kea<sceneLogicType>([
                         return state
                     }
                     let newState = state.filter((_, i) => i !== index)
+
+                    // If the removed tab was active, we need to activate another tab
                     if (!newState.find((t) => t.active)) {
-                        const newActiveIndex = Math.max(index - 1, 0)
+                        let newActiveIndex = Math.max(index - 1, 0) // Default fallback
+
+                        // If the removed tab had a parent, activate the parent instead
+                        if (tab.parentTabId) {
+                            const parentIndex = newState.findIndex((t) => t.id === tab.parentTabId)
+                            if (parentIndex !== -1) {
+                                newActiveIndex = parentIndex
+                            }
+                        }
+
                         newState = newState.map((tab, i) => (i === newActiveIndex ? { ...tab, active: true } : tab))
                     }
+
                     if (newState.length === 0) {
                         newState.push({
                             id: generateTabId(),
@@ -298,6 +335,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         customTitle: source.customTitle,
                         iconType: source.iconType,
                         active: false,
+                        parentTabId: source.parentTabId,
                     }
 
                     if (idx === -1) {
@@ -558,7 +596,7 @@ export const sceneLogic = kea<sceneLogicType>([
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
         [NEW_INTERNAL_TAB]: (payload) => {
-            actions.newTab(payload.path)
+            actions.newTab(payload.path, payload.parentTabId)
         },
         newTab: ({ href }) => {
             persistTabs(values.tabs)

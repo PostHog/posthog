@@ -160,14 +160,28 @@ interface SceneTabProps {
     isDragging?: boolean
 }
 
+function getGroupColor(groupId: string): string {
+    // Generate a consistent color based on the group ID
+    const colors = ['bg-blue-400', 'bg-green-400', 'bg-purple-400', 'bg-orange-400', 'bg-pink-400', 'bg-indigo-400']
+    const hash = groupId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+    return colors[hash % colors.length]
+}
+
 function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const canRemoveTab = true
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
-    const { editingTabId } = useValues(sceneLogic)
+    const { editingTabId, tabs } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
 
     const isEditing = editingTabId === tab.id
+    const hasParent = !!tab.parentTabId
+    const hasChildren = tabs.some((t) => t.parentTabId === tab.id)
+    // A tab is in a group if it has a parent OR if it has children
+    const isInGroup = hasParent || hasChildren
+    // Use the parent's ID for child tabs, or this tab's ID if it's a parent
+    const groupId = tab.parentTabId || (hasChildren ? tab.id : null)
+    const groupColor = groupId ? getGroupColor(groupId) : 'bg-blue-400'
 
     useEffect(() => {
         if (isEditing && editValue === '') {
@@ -184,7 +198,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 inputRef.current?.focus()
             }, 100)
         }
-    }, [isEditing])
+    }, [isEditing, clickOnTab, tab])
 
     return (
         <Link
@@ -223,6 +237,8 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             )}
             tooltip={tab.customTitle || tab.title}
         >
+            {/* Tab group indicator */}
+            {isInGroup && <div className={cn('absolute left-0 top-1 bottom-1 w-0.5 rounded-full', groupColor)} />}
             {tab.iconType === 'blank' ? (
                 <></>
             ) : tab.iconType === 'loading' ? (

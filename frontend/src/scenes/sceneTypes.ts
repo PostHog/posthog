@@ -160,6 +160,9 @@ export interface SceneTab {
     sceneId?: string
     sceneKey?: string
     sceneParams?: SceneParams
+
+    // Tab grouping - tracks which tab opened this tab
+    parentTabId?: string
 }
 
 export interface SceneParams {
