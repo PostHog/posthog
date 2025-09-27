@@ -1,4 +1,3 @@
-import { disposablesPlugin } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import { KeaPlugin, resetContext } from 'kea'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
@@ -14,6 +13,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { hashCodeForString, identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
+
+import { disposablesPlugin } from './kea-disposables'
 
 /*
 Actions for which we don't want to show error alerts,

@@ -1,11 +1,11 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { disposables } from 'kea-disposables'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { disposables } from '../../kea-disposables'
 import type { themeLogicType } from './themeLogicType'
 import { Theme, themes } from './themes'
 

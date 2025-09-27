@@ -1,7 +1,7 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { disposables } from 'kea-disposables'
 import posthog from 'posthog-js'
 
+import { disposables } from '../../../kea-disposables'
 import type { resizerLogicType } from './resizerLogicType'
 
 export type ResizerEvent = {

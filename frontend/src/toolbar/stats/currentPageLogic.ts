@@ -1,6 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
-import { disposables } from 'kea-disposables'
 
+import { disposables } from '../../kea-disposables'
 import type { currentPageLogicType } from './currentPageLogicType'
 
 const replaceWithWildcard = (part: string): string => {

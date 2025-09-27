@@ -1,6 +1,5 @@
 import { UniqueIdentifier } from '@dnd-kit/core'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { disposables } from 'kea-disposables'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -8,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
+import { disposables } from '../../../frontend/src/kea-disposables'
 import { demoTasks } from './demoData'
 import type { tasksLogicType } from './tasksLogicType'
 import { Task, TaskTrackerTab, TaskUpsertProps, TaskWorkflow, WorkflowStage } from './types'

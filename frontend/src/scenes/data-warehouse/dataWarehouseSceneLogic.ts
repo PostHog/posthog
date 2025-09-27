@@ -1,5 +1,4 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { disposables } from 'kea-disposables'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -19,6 +18,7 @@ import {
     ExternalDataSource,
 } from '~/types'
 
+import { disposables } from '../../kea-disposables'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'

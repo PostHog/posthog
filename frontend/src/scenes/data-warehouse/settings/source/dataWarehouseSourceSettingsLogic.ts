@@ -1,4 +1,3 @@
-import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -13,6 +12,7 @@ import { buildKeaFormDefaultFromSourceDetails, getErrorsForFields } from 'scenes
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { disposables } from '../../../../kea-disposables'
 import { externalDataSourcesLogic } from '../../externalDataSourcesLogic'
 import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'

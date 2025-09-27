@@ -1,5 +1,4 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { disposables } from 'kea-disposables'
 import { windowValues } from 'kea-window-values'
 
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
@@ -13,6 +12,7 @@ import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds } from '~/toolbar/utils'
 
+import { disposables } from '../../kea-disposables'
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2

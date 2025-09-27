@@ -1,10 +1,10 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { disposables } from 'kea-disposables'
 import { router } from 'kea-router'
 import { RefObject } from 'react'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { disposables } from '../../../../kea-disposables'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
 

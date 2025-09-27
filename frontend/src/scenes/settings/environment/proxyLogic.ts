@@ -1,5 +1,4 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { disposables } from 'kea-disposables'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
@@ -9,6 +8,7 @@ import { isDomain } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { disposables } from '../../../kea-disposables'
 import type { proxyLogicType } from './proxyLogicType'
 
 export type ProxyRecord = {

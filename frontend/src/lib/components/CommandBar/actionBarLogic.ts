@@ -1,9 +1,9 @@
 import { afterMount, beforeUnmount, connect, kea, listeners, path } from 'kea'
-import { disposables } from 'kea-disposables'
 import { subscriptions } from 'kea-subscriptions'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { disposables } from '../../../kea-disposables'
 import { commandPaletteLogic } from '../CommandPalette/commandPaletteLogic'
 import type { actionBarLogicType } from './actionBarLogicType'
 import { commandBarLogic } from './commandBarLogic'

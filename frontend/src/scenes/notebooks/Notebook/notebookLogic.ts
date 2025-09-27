@@ -1,5 +1,4 @@
 import { BuiltLogic, actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { disposables } from 'kea-disposables'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -23,6 +22,7 @@ import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLo
 import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, CommentType, SidePanelTab } from '~/types'
 
+import { disposables } from '../../../kea-disposables'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from the types file

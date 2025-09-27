@@ -1,8 +1,8 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { disposables } from 'kea-disposables'
 
 import { RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
 
+import { disposables } from '../../../kea-disposables'
 import { InsertionSuggestion } from './InsertionSuggestion'
 import ReplayTimestampSuggestion from './ReplayTimestamp'
 import SlashCommands from './SlashCommands'

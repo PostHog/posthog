@@ -1,4 +1,3 @@
-import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -13,6 +12,7 @@ import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSour
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { disposables } from '../../../kea-disposables'
 import { dataWarehouseJoinsLogic } from '../external/dataWarehouseJoinsLogic'
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 

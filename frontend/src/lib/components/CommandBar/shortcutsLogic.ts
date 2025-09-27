@@ -1,6 +1,6 @@
 import { afterMount, connect, kea, path } from 'kea'
-import { disposables } from 'kea-disposables'
 
+import { disposables } from '../../../kea-disposables'
 import { commandBarLogic } from './commandBarLogic'
 import type { shortcutsLogicType } from './shortcutsLogicType'
 

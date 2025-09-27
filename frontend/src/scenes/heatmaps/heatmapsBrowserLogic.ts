@@ -1,4 +1,3 @@
-import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -24,6 +23,7 @@ import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recording
 
 import { hogql } from '~/queries/utils'
 
+import { disposables } from '../../kea-disposables'
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
 
 export type HeatmapsBrowserLogicProps = {

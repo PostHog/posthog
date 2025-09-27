@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
-import { disposables } from 'kea-disposables'
 
+import { disposables } from '../../../../frontend/src/kea-disposables'
 import { issueActionsLogic } from '../components/IssueActions/issueActionsLogic'
 import type { bulkSelectLogicType } from './bulkSelectLogicType'
 

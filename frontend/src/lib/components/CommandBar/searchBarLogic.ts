@@ -1,5 +1,4 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { disposables } from 'kea-disposables'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -14,6 +13,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { Group, InsightShortId, PersonType, SearchResponse, SearchableEntity } from '~/types'
 
+import { disposables } from '../../../kea-disposables'
 import { commandBarLogic } from './commandBarLogic'
 import { Tab, TabGroup, clickhouseTabs } from './constants'
 import type { searchBarLogicType } from './searchBarLogicType'

@@ -1,10 +1,10 @@
 import { actions, afterMount, connect, kea, path, reducers } from 'kea'
-import { disposables } from 'kea-disposables'
 import { subscriptions } from 'kea-subscriptions'
 
 import { shouldIgnoreInput } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { disposables } from '../../../kea-disposables'
 import type { commandBarLogicType } from './commandBarLogicType'
 import { BarStatus } from './types'
 

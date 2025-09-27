@@ -1,4 +1,3 @@
-import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
@@ -19,6 +18,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ToolbarUserIntent } from '~/types'
 
+import { disposables } from '../../../kea-disposables'
 import type { iframedToolbarBrowserLogicType } from './iframedToolbarBrowserLogicType'
 
 export type IframedToolbarBrowserLogicProps = {

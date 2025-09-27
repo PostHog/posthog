@@ -1,4 +1,3 @@
-import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import {
     BuiltLogic,
     actions,
@@ -50,6 +49,7 @@ import {
     SessionRecordingType,
 } from '~/types'
 
+import { disposables } from '../../../kea-disposables'
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'

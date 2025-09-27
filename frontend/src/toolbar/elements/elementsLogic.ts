@@ -1,5 +1,4 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { disposables } from 'kea-disposables'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
@@ -13,6 +12,7 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
+import { disposables } from '../../kea-disposables'
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'

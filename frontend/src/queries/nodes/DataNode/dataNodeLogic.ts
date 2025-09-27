@@ -1,4 +1,3 @@
-import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import clsx from 'clsx'
 import {
     actions,
@@ -72,6 +71,7 @@ import {
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
+import { disposables } from '../../../kea-disposables'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 
 export interface DataNodeLogicProps {
