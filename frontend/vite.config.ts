@@ -92,6 +92,12 @@ export default defineConfig(({ mode }) => {
             },
             // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
+            // Use keep-alive headers to reuse HTTP/1.1 connections for better performance
+            headers: {
+                // Allow more concurrent connections via connection pooling
+                Connection: 'keep-alive',
+                'Keep-Alive': 'timeout=5, max=1000',
+            },
         },
         define: {
             global: 'globalThis',
@@ -102,6 +108,9 @@ export default defineConfig(({ mode }) => {
         },
         optimizeDeps: {
             include: ['react', 'react-dom', 'buffer'],
+            // Exclude heavy optional libs
+            exclude: ['monaco-editor', 'monaco-editor/*', 'elkjs'],
+            entries: ['src/index.tsx'],
         },
     }
 })
