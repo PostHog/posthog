@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { actions, beforeUnmount, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { disposables } from 'kea-disposables'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
@@ -480,7 +480,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             }, 'abortController')
         },
     })),
-    events(({ actions, values, props }) => ({
+    events(({ actions, values, props, disposables }) => ({
         afterMount: () => {
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
@@ -488,13 +488,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const { value, group, results } = values
                 actions.setIndex(results.findIndex((r) => group?.getValue?.(r) === value))
             }
+
+            // Clean up all cache timers to prevent memory leaks
+            disposables.add(() => {
+                return () => {
+                    Object.values(apiCacheTimers).forEach((timerId) => {
+                        window.clearTimeout(timerId)
+                    })
+                }
+            }, 'apiCacheTimersCleanup')
         },
     })),
-
-    beforeUnmount(() => {
-        // Clean up all cache timers to prevent memory leaks
-        Object.values(apiCacheTimers).forEach((timerId) => {
-            window.clearTimeout(timerId)
-        })
-    }),
 ])

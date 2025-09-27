@@ -1,9 +1,11 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { disposables } from 'kea-disposables'
 
 import { issueActionsLogic } from '../components/IssueActions/issueActionsLogic'
 import type { bulkSelectLogicType } from './bulkSelectLogicType'
 
 export const bulkSelectLogic = kea<bulkSelectLogicType>([
+    disposables(),
     path(['products', 'error_tracking', 'logics', 'bulkSelectLogic']),
 
     connect(() => ({
@@ -42,19 +44,19 @@ export const bulkSelectLogic = kea<bulkSelectLogicType>([
         mutationFailure: () => actions.setSelectedIssueIds([]),
     })),
 
-    afterMount(({ actions, cache }) => {
-        const onKeyChange = (event: KeyboardEvent): void => {
-            actions.setShiftKeyHeld(event.shiftKey)
-        }
+    afterMount(({ actions, disposables }) => {
+        disposables.add(() => {
+            const onKeyChange = (event: KeyboardEvent): void => {
+                actions.setShiftKeyHeld(event.shiftKey)
+            }
 
-        // register shift key listener
-        window.addEventListener('keydown', onKeyChange)
-        window.addEventListener('keyup', onKeyChange)
-        cache.onKeyChange = onKeyChange
-    }),
-    beforeUnmount(({ cache }) => {
-        // unregister shift key listener
-        window.removeEventListener('keydown', cache.onKeyChange)
-        window.removeEventListener('keyup', cache.onKeyChange)
+            // register shift key listener
+            window.addEventListener('keydown', onKeyChange)
+            window.addEventListener('keyup', onKeyChange)
+            return () => {
+                window.removeEventListener('keydown', onKeyChange)
+                window.removeEventListener('keyup', onKeyChange)
+            }
+        }, 'shiftKeyListener')
     }),
 ])

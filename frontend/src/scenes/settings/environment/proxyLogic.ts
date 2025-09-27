@@ -1,4 +1,5 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { disposables } from 'kea-disposables'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
@@ -34,6 +35,7 @@ export function domainFor(proxyRecord: ProxyRecord | undefined): string {
 }
 
 export const proxyLogic = kea<proxyLogicType>([
+    disposables(),
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
     connect(() => ({
         values: [organizationLogic, ['currentOrganization']],
@@ -110,13 +112,11 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         },
     })),
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, disposables }) => {
         actions.loadRecords()
-        cache.refreshTimeout = setInterval(() => actions.maybeRefreshRecords(), 5000)
-    }),
-    beforeUnmount(({ cache }) => {
-        if (cache.refreshTimeout) {
-            clearTimeout(cache.refreshTimeout)
-        }
+        disposables.add(() => {
+            const timerId = setInterval(() => actions.maybeRefreshRecords(), 5000)
+            return () => clearInterval(timerId)
+        }, 'refreshInterval')
     }),
 ])
