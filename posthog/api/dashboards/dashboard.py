@@ -127,6 +127,13 @@ class CanEditDashboard(BasePermission):
 class TextSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    body = serializers.CharField(
+        max_length=4000,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        error_messages={"max_length": "Text body cannot exceed 4000 characters"},
+    )
 
     class Meta:
         model = Text
@@ -468,16 +475,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
             else:
                 created_by = user
                 last_modified_by = None
-            text_defaults = {
-                **tile_data["text"],
-                "team_id": instance.team_id,
-                "created_by": created_by,
-                "last_modified_by": last_modified_by,
-                "last_modified_at": now(),
-            }
-            if "team" in text_defaults:
-                text_defaults.pop("team")  # We're already setting `team_id`
-            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=text_defaults)
+
+            text_data = {**tile_data["text"], "team": instance.team_id}
+            text_serializer = TextSerializer(data=text_data)
+            if not text_serializer.is_valid():
+                raise serializers.ValidationError({"text": text_serializer.errors})
+
+            validated_data = text_serializer.validated_data
+            validated_data["created_by"] = created_by
+            validated_data["last_modified_by"] = last_modified_by
+            validated_data["last_modified_at"] = now()
+
+            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=validated_data)
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 defaults={**tile_data, "text": text, "dashboard": instance},

@@ -29,6 +29,7 @@ class BatchExportDestination(UUIDTModel):
         POSTGRES = "Postgres"
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
+        DATABRICKS = "Databricks"
         HTTP = "HTTP"
         NOOP = "NoOp"
 
@@ -38,7 +39,9 @@ class BatchExportDestination(UUIDTModel):
         "Postgres": {"user", "password"},
         "Redshift": {"user", "password"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
-        "HTTP": set("token"),
+        # Databricks does not have any secret fields, as we use integrations to store credentials
+        "Databricks": set(),
+        "HTTP": {"token"},
         "NoOp": set(),
     }
 
@@ -60,6 +63,13 @@ class BatchExportDestination(UUIDTModel):
     last_updated_at = models.DateTimeField(
         auto_now=True,
         help_text="The timestamp at which this BatchExportDestination was last updated.",
+    )
+    integration = models.ForeignKey(
+        "Integration",
+        on_delete=models.SET_NULL,
+        help_text="The integration for this destination.",
+        null=True,
+        blank=True,
     )
 
 

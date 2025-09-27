@@ -28,6 +28,7 @@ DEFAULT_DISTINCT_ID_FIELD = "distinct_id"
 
 # CTE names
 CAMPAIGN_COST_CTE_NAME = "campaign_costs"
+UNIFIED_CONVERSION_GOALS_CTE_ALIAS = "ucg"
 
 # Prefixes for table names
 CONVERSION_GOAL_PREFIX_ABBREVIATION = "cg_"

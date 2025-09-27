@@ -925,22 +925,28 @@ def background_delete_model_task(
         raise
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, time_limit=7200)
 def refresh_activity_log_fields_cache() -> None:
     """Refresh fields cache for large organizations every 12 hours"""
     from django.db.models import Count
 
-    from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery, DetailFieldsResult
-    from posthog.api.advanced_activity_logs.fields_cache import cache_fields
-    from posthog.api.advanced_activity_logs.queries import SMALL_ORG_THRESHOLD
+    from posthog.api.advanced_activity_logs.constants import BATCH_SIZE, SAMPLING_PERCENTAGE, SMALL_ORG_THRESHOLD
+    from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery
     from posthog.exceptions_capture import capture_exception
     from posthog.models import Organization
+    from posthog.models.activity_logging.activity_log import ActivityLog
 
     logger.info("[refresh_activity_log_fields_cache] running task")
 
-    large_orgs = Organization.objects.annotate(activity_count=Count("activitylog")).filter(
-        activity_count__gt=SMALL_ORG_THRESHOLD
+    large_org_data = (
+        ActivityLog.objects.values("organization_id")
+        .annotate(activity_count=Count("id"))
+        .filter(activity_count__gt=SMALL_ORG_THRESHOLD)
+        .order_by("-activity_count")
     )
+
+    large_org_ids = [data["organization_id"] for data in large_org_data if data["organization_id"]]
+    large_orgs = list(Organization.objects.filter(id__in=large_org_ids))
 
     org_count = len(large_orgs)
     logger.info(f"[refresh_activity_log_fields_cache] processing {org_count} large organizations")
@@ -948,20 +954,14 @@ def refresh_activity_log_fields_cache() -> None:
     for org in large_orgs:
         try:
             discovery = AdvancedActivityLogFieldDiscovery(org.id)
-
-            result: DetailFieldsResult = {}
-
-            top_level_fields = discovery._get_top_level_fields()
-            discovery._merge_fields_into_result(result, top_level_fields)
-
-            nested_fields = discovery._compute_nested_fields_realtime()
-            discovery._merge_fields_into_result(result, nested_fields)
-
-            changes_fields = discovery._get_changes_fields()
-            discovery._merge_fields_into_result(result, changes_fields)
-
             record_count = discovery._get_org_record_count()
-            cache_fields(str(org.id), result, record_count)
+
+            estimated_sampled_records = int(record_count * (SAMPLING_PERCENTAGE / 100))
+            total_batches = (estimated_sampled_records + BATCH_SIZE - 1) // BATCH_SIZE
+
+            for batch_num in range(total_batches):
+                offset = batch_num * BATCH_SIZE
+                discovery.process_batch_for_large_org(offset, BATCH_SIZE)
 
         except Exception as e:
             logger.exception(

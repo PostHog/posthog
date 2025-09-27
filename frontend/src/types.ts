@@ -198,7 +198,6 @@ export enum AvailableFeature {
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
-    DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
     AUTOMATIC_PROVISIONING = 'automatic_provisioning',
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
@@ -232,7 +231,6 @@ export enum ProductKey {
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
     SITE_APPS = 'site_apps',
-    DATA_PIPELINES = 'data_pipelines',
     GROUP_ANALYTICS = 'group_analytics',
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
@@ -2408,7 +2406,11 @@ export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'>
 
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
+    // TODO: remove this as ActionsBar was meant to be for unstacked bar charts
+    // but with current logic for all insights with this setting saved in the query
+    // we still show them stacked bars
     ActionsBar = 'ActionsBar',
+    ActionsUnstackedBar = 'ActionsUnstackedBar',
     ActionsStackedBar = 'ActionsStackedBar',
     ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',

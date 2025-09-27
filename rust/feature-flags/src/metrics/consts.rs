@@ -3,6 +3,7 @@ pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_tot
 pub const FLAG_CACHE_HIT_COUNTER: &str = "flags_flag_cache_hit_total";
 pub const FLAG_CACHE_ERRORS_COUNTER: &str = "flags_flag_cache_errors_total";
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";
+pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
 pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
 pub const TEAM_CACHE_ERRORS_COUNTER: &str = "flags_team_cache_errors_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
@@ -17,6 +18,8 @@ pub const PROPERTY_CACHE_MISSES_COUNTER: &str = "flags_property_cache_misses_tot
 pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
     "flags_db_person_and_group_properties_reads_total";
 pub const FLAG_REQUESTS_COUNTER: &str = "flags_requests_total";
+pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
+pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 
 // Performance monitoring
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";
