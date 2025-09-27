@@ -130,7 +130,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     <ButtonPrimitive
                         onClick={() => {
                             restoreCohort()
-                            setCohortValue('deleted', false)
                         }}
                         menuItem
                     >

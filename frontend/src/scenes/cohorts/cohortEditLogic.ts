@@ -56,7 +56,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         saveCohort: (cohortParams = {}) => ({ cohortParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: true,
-        restoreCohort: () => {},
+        restoreCohort: true,
         fetchCohort: (id: CohortType['id']) => ({ id }),
         setCohortMissing: true,
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
@@ -478,12 +478,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             router.actions.push(urls.cohorts())
         },
         restoreCohort: async () => {
-            const restoredCohort = await api.cohorts.update(values.cohort.id, {
-                id: values.cohort.id,
-                deleted: false,
-            })
-            if (restoredCohort) {
+            try {
+                const restoredCohort = await api.cohorts.update(values.cohort.id, {
+                    deleted: false,
+                })
+                actions.setCohort(restoredCohort)
                 lemonToast.success('Cohort restored successfully.')
+            } catch (error) {
+                lemonToast.error(`Failed to restore cohort: '${error}'`)
             }
         },
         submitCohortFailure: () => {
