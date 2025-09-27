@@ -92,7 +92,7 @@ jobs:
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
             - name: Build the Docker image with Depot
               if: needs.changes.outputs.shouldRun == 'true'
               # Build the container image in preparation for the E2E tests
@@ -114,7 +114,7 @@ jobs:
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
 
             - name: Install pnpm
               if: needs.changes.outputs.shouldRun == 'true'
@@ -265,7 +265,7 @@ jobs:
                   echo "Skipping E2E checks - no changes detected"
                   exit 0
 
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               if: needs.changes.outputs.shouldRun == 'true'
 
             - name: Stop/Start stack with Docker Compose
