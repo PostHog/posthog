@@ -1,13 +1,23 @@
-from posthog.hogql.ast import ArrayType, BooleanType, StringType
+from posthog.hogql.ast import ArrayType, BooleanType, IntegerType, StringType
 from posthog.hogql.base import UnknownType
 
 from .core import HogQLFunctionMeta
+from .typegen import for_all_types
 
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # Standard aggregate functions
-    "count": HogQLFunctionMeta("count", 0, 1, aggregate=True, case_sensitive=False),
-    "countIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
+    "count": HogQLFunctionMeta(
+        "count",
+        0,
+        1,
+        aggregate=True,
+        case_sensitive=False,
+        signatures=[((), IntegerType()), *for_all_types(lambda t: ((t,), IntegerType()))],
+    ),
+    "countIf": HogQLFunctionMeta(
+        "countIf", 1, 2, aggregate=True, signatures=for_all_types(lambda t: ((t,), IntegerType()))
+    ),
     "countState": HogQLFunctionMeta("countState", 0, 1, aggregate=True),
     "countMerge": HogQLFunctionMeta("countMerge", 1, 1, aggregate=True),
     "countStateIf": HogQLFunctionMeta("countStateIf", 1, 2, aggregate=True),
@@ -17,10 +27,23 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
     "max": HogQLFunctionMeta("max", 1, 1, aggregate=True, case_sensitive=False),
     "maxIf": HogQLFunctionMeta("maxIf", 2, 2, aggregate=True),
-    "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True, case_sensitive=False),
+    "sum": HogQLFunctionMeta(
+        "sum",
+        1,
+        1,
+        aggregate=True,
+        case_sensitive=False,
+        signatures=for_all_types(lambda t: ((t,), IntegerType())),
+    ),
     "sumForEach": HogQLFunctionMeta("sumForEach", 1, 1, aggregate=True),
     "minForEach": HogQLFunctionMeta("minForEach", 1, 1, aggregate=True),
-    "sumIf": HogQLFunctionMeta("sumIf", 2, 2, aggregate=True),
+    "sumIf": HogQLFunctionMeta(
+        "sumIf",
+        2,
+        2,
+        aggregate=True,
+        signatures=for_all_types(lambda t: ((t,), IntegerType())),
+    ),
     "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True, case_sensitive=False),
     "avgIf": HogQLFunctionMeta("avgIf", 2, 2, aggregate=True),
     "avgMap": HogQLFunctionMeta("avgMap", 1, 1, aggregate=True),

@@ -13,12 +13,12 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import safe_identifier
-from posthog.hogql.functions import find_hogql_posthog_function
+from posthog.hogql.functions import find_hogql_aggregation, find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import compare_types, validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
-from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
+from posthog.hogql.functions.mapping import find_hogql_function
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
@@ -537,7 +537,8 @@ class Resolver(CloningVisitor):
 
         return_type = None
 
-        if func_meta := HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None):
+        func_meta = find_hogql_function(node.name) or find_hogql_aggregation(node.name)
+        if func_meta is not None:
             if signatures := func_meta.signatures:
                 for sig_arg_types, sig_return_type in signatures:
                     if sig_arg_types is None or compare_types(arg_types, sig_arg_types):
@@ -558,7 +559,7 @@ class Resolver(CloningVisitor):
         elif not isinstance(return_type, ast.UnknownType):  # why cannot we set nullability here?
             return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
 
-        if node.name.lower() in ("nullif", "toNullable") or node.name.lower().endswith("OrNull"):
+        if node.name.lower() in ("nullif", "tonullable") or node.name.lower().endswith("ornull"):
             return_type.nullable = True
 
         node.type = ast.CallType(
