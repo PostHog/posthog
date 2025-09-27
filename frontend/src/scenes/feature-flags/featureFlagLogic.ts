@@ -71,7 +71,6 @@ import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
-import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
@@ -725,9 +724,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
                         )
-                        if (values.roleBasedAccessEnabled && savedFlag.id) {
-                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
-                        }
                         actions.addProductIntent({
                             product_type: ProductKey.FEATURE_FLAGS,
                             intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
@@ -778,9 +774,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
                         )
-                        if (values.roleBasedAccessEnabled && savedFlag.id) {
-                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
-                        }
                     } else {
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
