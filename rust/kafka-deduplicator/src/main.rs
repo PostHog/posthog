@@ -20,7 +20,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
-use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
+use kafka_deduplicator::{
+    config::Config, service::KafkaDeduplicatorService, utils::pprof::handle_profile,
+};
 
 common_alloc::used!();
 
@@ -105,6 +107,7 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
+        .route("/pprof/profile", get(handle_profile))
         .route(
             "/_liveness",
             get(move || async move {
