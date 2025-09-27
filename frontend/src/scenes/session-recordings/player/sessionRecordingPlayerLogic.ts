@@ -1145,12 +1145,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     : makeNoOpLogger()
 
             disposables.add(() => {
-                Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
-                    if (timer) {
-                        clearTimeout(timer)
-                    }
-                })
                 return () => {
+                    Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
+                        if (timer) {
+                            clearTimeout(timer)
+                        }
+                    })
                     ;(window as any)[`__posthog_player_logs`] = undefined
                     ;(window as any)[`__posthog_player_warnings`] = undefined
                 }
