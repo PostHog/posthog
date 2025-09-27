@@ -35,7 +35,11 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
               ? 'postgres://posthog:posthog@localhost:5434/posthog_persons'
               : '',
-        PERSONS_READONLY_DATABASE_URL: '',
+        PERSONS_READONLY_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5434/test_persons'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5434/posthog_persons'
+              : '',
         PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5434/test_persons_migration'
             : isDevEnv()
