@@ -1,5 +1,6 @@
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { disposables } from 'kea-disposables'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
@@ -75,6 +76,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     props({ showNumericalPropsOnly: false } as InfiniteListLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`),
     path((key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key]),
+
+    disposables(),
     connect((props: InfiniteListLogicProps) => ({
         values: [
             taxonomicFilterLogic(props),
@@ -404,7 +407,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (index, startIndex, stopIndex) => typeof index === 'number' && index >= startIndex && index <= stopIndex,
         ],
     }),
-    listeners(({ values, actions, props, cache }) => ({
+    listeners(({ values, actions, props, cache, disposables }) => ({
         onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
             if (values.hasRemoteDataSource) {
                 let loadFrom: number | null = null
@@ -465,10 +468,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             actions.loadRemoteItems({ offset: values.index, limit: values.limit })
         },
         abortAnyRunningQuery: () => {
-            if (cache.abortController) {
-                cache.abortController.abort()
-            }
-            cache.abortController = new AbortController()
+            // Remove any existing abort controller
+            disposables.remove('abortController')
+
+            // Add new abort controller
+            disposables.add(() => {
+                const abortController = new AbortController()
+                // Store reference in cache for the fetch operation to use
+                cache.abortController = abortController
+                return () => abortController.abort()
+            }, 'abortController')
         },
     })),
     events(({ actions, values, props }) => ({
@@ -481,4 +490,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             }
         },
     })),
+
+    beforeUnmount(() => {
+        // Clean up all cache timers to prevent memory leaks
+        Object.values(apiCacheTimers).forEach((timerId) => {
+            window.clearTimeout(timerId)
+        })
+    }),
 ])

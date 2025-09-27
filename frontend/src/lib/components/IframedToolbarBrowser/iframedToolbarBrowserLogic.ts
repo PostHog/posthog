@@ -1,3 +1,4 @@
+import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
@@ -43,6 +44,7 @@ export const UserIntentVerb: {
 }
 
 export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
+    disposables(),
     path(['lib', 'components', 'iframedToolbarBrowser', 'iframedToolbarBrowserLogic']),
     props({
         automaticallyAuthorizeBrowserUrl: false,
@@ -199,7 +201,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         ],
     }),
 
-    listeners(({ actions, cache, props, values }) => ({
+    listeners(({ actions, props, values, disposables }) => ({
         sendToolbarMessage: ({ type, payload }) => {
             props.iframeRef?.current?.contentWindow?.postMessage(
                 {
@@ -297,22 +299,34 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         startTrackingLoading: () => {
             actions.setIframeBanner(null)
 
-            clearTimeout(cache.errorTimeout)
-            cache.errorTimeout = setTimeout(() => {
-                actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load (or is very slow).' })
-            }, 7500)
+            // Clear any existing timeouts
+            disposables.dispose('errorTimeout')
+            disposables.dispose('warnTimeout')
 
-            clearTimeout(cache.warnTimeout)
-            cache.warnTimeout = setTimeout(() => {
-                actions.setIframeBanner({ level: 'warning', message: 'Still waiting for the toolbar to load.' })
-            }, 3000)
+            disposables.add(() => {
+                const errorTimerId = setTimeout(() => {
+                    actions.setIframeBanner({
+                        level: 'error',
+                        message: 'The heatmap failed to load (or is very slow).',
+                    })
+                }, 7500)
+                return () => clearTimeout(errorTimerId)
+            }, 'errorTimeout')
+
+            disposables.add(() => {
+                const warnTimerId = setTimeout(() => {
+                    actions.setIframeBanner({ level: 'warning', message: 'Still waiting for the toolbar to load.' })
+                }, 3000)
+                return () => clearTimeout(warnTimerId)
+            }, 'warnTimeout')
         },
 
         stopTrackingLoading: () => {
             actions.setIframeBanner(null)
 
-            clearTimeout(cache.errorTimeout)
-            clearTimeout(cache.warnTimeout)
+            // Clear timeouts using disposables
+            disposables.dispose('errorTimeout')
+            disposables.dispose('warnTimeout')
         },
         setIframeBanner: ({ banner }) => {
             posthog.capture('in-app iFrame banner set', {

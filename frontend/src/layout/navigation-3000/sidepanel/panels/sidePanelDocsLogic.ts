@@ -1,4 +1,5 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { disposables } from 'kea-disposables'
 import { router } from 'kea-router'
 import { RefObject } from 'react'
 
@@ -39,6 +40,8 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions']],
         values: [sceneLogic, ['sceneConfig'], sidePanelStateLogic, ['selectedTabOptions']],
     })),
+
+    disposables(),
 
     actions({
         updatePath: (path: string) => ({ path }),
@@ -135,9 +138,9 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
         },
     })),
 
-    afterMount(async ({ actions, values, cache }) => {
+    afterMount(async ({ actions, values, disposables }) => {
         // Set message receiver for the iframe very early on the `afterMount` hook
-        cache.onWindowMessage = (event: MessageEvent): void => {
+        const onWindowMessage = (event: MessageEvent): void => {
             if (event.origin === POSTHOG_WEBSITE_ORIGIN) {
                 if (event.data.type === 'internal-navigation') {
                     actions.updatePath(event.data.url)
@@ -167,7 +170,10 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
             }
         }
 
-        window.addEventListener('message', cache.onWindowMessage)
+        disposables.add(() => {
+            window.addEventListener('message', onWindowMessage)
+            return () => window.removeEventListener('message', onWindowMessage)
+        }, 'windowMessageListener')
 
         // After that's set up can run stuff that's slower - such as await-ing the default docs path
         //
@@ -186,8 +192,7 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
         }
     }),
 
-    beforeUnmount(({ actions, values, cache }) => {
+    beforeUnmount(({ actions, values }) => {
         actions.setInitialPath(values.currentPath ?? '/docs')
-        window.removeEventListener('message', cache.onWindowMessage)
     }),
 ])

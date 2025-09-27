@@ -1,3 +1,4 @@
+import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -46,6 +47,7 @@ export interface ReplayIframeData {
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
+    disposables(),
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
 
@@ -282,7 +284,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
     }),
 
-    listeners(({ actions, cache, props, values }) => ({
+    listeners(({ actions, props, values, disposables }) => ({
         setReplayIframeData: ({ replayIframeData }) => {
             if (replayIframeData && replayIframeData.url) {
                 actions.setHref(replayIframeData.url)
@@ -346,17 +348,26 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         startTrackingLoading: () => {
             actions.setIframeBanner(null)
 
-            clearTimeout(cache.errorTimeout)
-            cache.errorTimeout = setTimeout(() => {
-                actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load (or is very slow).' })
-            }, 7500)
+            // Clear any existing timeout
+            disposables.dispose('errorTimeout')
+
+            disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.setIframeBanner({
+                        level: 'error',
+                        message: 'The heatmap failed to load (or is very slow).',
+                    })
+                }, 7500)
+                return () => clearTimeout(timerId)
+            }, 'errorTimeout')
         },
 
         stopTrackingLoading: () => {
             actions.setIframeBanner(null)
 
-            clearTimeout(cache.errorTimeout)
-            clearTimeout(cache.warnTimeout)
+            // Clear timeouts using disposables
+            disposables.dispose('errorTimeout')
+            disposables.dispose('warnTimeout')
         },
     })),
 

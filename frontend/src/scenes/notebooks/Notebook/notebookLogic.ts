@@ -1,4 +1,5 @@
 import { BuiltLogic, actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { disposables } from 'kea-disposables'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -72,6 +73,8 @@ export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId, mode }) => `${shortId}-${mode}`),
+
+    disposables(),
     connect((props: NotebookLogicProps) => ({
         values: [
             notebooksModel,
@@ -483,7 +486,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, cache, disposables }) => ({
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
                 () => !!values.editor,
@@ -665,10 +668,16 @@ export const notebookLogic = kea<notebookLogicType>([
             if (values.mode !== 'notebook') {
                 return
             }
-            clearTimeout(cache.refreshTimeout)
-            cache.refreshTimeout = setTimeout(() => {
-                actions.loadNotebook()
-            }, NOTEBOOK_REFRESH_MS)
+            // Remove any existing refresh timeout
+            disposables.remove('refreshTimeout')
+
+            // Add new refresh timeout
+            disposables.add(() => {
+                const refreshTimeout = setTimeout(() => {
+                    actions.loadNotebook()
+                }, NOTEBOOK_REFRESH_MS)
+                return () => clearTimeout(refreshTimeout)
+            }, 'refreshTimeout')
         },
 
         // Comments
@@ -735,8 +744,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
 
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.refreshTimeout)
+    beforeUnmount(() => {
         const hashParams = router.values.currentLocation.hashParams
         delete hashParams['🦔']
         router.actions.replace(

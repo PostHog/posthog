@@ -1,3 +1,4 @@
+import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
@@ -29,6 +30,7 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 }
 
 export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
+    disposables(),
     path(['toolbar', 'elements', 'heatmapToolbarMenuLogic']),
     connect(() => ({
         values: [
@@ -453,32 +455,38 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.maybeLoadHeatmap()
         },
     })),
-    afterMount(({ actions, values, cache }) => {
-        cache.scrollCheckTimer = setInterval(() => {
-            const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
-            if (values.heatmapScrollY !== scrollY) {
-                actions.setHeatmapScrollY(scrollY)
-            }
-        }, 100)
+    afterMount(({ actions, values, cache, disposables }) => {
+        disposables.add(() => {
+            const timerId = setInterval(() => {
+                const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
+                if (values.heatmapScrollY !== scrollY) {
+                    actions.setHeatmapScrollY(scrollY)
+                }
+            }, 100)
+            return () => clearInterval(timerId)
+        }, 'scrollCheckTimer')
 
         // we bundle the whole app with the toolbar, which means we don't need ES5 support
         // so we can use IntersectionObserver
         // oxlint-disable-next-line compat/compat
-        const intersectionObserver = new IntersectionObserver((entries) => {
-            const observedElements: [HTMLElement, boolean][] = []
-            entries.forEach((entry) => {
-                const element = entry.target as HTMLElement
-                observedElements.push([element, entry.isIntersecting])
+        disposables.add(() => {
+            const intersectionObserver = new IntersectionObserver((entries) => {
+                const observedElements: [HTMLElement, boolean][] = []
+                entries.forEach((entry) => {
+                    const element = entry.target as HTMLElement
+                    observedElements.push([element, entry.isIntersecting])
+                })
+                actions.updateElementMetrics(observedElements)
             })
-            actions.updateElementMetrics(observedElements)
-        })
 
-        // Store for cleanup
-        cache.intersectionObserver = intersectionObserver
+            // Store for cleanup and expose via cache for use in selectors
+            cache.intersectionObserver = intersectionObserver
+
+            return () => intersectionObserver.disconnect()
+        }, 'intersectionObserver')
     }),
-    beforeUnmount(({ cache }) => {
-        clearInterval(cache.scrollCheckTimer)
-        cache.intersectionObserver?.disconnect()
+    beforeUnmount(() => {
+        // Disposables plugin handles cleanup automatically
     }),
 ])
 

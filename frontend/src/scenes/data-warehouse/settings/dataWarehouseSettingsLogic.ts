@@ -1,3 +1,4 @@
+import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -18,6 +19,7 @@ import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogi
 const REFRESH_INTERVAL = 10000
 
 export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
+    disposables(),
     path(['scenes', 'data-warehouse', 'settings', 'dataWarehouseSettingsLogic']),
     connect(() => ({
         values: [
@@ -131,7 +133,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             actions.loadSources(null)
         },
     })),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, disposables }) => ({
         deleteSelfManagedTable: async ({ tableId }) => {
             await api.dataWarehouseTables.delete(tableId)
             actions.loadDatabase()
@@ -190,21 +192,29 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
         },
         loadSourcesSuccess: () => {
-            clearTimeout(cache.refreshTimeout)
+            // Clear any existing refresh timeout
+            disposables.dispose('refreshTimeout')
 
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
         },
         loadSourcesFailure: () => {
-            clearTimeout(cache.refreshTimeout)
+            // Clear any existing refresh timeout
+            disposables.dispose('refreshTimeout')
 
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
         },
         deleteJoin: ({ join }): void => {
@@ -226,7 +236,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     afterMount(({ actions }) => {
         actions.loadSources(null)
     }),
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.refreshTimeout)
+    beforeUnmount(() => {
+        // Disposables plugin handles cleanup automatically
     }),
 ])

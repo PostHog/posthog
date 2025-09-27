@@ -1,3 +1,4 @@
+import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import clsx from 'clsx'
 import {
     actions,
@@ -151,6 +152,7 @@ function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T>
 }
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
+    disposables(),
     path(['queries', 'nodes', 'dataNodeLogic']),
     key((props) => props.key),
     connect((props: DataNodeLogicProps) => ({
@@ -878,7 +880,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, cache, props }) => ({
+    listeners(({ actions, values, cache, props, disposables }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
@@ -918,42 +920,45 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             props.onData?.(response as Record<string, unknown> | null | undefined)
         },
         resetLoadingTimer: () => {
-            if (cache.loadingTimer) {
-                window.clearInterval(cache.loadingTimer)
-                cache.loadingTimer = null
-            }
+            // Clear any existing loading timer
+            disposables.dispose('loadingTimer')
 
             if (values.dataLoading) {
                 const startTime = Date.now()
-                cache.loadingTimer = window.setInterval(() => {
-                    const seconds = Math.floor((Date.now() - startTime) / 1000)
-                    actions.setLoadingTime(seconds)
-                }, 1000)
+                disposables.add(() => {
+                    const timerId = window.setInterval(() => {
+                        const seconds = Math.floor((Date.now() - startTime) / 1000)
+                        actions.setLoadingTime(seconds)
+                    }, 1000)
+                    return () => window.clearInterval(timerId)
+                }, 'loadingTimer')
             }
         },
     })),
-    subscriptions(({ props, actions, cache, values }) => ({
+    subscriptions(({ props, actions, values, disposables }) => ({
         responseError: (error: string | null) => {
             props.onError?.(error)
         },
         autoLoadRunning: (autoLoadRunning) => {
-            if (cache.autoLoadInterval) {
-                window.clearInterval(cache.autoLoadInterval)
-                cache.autoLoadInterval = null
-            }
+            // Clear any existing autoload interval
+            disposables.dispose('autoLoadInterval')
+
             if (autoLoadRunning) {
                 actions.loadNewData()
-                cache.autoLoadInterval = window.setInterval(() => {
-                    if (!values.responseLoading) {
-                        actions.loadNewData()
-                    }
-                }, AUTOLOAD_INTERVAL)
+                disposables.add(() => {
+                    const timerId = window.setInterval(() => {
+                        if (!values.responseLoading) {
+                            actions.loadNewData()
+                        }
+                    }, AUTOLOAD_INTERVAL)
+                    return () => window.clearInterval(timerId)
+                }, 'autoLoadInterval')
             }
         },
         dataLoading: (dataLoading) => {
-            if (cache.loadingTimer && !dataLoading) {
-                window.clearInterval(cache.loadingTimer)
-                cache.loadingTimer = null
+            if (!dataLoading) {
+                // Clear loading timer when data loading finishes
+                disposables.dispose('loadingTimer')
             }
         },
     })),
@@ -976,7 +981,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             cancelQuery: actions.cancelQuery,
         })
     }),
-    beforeUnmount(({ actions, props, values, cache }) => {
+    beforeUnmount(({ actions, props, values }) => {
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }
@@ -985,10 +990,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
 
         actions.unmountDataNode(props.key)
-        if (cache.loadingTimer) {
-            window.clearInterval(cache.loadingTimer)
-            cache.loadingTimer = null
-        }
+        // Disposables plugin handles timer cleanup automatically
     }),
 ])
 

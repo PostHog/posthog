@@ -1,3 +1,4 @@
+import { disposables } from '/Users/pauldambra/github/kea-stuff/kea-disposables/src/index'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -24,6 +25,7 @@ export interface DataWarehouseSourceSettingsLogicProps {
 const REFRESH_INTERVAL = 5000
 
 export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsLogicType>([
+    disposables(),
     path(['scenes', 'data-warehouse', 'settings', 'source', 'dataWarehouseSourceSettingsLogic']),
     props({} as DataWarehouseSourceSettingsLogicProps),
     key(({ id }) => id),
@@ -188,13 +190,17 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         },
     })),
-    listeners(({ values, actions, cache, props }) => ({
+    listeners(({ values, actions, props, disposables }) => ({
         loadSourceSuccess: () => {
-            clearTimeout(cache.sourceRefreshTimeout)
+            // Clear any existing source refresh timeout
+            disposables.dispose('sourceRefreshTimeout')
 
-            cache.sourceRefreshTimeout = setTimeout(() => {
-                actions.loadSource()
-            }, REFRESH_INTERVAL)
+            disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.loadSource()
+                }, REFRESH_INTERVAL)
+                return () => clearTimeout(timerId)
+            }, 'sourceRefreshTimeout')
 
             dataWarehouseSourceSceneLogic
                 .findMounted({
@@ -203,25 +209,37 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 ?.actions.setBreadcrumbName(values.source?.source_type ?? 'Source')
         },
         loadSourceFailure: () => {
-            clearTimeout(cache.sourceRefreshTimeout)
+            // Clear any existing source refresh timeout
+            disposables.dispose('sourceRefreshTimeout')
 
-            cache.sourceRefreshTimeout = setTimeout(() => {
-                actions.loadSource()
-            }, REFRESH_INTERVAL)
+            disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.loadSource()
+                }, REFRESH_INTERVAL)
+                return () => clearTimeout(timerId)
+            }, 'sourceRefreshTimeout')
         },
         loadJobsSuccess: () => {
-            clearTimeout(cache.jobsRefreshTimeout)
+            // Clear any existing jobs refresh timeout
+            disposables.dispose('jobsRefreshTimeout')
 
-            cache.jobsRefreshTimeout = setTimeout(() => {
-                actions.loadJobs()
-            }, REFRESH_INTERVAL)
+            disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.loadJobs()
+                }, REFRESH_INTERVAL)
+                return () => clearTimeout(timerId)
+            }, 'jobsRefreshTimeout')
         },
         loadJobsFailure: () => {
-            clearTimeout(cache.jobsRefreshTimeout)
+            // Clear any existing jobs refresh timeout
+            disposables.dispose('jobsRefreshTimeout')
 
-            cache.jobsRefreshTimeout = setTimeout(() => {
-                actions.loadJobs()
-            }, REFRESH_INTERVAL)
+            disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.loadJobs()
+                }, REFRESH_INTERVAL)
+                return () => clearTimeout(timerId)
+            }, 'jobsRefreshTimeout')
         },
         reloadSchema: async ({ schema }) => {
             // Optimistic UI updates before sending updates to the backend
