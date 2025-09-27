@@ -1,5 +1,5 @@
 import { UniqueIdentifier } from '@dnd-kit/core'
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -7,11 +7,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
+import { disposables } from '../../../frontend/src/kea-disposables'
 import { demoTasks } from './demoData'
 import type { tasksLogicType } from './tasksLogicType'
 import { Task, TaskTrackerTab, TaskUpsertProps, TaskWorkflow, WorkflowStage } from './types'
 
 export const tasksLogic = kea<tasksLogicType>([
+    disposables(),
     path(['products', 'tasks', 'frontend', 'tasksLogic']),
     connect(() => ({
         values: [router, ['location']],
@@ -378,7 +380,7 @@ export const tasksLogic = kea<tasksLogicType>([
                 }),
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, disposables }) => ({
         setActiveTab: ({ tab }) => {
             if (tab === 'kanban') {
                 actions.loadAllWorkflows()
@@ -451,36 +453,37 @@ export const tasksLogic = kea<tasksLogicType>([
         },
 
         startPolling: () => {
-            if (cache.pollingInterval) {
-                clearInterval(cache.pollingInterval)
-            }
-            cache.pollingInterval = setInterval(() => {
-                if (values.hasActiveTasks) {
-                    actions.pollForUpdates()
-                } else {
-                    actions.stopPolling()
-                }
-            }, 3000) // Poll every 3 seconds
+            // Remove any existing polling interval
+            disposables.remove('pollingInterval')
+
+            // Add new polling interval
+            disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    if (values.hasActiveTasks) {
+                        actions.pollForUpdates()
+                    } else {
+                        actions.stopPolling()
+                    }
+                }, 3000) // Poll every 3 seconds
+                return () => clearInterval(intervalId)
+            }, 'pollingInterval')
         },
         stopPolling: () => {
-            if (cache.pollingInterval) {
-                clearInterval(cache.pollingInterval)
-                cache.pollingInterval = null
-            }
+            disposables.remove('pollingInterval')
         },
         loadTasksSuccess: () => {
             // Start polling when tasks are loaded if there are active tasks
-            if (values.hasActiveTasks && !cache.pollingInterval) {
+            if (values.hasActiveTasks) {
                 actions.startPolling()
-            } else if (!values.hasActiveTasks && cache.pollingInterval) {
+            } else {
                 actions.stopPolling()
             }
         },
         moveTaskSuccess: () => {
             // Check if polling should start/stop after moving a task
-            if (values.hasActiveTasks && !cache.pollingInterval) {
+            if (values.hasActiveTasks) {
                 actions.startPolling()
-            } else if (!values.hasActiveTasks && cache.pollingInterval) {
+            } else {
                 actions.stopPolling()
             }
         },
@@ -533,10 +536,5 @@ export const tasksLogic = kea<tasksLogicType>([
         actions.loadTasks()
         actions.loadDefaultWorkflow()
         actions.loadAllWorkflows()
-    }),
-    beforeUnmount(({ cache }) => {
-        if (cache.pollingInterval) {
-            clearInterval(cache.pollingInterval)
-        }
     }),
 ])

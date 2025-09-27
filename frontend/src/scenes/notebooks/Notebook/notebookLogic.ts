@@ -22,6 +22,7 @@ import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLo
 import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, CommentType, SidePanelTab } from '~/types'
 
+import { disposables } from '../../../kea-disposables'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from the types file
@@ -72,6 +73,8 @@ export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId, mode }) => `${shortId}-${mode}`),
+
+    disposables(),
     connect((props: NotebookLogicProps) => ({
         values: [
             notebooksModel,
@@ -483,7 +486,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, cache, disposables }) => ({
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
                 () => !!values.editor,
@@ -665,10 +668,16 @@ export const notebookLogic = kea<notebookLogicType>([
             if (values.mode !== 'notebook') {
                 return
             }
-            clearTimeout(cache.refreshTimeout)
-            cache.refreshTimeout = setTimeout(() => {
-                actions.loadNotebook()
-            }, NOTEBOOK_REFRESH_MS)
+            // Remove any existing refresh timeout
+            disposables.remove('refreshTimeout')
+
+            // Add new refresh timeout
+            disposables.add(() => {
+                const refreshTimeout = setTimeout(() => {
+                    actions.loadNotebook()
+                }, NOTEBOOK_REFRESH_MS)
+                return () => clearTimeout(refreshTimeout)
+            }, 'refreshTimeout')
         },
 
         // Comments
@@ -735,8 +744,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
 
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.refreshTimeout)
+    beforeUnmount(() => {
         const hashParams = router.values.currentLocation.hashParams
         delete hashParams['🦔']
         router.actions.replace(
