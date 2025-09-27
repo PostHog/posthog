@@ -14,6 +14,7 @@ from dateutil.relativedelta import relativedelta
 from posthog.api.test.test_team import create_team
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -59,6 +60,57 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_exported")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/llm_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_invocations")
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2021-01-25T23:59:59Z")
+    def test_quota_limiting_recordings_takes_into_account_both_web_and_mobile(
+        self, patch_feature_enabled, patch_capture
+    ) -> None:
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "recordings": {"usage": 99, "limit": 100},
+                "rows_synced": {"usage": 5, "limit": 100},
+                "feature_flag_requests": {"usage": 5, "limit": 100},
+                "api_queries_read_bytes": {"usage": 10, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+                "surveys": {"usage": 10, "limit": 100},
+            }
+            self.organization.save()
+
+            distinct_id = str(uuid4())
+            timestamp = now() - relativedelta(hours=1)
+
+            # add a bunch of events so that the organization is over the limit
+            # Very high number of events due to the very high overage buffer we have with
+            # recordings.
+            for _ in range(0, 510):
+                produce_replay_summary(
+                    team_id=self.team.id,
+                    session_id=str(uuid4()),
+                    distinct_id=distinct_id,
+                    first_timestamp=timestamp,
+                    last_timestamp=timestamp,
+                    ensure_analytics_event_in_session=False,
+                    snapshot_source="mobile",
+                )
+
+            for _ in range(0, 500):
+                produce_replay_summary(
+                    team_id=self.team.id,
+                    session_id=str(uuid4()),
+                    distinct_id=distinct_id,
+                    first_timestamp=timestamp,
+                    last_timestamp=timestamp,
+                    ensure_analytics_event_in_session=False,
+                    snapshot_source="web",
+                )
+
+        org_id = str(self.organization.id)
+        time.sleep(1)
+
+        quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+        assert quota_limited_orgs["recordings"] == {org_id: 1612137599}
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
