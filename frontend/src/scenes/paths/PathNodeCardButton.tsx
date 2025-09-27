@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, PopoverReferenceContext } from '@posthog/lemon-ui'
 
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
