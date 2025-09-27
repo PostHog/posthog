@@ -312,8 +312,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         })
                         actions.setCohort(restoredCohort)
                         lemonToast.success('Cohort restored successfully.')
+                        return restoredCohort
                     } catch (error) {
                         lemonToast.error(`Failed to restore cohort: '${error}'`)
+                        return values.cohort
                     }
                 },
                 saveCohort: async ({ cohortParams }, breakpoint) => {
