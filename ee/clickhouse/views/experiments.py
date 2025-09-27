@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import date, timedelta
 from enum import Enum
 from typing import Any, Literal
@@ -449,7 +450,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             if metrics:
                 updated_metrics = []
                 for metric in metrics:
-                    metric_copy = metric.copy() if metric_field not in validated_data else metric
+                    metric_copy = deepcopy(metric)
                     metric_copy["fingerprint"] = compute_metric_fingerprint(
                         metric_copy,
                         start_date,
