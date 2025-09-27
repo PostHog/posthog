@@ -51,7 +51,6 @@ export function SurveyEventTrigger(): JSX.Element {
             // comparison purposes in the JS SDK.
             return !prop.property_type || prop.property_type === PropertyType.StringArray
         })
-
         return {
             [TaxonomicFilterGroupType.EventProperties]: objectProperties.map((prop) => prop.name),
         }
@@ -202,6 +201,11 @@ export function SurveyEventTrigger(): JSX.Element {
                                                         buttonSize="small"
                                                         operatorAllowlist={supportedOperators}
                                                     />
+                                                    <span className="text-xs text-muted">
+                                                        Only primitive types (strings, numbers, booleans) are supported
+                                                        for property filters. Array and object properties are not
+                                                        supported and will not be shown.
+                                                    </span>
                                                 </div>
                                             ),
                                         },
