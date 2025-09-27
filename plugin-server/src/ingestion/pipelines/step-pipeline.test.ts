@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { createContext } from './helpers'
 import { drop, isOkResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
@@ -24,13 +25,10 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }>()
 
             const pipeline = new StepPipeline(step, previous)
-            const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
+            const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
 
             expect(step).toHaveBeenCalledWith({ data: 'test' })
-            expect(result).toEqual({
-                result: ok({ processed: 'test' }),
-                context: { message, lastStep: 'mockConstructor' },
-            })
+            expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'mockConstructor' }))
         })
 
         it('should skip step when previous result is not success', async () => {
@@ -40,10 +38,10 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }>()
 
             const pipeline = new StepPipeline(step, previous)
-            const result = await pipeline.process({ result: drop('dropped'), context: { message } })
+            const result = await pipeline.process(createContext(drop('dropped'), { message }))
 
             expect(step).not.toHaveBeenCalled()
-            expect(result).toEqual({ result: drop('dropped'), context: { message } })
+            expect(result).toEqual(createContext(drop('dropped'), { message }))
         })
 
         it('should handle step errors', async () => {
@@ -54,7 +52,7 @@ describe('StepPipeline', () => {
 
             const pipeline = new StepPipeline(step, previous)
 
-            await expect(pipeline.process({ result: ok({ data: 'test' }), context: { message } })).rejects.toThrow(
+            await expect(pipeline.process(createContext(ok({ data: 'test' }), { message }))).rejects.toThrow(
                 'Step failed'
             )
         })
@@ -87,7 +85,7 @@ describe('StepPipeline', () => {
             const pipeline1 = new StepPipeline(step1, previous)
             const pipeline2 = pipeline1.pipe(step)
 
-            const result = await pipeline2.process({ result: ok({ value: 4 }), context: { message } })
+            const result = await pipeline2.process(createContext(ok({ value: 4 }), { message }))
 
             expect(step1).toHaveBeenCalledWith({ value: 4 })
             expect(step).toHaveBeenCalledWith({ value: 12 }) // 4 * 3
@@ -111,12 +109,9 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ data: string }>()
             const pipeline = new StepPipeline(testStep, previous)
-            const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
+            const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
 
-            expect(result).toEqual({
-                result: ok({ processed: 'test' }),
-                context: { message, lastStep: 'testStep' },
-            })
+            expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'testStep' }))
         })
 
         it('should use anonymousStep when step has no name', async () => {
@@ -128,12 +123,9 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ data: string }>()
             const pipeline = new StepPipeline(anonymousStep, previous)
-            const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
+            const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
 
-            expect(result).toEqual({
-                result: ok({ processed: 'test' }),
-                context: { message, lastStep: 'anonymousStep' },
-            })
+            expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'anonymousStep' }))
         })
 
         it('should not update lastStep for failed results', async () => {
@@ -145,12 +137,11 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ data: string }>()
             const pipeline = new StepPipeline(testStep, previous)
-            const result = await pipeline.process({ result: drop('dropped'), context: { message } })
+            const result = await pipeline.process(createContext(drop('dropped'), { message }))
 
-            expect(result).toEqual({
-                result: drop('dropped'),
-                context: { message }, // No lastStep update for failed results
-            })
+            expect(result).toEqual(
+                createContext(drop('dropped'), { message }) // No lastStep update for failed results
+            )
         })
 
         it('should preserve existing lastStep in context', async () => {
@@ -164,13 +155,12 @@ describe('StepPipeline', () => {
             const pipeline = new StepPipeline(testStep, previous)
             const result = await pipeline.process({
                 result: ok({ data: 'test' }),
-                context: { message, lastStep: 'firstStep' },
+                context: { message, lastStep: 'firstStep', sideEffects: [] },
             })
 
-            expect(result).toEqual({
-                result: ok({ processed: 'test' }),
-                context: { message, lastStep: 'testStep' }, // Should update to current step
-            })
+            expect(result).toEqual(
+                createContext(ok({ processed: 'test' }), { message, lastStep: 'testStep' }) // Should update to current step
+            )
         })
     })
 })

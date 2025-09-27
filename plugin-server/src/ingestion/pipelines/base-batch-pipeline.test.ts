@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { BaseBatchPipeline } from './base-batch-pipeline'
-import { createBatch, createNewBatchPipeline } from './helpers'
+import { createBatch, createContext, createNewBatchPipeline } from './helpers'
 import { dlq, drop, ok } from './results'
 
 function createTestMessage(overrides: Partial<Message> = {}): Message {
@@ -36,14 +36,14 @@ describe('BaseBatchPipeline', () => {
             const results = await pipeline.next()
 
             expect(results).toEqual([
-                {
-                    result: ok({ processed: 'test1' }),
-                    context: { message: messages[0], lastStep: 'anonymousBatchStep' },
-                },
-                {
-                    result: ok({ processed: 'test2' }),
-                    context: { message: messages[1], lastStep: 'anonymousBatchStep' },
-                },
+                createContext(ok({ processed: 'test1' }), {
+                    message: messages[0],
+                    lastStep: 'anonymousBatchStep',
+                }),
+                createContext(ok({ processed: 'test2' }), {
+                    message: messages[1],
+                    lastStep: 'anonymousBatchStep',
+                }),
             ])
         })
 
@@ -80,9 +80,9 @@ describe('BaseBatchPipeline', () => {
             const results = await pipeline.next()
 
             expect(results).toEqual([
-                { result: ok({ count: 2 }), context: { message: messages[0], lastStep: 'anonymousBatchStep' } },
-                { result: ok({ count: 4 }), context: { message: messages[1], lastStep: 'anonymousBatchStep' } },
-                { result: ok({ count: 6 }), context: { message: messages[2], lastStep: 'anonymousBatchStep' } },
+                createContext(ok({ count: 2 }), { message: messages[0], lastStep: 'anonymousBatchStep' }),
+                createContext(ok({ count: 4 }), { message: messages[1], lastStep: 'anonymousBatchStep' }),
+                createContext(ok({ count: 6 }), { message: messages[2], lastStep: 'anonymousBatchStep' }),
             ])
         })
 
@@ -120,13 +120,13 @@ describe('BaseBatchPipeline', () => {
             const results = await secondPipeline.next()
 
             expect(results).toEqual([
-                { result: ok({ count: 2 }), context: { message: messages[0], lastStep: 'anonymousBatchStep' } },
-                { result: drop('dropped item'), context: { message: messages[1], lastStep: 'anonymousBatchStep' } },
-                { result: ok({ count: 6 }), context: { message: messages[2], lastStep: 'anonymousBatchStep' } },
-                {
-                    result: dlq('dlq item', new Error('test error')),
-                    context: { message: messages[3], lastStep: 'anonymousBatchStep' },
-                },
+                createContext(ok({ count: 2 }), { message: messages[0], lastStep: 'anonymousBatchStep' }),
+                createContext(drop('dropped item'), { message: messages[1], lastStep: 'anonymousBatchStep' }),
+                createContext(ok({ count: 6 }), { message: messages[2], lastStep: 'anonymousBatchStep' }),
+                createContext(dlq('dlq item', new Error('test error')), {
+                    message: messages[3],
+                    lastStep: 'anonymousBatchStep',
+                }),
             ])
         })
     })
@@ -166,14 +166,14 @@ describe('BaseBatchPipeline', () => {
             const results = await pipeline.next()
 
             expect(results).toEqual([
-                {
-                    result: ok({ processed: 'test1' }),
-                    context: { message: messages[0], lastStep: 'testBatchStep' },
-                },
-                {
-                    result: ok({ processed: 'test2' }),
-                    context: { message: messages[1], lastStep: 'testBatchStep' },
-                },
+                createContext(ok({ processed: 'test1' }), {
+                    message: messages[0],
+                    lastStep: 'testBatchStep',
+                }),
+                createContext(ok({ processed: 'test2' }), {
+                    message: messages[1],
+                    lastStep: 'testBatchStep',
+                }),
             ])
         })
 
@@ -193,10 +193,10 @@ describe('BaseBatchPipeline', () => {
             const results = await pipeline.next()
 
             expect(results).toEqual([
-                {
-                    result: ok({ processed: 'test1' }),
-                    context: { message: messages[0], lastStep: 'anonymousStep' },
-                },
+                createContext(ok({ processed: 'test1' }), {
+                    message: messages[0],
+                    lastStep: 'anonymousStep',
+                }),
             ])
         })
 
@@ -227,14 +227,14 @@ describe('BaseBatchPipeline', () => {
             const results = await pipeline.next()
 
             expect(results).toEqual([
-                {
-                    result: ok({ processed: 'test1' }),
-                    context: { message: messages[0], lastStep: 'testBatchStep' },
-                },
-                {
-                    result: drop('dropped item'),
-                    context: { message: messages[1], lastStep: 'testBatchStep' },
-                },
+                createContext(ok({ processed: 'test1' }), {
+                    message: messages[0],
+                    lastStep: 'testBatchStep',
+                }),
+                createContext(drop('dropped item'), {
+                    message: messages[1],
+                    lastStep: 'testBatchStep',
+                }),
             ])
         })
     })
