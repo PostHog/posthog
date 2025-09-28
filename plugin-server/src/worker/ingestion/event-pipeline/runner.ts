@@ -20,7 +20,6 @@ import { createEventStep } from './createEventStep'
 import { dropOldEventsStep } from './dropOldEventsStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
-    eventProcessedAndIngestedCounter,
     pipelineLastStepCounter,
     pipelineStepErrorCounter,
     pipelineStepMsSummary,
@@ -148,16 +147,7 @@ export class EventPipelineRunner {
                 ...event,
                 team_id: team.id,
             }
-
-            const result = await this.runEventPipelineSteps(pluginEvent, team)
-
-            // If the pipeline steps returned a non-OK result, return it directly
-            if (!isOkResult(result)) {
-                return result
-            }
-
-            eventProcessedAndIngestedCounter.inc()
-            return result
+            return await this.runEventPipelineSteps(pluginEvent, team)
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 // At the step level we have chosen to drop these events and send them to DLQ

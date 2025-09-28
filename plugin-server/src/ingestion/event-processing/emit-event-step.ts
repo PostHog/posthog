@@ -1,6 +1,7 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { RawKafkaEvent } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
+import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -29,6 +30,11 @@ export function createEmitEventStep<T extends { eventToEmit?: RawKafkaEvent }>(
                 topic: clickhouseJsonEventsTopic,
                 key: eventToEmit.uuid,
                 value: Buffer.from(JSON.stringify(eventToEmit)),
+            })
+            .then((result) => {
+                // Increment the metric when event is successfully emitted
+                eventProcessedAndIngestedCounter.inc()
+                return result
             })
             .catch(async (error) => {
                 // TODO: For now we have to live with the ingestion warning happening here

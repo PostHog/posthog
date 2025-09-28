@@ -2,6 +2,7 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { ProjectId, RawKafkaEvent, TimestampFormat } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { castTimestampOrNow } from '../../utils/utils'
+import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { isOkResult } from '../pipelines/results'
 import { EmitEventStepConfig, createEmitEventStep } from './emit-event-step'
@@ -11,7 +12,15 @@ jest.mock('../../worker/ingestion/utils', () => ({
     captureIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 
+// Mock the metrics module
+jest.mock('../../worker/ingestion/event-pipeline/metrics', () => ({
+    eventProcessedAndIngestedCounter: {
+        inc: jest.fn(),
+    },
+}))
+
 const mockCaptureIngestionWarning = jest.mocked(captureIngestionWarning)
+const mockEventProcessedAndIngestedCounter = jest.mocked(eventProcessedAndIngestedCounter)
 
 describe('emit-event-step', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
@@ -68,6 +77,10 @@ describe('emit-event-step', () => {
                 key: 'test-uuid',
                 value: Buffer.from(JSON.stringify(mockRawEvent)),
             })
+
+            // Execute the side effect to test metric increment
+            await result.sideEffects[0]
+            expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
         })
 
         it('should return OK result with no side effects when eventToEmit is undefined', async () => {
@@ -82,6 +95,7 @@ describe('emit-event-step', () => {
             }
             expect(result.sideEffects).toHaveLength(0)
             expect(mockKafkaProducer.produce).not.toHaveBeenCalled()
+            expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
         })
 
         it('should return OK result with no side effects when eventToEmit is not present', async () => {
@@ -96,6 +110,7 @@ describe('emit-event-step', () => {
             }
             expect(result.sideEffects).toHaveLength(0)
             expect(mockKafkaProducer.produce).not.toHaveBeenCalled()
+            expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
         })
 
         it('should handle MessageSizeTooLarge error and capture ingestion warning', async () => {
@@ -120,6 +135,8 @@ describe('emit-event-step', () => {
                 eventUuid: 'test-uuid',
                 distinctId: 'test-distinct-id',
             })
+            // Metric should not be incremented when there's an error
+            expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
         })
 
         it('should re-throw non-MessageSizeTooLarge errors', async () => {
@@ -137,6 +154,8 @@ describe('emit-event-step', () => {
             // Execute the side effect to test error handling
             await expect(result.sideEffects[0]).rejects.toThrow('Generic Kafka error')
             expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
+            // Metric should not be incremented when there's an error
+            expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
         })
 
         it('should serialize event correctly for Kafka', async () => {
@@ -254,6 +273,73 @@ describe('emit-event-step', () => {
             }
             expect(result.sideEffects).toHaveLength(0)
             expect(mockKafkaProducer.produce).not.toHaveBeenCalled()
+        })
+
+        describe('metrics tracking', () => {
+            it('should increment eventProcessedAndIngestedCounter when event is successfully emitted', async () => {
+                const step = createEmitEventStep(config)
+                const input = { eventToEmit: mockRawEvent }
+
+                const result = await step(input)
+
+                expect(isOkResult(result)).toBe(true)
+                expect(result.sideEffects).toHaveLength(1)
+
+                // Execute the side effect to trigger metric increment
+                await result.sideEffects[0]
+
+                expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
+                expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(1)
+            })
+
+            it('should not increment metric when no event to emit', async () => {
+                const step = createEmitEventStep(config)
+                const input = { eventToEmit: undefined }
+
+                const result = await step(input)
+
+                expect(isOkResult(result)).toBe(true)
+                expect(result.sideEffects).toHaveLength(0)
+                expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
+                expect(mockKafkaProducer.produce).not.toHaveBeenCalled()
+            })
+
+            it('should not increment metric when Kafka produce fails', async () => {
+                const kafkaError = new Error('Kafka connection failed')
+                mockKafkaProducer.produce.mockRejectedValue(kafkaError)
+
+                const step = createEmitEventStep(config)
+                const input = { eventToEmit: mockRawEvent }
+
+                const result = await step(input)
+
+                expect(isOkResult(result)).toBe(true)
+                expect(result.sideEffects).toHaveLength(1)
+
+                // Execute the side effect and expect it to throw
+                await expect(result.sideEffects[0]).rejects.toThrow('Kafka connection failed')
+
+                // Metric should not be incremented on failure
+                expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
+            })
+
+            it('should increment metric only once per successful emit', async () => {
+                const step = createEmitEventStep(config)
+                const input1 = { eventToEmit: mockRawEvent }
+                const input2 = { eventToEmit: { ...mockRawEvent, uuid: 'different-uuid' } }
+
+                // First emit
+                const result1 = await step(input1)
+                await result1.sideEffects[0]
+
+                // Second emit
+                const result2 = await step(input2)
+                await result2.sideEffects[0]
+
+                // Metric should be incremented twice, once for each successful emit
+                expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(2)
+                expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(2)
+            })
         })
     })
 })
