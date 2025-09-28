@@ -15,8 +15,6 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
-from products.tasks.backend.lib.templates import CreateWorkflowFromTemplateOptions
-
 from .agents import get_all_agents
 from .models import Task, TaskProgress, TaskWorkflow, WorkflowStage
 from .serializers import AgentDefinitionSerializer, TaskSerializer, TaskWorkflowSerializer, WorkflowStageSerializer
@@ -373,9 +371,7 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if existing_default:
             return Response({"error": "Team already has a default workflow"}, status=status.HTTP_400_BAD_REQUEST)
 
-        workflow = TaskWorkflow.create_default_workflow(
-            options=CreateWorkflowFromTemplateOptions(team=self.team, default=True)
-        )
+        workflow = TaskWorkflow.create_default_workflow(self.team)
 
         return Response(TaskWorkflowSerializer(workflow, context=self.get_serializer_context()).data)
 

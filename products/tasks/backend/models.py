@@ -7,13 +7,10 @@ from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 
 from posthog.models.integration import Integration
+from posthog.models.team.team import Team
 
 from products.tasks.backend.agents import get_agent_by_id
-from products.tasks.backend.lib.templates import (
-    DEFAULT_WORKFLOW_TEMPLATE,
-    CreateWorkflowFromTemplateOptions,
-    WorkflowTemplate,
-)
+from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowTemplate
 
 
 class TaskWorkflow(models.Model):
@@ -52,7 +49,7 @@ class TaskWorkflow(models.Model):
         if self.team_id != target_workflow.team_id:
             raise ValueError("Source and target workflows must belong to the same team")
 
-        current_workflow_tasks_qs = self.get_tasks_in_workflow().select_related("current_stage")
+        current_workflow_tasks_qs = self.tasks.select_related("current_stage")
 
         if not current_workflow_tasks_qs.exists():
             return 0
@@ -80,13 +77,13 @@ class TaskWorkflow(models.Model):
                 task.current_stage = next_stage
                 updated_tasks.append(task)
 
-        if updated_tasks:
+        if len(updated_tasks) > 0:
             Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
 
         return len(updated_tasks)
 
     def unassign_tasks(self):
-        tasks = self.get_tasks_in_workflow()
+        tasks = self.tasks.all()
 
         updated_tasks = []
 
@@ -118,33 +115,33 @@ class TaskWorkflow(models.Model):
             self.save(update_fields=["is_active"])
 
     @classmethod
-    def from_template(cls, template: WorkflowTemplate, options: CreateWorkflowFromTemplateOptions):
+    def from_template(cls, template: WorkflowTemplate, team: Team, *, is_default=True):
         with transaction.atomic():
             workflow = cls.objects.create(
-                team=options.team,
+                team=team,
                 name=template.name,
                 description=template.description,
-                is_default=options.default,
-                is_active=options.active,
+                is_default=is_default,
+                is_active=True,
             )
 
-            stages_data = [
-                {
-                    "key": stage.key,
-                    "name": stage.name,
-                    "position": idx,
-                    "color": stage.color,
-                    "is_manual_only": stage.is_manual_only,
-                    "workflow_id": workflow.id,
-                }
+            stages = [
+                WorkflowStage(
+                    key=stage.key,
+                    name=stage.name,
+                    position=idx,
+                    color=stage.color,
+                    is_manual_only=stage.is_manual_only,
+                    workflow=workflow,
+                )
                 for idx, stage in enumerate(template.stages)
             ]
 
-            WorkflowStage.objects.bulk_create(stages_data)
+            WorkflowStage.objects.bulk_create(stages)
 
     @classmethod
-    def create_default_workflow(cls, options: CreateWorkflowFromTemplateOptions):
-        return TaskWorkflow.from_template(DEFAULT_WORKFLOW_TEMPLATE, options)
+    def create_default_workflow(cls, team: Team):
+        return TaskWorkflow.from_template(DEFAULT_WORKFLOW_TEMPLATE, team, is_default=True)
 
 
 class WorkflowStage(models.Model):
@@ -185,7 +182,7 @@ class WorkflowStage(models.Model):
         null=True,
         blank=True,
         help_text="Stage to move tasks to if this stage is deleted",
-    )  # TODO: We probably don't need this? We can just move it to the previous stage, we're rarely going to bother setting this
+    )  # NOTE: We probably don't need this? We can just move it to the previous stage, we're rarely going to bother setting this
 
     class Meta:
         db_table = "posthog_workflow_stage"
@@ -203,7 +200,6 @@ class WorkflowStage(models.Model):
             target_stage = self.fallback_stage or self.workflow.stages.exclude(id=self.id).first()
 
             if target_stage:
-                # Move all tasks to the target stage
                 Task.objects.filter(current_stage=self).update(current_stage=target_stage)
             else:
                 # No other stages available, remove workflow association
@@ -247,6 +243,7 @@ class Task(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        related_name="tasks",
         help_text="Custom workflow for this task (if not using default)",
     )
 
@@ -365,7 +362,7 @@ class Task(models.Model):
         if not workflow:
             return None
 
-        current_stage = cast(WorkflowStage, self.current_stage)
+        current_stage = cast(Optional[WorkflowStage], self.current_stage)
 
         if not current_stage:
             return workflow.stages.filter(is_archived=False).order_by("position").first()

@@ -2,8 +2,6 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from posthog.models.team.team import Team
-
 
 class WorkflowTemplate(BaseModel):
     name: str
@@ -17,12 +15,6 @@ class WorkflowStageTemplate(BaseModel):
     color: str
     agent_name: Optional[str]
     is_manual_only: bool = False
-
-
-class CreateWorkflowFromTemplateOptions(BaseModel):
-    team: Team
-    default: bool = False
-    active: bool = True
 
 
 DEFAULT_WORKFLOW_STAGES: list[WorkflowStageTemplate] = [
