@@ -106,9 +106,9 @@ describe('event-pipeline-runner-v1-step', () => {
             const mockResult: EventPipelineResult = {
                 lastStep: 'test-step',
                 args: [],
-                ackPromises: [Promise.resolve()],
             }
-            const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
+            const ackPromise = Promise.resolve()
+            const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult, [ackPromise])
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
 
             const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
@@ -132,6 +132,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam)
             expect(result).toBe(mockPipelineResult)
+            // Verify side effects are present
+            expect(result.sideEffects).toEqual([ackPromise])
         })
 
         it('should handle retriable errors by re-throwing them', async () => {
@@ -187,14 +189,16 @@ describe('event-pipeline-runner-v1-step', () => {
             await expect(step(input)).rejects.toThrow('Error without isRetriable')
         })
 
-        it('should handle successful pipeline results with ackPromises', async () => {
-            const ackPromise = Promise.resolve()
+        it('should handle successful pipeline results with side effects', async () => {
+            const ackPromise1 = Promise.resolve()
+            const ackPromise2 = Promise.resolve('kafka-ack')
+            const ackPromise3 = Promise.resolve({ clickhouse: 'ack' })
+            const sideEffects = [ackPromise1, ackPromise2, ackPromise3]
             const mockResult: EventPipelineResult = {
                 lastStep: 'test-step',
                 args: [],
-                ackPromises: [ackPromise],
             }
-            const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
+            const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult, sideEffects)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
 
             const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
@@ -210,12 +214,10 @@ describe('event-pipeline-runner-v1-step', () => {
             const result = await step(input)
             expect(result).toBe(mockPipelineResult)
             expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                expect(result.value.ackPromises).toEqual([ackPromise])
-            }
+            expect(result.sideEffects).toEqual(sideEffects)
         })
 
-        it('should handle successful pipeline results without ackPromises', async () => {
+        it('should handle successful pipeline results without side effects', async () => {
             const mockResult: EventPipelineResult = {
                 lastStep: 'test-step',
                 args: [],
@@ -236,9 +238,7 @@ describe('event-pipeline-runner-v1-step', () => {
             const result = await step(input)
             expect(result).toBe(mockPipelineResult)
             expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                expect(result.value.ackPromises).toBeUndefined()
-            }
+            expect(result.sideEffects).toEqual([])
         })
 
         it('should pass all required parameters to EventPipelineRunner constructor', async () => {

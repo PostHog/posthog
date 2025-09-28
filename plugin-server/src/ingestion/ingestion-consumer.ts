@@ -48,6 +48,7 @@ import {
     createEventPipelineRunnerV1Step,
 } from './event-processing/event-pipeline-runner-v1-step'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
+import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import {
     createBatch,
     createNewBatchPipeline,
@@ -128,7 +129,7 @@ export class IngestionConsumer {
     public readonly promiseScheduler = new PromiseScheduler()
 
     private preprocessingPipeline!: BatchPipelineUnwrapper<{ message: Message }, PreprocessedEvent>
-    private perDistinctIdPipeline!: BatchPipelineUnwrapper<PreprocessedEventWithStores, EventPipelineResult>
+    private perDistinctIdPipeline!: BatchPipeline<PreprocessedEventWithStores, EventPipelineResult>
 
     constructor(
         private hub: Hub,
@@ -287,12 +288,11 @@ export class IngestionConsumer {
             createNewBatchPipeline<PreprocessedEventWithStores>().pipeSequentially(eventProcessingPipeline)
 
         const resultHandlingPipeline = ResultHandlingPipeline.of(perDistinctIdBatchPipeline, pipelineConfig)
-        const sideEffectHandlingPipeline = new SideEffectHandlingPipeline(
+        this.perDistinctIdPipeline = new SideEffectHandlingPipeline(
             resultHandlingPipeline,
             this.promiseScheduler,
             { await: false }
         )
-        this.perDistinctIdPipeline = createUnwrapper(sideEffectHandlingPipeline)
     }
 
     public async stop(): Promise<void> {
@@ -572,15 +572,7 @@ export class IngestionConsumer {
         // Feed the batch to the main event pipeline
         const eventsSequence = createBatch(preprocessedEventsWithStores)
         this.perDistinctIdPipeline.feed(eventsSequence)
-        const results = await this.perDistinctIdPipeline.next()
-
-        if (results) {
-            results.forEach((result) => {
-                result.ackPromises?.forEach((promise: Promise<void>) => {
-                    void this.promiseScheduler.schedule(promise)
-                })
-            })
-        }
+        await this.perDistinctIdPipeline.next()
     }
 
     private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {
