@@ -18,7 +18,6 @@ import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning } from '../utils'
 import { createEventStep } from './createEventStep'
 import { dropOldEventsStep } from './dropOldEventsStep'
-import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
     eventProcessedAndIngestedCounter,
@@ -38,7 +37,7 @@ export type EventPipelineResult = {
     // TODO: update to test for side-effects of running the pipeline rather than
     // this return type.
     lastStep: string
-    args: any[]
+    eventToEmit?: RawKafkaEvent
     error?: string
 }
 
@@ -131,13 +130,13 @@ export class EventPipelineRunner {
             // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
             return extractResult
         }
-        const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = extractResult.value
+        const [_, heatmapKafkaAcks] = extractResult.value
 
         if (heatmapKafkaAcks.length > 0) {
             heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
         }
 
-        const result = this.registerLastStep('extractHeatmapDataStep', [preparedEventWithoutHeatmaps])
+        const result = this.registerLastStep('extractHeatmapDataStep')
         return ok(result, kafkaAcks)
     }
 
@@ -365,33 +364,19 @@ export class EventPipelineRunner {
         }
         const rawEvent = createResult.value
 
-        const emitResult = await this.runStep<[Promise<void>], typeof emitEventStep>(
-            emitEventStep,
-            [this, rawEvent],
-            event.team_id,
-            true,
-            kafkaAcks
-        )
-        if (!isOkResult(emitResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return emitResult
-        }
-        const clickhouseAck = emitResult.value
-        kafkaAcks.push(...clickhouseAck)
-
         const successResult: EventPipelineResult = {
-            lastStep: 'emitEventStep',
-            args: [rawEvent],
+            lastStep: 'createEventStep',
+            eventToEmit: rawEvent,
         }
 
         return ok(successResult, kafkaAcks)
     }
 
-    registerLastStep(stepName: string, args: any[]): EventPipelineResult {
+    registerLastStep(stepName: string, eventToEmit?: RawKafkaEvent): EventPipelineResult {
         pipelineLastStepCounter.labels(stepName).inc()
         return {
             lastStep: stepName,
-            args,
+            eventToEmit,
         }
     }
 

@@ -24,7 +24,6 @@ import {
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
-import { EventPipelineResult } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
@@ -43,6 +42,7 @@ import {
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
+import { createEmitEventStep } from './event-processing/emit-event-step'
 import {
     PreprocessedEventWithStores,
     createEventPipelineRunnerV1Step,
@@ -129,7 +129,7 @@ export class IngestionConsumer {
     public readonly promiseScheduler = new PromiseScheduler()
 
     private preprocessingPipeline!: BatchPipelineUnwrapper<{ message: Message }, PreprocessedEvent>
-    private perDistinctIdPipeline!: BatchPipeline<PreprocessedEventWithStores, EventPipelineResult>
+    private perDistinctIdPipeline!: BatchPipeline<PreprocessedEventWithStores, void>
 
     constructor(
         private hub: Hub,
@@ -275,9 +275,13 @@ export class IngestionConsumer {
         }
 
         const eventPipelineStep = createEventPipelineRunnerV1Step(this.hub, this.hogTransformer)
+        const emitEventStep = createEmitEventStep({
+            kafkaProducer: this.kafkaProducer!,
+            clickhouseJsonEventsTopic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+        })
 
         const eventProcessingPipeline = createRetryingPipeline(
-            createNewPipeline<PreprocessedEventWithStores>().pipe(eventPipelineStep),
+            createNewPipeline<PreprocessedEventWithStores>().pipe(eventPipelineStep).pipe(emitEventStep),
             {
                 tries: 3,
                 sleepMs: 100,

@@ -2,7 +2,8 @@ import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { Hub, PipelineEvent, ProjectId, Team } from '../../types'
+import { Hub, PipelineEvent, ProjectId, RawKafkaEvent, Team, TimestampFormat } from '../../types'
+import { castTimestampOrNow } from '../../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
@@ -48,6 +49,26 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     drop_events_older_than_seconds: null,
     ...overrides,
 })
+
+const createTestRawKafkaEvent = (overrides: Partial<RawKafkaEvent> = {}): RawKafkaEvent => {
+    const testTimestamp = castTimestampOrNow('2023-01-01T00:00:00.000Z', TimestampFormat.ClickHouse)
+    return {
+        uuid: 'test-uuid',
+        event: 'test-event',
+        properties: JSON.stringify({ test: 'property' }),
+        timestamp: testTimestamp,
+        team_id: 1,
+        project_id: 1 as ProjectId,
+        distinct_id: 'test-distinct-id',
+        elements_chain: '',
+        created_at: testTimestamp,
+        person_id: 'person-uuid',
+        person_properties: JSON.stringify({}),
+        person_created_at: testTimestamp,
+        person_mode: 'full',
+        ...overrides,
+    }
+}
 
 describe('event-pipeline-runner-v1-step', () => {
     let mockHub: Hub
@@ -103,9 +124,10 @@ describe('event-pipeline-runner-v1-step', () => {
 
     describe('createEventPipelineRunnerV1Step', () => {
         it('should create a step function that processes events successfully', async () => {
+            const mockRawEvent = createTestRawKafkaEvent()
             const mockResult: EventPipelineResult = {
                 lastStep: 'test-step',
-                args: [],
+                eventToEmit: mockRawEvent,
             }
             const ackPromise = Promise.resolve()
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult, [ackPromise])
@@ -194,9 +216,10 @@ describe('event-pipeline-runner-v1-step', () => {
             const ackPromise2 = Promise.resolve('kafka-ack')
             const ackPromise3 = Promise.resolve({ clickhouse: 'ack' })
             const sideEffects = [ackPromise1, ackPromise2, ackPromise3]
+            const mockRawEvent = createTestRawKafkaEvent()
             const mockResult: EventPipelineResult = {
                 lastStep: 'test-step',
-                args: [],
+                eventToEmit: mockRawEvent,
             }
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult, sideEffects)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
@@ -218,9 +241,10 @@ describe('event-pipeline-runner-v1-step', () => {
         })
 
         it('should handle successful pipeline results without side effects', async () => {
+            const mockRawEvent = createTestRawKafkaEvent()
             const mockResult: EventPipelineResult = {
                 lastStep: 'test-step',
-                args: [],
+                eventToEmit: mockRawEvent,
             }
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
@@ -242,9 +266,10 @@ describe('event-pipeline-runner-v1-step', () => {
         })
 
         it('should pass all required parameters to EventPipelineRunner constructor', async () => {
+            const mockRawEvent = createTestRawKafkaEvent()
             const mockResult: EventPipelineResult = {
                 lastStep: 'test-step',
-                args: [],
+                eventToEmit: mockRawEvent,
             }
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
@@ -272,9 +297,10 @@ describe('event-pipeline-runner-v1-step', () => {
         })
 
         it('should call runEventPipeline with correct parameters', async () => {
+            const mockRawEvent = createTestRawKafkaEvent()
             const mockResult: EventPipelineResult = {
                 lastStep: 'test-step',
-                args: [],
+                eventToEmit: mockRawEvent,
             }
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
