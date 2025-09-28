@@ -243,8 +243,8 @@ def fetch_ios_sdk_data() -> Optional[dict[str, Any]]:
             return None
 
         changelog_content = changelog_response.text
-        # iOS format: ## 3.30.1 - 2025-08-12
-        version_pattern = re.compile(r"^## (\d+\.\d+\.\d+)", re.MULTILINE)
+        # iOS format: ## 3.30.1 - 2025-08-12 (skip "## Next" section)
+        version_pattern = re.compile(r"^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$", re.MULTILINE)
         matches = version_pattern.findall(changelog_content)
 
         if not matches:
