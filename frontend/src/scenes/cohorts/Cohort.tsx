@@ -1,10 +1,15 @@
 import { CohortEdit } from 'scenes/cohorts/CohortEdit'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { CohortLogicProps } from './cohortEditLogic'
+import { CohortType } from '~/types'
+
 import { cohortSceneLogic } from './cohortSceneLogic'
 
-export const scene: SceneExport<CohortLogicProps> = {
+interface CohortSceneProps {
+    id?: CohortType['id']
+    tabId?: string
+}
+export const scene: SceneExport<CohortSceneProps> = {
     component: Cohort,
     logic: cohortSceneLogic,
     paramsToProps: ({ params: { id } }) => ({
@@ -12,6 +17,15 @@ export const scene: SceneExport<CohortLogicProps> = {
     }),
 }
 
-export function Cohort({ id }: CohortLogicProps): JSX.Element {
-    return <CohortEdit id={id} />
+interface CohortProps {
+    id?: CohortType['id']
+    tabId?: string
+}
+
+export function Cohort({ id, tabId }: CohortProps): JSX.Element {
+    if (!tabId) {
+        throw new Error('Cohort must receive a tabId prop')
+    }
+    // SWTODO: Investigate why the logic can return a functional component
+    return <CohortEdit id={id} attachTo={cohortSceneLogic({ tabId })} />
 }

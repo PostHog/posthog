@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
@@ -15,12 +15,13 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -36,7 +37,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { QueryContext } from '~/queries/types'
-import { PersonType } from '~/types'
+import { CohortType, PersonType } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
@@ -46,7 +47,12 @@ import { createCohortDataNodeLogicKey } from './cohortUtils'
 
 const RESOURCE_TYPE = 'cohort'
 
-export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
+export interface CohortEditProps {
+    id?: CohortType['id']
+    attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
+}
+
+export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const logicProps = { id }
 
     const renderRemovePersonFromCohortButton = ({ record }: { record: unknown }): JSX.Element => {
@@ -60,6 +66,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     }
 
     const logic = cohortEditLogic(logicProps)
+    useAttachedLogic(logic, attachTo)
     const {
         deleteCohort,
         setOuterGroupsType,
