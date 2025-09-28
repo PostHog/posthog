@@ -189,24 +189,5 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
       true,
     ],
   ],
-  [
-    "emitEventStep",
-    [
-      {
-        "created_at": "2024-11-18 14:54:33.606",
-        "distinct_id": "my_id",
-        "elements_chain": "",
-        "event": "$pageview",
-        "person_created_at": "2024-11-18 14:54:33",
-        "person_mode": "full",
-        "person_properties": "{}",
-        "project_id": 1,
-        "properties": "{}",
-        "team_id": 2,
-        "timestamp": "2020-02-23 02:15:00.000",
-        "uuid": "uuid1",
-      },
-    ],
-  ],
 ]
 `;
