@@ -48,8 +48,15 @@ export function Holdouts(): JSX.Element {
         if (!holdout.name) {
             return 'Name is required'
         }
-        if (holdout.filters?.[0]?.rollout_percentage === undefined) {
+        const percentage = holdout.filters?.[0]?.rollout_percentage
+        if (percentage === undefined) {
             return 'Rollout percentage is required'
+        }
+        if (percentage < 0) {
+            return 'Rollout percentage cannot be negative'
+        }
+        if (percentage > 100) {
+            return 'Rollout percentage cannot exceed 100%'
         }
     }
 

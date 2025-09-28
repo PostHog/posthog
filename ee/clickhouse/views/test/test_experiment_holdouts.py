@@ -143,4 +143,22 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Filters are required to create an holdout group")
+        self.assertEqual(response.json()["detail"], "Filters are required to create a holdout group")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_holdouts",
+            data={
+                "name": "Test",
+                "filters": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 101,
+                        "variant": "holdout",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Holdout percentage cannot exceed 100%")

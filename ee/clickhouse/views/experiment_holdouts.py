@@ -38,6 +38,22 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def validate_filters(self, filters: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Validate holdout group filters including rollout percentage range."""
+        if not filters:
+            raise ValidationError("Filters are required to create a holdout group")
+
+        for filter_item in filters:
+            rollout_percentage = filter_item.get("rollout_percentage")
+            if rollout_percentage is not None:
+                if not isinstance(rollout_percentage, int | float):
+                    raise ValidationError("Rollout percentage must be a number")
+                if rollout_percentage < 0:
+                    raise ValidationError("Rollout percentage cannot be negative")
+                if rollout_percentage > 100:
+                    raise ValidationError("Holdout percentage cannot exceed 100%")
+        return filters
+
     def _get_filters_with_holdout_id(self, id: int, filters: list) -> list:
         variant_key = f"holdout-{id}"
         updated_filters = []
@@ -54,9 +70,6 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
-
-        if not validated_data.get("filters"):
-            raise ValidationError("Filters are required to create an holdout group")
 
         instance = super().create(validated_data)
         instance.filters = self._get_filters_with_holdout_id(instance.id, instance.filters)
