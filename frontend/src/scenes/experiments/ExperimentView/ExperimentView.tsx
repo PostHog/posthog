@@ -29,12 +29,7 @@ import {
     ResultsQuery,
 } from '../components/ResultsBreakdown'
 import { experimentLogic } from '../experimentLogic'
-import {
-    appendMetricToOrderingArray,
-    isLegacyExperiment,
-    isLegacyExperimentQuery,
-    removeMetricFromOrderingArray,
-} from '../utils'
+import { isLegacyExperiment, isLegacyExperimentQuery, removeMetricFromOrderingArray } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -269,11 +264,10 @@ export function ExperimentView(): JSX.Element {
                                             ? [...metrics, metric]
                                             : metrics.map((m) => (m.uuid === metric.uuid ? metric : m)),
                                         ...(isNew && {
-                                            [context.orderingField]: appendMetricToOrderingArray(
-                                                experiment,
-                                                metric.uuid!,
-                                                context.type === 'secondary'
-                                            ),
+                                            [context.orderingField]: [
+                                                ...(experiment[context.orderingField] ?? []),
+                                                metric.uuid,
+                                            ],
                                         }),
                                     })
 
