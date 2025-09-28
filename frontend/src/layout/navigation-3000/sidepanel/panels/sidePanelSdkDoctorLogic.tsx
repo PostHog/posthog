@@ -120,7 +120,6 @@ const fetchGitHubReleaseDates = async (): Promise<Record<string, string>> => {
                 releaseDates[version] = release.published_at
             })
 
-        console.info(`[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Web SDK release dates from GitHub API`)
         return releaseDates
     } catch (error) {
         console.warn('[SDK Doctor] Failed to fetch Web SDK GitHub release dates:', error)
@@ -147,9 +146,6 @@ const fetchPythonGitHubReleaseDates = async (): Promise<Record<string, string>> 
                 releaseDates[version] = release.published_at
             })
 
-        console.info(
-            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Python SDK release dates from GitHub API`
-        )
         return releaseDates
     } catch (error) {
         console.warn('[SDK Doctor] Failed to fetch Python SDK GitHub release dates:', error)
@@ -203,9 +199,6 @@ const fetchFlutterGitHubReleaseDates = async (): Promise<Record<string, string>>
             }
         })
 
-        console.info(
-            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Flutter SDK release dates from GitHub API`
-        )
         return releaseDates
     } catch (error) {
         console.warn('[SDK Doctor] Failed to fetch Flutter SDK GitHub release dates:', error)
@@ -231,9 +224,6 @@ const fetchiOSGitHubReleaseDates = async (): Promise<Record<string, string>> => 
             }
         })
 
-        console.info(
-            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} iOS SDK release dates from GitHub API`
-        )
         return releaseDates
     } catch (error) {
         console.warn('[SDK Doctor] Failed to fetch iOS SDK GitHub release dates:', error)
@@ -244,29 +234,22 @@ const fetchiOSGitHubReleaseDates = async (): Promise<Record<string, string>> => 
 // Fetch Android SDK release dates from GitHub Releases API for time-based detection
 const fetchAndroidGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
-        console.info('[SDK Doctor] Starting Android GitHub API fetch...')
         const response = await fetch('https://api.github.com/repos/PostHog/posthog-android/releases?per_page=4')
-        console.info(`[SDK Doctor] Android GitHub API response status: ${response.status}`)
 
         if (!response.ok) {
             throw new Error(`GitHub API error: ${response.status}`)
         }
 
         const releases = await response.json()
-        console.info(`[SDK Doctor] Android GitHub API returned ${releases.length} releases`)
         const releaseDates: Record<string, string> = {}
 
         // Android releases use simple semantic version tags like "3.20.2"
         releases.forEach((release: any) => {
             if (release.tag_name && /^\d+\.\d+\.\d+$/.test(release.tag_name)) {
                 releaseDates[release.tag_name] = release.published_at
-                console.info(`[SDK Doctor] Android: ${release.tag_name} -> ${release.published_at}`)
             }
         })
 
-        console.info(
-            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Android SDK release dates from GitHub API`
-        )
         return releaseDates
     } catch (error) {
         console.warn('[SDK Doctor] Failed to fetch Android SDK GitHub release dates:', error)
@@ -292,9 +275,6 @@ const fetchRubyGitHubReleaseDates = async (): Promise<Record<string, string>> =>
             }
         })
 
-        console.info(
-            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Ruby SDK release dates from GitHub API`
-        )
         return releaseDates
     } catch (error) {
         console.warn('[SDK Doctor] Failed to fetch Ruby SDK GitHub release dates:', error)
@@ -388,14 +368,11 @@ const fetchSdkData = async (
         ].includes(sdkType)
     ) {
         if (IS_DEBUG_MODE) {
-            console.info(`[SDK Doctor] Per-SDK fetch not implemented for ${sdkType} yet`)
         }
         return null
     }
 
     try {
-        console.info(`[SDK Doctor] fetchSdkData() called for ${sdkType} - fetching fresh data...`)
-
         let changelogUrl: string
         let versionRegex: RegExp
         let githubFetcher: () => Promise<Record<string, string>>
@@ -448,10 +425,6 @@ const fetchSdkData = async (
                     versions: pythonVersions,
                     releaseDates: pythonReleaseDates,
                 }
-
-                console.info(
-                    `[SDK Doctor] Python SDK complete result: latestVersion=${pythonResult.latestVersion}, release dates count=${Object.keys(pythonResult.releaseDates).length}`
-                )
 
                 // Return result (server handles caching)
                 return pythonResult
@@ -623,8 +596,6 @@ const fetchSdkData = async (
                 const androidMatches = [...androidChangelogText.matchAll(/^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})/gm)]
                 const androidVersions = androidMatches.map((match) => match[1])
                 const androidReleaseDates: Record<string, string> = {}
-
-                console.info(`[SDK Doctor] Android CHANGELOG fetch successful: ${androidMatches.length} versions found`)
 
                 androidMatches.forEach((match) => {
                     const version = match[1]
@@ -842,9 +813,7 @@ const fetchSdkData = async (
         }
 
         // Fetch GitHub release dates for time-based detection
-        console.info(`[SDK Doctor] Calling GitHub fetcher for ${sdkType}...`)
         const releaseDates = await githubFetcher()
-        console.info(`[SDK Doctor] GitHub fetcher returned ${Object.keys(releaseDates).length} dates for ${sdkType}`)
 
         const result = {
             latestVersion: versions[0],
@@ -867,8 +836,6 @@ const fetchSdkData = async (
 // Fetch Go SDK release dates by following the "Full changelog" links from CHANGELOG.md
 const fetchGoGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
-        console.info('[SDK Doctor] Starting Go SDK release date fetch via Full changelog links...')
-
         // First, get the CHANGELOG.md to extract the Full changelog links
         const changelogResponse = await fetch(
             'https://raw.githubusercontent.com/PostHog/posthog-go/master/CHANGELOG.md'
@@ -879,7 +846,6 @@ const fetchGoGitHubReleaseDates = async (): Promise<Record<string, string>> => {
         }
 
         const changelogText = await changelogResponse.text()
-        console.info('[SDK Doctor] Go CHANGELOG.md fetched, length:', changelogText.length)
         const releaseDates: Record<string, string> = {}
 
         // Extract just the latest ~5 versions and their Full Changelog links
@@ -887,17 +853,12 @@ const fetchGoGitHubReleaseDates = async (): Promise<Record<string, string>> => {
         const versionPattern = /^## (\d+\.\d+\.\d+)\s*\n[\s\S]*?\* \[Full Changelog\]\(([^)]+)\)/gm
         const matches = [...changelogText.matchAll(versionPattern)]
 
-        console.info(`[SDK Doctor] Found Go version entries: ${matches.length}`)
-
         // Only process the latest 5 versions to avoid excessive API calls
         const latestMatches = matches.slice(0, 5)
-        console.info(`[SDK Doctor] Processing latest ${latestMatches.length} Go versions`)
 
         for (const match of latestMatches) {
             const version = match[1]
             const compareUrl = match[2]
-
-            console.info(`[SDK Doctor] Go version ${version}, compare URL: ${compareUrl}`)
 
             try {
                 // Extract the target tag from the compare URL
@@ -906,7 +867,6 @@ const fetchGoGitHubReleaseDates = async (): Promise<Record<string, string>> => {
 
                 if (targetTagMatch) {
                     const targetTag = targetTagMatch[1]
-                    console.info(`[SDK Doctor] Fetching date for Go ${version} via tag ${targetTag}`)
 
                     // Fetch the tag information from GitHub API
                     const tagResponse = await fetch(
@@ -929,7 +889,6 @@ const fetchGoGitHubReleaseDates = async (): Promise<Record<string, string>> => {
 
                                 if (commitDate) {
                                     releaseDates[version] = commitDate
-                                    console.info(`[SDK Doctor] ✅ Go ${version} -> ${commitDate}`)
                                 }
                             }
                         }
@@ -946,7 +905,6 @@ const fetchGoGitHubReleaseDates = async (): Promise<Record<string, string>> => {
         console.info(
             `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Go SDK version dates via Full changelog links`
         )
-        console.info('[SDK Doctor] Go release dates object:', JSON.stringify(releaseDates))
 
         return releaseDates
     } catch (error) {
@@ -1128,7 +1086,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
                         )
 
-                        console.info(`[SDK Doctor Debug] Session ${sessionId}: ${sortedEvents.length} events`)
                         console.info(
                             `[SDK Doctor Debug] Session events:`,
                             sortedEvents.map((e) => ({
@@ -1151,11 +1108,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         const flagEvents = sortedEvents.filter((event) => event.event === '$feature_flag_called')
 
                         if (flagEvents.length === 0) {
-                            console.info(`[SDK Doctor Debug] No flag events in session ${sessionId}`)
                             return
                         }
-
-                        console.info(`[SDK Doctor Debug] Found ${flagEvents.length} flag events in session`)
 
                         // Detect bootstrap state for contextual thresholds
                         const hasBootstrap = sortedEvents.some(
@@ -1185,13 +1139,10 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         )
 
                         // Check each flag event for timing issues
-                        flagEvents.forEach((flagEvent, index) => {
+                        flagEvents.forEach((flagEvent) => {
                             const flagTime = new Date(flagEvent.timestamp).getTime()
                             const timeDiff = flagTime - firstEventTime
 
-                            console.info(`[SDK Doctor Debug] Flag ${index + 1}: ${flagEvent.properties?.$feature_flag}`)
-                            console.info(`[SDK Doctor Debug]   - Flag time: ${flagEvent.timestamp} (${flagTime})`)
-                            console.info(`[SDK Doctor Debug]   - Time diff: ${timeDiff}ms`)
                             console.info(
                                 `[SDK Doctor Debug]   - Bootstrapped: ${flagEvent.properties?.$feature_flag_bootstrapped}`
                             )
@@ -1367,12 +1318,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 }
 
                                 // Otherwise, it's likely an internal PostHog backend event - filter it
-                                console.info('[SDK Doctor] Filtering internal Python event:', {
-                                    distinct_id: event.distinct_id,
-                                    email: event.properties?.email,
-                                    url: event.properties?.$current_url,
-                                    lib_version: event.properties?.$lib_version,
-                                })
                                 return false
                             }
 
@@ -1541,10 +1486,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // This prevents Python SDK from persisting between scans when it's been filtered out
                     if (isDemoMode()) {
                         const currentSDKTypes = new Set(Object.values(sdkVersionsMap).map((info) => info.type))
-                        for (const [key, info] of Object.entries(state)) {
+                        for (const [key] of Object.entries(state)) {
                             if (!sdkVersionsMap[key] && currentSDKTypes.size > 0) {
                                 // This SDK was in previous state but not in current events
-                                console.info(`[SDK Doctor] Removing stale ${info.type} SDK detection: ${info.version}`)
                             }
                         }
                     }
@@ -1782,8 +1726,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         try {
                             // DIRECT IMPLEMENTATION FOR GO SDK - bypass the complex pipeline
                             if (info.type === 'go') {
-                                console.info(`[SDK Doctor] Direct Go SDK processing for version ${info.version}`)
-
                                 // Get SDK data directly
                                 const sdkData = await fetchSdkData('go')
 
@@ -1812,7 +1754,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 console.info(
                                     `[SDK Doctor] Go SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
                                 )
-                                console.info(`[SDK Doctor] Go SDK release dates available:`, Object.keys(releaseDates))
 
                                 // Find the index of the current version
                                 const currentIndex = versions.indexOf(info.version)
@@ -1871,7 +1812,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 )
                             } else if (info.type === 'web') {
                                 // DIRECT IMPLEMENTATION FOR WEB SDK - bypass the complex pipeline
-                                console.info(`[SDK Doctor] Direct Web SDK processing for version ${info.version}`)
 
                                 // Get SDK data directly
                                 const sdkData = await fetchSdkData('web')
@@ -1901,7 +1841,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 console.info(
                                     `[SDK Doctor] Web SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
                                 )
-                                console.info(`[SDK Doctor] Web SDK release dates available:`, Object.keys(releaseDates))
 
                                 // Find the index of the current version
                                 const currentIndex = versions.indexOf(info.version)
@@ -1973,7 +1912,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 )
                             } else if (info.type === 'python') {
                                 // DIRECT IMPLEMENTATION FOR PYTHON SDK - bypass the complex pipeline
-                                console.info(`[SDK Doctor] Direct Python SDK processing for version ${info.version}`)
 
                                 // Get SDK data directly
                                 const sdkData = await fetchSdkData('python')
@@ -2185,7 +2123,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 )
                             } else if (info.type === 'flutter') {
                                 // DIRECT IMPLEMENTATION FOR FLUTTER SDK - bypass the complex pipeline
-                                console.info(`[SDK Doctor] Direct Flutter SDK processing for version ${info.version}`)
 
                                 // Get SDK data directly
                                 const sdkData = await fetchSdkData('flutter')
@@ -2290,7 +2227,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 )
                             } else if (info.type === 'ios') {
                                 // DIRECT IMPLEMENTATION FOR iOS SDK - bypass the complex pipeline
-                                console.info(`[SDK Doctor] Direct iOS SDK processing for version ${info.version}`)
 
                                 // Get SDK data directly
                                 const sdkData = await fetchSdkData('ios')
@@ -2320,7 +2256,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 console.info(
                                     `[SDK Doctor] iOS SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
                                 )
-                                console.info(`[SDK Doctor] iOS SDK release dates available:`, Object.keys(releaseDates))
 
                                 // Find the index of the current version
                                 const currentIndex = versions.indexOf(info.version)
@@ -2392,7 +2327,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 )
                             } else if (info.type === 'android') {
                                 // DIRECT IMPLEMENTATION FOR ANDROID SDK - bypass the complex pipeline
-                                console.info(`[SDK Doctor] Direct Android SDK processing for version ${info.version}`)
 
                                 // Get SDK data directly
                                 const sdkData = await fetchSdkData('android')
@@ -2501,7 +2435,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 )
                             } else if (info.type === 'php') {
                                 // DIRECT IMPLEMENTATION FOR PHP SDK - simplified logic
-                                console.info(`[SDK Doctor] Direct PHP SDK processing for version ${info.version}`)
 
                                 // Get PHP SDK data directly
                                 const sdkData = await fetchSdkData('php')
@@ -2563,7 +2496,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 )
                             } else if (info.type === 'ruby') {
                                 // DIRECT IMPLEMENTATION FOR RUBY SDK - simplified logic
-                                console.info(`[SDK Doctor] Direct Ruby SDK processing for version ${info.version}`)
 
                                 // Get Ruby SDK data directly
                                 const sdkData = await fetchSdkData('ruby')
@@ -2625,7 +2557,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 )
                             } else if (info.type === 'elixir') {
                                 // DIRECT IMPLEMENTATION FOR ELIXIR SDK - simplified logic
-                                console.info(`[SDK Doctor] Direct Elixir SDK processing for version ${info.version}`)
                                 // Get Elixir SDK data directly
                                 const sdkData = await fetchSdkData('elixir')
                                 if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
@@ -2680,7 +2611,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 )
                             } else if (info.type === 'dotnet') {
                                 // DIRECT IMPLEMENTATION FOR .NET SDK - simplified logic
-                                console.info(`[SDK Doctor] Direct .NET SDK processing for version ${info.version}`)
                                 // Get .NET SDK data directly
                                 const sdkData = await fetchSdkData('dotnet')
                                 if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
@@ -2928,7 +2858,6 @@ async function checkVersionAgainstLatestAsync(
     isAgeOutdated?: boolean
     error?: string
 }> {
-    console.info(`[SDK Doctor] checkVersionAgainstLatestAsync called for ${type} version ${version}`)
     try {
         // Fetch SDK data on-demand (with caching)
         const sdkData = await fetchSdkData(type)
@@ -3055,9 +2984,6 @@ function checkVersionAgainstLatest(
 
         // Debug logging for Go SDK
         if (type === 'go') {
-            console.info(`[SDK Doctor] Go version lookup: checking version "${version}" in releaseDates`)
-            console.info(`[SDK Doctor] Go releaseDates keys:`, releaseDates ? Object.keys(releaseDates) : 'undefined')
-            console.info(`[SDK Doctor] Go releaseDate found:`, releaseDate || 'NOT FOUND')
         }
 
         let daysSinceRelease: number | undefined
@@ -3097,7 +3023,6 @@ function checkVersionAgainstLatest(
                 deviceContext,
             }
         } else {
-            console.info(`[SDK Doctor] No time-based detection available for SDK type: ${type}`)
         }
 
         // Apply SDK-specific logic
