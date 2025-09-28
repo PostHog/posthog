@@ -19,7 +19,7 @@ import {
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DebugNotice } from 'lib/components/DebugNotice'
-import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement'
+import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -392,7 +392,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="p-1 flex flex-col gap-px items-center">
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
-                            <NavPanelAdvertisement isCollapsed={isLayoutNavCollapsed} />
+                            <NavPanelAdvertisement />
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <ButtonPrimitive
                                     menuItem={!isLayoutNavCollapsed}
