@@ -47,8 +47,16 @@ import {
     PreprocessedEventWithStores,
     createEventPipelineRunnerV1Step,
 } from './event-processing/event-pipeline-runner-v1-step'
-import { createBatch, createNewBatchPipeline, createNewPipeline, createRetryingPipeline } from './pipelines/helpers'
+import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
+import {
+    createBatch,
+    createNewBatchPipeline,
+    createNewPipeline,
+    createRetryingPipeline,
+    createUnwrapper,
+} from './pipelines/helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './pipelines/result-handling-pipeline'
+import { SideEffectHandlingPipeline } from './pipelines/side-effect-handling-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -119,8 +127,8 @@ export class IngestionConsumer {
     private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
 
-    private preprocessingPipeline!: ResultHandlingPipeline<{ message: Message }, PreprocessedEvent>
-    private perDistinctIdPipeline!: ResultHandlingPipeline<PreprocessedEventWithStores, EventPipelineResult>
+    private preprocessingPipeline!: BatchPipelineUnwrapper<{ message: Message }, PreprocessedEvent>
+    private perDistinctIdPipeline!: BatchPipelineUnwrapper<PreprocessedEventWithStores, EventPipelineResult>
 
     constructor(
         private hub: Hub,
@@ -249,7 +257,13 @@ export class IngestionConsumer {
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(this.hub))
 
-        this.preprocessingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+        const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+        const sideEffectHandlingPipeline = new SideEffectHandlingPipeline(
+            resultHandlingPipeline,
+            this.promiseScheduler,
+            { await: false }
+        )
+        this.preprocessingPipeline = createUnwrapper(sideEffectHandlingPipeline)
     }
 
     private initializePerDistinctIdPipeline(): void {
@@ -272,7 +286,13 @@ export class IngestionConsumer {
         const perDistinctIdBatchPipeline =
             createNewBatchPipeline<PreprocessedEventWithStores>().pipeSequentially(eventProcessingPipeline)
 
-        this.perDistinctIdPipeline = ResultHandlingPipeline.of(perDistinctIdBatchPipeline, pipelineConfig)
+        const resultHandlingPipeline = ResultHandlingPipeline.of(perDistinctIdBatchPipeline, pipelineConfig)
+        const sideEffectHandlingPipeline = new SideEffectHandlingPipeline(
+            resultHandlingPipeline,
+            this.promiseScheduler,
+            { await: false }
+        )
+        this.perDistinctIdPipeline = createUnwrapper(sideEffectHandlingPipeline)
     }
 
     public async stop(): Promise<void> {
