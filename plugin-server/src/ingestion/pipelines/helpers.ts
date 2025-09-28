@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
+import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { BufferingBatchPipeline } from './buffering-batch-pipeline'
 import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, ok } from './results'
@@ -53,4 +54,13 @@ export function createRetryingPipeline<TInput, TOutput>(
     options?: RetryingPipelineOptions
 ): RetryingPipeline<TInput, TOutput> {
     return new RetryingPipeline(innerPipeline, options)
+}
+
+/**
+ * Helper function to create a batch pipeline unwrapper
+ */
+export function createUnwrapper<TInput, TOutput>(
+    batchPipeline: BatchPipeline<TInput, TOutput>
+): BatchPipelineUnwrapper<TInput, TOutput> {
+    return new BatchPipelineUnwrapper(batchPipeline)
 }

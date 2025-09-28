@@ -615,12 +615,15 @@ describe('Integration tests', () => {
         const results = await resultPipeline.next()
 
         expect(results).toEqual([
-            {
-                eventType: 'pageview',
-                userId: 'user123',
-                isValid: true,
-                timestamp: '2023-01-01T00:00:00Z',
-            },
+            createContext(
+                ok({
+                    eventType: 'pageview',
+                    userId: 'user123',
+                    isValid: true,
+                    timestamp: '2023-01-01T00:00:00Z',
+                }),
+                { message: messages[0] }
+            ),
         ])
     })
 
@@ -637,7 +640,20 @@ describe('Integration tests', () => {
         resultPipeline.feed(batchResults)
         const results = await resultPipeline.next()
 
-        expect(results).toEqual([])
+        // Should return the DLQ result with side effects
+        expect(results).toEqual([
+            createContext(dlq('Validation failed', new Error('Invalid data')), {
+                message: messages[0],
+                sideEffects: expect.arrayContaining([expect.any(Promise)]),
+            }),
+        ])
+
+        // Await the side effects to trigger the DLQ operation
+        if (results && results.length > 0) {
+            const sideEffects = results[0].context.sideEffects
+            await Promise.all(sideEffects)
+        }
+
         expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
             mockKafkaProducer,
             messages[0],
