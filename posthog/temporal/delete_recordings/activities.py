@@ -7,6 +7,13 @@ import pytz
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.schema import RecordingsQuery
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import print_ast
+
+from posthog.models import Team
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.session_recording_api import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import (
     RecordingBlock,
@@ -14,6 +21,7 @@ from posthog.session_recordings.session_recording_v2_service import (
     build_block_list,
 )
 from posthog.storage import session_recording_v2_object_storage
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -92,7 +100,7 @@ class DeleteRecordingBlocksInput:
     blocks: list[RecordingBlock]
 
 
-@activity.defn(name="delete_recording_block")
+@activity.defn(name="delete_recording_blocks")
 async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
     async with Heartbeater():
         bind_contextvars(session_id=input.session_id, team_id=input.team_id, block_count=len(input.blocks))
@@ -102,3 +110,46 @@ async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
             for block in input.blocks:
                 await storage.delete_block(block.url)
         logger.info(f"Successfully deleted {len(input.blocks)} blocks")
+
+
+def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
+    result = json.loads(raw_response)
+
+    return [session["session_id"] for session in result["data"]]
+
+
+@dataclass(frozen=True)
+class LoadRecordingsWithPersonInput:
+    distinct_ids: list[str]
+    team_id: int
+
+
+@activity.defn(name="load-recordings-with-person")
+async def load_recordings_with_person(input: LoadRecordingsWithPersonInput) -> list[str]:
+    team = await Team.objects.aget(id=input.team_id)
+
+    query = SessionRecordingListFromQuery(
+        team, RecordingsQuery(distinct_ids=input.distinct_ids, date_from=f"-{team.session_recording_retention_period}")
+    )
+
+    hogql_query = await database_sync_to_async(query.get_query)()
+
+    hogql_context = HogQLContext(
+        team=team,
+        output_format="JSON",
+        enable_select_queries=True,
+    )
+
+    raw_query = await database_sync_to_async(print_ast)(
+        hogql_query,
+        hogql_context,
+        "clickhouse",
+    )
+
+    async with get_client() as client:
+        async with client.aget_query(
+            query=raw_query, query_parameters=hogql_context.values, query_id=str(uuid4())
+        ) as ch_response:
+            raw_response = await ch_response.content.read()
+
+    return _parse_session_recording_list_response(raw_response)
