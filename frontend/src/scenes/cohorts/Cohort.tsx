@@ -26,6 +26,5 @@ export function Cohort({ id, tabId }: CohortProps): JSX.Element {
     if (!tabId) {
         throw new Error('Cohort must receive a tabId prop')
     }
-    // SWTODO: Investigate why the logic can return a functional component
-    return <CohortEdit id={id} attachTo={cohortSceneLogic({ tabId })} />
+    return <CohortEdit id={id} attachTo={cohortSceneLogic({ tabId })} tabId={tabId} />
 }

@@ -42,11 +42,17 @@ import type { cohortEditLogicType } from './cohortEditLogicType'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
+    tabId: string
 }
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
-    key((props) => props.id || 'new'),
+    key((props) => {
+        if (props.id === 'new' || !props.id) {
+            return `new-${props.tabId}`
+        }
+        return props.id
+    }),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
