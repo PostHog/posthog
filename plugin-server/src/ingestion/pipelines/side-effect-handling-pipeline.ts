@@ -45,7 +45,7 @@ export class SideEffectHandlingPipeline<TInput, TOutput> implements BatchPipelin
                     }
                 })
             } else {
-                sideEffectPromises.forEach((promise) => this.promiseScheduler.schedule(promise))
+                sideEffectPromises.forEach((promise) => void this.promiseScheduler.schedule(promise))
             }
         }
 
