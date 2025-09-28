@@ -1,10 +1,11 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { IconDatabase, IconHogQL } from '@posthog/icons'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import {
     ProductIconWrapper,
     getDefaultTreeData,
@@ -13,18 +14,20 @@ import {
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
+export type NEW_TAB_CATEGORY_ITEMS = 'all' | 'create-new' | 'apps' | 'data-management' | 'project-items'
 export interface ItemsGridItem {
-    category: string
+    category: NEW_TAB_CATEGORY_ITEMS
     types: { name: string; icon?: JSX.Element; href?: string; flag?: string }[]
 }
 
 export interface ItemsGridItemSingle {
-    category: string
+    category: NEW_TAB_CATEGORY_ITEMS
     type: { name: string; icon?: JSX.Element; href?: string }
 }
 
@@ -46,7 +49,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], projectTreeLogic({ key: PROJECT_TREE_KEY }), ['searchResults']],
     })),
     key((props) => props.tabId || 'default'),
     actions({
@@ -54,7 +57,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         selectNext: true,
         selectPrevious: true,
         onSubmit: true,
-        setSelectedCategory: (category: string) => ({ category }),
+        setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
     }),
     reducers({
         search: [
@@ -64,7 +67,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         selectedCategory: [
-            'all' as string,
+            'all' as NEW_TAB_CATEGORY_ITEMS,
             {
                 setSelectedCategory: (_, { category }) => category,
             },
@@ -82,16 +85,74 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     selectors({
         categories: [
             () => [],
-            (): { key: string; label: string }[] => [
+            (): { key: NEW_TAB_CATEGORY_ITEMS; label: string }[] => [
                 { key: 'all', label: 'All' },
                 { key: 'create-new', label: 'Create new' },
                 { key: 'apps', label: 'Apps' },
                 { key: 'data-management', label: 'Data management' },
+                { key: 'project-items', label: 'Project items' },
             ],
         ],
+        isSearching: [
+            (s) => [s.search, s.searchResults],
+            (search: string, searchResults: any): boolean => {
+                const trimmedSearch = search.trim()
+                const hasSearch = trimmedSearch.length >= 2
+
+                if (!hasSearch) {
+                    return false
+                }
+
+                // We're searching if:
+                // 1. There's a search term but no results yet
+                // 2. The search term doesn't match what was searched for
+                // 3. The results are empty but we should have results (loading)
+                return (
+                    hasSearch &&
+                    (!searchResults.results ||
+                        searchResults.searchTerm !== trimmedSearch ||
+                        (searchResults.results.length === 0 && searchResults.searchTerm !== trimmedSearch))
+                )
+            },
+        ],
+        projectTreeSearchItems: [
+            (s) => [s.searchResults, s.search],
+            (searchResults, search): ItemsGridItem[] => {
+                // Always show project items category
+                const hasSearch = search.trim().length > 0
+                const hasResults = searchResults.results && searchResults.results.length > 0
+
+                if (hasSearch && hasResults) {
+                    // Show actual search results
+                    const searchItems = searchResults.results.map((item) => ({
+                        href: item.href || '#',
+                        name: item.path,
+                        icon: getIconForFileSystemItem({
+                            type: item.type,
+                            iconType: item.type as any,
+                            path: item.path,
+                        }),
+                    }))
+
+                    return [
+                        {
+                            category: 'project-items',
+                            types: searchItems,
+                        },
+                    ]
+                }
+                // Show empty category with special handling for UI
+                return [
+                    {
+                        category: 'project-items',
+                        types: [],
+                    },
+                ]
+            },
+        ],
         itemsGrid: [
-            (s) => [s.featureFlags],
-            (featureFlags): ItemsGridItem[] => {
+            (s) => [s.featureFlags, s.projectTreeSearchItems],
+            (featureFlags, projectTreeSearchItems): ItemsGridItem[] => {
                 const newInsightItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs) => ({
@@ -157,6 +218,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         category: 'data-management',
                         types: [...data, ...newDataItems],
                     },
+                    ...projectTreeSearchItems,
                 ]
                 return queryTree
             },
@@ -190,7 +252,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                                 ).length === 0
                         ),
                     }))
-                    .filter(({ types }) => types.length > 0)
+                    .filter(({ category, types }) => types.length > 0 || category === 'project-items')
             },
         ],
         filteredItemsList: [
@@ -224,10 +286,64 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
         breadcrumbs: [() => [], (): Breadcrumb[] => [{ key: 'new-tab', name: 'New tab', iconType: 'blank' }]],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, cache }) => ({
         onSubmit: () => {
             if (values.selectedItem?.type?.href) {
                 router.actions.push(values.selectedItem.type.href)
+            }
+        },
+        setSearch: ({ search }) => {
+            const trimmedSearch = search.trim()
+            const projectTreeActions = projectTreeLogic({ key: PROJECT_TREE_KEY }).actions
+
+            // Clear any existing timeout
+            if (cache.searchTimeout) {
+                clearTimeout(cache.searchTimeout)
+                cache.searchTimeout = null
+            }
+
+            if (trimmedSearch.length >= 2) {
+                // Trigger project tree search with debounce
+                cache.searchTimeout = setTimeout(() => {
+                    projectTreeActions.setSearchTerm(trimmedSearch)
+                    cache.searchTimeout = null
+                }, 300)
+            } else {
+                // Immediately clear search when input is too short
+                projectTreeActions.clearSearch()
+            }
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        setSearch: () => [
+            router.values.location.pathname,
+            {
+                search: values.search || undefined,
+                category: values.selectedCategory !== 'all' ? values.selectedCategory : undefined,
+            },
+        ],
+        setSelectedCategory: () => [
+            router.values.location.pathname,
+            {
+                search: values.search || undefined,
+                category: values.selectedCategory !== 'all' ? values.selectedCategory : undefined,
+            },
+        ],
+    })),
+    urlToAction(({ actions, values }) => ({
+        '*': (_, searchParams) => {
+            if (searchParams.search && searchParams.search !== values.search) {
+                actions.setSearch(searchParams.search)
+            }
+            if (searchParams.category && searchParams.category !== values.selectedCategory) {
+                actions.setSelectedCategory(searchParams.category)
+            }
+            // Set defaults from URL if no params
+            if (!searchParams.search && values.search) {
+                actions.setSearch('')
+            }
+            if (!searchParams.category && values.selectedCategory !== 'all') {
+                actions.setSelectedCategory('all')
             }
         },
     })),
