@@ -238,4 +238,139 @@ describe('BaseBatchPipeline', () => {
             ])
         })
     })
+
+    describe('side effects accumulation', () => {
+        it('should accumulate side effects from previous context and current step result', async () => {
+            const messages: Message[] = [createTestMessage({ value: Buffer.from('test'), offset: 1 })]
+
+            const initialSideEffect1 = Promise.resolve('initial-side-effect-1')
+            const initialSideEffect2 = Promise.resolve('initial-side-effect-2')
+            const batch = [
+                createContext(ok({ message: messages[0] }), {
+                    message: messages[0],
+                    sideEffects: [initialSideEffect1, initialSideEffect2],
+                }),
+            ]
+
+            const rootPipeline = createNewBatchPipeline()
+
+            const stepSideEffect1 = Promise.resolve('step-side-effect-1')
+            const stepSideEffect2 = Promise.resolve('step-side-effect-2')
+            const pipeline = new BaseBatchPipeline((items: any[]) => {
+                return Promise.resolve(items.map(() => ok({ processed: 'result' }, [stepSideEffect1, stepSideEffect2])))
+            }, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toHaveLength(1)
+            expect(results![0].context.sideEffects).toEqual([
+                initialSideEffect1,
+                initialSideEffect2,
+                stepSideEffect1,
+                stepSideEffect2,
+            ])
+        })
+
+        it('should preserve context side effects when step returns no side effects', async () => {
+            const messages: Message[] = [createTestMessage({ value: Buffer.from('test'), offset: 1 })]
+
+            const existingSideEffect = Promise.resolve('existing-side-effect')
+            const batch = [
+                createContext(ok({ message: messages[0] }), {
+                    message: messages[0],
+                    sideEffects: [existingSideEffect],
+                }),
+            ]
+
+            const rootPipeline = createNewBatchPipeline()
+            const pipeline = new BaseBatchPipeline((items: any[]) => {
+                return Promise.resolve(items.map(() => ok({ processed: 'result' })))
+            }, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toHaveLength(1)
+            expect(results![0].context.sideEffects).toEqual([existingSideEffect])
+        })
+
+        it('should add step side effects when context has no existing side effects', async () => {
+            const messages: Message[] = [createTestMessage({ value: Buffer.from('test'), offset: 1 })]
+
+            const batch = [
+                createContext(ok({ message: messages[0] }), {
+                    message: messages[0],
+                    sideEffects: [],
+                }),
+            ]
+
+            const rootPipeline = createNewBatchPipeline()
+
+            const stepSideEffect = Promise.resolve('step-side-effect')
+            const pipeline = new BaseBatchPipeline((items: any[]) => {
+                return Promise.resolve(items.map(() => ok({ processed: 'result' }, [stepSideEffect])))
+            }, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toHaveLength(1)
+            expect(results![0].context.sideEffects).toEqual([stepSideEffect])
+        })
+
+        it('should handle multiple items with different side effect patterns', async () => {
+            const messages: Message[] = [
+                createTestMessage({ value: Buffer.from('item1'), offset: 1 }),
+                createTestMessage({ value: Buffer.from('item2'), offset: 2 }),
+                createTestMessage({ value: Buffer.from('item3'), offset: 3 }),
+            ]
+
+            const sideEffect1 = Promise.resolve('context-1')
+            const sideEffect2 = Promise.resolve('context-2')
+            const sideEffect3 = Promise.resolve('context-3')
+
+            const batch = [
+                createContext(ok({ message: messages[0] }), {
+                    message: messages[0],
+                    sideEffects: [sideEffect1],
+                }),
+                createContext(ok({ message: messages[1] }), {
+                    message: messages[1],
+                    sideEffects: [sideEffect2, sideEffect3],
+                }),
+                createContext(ok({ message: messages[2] }), {
+                    message: messages[2],
+                    sideEffects: [],
+                }),
+            ]
+
+            const rootPipeline = createNewBatchPipeline()
+
+            const step1SideEffect = Promise.resolve('step-1')
+            const step3aSideEffect = Promise.resolve('step-3a')
+            const step3bSideEffect = Promise.resolve('step-3b')
+            const pipeline = new BaseBatchPipeline((_: any[]) => {
+                return Promise.resolve([
+                    ok({ processed: 'result1' }, [step1SideEffect]),
+                    ok({ processed: 'result2' }), // No step side effects
+                    ok({ processed: 'result3' }, [step3aSideEffect, step3bSideEffect]),
+                ])
+            }, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toHaveLength(3)
+
+            // First item: context + step side effects
+            expect(results![0].context.sideEffects).toEqual([sideEffect1, step1SideEffect])
+
+            // Second item: only context side effects (step has none)
+            expect(results![1].context.sideEffects).toEqual([sideEffect2, sideEffect3])
+
+            // Third item: only step side effects (context has none)
+            expect(results![2].context.sideEffects).toEqual([step3aSideEffect, step3bSideEffect])
+        })
+    })
 })

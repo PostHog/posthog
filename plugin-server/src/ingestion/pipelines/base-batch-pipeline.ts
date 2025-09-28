@@ -51,11 +51,13 @@ export class BaseBatchPipeline<TInput, TIntermediate, TOutput> implements BatchP
         // Map results back, preserving context and non-successful results
         return previousResults.map((resultWithContext) => {
             if (isOkResult(resultWithContext.result)) {
+                const stepResult = stepResults[stepIndex++]
                 return {
-                    result: stepResults[stepIndex++],
+                    result: stepResult,
                     context: {
                         ...resultWithContext.context,
                         lastStep: this.stepName,
+                        sideEffects: [...resultWithContext.context.sideEffects, ...stepResult.sideEffects],
                     },
                 }
             } else {
