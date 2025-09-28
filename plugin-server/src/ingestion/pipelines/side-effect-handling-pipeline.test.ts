@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { createBatch, createContext, createNewBatchPipeline } from './helpers'
+import { sideEffectResultCounter } from './metrics'
 import { dlq, drop, ok } from './results'
 import {
     PromiseSchedulerInterface,
@@ -8,11 +9,23 @@ import {
     SideEffectHandlingPipeline,
 } from './side-effect-handling-pipeline'
 
+// Mock the metrics module
+jest.mock('./metrics', () => ({
+    sideEffectResultCounter: {
+        labels: jest.fn().mockReturnThis(),
+        inc: jest.fn(),
+    },
+}))
+
+const mockSideEffectResultCounter = jest.mocked(sideEffectResultCounter)
+
 describe('SideEffectHandlingPipeline', () => {
     let mockPromiseScheduler: jest.Mocked<PromiseSchedulerInterface>
     let message: Message
 
     beforeEach(() => {
+        jest.clearAllMocks()
+
         mockPromiseScheduler = {
             schedule: jest.fn().mockImplementation((promise) => promise),
         }
@@ -338,6 +351,122 @@ describe('SideEffectHandlingPipeline', () => {
             await pipeline.next()
 
             expect(mockPromiseScheduler.schedule).toHaveBeenCalledWith(sideEffectPromise)
+        })
+    })
+
+    describe('metrics tracking', () => {
+        it('should track successful side effects when await is true', async () => {
+            const successfulSideEffect1 = Promise.resolve('success1')
+            const successfulSideEffect2 = Promise.resolve('success2')
+
+            const subPipeline = createNewBatchPipeline<{ message: Message }>()
+            const config: SideEffectHandlingConfig = { await: true }
+            const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
+
+            const batchWithSideEffects = [
+                createContext(ok({ message }), {
+                    message,
+                    sideEffects: [successfulSideEffect1, successfulSideEffect2],
+                }),
+            ]
+
+            pipeline.feed(batchWithSideEffects)
+            await pipeline.next()
+
+            expect(mockSideEffectResultCounter.labels).toHaveBeenCalledWith('ok')
+            expect(mockSideEffectResultCounter.inc).toHaveBeenCalledTimes(2)
+        })
+
+        it('should track failed side effects when await is true', async () => {
+            const failingSideEffect1 = Promise.reject(new Error('fail1'))
+            const failingSideEffect2 = Promise.reject(new Error('fail2'))
+
+            const subPipeline = createNewBatchPipeline<{ message: Message }>()
+            const config: SideEffectHandlingConfig = { await: true }
+            const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
+
+            const batchWithSideEffects = [
+                createContext(ok({ message }), { message, sideEffects: [failingSideEffect1, failingSideEffect2] }),
+            ]
+
+            pipeline.feed(batchWithSideEffects)
+            await pipeline.next()
+
+            expect(mockSideEffectResultCounter.labels).toHaveBeenCalledWith('error')
+            expect(mockSideEffectResultCounter.inc).toHaveBeenCalledTimes(2)
+        })
+
+        it('should track mixed success and failure side effects when await is true', async () => {
+            const successfulSideEffect = Promise.resolve('success')
+            const failingSideEffect = Promise.reject(new Error('fail'))
+
+            const subPipeline = createNewBatchPipeline<{ message: Message }>()
+            const config: SideEffectHandlingConfig = { await: true }
+            const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
+
+            const batchWithSideEffects = [
+                createContext(ok({ message }), { message, sideEffects: [successfulSideEffect, failingSideEffect] }),
+            ]
+
+            pipeline.feed(batchWithSideEffects)
+            await pipeline.next()
+
+            expect(mockSideEffectResultCounter.labels).toHaveBeenCalledWith('ok')
+            expect(mockSideEffectResultCounter.labels).toHaveBeenCalledWith('error')
+            expect(mockSideEffectResultCounter.inc).toHaveBeenCalledTimes(2)
+        })
+
+        it('should not track metrics when await is false', async () => {
+            const sideEffect = Promise.resolve('success')
+
+            const subPipeline = createNewBatchPipeline<{ message: Message }>()
+            const config: SideEffectHandlingConfig = { await: false }
+            const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
+
+            const batchWithSideEffects = [createContext(ok({ message }), { message, sideEffects: [sideEffect] })]
+
+            pipeline.feed(batchWithSideEffects)
+            await pipeline.next()
+
+            expect(mockSideEffectResultCounter.labels).not.toHaveBeenCalled()
+            expect(mockSideEffectResultCounter.inc).not.toHaveBeenCalled()
+            expect(mockPromiseScheduler.schedule).toHaveBeenCalledWith(sideEffect)
+        })
+
+        it('should not track metrics when there are no side effects', async () => {
+            const subPipeline = createNewBatchPipeline<{ message: Message }>()
+            const config: SideEffectHandlingConfig = { await: true }
+            const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
+
+            const batchWithNoSideEffects = [createContext(ok({ message }), { message, sideEffects: [] })]
+
+            pipeline.feed(batchWithNoSideEffects)
+            await pipeline.next()
+
+            expect(mockSideEffectResultCounter.labels).not.toHaveBeenCalled()
+            expect(mockSideEffectResultCounter.inc).not.toHaveBeenCalled()
+        })
+
+        it('should track metrics across multiple results when await is true', async () => {
+            const successSideEffect = Promise.resolve('success')
+            const failSideEffect = Promise.reject(new Error('fail'))
+            const message2 = { ...message, offset: 2 } as Message
+
+            const subPipeline = createNewBatchPipeline<{ message: Message }>()
+            const config: SideEffectHandlingConfig = { await: true }
+            const pipeline = new SideEffectHandlingPipeline(subPipeline, mockPromiseScheduler, config)
+
+            const batchWithSideEffects = [
+                createContext(ok({ message }), { message, sideEffects: [successSideEffect] }),
+                createContext(ok({ message: message2 }), { message: message2, sideEffects: [failSideEffect] }),
+            ]
+
+            pipeline.feed(batchWithSideEffects)
+            await pipeline.next()
+
+            expect(mockSideEffectResultCounter.labels).toHaveBeenCalledWith('ok')
+            expect(mockSideEffectResultCounter.labels).toHaveBeenCalledWith('error')
+            expect(mockSideEffectResultCounter.inc).toHaveBeenCalledTimes(2)
         })
     })
 })

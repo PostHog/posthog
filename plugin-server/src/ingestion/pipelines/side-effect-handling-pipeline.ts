@@ -1,4 +1,5 @@
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { sideEffectResultCounter } from './metrics'
 
 export interface PromiseSchedulerInterface {
     schedule<T>(promise: Promise<T>): Promise<T>
@@ -24,30 +25,30 @@ export class SideEffectHandlingPipeline<TInput, TOutput> implements BatchPipelin
 
     async next(): Promise<BatchPipelineResultWithContext<TOutput> | null> {
         const results = await this.subPipeline.next()
-
         if (results === null) {
             return null
         }
 
-        // Process all side effects
         const sideEffectPromises: Promise<unknown>[] = []
-
         for (const resultWithContext of results) {
             sideEffectPromises.push(...resultWithContext.context.sideEffects)
         }
 
-        // Handle side effects based on config
         if (sideEffectPromises.length > 0) {
             if (this.config.await) {
-                // When awaiting, handle promises directly without scheduler
-                await Promise.allSettled(sideEffectPromises)
+                const settledResults = await Promise.allSettled(sideEffectPromises)
+                settledResults.forEach((result) => {
+                    if (result.status === 'fulfilled') {
+                        sideEffectResultCounter.labels('ok').inc()
+                    } else {
+                        sideEffectResultCounter.labels('error').inc()
+                    }
+                })
             } else {
-                // When not awaiting, schedule the promises
                 sideEffectPromises.forEach((promise) => this.promiseScheduler.schedule(promise))
             }
         }
 
-        // Return results with cleared side effects
         return results.map((resultWithContext) => ({
             result: resultWithContext.result,
             context: {
