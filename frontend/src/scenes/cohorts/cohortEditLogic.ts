@@ -42,13 +42,16 @@ import type { cohortEditLogicType } from './cohortEditLogicType'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
-    tabId: string
+    tabId?: string
 }
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
     key((props) => {
         if (props.id === 'new' || !props.id) {
+            if (props.tabId == null) {
+                return 'new'
+            }
             return `new-${props.tabId}`
         }
         return props.id
