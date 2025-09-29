@@ -261,7 +261,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <ScenePanelActionsSection>
                         {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
 
-                        <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
+                        {insight.short_id && (
+                            <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
+                        )}
                         <SceneAddToDashboardButton
                             dashboard={
                                 hasDashboardItemId
