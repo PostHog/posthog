@@ -379,6 +379,12 @@ def append_partition_key_to_table(
     """
 
     is_record_batch = isinstance(table_or_batch, pa.RecordBatch)
+    batches: list[pa.RecordBatch]
+    if is_record_batch:
+        batches = [cast(pa.RecordBatch, table_or_batch)]
+    else:
+        batches = cast(pa.Table, table_or_batch).to_batches()
+
     data_source: TArrow = table_or_batch
 
     normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
@@ -425,12 +431,6 @@ def append_partition_key_to_table(
             logger.debug(f"append_partition_key_to_table: partitioning mode {mode} selected")
 
     partition_array: list[str] = []
-
-    batches: list[pa.RecordBatch] | list[pa.Table]
-    if is_record_batch:
-        batches = [cast(pa.RecordBatch, table_or_batch)]
-    else:
-        batches = cast(pa.Table, table_or_batch).to_batches()
 
     for batch in batches:
         for row in batch.to_pylist():
