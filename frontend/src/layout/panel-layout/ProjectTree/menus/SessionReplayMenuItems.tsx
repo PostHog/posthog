@@ -12,6 +12,7 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { urls } from 'scenes/urls'
 
@@ -30,9 +31,7 @@ export function SessionReplayMenuItems({
     const { savedFilters, savedFiltersLoading } = useValues(
         savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     )
-    const { playlists, playlistsLoading } = useValues(
-        savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
-    )
+    const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLElement>): void {
         if (e.key === 'Enter' || e.key === ' ') {

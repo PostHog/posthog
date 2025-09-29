@@ -8,30 +8,23 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
-import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 import { urls } from 'scenes/urls'
 
 import {
     AccessControlLevel,
     AccessControlResourceType,
     PlaylistRecordingsCounts,
-    ReplayTabs,
-    SessionRecordingPlaylistType,
+    SessionRecordingCollectionType,
 } from '~/types'
 
-import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
+import { SessionRecordingCollectionsEmptyState } from './SessionRecordingCollectionsEmptyState'
+import { PLAYLISTS_PER_PAGE, sessionRecordingCollectionsLogic } from './sessionRecordingCollectionsLogic'
 
-export type SavedSessionRecordingPlaylistsProps = {
-    tab: ReplayTabs.Playlists
-}
-
-function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
+function nameColumn(): LemonTableColumn<SessionRecordingCollectionType, 'name'> {
     return {
         title: 'Name',
         dataIndex: 'name',
@@ -48,16 +41,11 @@ function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
     }
 }
 
-export function countColumn({
-    showCountColumn,
-}: {
-    showCountColumn: boolean
-}): LemonTableColumn<SessionRecordingPlaylistType, 'recordings_counts'> {
+export function countColumn(): LemonTableColumn<SessionRecordingCollectionType, 'recordings_counts'> {
     return {
         dataIndex: 'recordings_counts',
         title: 'Count',
         tooltip: 'Count of recordings in the collection',
-        isHidden: !showCountColumn,
         width: 0,
         render: function Render(recordings_counts) {
             if (!isPlaylistRecordingsCounts(recordings_counts)) {
@@ -70,35 +58,18 @@ export function countColumn({
             const totalPinnedCount: number | null = recordings_counts.collection.count
             const unwatchedPinnedCount =
                 (recordings_counts.collection.count || 0) - (recordings_counts.collection.watched_count || 0)
-            const totalSavedFiltersCount = recordings_counts.saved_filters?.count || 0
-            const unwatchedSavedFiltersCount =
-                (recordings_counts.saved_filters?.count || 0) - (recordings_counts.saved_filters?.watched_count || 0)
-
-            // we don't allow both saved filters and pinned anymore
-            const isShowingSavedFilters = hasResults && !totalPinnedCount
-            const totalCount = isShowingSavedFilters ? totalSavedFiltersCount : totalPinnedCount
-            const unwatchedCount = isShowingSavedFilters ? unwatchedSavedFiltersCount : unwatchedPinnedCount
-            // if we're showing saved filters, then we might have more results
-            const hasMoreResults = isShowingSavedFilters && recordings_counts.saved_filters?.has_more
-
-            const lastRefreshedAt = isShowingSavedFilters ? recordings_counts.saved_filters?.last_refreshed_at : null
-
-            const description = isShowingSavedFilters ? 'that match these saved filters' : 'in this collection'
 
             const tooltip = (
                 <div className="text-start">
                     {hasResults ? (
-                        totalCount > 0 ? (
-                            unwatchedCount > 0 ? (
+                        totalPinnedCount > 0 ? (
+                            unwatchedPinnedCount > 0 ? (
                                 <p>
-                                    You have {unwatchedCount} unwatched recordings to watch out of a total of{' '}
-                                    {totalCount}
-                                    {hasMoreResults ? '+' : ''} {description}.
+                                    You have {unwatchedPinnedCount} unwatched recordings to watch out of a total of{' '}
+                                    {totalPinnedCount} in this collection.
                                 </p>
                             ) : (
-                                <p>
-                                    You have watched all of the {totalCount} recordings {description}.
-                                </p>
+                                <p>You have watched all of the {totalPinnedCount} recordings in this collection.</p>
                             )
                         ) : (
                             <p>No results found for this playlist.</p>
@@ -106,11 +77,6 @@ export function countColumn({
                     ) : (
                         <p>Counts have not yet been calculated for this playlist.</p>
                     )}
-                    {isShowingSavedFilters && lastRefreshedAt ? (
-                        <div className="text-xs items-center flex flex-row gap-x-1">
-                            Last refreshed: <TZLabel time={lastRefreshedAt} showPopover={false} />
-                        </div>
-                    ) : null}
                 </div>
             )
 
@@ -120,17 +86,12 @@ export function countColumn({
                         {hasResults ? (
                             <span className="flex items-center deprecated-space-x-1">
                                 <LemonBadge.Number
-                                    status={unwatchedCount ? 'primary' : 'muted'}
+                                    status={unwatchedPinnedCount ? 'primary' : 'muted'}
                                     className="text-xs cursor-pointer"
-                                    count={totalCount}
+                                    count={totalPinnedCount || 0}
                                     maxDigits={3}
                                     showZero={true}
-                                    forcePlus={
-                                        !!recordings_counts.saved_filters?.count &&
-                                        !!recordings_counts.saved_filters?.has_more
-                                    }
                                 />
-                                {recordings_counts.saved_filters?.increased ? <IconArrowUp /> : null}
                             </span>
                         ) : (
                             <span>
@@ -148,14 +109,13 @@ export function isPlaylistRecordingsCounts(x: unknown): x is PlaylistRecordingsC
     return isObject(x) && ('collection' in x || 'saved_filters' in x)
 }
 
-export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
-    const logic = savedSessionRecordingPlaylistsLogic({ tab })
-    const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
-    const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(logic)
+export function SessionRecordingCollections(): JSX.Element {
+    const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(sessionRecordingCollectionsLogic)
+    const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(
+        sessionRecordingCollectionsLogic
+    )
 
-    const showCountColumn = useFeatureFlag('SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN')
-
-    const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
+    const columns: LemonTableColumns<SessionRecordingCollectionType> = [
         {
             width: 0,
             dataIndex: 'pinned',
@@ -174,15 +134,18 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 )
             },
         },
-        countColumn({ showCountColumn }) as LemonTableColumn<
-            SessionRecordingPlaylistType,
-            keyof SessionRecordingPlaylistType | undefined
+        countColumn() as LemonTableColumn<
+            SessionRecordingCollectionType,
+            keyof SessionRecordingCollectionType | undefined
         >,
-        nameColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
+        nameColumn() as LemonTableColumn<
+            SessionRecordingCollectionType,
+            keyof SessionRecordingCollectionType | undefined
+        >,
         {
-            ...(createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
-                SessionRecordingPlaylistType,
-                keyof SessionRecordingPlaylistType | undefined
+            ...(createdByColumn<SessionRecordingCollectionType>() as LemonTableColumn<
+                SessionRecordingCollectionType,
+                keyof SessionRecordingCollectionType | undefined
             >),
             width: 0,
         },
@@ -299,7 +262,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             </div>
 
             {!playlistsLoading && playlists.count < 1 ? (
-                <SavedSessionRecordingPlaylistsEmptyState />
+                <SessionRecordingCollectionsEmptyState />
             ) : (
                 <LemonTable
                     loading={playlistsLoading}
@@ -317,7 +280,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     }
                     rowKey="id"
                     loadingSkeletonRows={PLAYLISTS_PER_PAGE}
-                    nouns={['playlist', 'playlists']}
+                    nouns={['collection', 'collections']}
                 />
             )}
         </>

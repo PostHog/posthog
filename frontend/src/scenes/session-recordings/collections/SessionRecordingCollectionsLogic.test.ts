@@ -4,8 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 import {
     DEFAULT_PLAYLIST_FILTERS,
     PLAYLISTS_PER_PAGE,
-    savedSessionRecordingPlaylistsLogic,
-} from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+    sessionRecordingCollectionsLogic,
+} from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -13,7 +13,7 @@ import { initKeaTests } from '~/test/init'
 import { ReplayTabs } from '~/types'
 
 describe('savedSessionRecordingPlaylistsLogic', () => {
-    let logic: ReturnType<typeof savedSessionRecordingPlaylistsLogic.build>
+    let logic: ReturnType<typeof sessionRecordingCollectionsLogic.build>
     const mockPlaylistsResponse = {
         count: 1,
         next: null,
@@ -94,7 +94,7 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
     })
 
     beforeEach(() => {
-        logic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+        logic = sessionRecordingCollectionsLogic()
         logic.mount()
     })
 
@@ -133,7 +133,6 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
                             [key]: value,
                         })
                     })
-                        // .toDispatchActions(['loadPlaylists', 'setSavedPlaylistsFilters', 'loadPlaylists', 'loadPlaylistsSuccess'])
                         .toFinishAllListeners()
                         .toMatchValues({
                             playlists: expect.objectContaining({
