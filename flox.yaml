@@ -105,9 +105,9 @@ hook:
         S Would you like direnv to be set up in $(basename "$SHELL") now? (Y/n)" -n 1 -r
           echo
           if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then
-            $FLOX_ENV_CACHE/../env/direnv-setup.sh
+            bin/setup-direnv
           else
-            echo "� Skipping direnv setup. This message will not be shown again, but if you change your mind, just run '.flox/bin/direnv-setup.sh'"
+            echo "� Skipping direnv setup. This message will not be shown again, but if you change your mind, just run 'bin/setup-direnv'"
           fi
           touch $FLOX_ENV_CACHE/.hush-direnv
           echo
