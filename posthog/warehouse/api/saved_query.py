@@ -351,13 +351,13 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         # Handle snapshot_enabled changes
         if before_update and before_update.snapshot_enabled != view.snapshot_enabled:
-            schedule_exists = snapshot_workflow_exists(str(view.id) + "-snapshot")
+            schedule_exists = snapshot_workflow_exists(str(view.id))
             if view.snapshot_enabled:
                 DataWarehouseSnapshotConfig.objects.get_or_create(team=view.team, saved_query=view)
                 sync_saved_query_snapshot_workflow(view, create=not schedule_exists)
             else:
                 if schedule_exists:
-                    pause_snapshot_schedule(str(view.id) + "-snapshot")
+                    pause_snapshot_schedule(str(view.id))
 
         return view
 

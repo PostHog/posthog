@@ -29,6 +29,8 @@ from posthog.temporal.hogql_query_snapshots.run_workflow import RunWorkflowInput
 if TYPE_CHECKING:
     from posthog.warehouse.models import DataWarehouseSavedQuery
 
+SNAPSHOT_SUFFIX = "-snapshot"
+
 
 def sync_saved_query_snapshot_workflow(
     saved_query: "DataWarehouseSavedQuery", create: bool = False
@@ -36,9 +38,9 @@ def sync_saved_query_snapshot_workflow(
     temporal = sync_connect()
     schedule = get_snapshot_schedule(saved_query)
     if create:
-        create_schedule(temporal, id=str(saved_query.id) + "-snapshot", schedule=schedule)
+        create_schedule(temporal, id=str(saved_query.id) + SNAPSHOT_SUFFIX, schedule=schedule)
     else:
-        update_schedule(temporal, id=str(saved_query.id) + "-snapshot", schedule=schedule)
+        update_schedule(temporal, id=str(saved_query.id) + SNAPSHOT_SUFFIX, schedule=schedule)
 
     return saved_query
 
@@ -53,7 +55,7 @@ def get_snapshot_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule:
         action=ScheduleActionStartWorkflow(
             "hogql-query-snapshots-run",
             asdict(inputs),
-            id=str(saved_query.id) + "-snapshot",
+            id=str(saved_query.id) + SNAPSHOT_SUFFIX,
             # reuse queue for now
             task_queue=str(DATA_MODELING_TASK_QUEUE),
         ),
@@ -79,19 +81,19 @@ def delete_snapshot_schedule(schedule_id: str) -> None:
 
 def pause_snapshot_schedule(id: str) -> None:
     temporal = sync_connect()
-    pause_schedule(temporal, schedule_id=id)
+    pause_schedule(temporal, schedule_id=id + SNAPSHOT_SUFFIX)
 
 
 def unpause_snapshot_schedule(id: str) -> None:
     temporal = sync_connect()
-    unpause_schedule(temporal, schedule_id=id)
+    unpause_schedule(temporal, schedule_id=id + SNAPSHOT_SUFFIX)
 
 
 def snapshot_workflow_exists(id: str) -> bool:
     temporal = sync_connect()
-    return schedule_exists(temporal, schedule_id=id)
+    return schedule_exists(temporal, schedule_id=id + SNAPSHOT_SUFFIX)
 
 
 def trigger_snapshot_schedule(saved_query: "DataWarehouseSavedQuery"):
     temporal = sync_connect()
-    trigger_schedule(temporal, schedule_id=str(saved_query.id) + "-snapshot")
+    trigger_schedule(temporal, schedule_id=str(saved_query.id) + SNAPSHOT_SUFFIX)
