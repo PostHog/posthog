@@ -68,8 +68,8 @@ async function createHeapDump(): Promise<void> {
     }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const workerId = process.env.WORKER_ID || 'unknown'
-    const filename = `heapdump-${workerId}-${process.pid}-${timestamp}.heapsnapshot`
+    const podName = process.env.POD_NAME || `pid-${process.pid}`
+    const filename = `heapdump-${podName}-${timestamp}.heapsnapshot`
 
     try {
         const startTime = Date.now()
@@ -96,7 +96,7 @@ async function createHeapDump(): Promise<void> {
                 Body: snapshot,
                 ContentType: 'application/octet-stream',
                 Metadata: {
-                    workerId,
+                    podName,
                     pid: process.pid.toString(),
                     timestamp: new Date().toISOString(),
                 },
@@ -116,7 +116,7 @@ async function createHeapDump(): Promise<void> {
             memoryBefore,
             memoryAfter,
             pid: process.pid,
-            workerId,
+            podName,
         })
     } catch (error) {
         logger.error('❌ Failed to stream heap dump to S3', {
