@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
@@ -7,11 +8,12 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { ProductKey, SidePanelTab } from '~/types'
 
 import { FlaggedFeature } from '../FlaggedFeature'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
@@ -51,6 +53,16 @@ export function NavPanelAdvertisementContent({ payload }: { payload: Payload }):
     const { hideAdvertisement } = useActions(logic)
     const { hidden } = useValues(logic)
 
+    useEffect(() => {
+        // if it's going to render, capture an event saying it will render
+        if (!hidden && (product || payload.header)) {
+            posthog.capture('nav panel advertisement shown', {
+                product_key: payload.product_key,
+                payload,
+            })
+        }
+    }, [])
+
     if (hidden || (!product && !payload.header)) {
         return null
     }
@@ -62,7 +74,7 @@ export function NavPanelAdvertisementContent({ payload }: { payload: Payload }):
                             we have, so we're gently bringing it to your attention :) Feel free to 
                             dismiss it to make it go away."
             >
-                <p className="text-xxs text-muted mb-1 p-0 text-right">ads via PostHog</p>
+                <p className="text-xxs text-muted mb-1 mr-0.5 p-0 text-right">ads via PostHog</p>
             </Tooltip>
             <Link
                 to={payload.app_link}
@@ -72,10 +84,17 @@ export function NavPanelAdvertisementContent({ payload }: { payload: Payload }):
                         product_key: payload.product_key,
                         payload,
                     })
+                    if (payload.product_key in ProductKey) {
+                        addProductIntent({
+                            product_type: payload.product_key as ProductKey,
+                            intent_context: ProductIntentContext.NAV_PANEL_ADVERTISEMENT_CLICKED,
+                            metadata: payload,
+                        })
+                    }
                 }}
             >
                 <div className="border rounded bg-primary text-xs *:flex *:gap-2 *:px-2 *:py-1">
-                    <div className=" justify-between mt-1">
+                    <div className="flex justify-between mt-1">
                         <div className="flex items-center gap-2">
                             {product && getProductIcon(product.iconColor, product.icon, 'text-lg')}
                             <strong>{payload.header || product?.name}</strong>
@@ -115,7 +134,6 @@ export function NavPanelAdvertisementContent({ payload }: { payload: Payload }):
                             </Link>{' '}
                             &middot;{' '}
                             <Link
-                                to={payload.docs_link}
                                 onClick={(e) => {
                                     e.preventDefault()
                                     sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Docs, payload.docs_link)
