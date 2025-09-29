@@ -1,8 +1,8 @@
-import { createValidateEventUuidStep } from '../../../src/ingestion/event-preprocessing/validate-event-uuid'
-import { PipelineResultType, drop, ok } from '../../../src/ingestion/pipelines/results'
-import { Hub, IncomingEventWithTeam } from '../../../src/types'
-import { captureIngestionWarning } from '../../../src/worker/ingestion/utils'
-import { getMetricValues, resetMetrics } from '../../helpers/metrics'
+import { getMetricValues, resetMetrics } from '../../../tests/helpers/metrics'
+import { Hub, IncomingEventWithTeam } from '../../types'
+import { captureIngestionWarning } from '../../worker/ingestion/utils'
+import { PipelineResultType, drop, ok } from '../pipelines/results'
+import { createValidateEventUuidStep } from './validate-event-uuid'
 
 // Mock the captureIngestionWarning function
 jest.mock('../../../src/worker/ingestion/utils')

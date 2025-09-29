@@ -1,7 +1,10 @@
+from django.db import IntegrityError, transaction
+
 from rest_framework import serializers
 
 from posthog.models.integration import Integration
 
+from .agents import get_agent_dict_by_id
 from .models import Task, TaskWorkflow, WorkflowStage
 
 
@@ -44,11 +47,9 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
 
     def get_repository_list(self, obj):
-        """Get the list of repositories this task can work with"""
         return obj.repository_list
 
     def get_primary_repository(self, obj):
-        """Get the primary repository for this task"""
         return obj.primary_repository
 
     def validate_github_integration(self, value):
@@ -141,8 +142,6 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
     def get_agent(self, obj):
         """Get the agent object for this stage"""
         if hasattr(obj, "agent_name") and obj.agent_name:
-            from .agents import get_agent_dict_by_id
-
             return get_agent_dict_by_id(obj.agent_name)
         return None
 
@@ -200,7 +199,7 @@ class TaskWorkflowSerializer(serializers.ModelSerializer):
 
     def get_task_count(self, obj):
         """Get number of tasks using this workflow"""
-        return obj.get_tasks_in_workflow().count()
+        return obj.tasks.count()
 
     def get_can_delete(self, obj):
         """Check if workflow can be safely deleted"""
@@ -208,8 +207,6 @@ class TaskWorkflowSerializer(serializers.ModelSerializer):
         return {"can_delete": can_delete, "reason": reason}
 
     def create(self, validated_data):
-        from django.db import IntegrityError
-
         validated_data["team"] = self.context["team"]
         try:
             return super().create(validated_data)
@@ -244,7 +241,6 @@ class WorkflowConfigurationSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         """Create a complete workflow with stages"""
-        from django.db import IntegrityError, transaction
 
         try:
             with transaction.atomic():

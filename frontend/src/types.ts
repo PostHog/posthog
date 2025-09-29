@@ -4460,22 +4460,12 @@ export enum Resource {
     FEATURE_FLAGS = 'feature flags',
 }
 
-export enum AccessLevel {
-    READ = 21,
-    WRITE = 37,
-}
-
 export interface RoleType {
     id: string
     name: string
-    feature_flags_access_level: AccessLevel
     members: RoleMemberType[]
     created_at: string
     created_by: UserBasicType | null
-}
-
-export interface RolesListParams {
-    feature_flags_access_level?: AccessLevel
 }
 
 export interface RoleMemberType {
@@ -4584,25 +4574,6 @@ export type AccessControlResponseType = {
     user_access_level: AccessControlLevel
     default_access_level: AccessControlLevel
     user_can_edit_access_levels: boolean
-}
-
-// TODO: To be deprecated
-export interface FeatureFlagAssociatedRoleType {
-    id: string
-    feature_flag: FeatureFlagType | null
-    role: RoleType
-    updated_at: string
-    added_at: string
-}
-// TODO: To be deprecated
-
-export interface OrganizationResourcePermissionType {
-    id: string
-    resource: Resource
-    access_level: AccessLevel
-    created_at: string
-    updated_at: string
-    created_by: UserBaseType | null
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
