@@ -4,8 +4,6 @@ from typing import Optional, cast
 from django.db import models, transaction
 from django.utils import timezone
 
-from django_deprecate_fields import deprecate_field
-
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
@@ -162,16 +160,6 @@ class WorkflowStage(models.Model):
     key = models.CharField(max_length=50, help_text="Unique key for this stage within the workflow")
     position = models.IntegerField(help_text="Order of this stage in the workflow")
     color = models.CharField(max_length=7, default="#6b7280", help_text="Hex color for UI display")
-
-    agent = deprecate_field(
-        models.ForeignKey(
-            "AgentDefinition",
-            on_delete=models.SET_NULL,
-            null=True,
-            blank=True,
-            help_text="DEPRECATED: Agent responsible for processing tasks in this stage",
-        )
-    )
 
     agent_name = models.CharField(
         max_length=50, null=True, blank=True, help_text="ID of the agent responsible for this stage"
