@@ -789,7 +789,8 @@
                 "search_insights",
                 "session_summarization",
                 "create_dashboard",
-                "filter_revenue_analytics"
+                "filter_revenue_analytics",
+                "create_feature_flag"
             ],
             "type": "string"
         },
@@ -12461,6 +12462,79 @@
                 }
             },
             "required": ["type"],
+            "type": "object"
+        },
+        "FeatureFlagCreationSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "ensure_experience_continuity": {
+                    "type": "boolean"
+                },
+                "evaluation_runtime": {
+                    "$ref": "#/definitions/FeatureFlagEvaluationRuntime"
+                },
+                "filters": {
+                    "$ref": "#/definitions/FeatureFlagFiltersSchema"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "rollout_percentage": {
+                    "type": "number"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/FeatureFlagVariantSchema"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["key", "name", "filters"],
+            "type": "object"
+        },
+        "FeatureFlagEvaluationRuntime": {
+            "enum": ["server", "client", "all"],
+            "type": "string"
+        },
+        "FeatureFlagFiltersSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "groups": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "multivariate": {
+                    "type": "object"
+                },
+                "payloads": {
+                    "type": "object"
+                }
+            },
+            "required": ["groups"],
+            "type": "object"
+        },
+        "FeatureFlagVariantSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "rollout_percentage": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "rollout_percentage"],
             "type": "object"
         },
         "FeaturePropertyFilter": {

@@ -25,6 +25,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -461,6 +462,9 @@ export function OverViewTab({
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
+    const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+
     return (
         <SceneContent className="feature_flags">
             <SceneTitleSection
@@ -474,14 +478,35 @@ export function FeatureFlags(): JSX.Element {
                         resourceType={AccessControlResourceType.FeatureFlag}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <LemonButton
-                            type="primary"
-                            to={urls.featureFlag('new')}
-                            data-attr="new-feature-flag"
-                            size="small"
+                        <MaxTool
+                            identifier="create_feature_flag"
+                            active={featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MAX_AI] === true}
+                            initialMaxPrompt="Create a feature flag for "
+                            suggestions={[
+                                'Create a feature flag for the new payment flow',
+                                'Set up A/B test for button colors with 50/50 split',
+                                'Create gradual rollout flag starting at 5% for premium users',
+                                'Create flag to show new dashboard to beta users',
+                            ]}
+                            context={{
+                                user_id: user?.uuid,
+                            }}
+                            callback={(toolOutput) => {
+                                if (toolOutput?.flag_id) {
+                                    // Navigate to the newly created feature flag
+                                    router.actions.push(urls.featureFlag(toolOutput.flag_id))
+                                }
+                            }}
                         >
-                            New feature flag
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                to={urls.featureFlag('new')}
+                                data-attr="new-feature-flag"
+                                size="small"
+                            >
+                                New feature flag
+                            </LemonButton>
+                        </MaxTool>
                     </AccessControlAction>
                 }
             />

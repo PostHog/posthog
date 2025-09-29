@@ -150,6 +150,11 @@ export const TOOL_DEFINITIONS: Omit<
         description: 'Filter revenue analytics to find the most impactful revenue insights',
         product: Scene.RevenueAnalytics,
     },
+    create_feature_flag: {
+        name: 'Create feature flags',
+        description: 'Create feature flags using natural language instructions',
+        product: Scene.FeatureFlags,
+    },
 }
 
 export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
