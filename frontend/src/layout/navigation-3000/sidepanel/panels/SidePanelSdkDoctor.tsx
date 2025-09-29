@@ -379,9 +379,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                 <LemonBanner type="info">
                     <div>
                         <strong>SDK Doctor is in... beta!</strong> Help us improve by sharing your feedback?{' '}
-                        <Link to="mailto:hey@posthog.com?subject=SDK Doctor Beta Feedback" target="_blank">
-                            Send feedback
-                        </Link>
+                        <Link to="#panel=support%3Asupport%3Asdk%3Alow%3Atrue">Send feedback</Link>
                     </div>
                 </LemonBanner>
             </div>
