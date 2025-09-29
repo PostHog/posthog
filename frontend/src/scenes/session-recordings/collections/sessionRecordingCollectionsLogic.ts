@@ -221,11 +221,19 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
             if (removeProjectIdIfPresent(router.values.location.pathname) === urls.replay(ReplayTabs.Playlists)) {
                 const nextValues = values.filters
                 const urlValues = objectClean(router.values.searchParams)
-                if (
-                    !objectsEqual(nextValues, urlValues) &&
-                    !objectsEqual(nextValues, objectClean(DEFAULT_PLAYLIST_FILTERS))
-                ) {
-                    return [urls.replay(ReplayTabs.Playlists), nextValues, {}, { replace: false }]
+
+                // Only include non-default values in URL
+                const nonDefaultValues = objectClean(
+                    Object.fromEntries(
+                        Object.entries(nextValues).filter(
+                            ([key, value]) =>
+                                DEFAULT_PLAYLIST_FILTERS[key as keyof typeof DEFAULT_PLAYLIST_FILTERS] !== value
+                        )
+                    )
+                )
+
+                if (!objectsEqual(nonDefaultValues, urlValues)) {
+                    return [urls.replay(ReplayTabs.Playlists), nonDefaultValues, {}, { replace: false }]
                 }
             }
         }
