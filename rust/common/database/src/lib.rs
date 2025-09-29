@@ -49,7 +49,7 @@ pub struct PoolStats {
 pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
         .max_connections(max_connections)
-        .acquire_timeout(Duration::from_secs(1))
+        .acquire_timeout(Duration::from_secs(10))
         .test_before_acquire(true)
         .idle_timeout(Duration::from_secs(300)) // Close idle connections after 5 minutes
         .max_lifetime(Duration::from_secs(1800)) // Force refresh every 30 minutes
