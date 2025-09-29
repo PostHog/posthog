@@ -374,6 +374,7 @@ pub async fn insert_flag_for_team_in_pg(
             }),
             version: None,
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
     };
 
@@ -387,6 +388,49 @@ pub async fn insert_flag_for_team_in_pg(
     assert_eq!(res.rows_affected(), 1);
 
     Ok(payload_flag)
+}
+
+pub async fn insert_evaluation_tags_for_flag_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    flag_id: i32,
+    team_id: i32,
+    tag_names: Vec<&str>,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+
+    for tag_name in tag_names {
+        // First, insert the tag if it doesn't exist
+        let tag_uuid = Uuid::now_v7();
+        let tag_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO posthog_tag (id, name, team_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (name, team_id) DO UPDATE 
+            SET name = EXCLUDED.name
+            RETURNING id
+            "#,
+        )
+        .bind(tag_uuid)
+        .bind(tag_name)
+        .bind(team_id)
+        .fetch_one(&mut *conn)
+        .await?;
+
+        // Then, create the association
+        sqlx::query(
+            r#"
+            INSERT INTO posthog_featureflagevaluationtag (feature_flag_id, tag_id, created_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (feature_flag_id, tag_id) DO NOTHING
+            "#,
+        )
+        .bind(flag_id)
+        .bind(tag_id)
+        .execute(&mut *conn)
+        .await?;
+    }
+
+    Ok(())
 }
 
 pub async fn insert_person_for_team_in_pg(
@@ -618,6 +662,7 @@ pub fn create_test_flag(
         ensure_experience_continuity: Some(ensure_experience_continuity.unwrap_or(false)),
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
     }
 }
 
@@ -799,6 +844,21 @@ impl TestContext {
             name,
             filters,
             is_static,
+        )
+        .await
+    }
+
+    pub async fn insert_evaluation_tags_for_flag(
+        &self,
+        flag_id: i32,
+        team_id: i32,
+        tag_names: Vec<&str>,
+    ) -> Result<(), Error> {
+        insert_evaluation_tags_for_flag_in_pg(
+            self.non_persons_writer.clone(),
+            flag_id,
+            team_id,
+            tag_names,
         )
         .await
     }

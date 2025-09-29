@@ -2161,6 +2161,7 @@
       query_kind                            LowCardinality(String),
   
       exception_code                        Int32,
+      exception_name                        String ALIAS errorCodeToName(exception_code),
       exception                             String,
       stack_trace                           String,
   
@@ -2553,6 +2554,7 @@
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
+      distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
@@ -2633,7 +2635,7 @@
       SELECT
           team_id,
           `$session_id`,
-          distinct_id,
+          distinct_id AS _distinct_id,
           person_id,
           timestamp,
           inserted_at,
@@ -2758,15 +2760,16 @@
           properties_group_feature_flags
       FROM posthog_test.sharded_events
       WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
-      AND TRUE
+      AND True
   )
   
   SELECT
      team_id,
       toUUID(`$session_id`) as session_id_v7,
   
-      initializeAggregation('argMaxState', distinct_id, timestamp) as distinct_id,
+      initializeAggregation('argMaxState', _distinct_id, timestamp) as distinct_id,
       initializeAggregation('argMaxState', person_id, timestamp) as person_id,
+      initializeAggregation('groupUniqArrayState', _distinct_id) as distinct_ids,
   
       timestamp AS min_timestamp,
       timestamp AS max_timestamp,
@@ -3601,6 +3604,7 @@
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
+      distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
@@ -4484,6 +4488,7 @@
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
+      distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
@@ -5231,6 +5236,7 @@
       query_kind                            LowCardinality(String),
   
       exception_code                        Int32,
+      exception_name                        String ALIAS errorCodeToName(exception_code),
       exception                             String,
       stack_trace                           String,
   
@@ -5721,6 +5727,7 @@
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
+      distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),

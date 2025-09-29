@@ -376,6 +376,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
     LAZY_LOADER_TTL_MS: number
     LAZY_LOADER_EVICTION_ENABLED: boolean
+    LAZY_LOADER_MAX_SIZE: number
     CAPTURE_INTERNAL_URL: string
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
@@ -459,6 +460,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Messaging
     MAILJET_PUBLIC_KEY: string
     MAILJET_SECRET_KEY: string
+
+    // SES
+    SES_ENDPOINT: string
+    SES_ACCESS_KEY_ID: string
+    SES_SECRET_ACCESS_KEY: string
+    SES_REGION: string
 }
 
 export interface Hub extends PluginsServerConfig {

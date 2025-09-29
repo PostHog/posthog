@@ -28,6 +28,7 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
 )
+from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import BATCH_EXPORT_WORKFLOW_TYPES as LOGGER_BATCH_EXPORT_WORKFLOW_TYPES
@@ -95,10 +96,11 @@ class BaseDestinationTest(ABC):
         batch_export_id: str,
         data_interval_end: dt.datetime,
         interval: str,
+        batch_export: BatchExport,
         batch_export_model: BatchExportModel | None = None,
         batch_export_schema: BatchExportSchema | None = None,
         backfill_details: BackfillDetails | None = None,
-        **config,
+        **override_config,
     ):
         """Create workflow inputs for the destination."""
         return self.batch_export_inputs_class(
@@ -109,7 +111,8 @@ class BaseDestinationTest(ABC):
             batch_export_model=batch_export_model,
             batch_export_schema=batch_export_schema,
             backfill_details=backfill_details,
-            **config,
+            integration_id=batch_export.destination.integration_id,
+            **{**batch_export.destination.config, **override_config},
         )
 
     @abstractmethod
@@ -123,6 +126,10 @@ class BaseDestinationTest(ABC):
         (used for testing error handling).
         """
         pass
+
+    async def create_integration(self, team_id: int) -> Integration | None:
+        """Create a test integration (for those destinations that require an integration)"""
+        return None
 
     @abstractmethod
     def get_json_columns(self, inputs: BaseBatchExportInputs) -> list[str]:
@@ -143,11 +150,12 @@ class BaseDestinationTest(ABC):
         self,
         team_id: int,
         json_columns: list[str],
+        integration: Integration | None = None,
     ) -> list[dict[str, t.Any]]:
         pass
 
     @abstractmethod
-    async def assert_no_data_in_destination(self, team_id: int) -> None:
+    async def assert_no_data_in_destination(self, team_id: int, integration: "Integration | None" = None) -> None:
         """Assert that no data was written to the destination."""
         pass
 
@@ -302,6 +310,7 @@ async def assert_clickhouse_records_in_destination(
     expect_duplicates: bool = False,
     primary_key: list[str] | None = None,
     fields_to_exclude: list[str] | None = None,
+    integration: Integration | None = None,
 ):
     """Assert that the expected data was written to the destination."""
     json_columns = destination_test.get_json_columns(inputs)
@@ -320,6 +329,7 @@ async def assert_clickhouse_records_in_destination(
     records_from_destination = await destination_test.get_inserted_records(
         team_id=team_id,
         json_columns=json_columns,
+        integration=integration,
     )
 
     # Determine sort key based on model
@@ -408,23 +418,16 @@ class CommonWorkflowTests:
     ]
 
     @pytest.fixture
-    def destination_data(self, destination_test, ateam, exclude_events):
-        """Provide test configuration for destination."""
-        destination_config = destination_test.get_destination_config(ateam.pk)
-        destination_data = {
-            "type": destination_test.destination_type,
-            "config": {
-                **destination_config,
-                "exclude_events": exclude_events,
-            },
-        }
-        return destination_data
-
-    @pytest.fixture
     async def batch_export_for_destination(
-        self, ateam, destination_data, temporal_client, interval
+        self, ateam, temporal_client, interval, integration, destination_test, exclude_events
     ) -> AsyncGenerator[BatchExport, None]:
         """Manage BatchExport model (and associated Temporal Schedule) for tests"""
+        destination_config = {**destination_test.get_destination_config(ateam.pk), "exclude_events": exclude_events}
+        destination_data = {
+            "type": destination_test.destination_type,
+            "config": destination_config,
+            "integration_id": integration.pk if integration else None,
+        }
 
         batch_export_data = {
             "name": "my-production-destination-export",
@@ -446,6 +449,11 @@ class CommonWorkflowTests:
     @pytest.fixture
     def destination_test(self, ateam: Team):
         raise NotImplementedError("destination_test fixture must be implemented by destination-specific tests")
+
+    @pytest.fixture
+    def integration(self, ateam):
+        """Create a test integration (for those destinations that require an integration)"""
+        raise NotImplementedError("integration fixture must be implemented by destination-specific tests")
 
     @pytest.fixture
     def simulate_unexpected_error(self):
@@ -480,6 +488,8 @@ class CommonWorkflowTests:
         data_interval_end: dt.datetime,
         ateam,
         batch_export_for_destination,  # This fixture needs to be provided by destination-specific tests
+        integration,
+        setup_destination,
     ):
         """Test that the workflow completes successfully end-to-end.
 
@@ -502,9 +512,9 @@ class CommonWorkflowTests:
             batch_export_id=str(batch_export_for_destination.id),
             data_interval_end=data_interval_end,
             interval=interval,
+            batch_export=batch_export_for_destination,
             batch_export_schema=batch_export_schema,
             batch_export_model=batch_export_model,
-            **batch_export_for_destination.destination.config,
         )
 
         run = await destination_test.run_workflow(
@@ -530,6 +540,7 @@ class CommonWorkflowTests:
             batch_export_model=batch_export_model or batch_export_schema,
             exclude_events=exclude_events,
             inputs=inputs,
+            integration=integration,
         )
 
     async def test_workflow_without_events(
@@ -539,6 +550,8 @@ class CommonWorkflowTests:
         batch_export_for_destination,
         data_interval_start: dt.datetime,
         data_interval_end: dt.datetime,
+        integration,
+        setup_destination,
     ):
         """Test workflow behavior when there are no events to export."""
         inputs = destination_test.create_batch_export_inputs(
@@ -547,7 +560,7 @@ class CommonWorkflowTests:
             data_interval_end=data_interval_end,
             interval="hour",
             batch_export_model=BatchExportModel(name="events", schema=None),
-            **batch_export_for_destination.destination.config,
+            batch_export=batch_export_for_destination,
         )
 
         run = await destination_test.run_workflow(
@@ -560,6 +573,7 @@ class CommonWorkflowTests:
 
         await destination_test.assert_no_data_in_destination(
             team_id=ateam.pk,
+            integration=integration,
         )
 
     async def test_workflow_handles_unexpected_errors(
@@ -569,6 +583,8 @@ class CommonWorkflowTests:
         data_interval_end: dt.datetime,
         batch_export_for_destination,
         simulate_unexpected_error,
+        integration,
+        setup_destination,
     ):
         """Test that workflow handles unexpected errors gracefully.
 
@@ -583,7 +599,7 @@ class CommonWorkflowTests:
             data_interval_end=data_interval_end,
             interval="hour",
             batch_export_model=BatchExportModel(name="events", schema=None),
-            **batch_export_for_destination.destination.config,
+            batch_export=batch_export_for_destination,
         )
 
         run = await destination_test.run_workflow(
@@ -604,6 +620,8 @@ class CommonWorkflowTests:
         generate_test_data,
         data_interval_end: dt.datetime,
         batch_export_for_destination,
+        integration,
+        setup_destination,
     ):
         """Test that workflow handles non-retryable errors gracefully.
 
@@ -620,6 +638,7 @@ class CommonWorkflowTests:
             data_interval_end=data_interval_end,
             interval="hour",
             batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export=batch_export_for_destination,
             **invalid_destination_config,
         )
 

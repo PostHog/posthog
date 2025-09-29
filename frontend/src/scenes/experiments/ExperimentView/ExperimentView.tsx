@@ -200,7 +200,8 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft } =
+        useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
@@ -226,11 +227,15 @@ export function ExperimentView(): JSX.Element {
                                 label: 'Metrics',
                                 content: <MetricsTab />,
                             },
-                            {
-                                key: 'code',
-                                label: 'Code',
-                                content: <CodeTab />,
-                            },
+                            ...(!isExperimentDraft
+                                ? [
+                                      {
+                                          key: 'code',
+                                          label: 'Code',
+                                          content: <CodeTab />,
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'variants',
                                 label: 'Variants',
@@ -261,14 +266,35 @@ export function ExperimentView(): JSX.Element {
                             <ExperimentMetricModal
                                 experimentId={experimentId}
                                 onSave={(metric, context) => {
-                                    const newOrderingArray = appendMetricToOrderingArray(
-                                        experiment,
-                                        metric.uuid!, //at this point metrics should always have a uuid
-                                        context.type === 'secondary'
+                                    // Check if this is an edit (metric with same UUID already exists) or create
+                                    const existingMetricIndex = experiment[context.field].findIndex(
+                                        (m) => m.uuid === metric.uuid
                                     )
+                                    const isEdit = existingMetricIndex !== -1
+
+                                    let newMetrics
+                                    let newOrderingArray
+
+                                    if (isEdit) {
+                                        // Replace existing metric
+                                        newMetrics = experiment[context.field].map((m) =>
+                                            m.uuid === metric.uuid ? metric : m
+                                        )
+                                        // Keep existing ordering for edits
+                                        newOrderingArray = experiment[context.orderingField]
+                                    } else {
+                                        // Add new metric
+                                        newMetrics = [...experiment[context.field], metric]
+                                        // Add to ordering array for new metrics
+                                        newOrderingArray = appendMetricToOrderingArray(
+                                            experiment,
+                                            metric.uuid!,
+                                            context.type === 'secondary'
+                                        )
+                                    }
 
                                     setExperiment({
-                                        [context.field]: [...experiment[context.field], metric],
+                                        [context.field]: newMetrics,
                                         [context.orderingField]: newOrderingArray,
                                     })
 
