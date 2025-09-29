@@ -45,7 +45,7 @@ export function initializeHeapDump(config: PluginsServerConfig, heapDumpS3Client
     }
 }
 
-async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Prefix: string): Promise<void> {
+export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Prefix: string): Promise<void> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const podName = process.env.POD_NAME || `pid-${process.pid}`
     const filename = `heapdump-${podName}-${timestamp}.heapsnapshot`
@@ -117,5 +117,6 @@ async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Prefix: st
             filename,
             bucket: s3Bucket,
         })
+        throw error
     }
 }
