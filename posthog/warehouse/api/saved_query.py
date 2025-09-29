@@ -115,7 +115,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "soft_update": {"write_only": True},
         }
 
-    def get_snapshot_config(self, view: DataWarehouseSavedQuery) -> DataWarehouseSnapshotConfig | None:
+    def get_snapshot_config(self, view: DataWarehouseSavedQuery) -> dict | None:
         try:
             return DataWarehouseSnapshotConfigSerializer(view.datawarehousesnapshotconfig).data
         except DataWarehouseSnapshotConfig.DoesNotExist:

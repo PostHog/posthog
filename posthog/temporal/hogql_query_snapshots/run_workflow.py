@@ -222,14 +222,18 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
     # TODO: remove this once we have a way to get the partition settings from config
     if delta_snapshot.get_delta_table() is None:
         partition_settings = calculate_partition_settings(saved_query)
+
+        if partition_settings is None:
+            raise Exception("Failed calculating partition settings. Partition settings are required for snapshot")
+
         await logger.adebug(f"Calculated partition settings: {partition_settings}")
         saved_query.datawarehousesnapshotconfig.partition_count = partition_settings.partition_count
         await database_sync_to_async(saved_query.datawarehousesnapshotconfig.save)()
     else:
         partition_settings = get_partition_settings(saved_query)
 
-    if partition_settings is None:
-        raise Exception("Partition settings are required for snapshot")
+        if partition_settings is None:
+            raise Exception("Failed retrieving partition settings. Partition settings are required for snapshot")
 
     await logger.ainfo(f"Partition settings: {partition_settings}")
 
