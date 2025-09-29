@@ -127,9 +127,15 @@ class ImportTransformer(cst.CSTTransformer):
             base_path = f"posthog.models.{subdirectory_name}"
 
             if module_str.startswith(base_path + "."):
-                # Has sub-module like .sql or .hogvm_stl
-                sub_module = module_str[len(base_path) :]  # Gets ".sql" or ".hogvm_stl"
-                new_module_str = f"products.{self.target_app}.backend{sub_module}"
+                sub_module = module_str[len(base_path) :]  # Gets ".error_tracking", ".sql", or ".hogvm_stl"
+
+                # Check if this is the main model file (same name as subdirectory)
+                if sub_module == f".{subdirectory_name}":
+                    # Main model file - goes to models.py
+                    new_module_str = f"products.{self.target_app}.backend.models"
+                else:
+                    # Real sub-module like .sql or .hogvm_stl - preserve the name
+                    new_module_str = f"products.{self.target_app}.backend{sub_module}"
             else:
                 # Just the base subdirectory import
                 new_module_str = f"products.{self.target_app}.backend.models"

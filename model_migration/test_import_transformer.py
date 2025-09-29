@@ -100,6 +100,14 @@ class TestImportTransformer:
         assert "ErrorTrackingIssue" in result
         assert "ErrorTrackingStackFrame" in result
 
+    def test_subdirectory_main_file_import_transformation(self):
+        """Test: from posthog.models.error_tracking.error_tracking import ... → products.error_tracking.backend.models"""
+        source = "from posthog.models.error_tracking.error_tracking import ErrorTrackingIssue"
+        expected = "from products.error_tracking.backend.models import ErrorTrackingIssue"
+        result, changed = self._transform_code(source)
+        assert changed is True, f"Expected transformation but got unchanged result: {result}"
+        assert expected.strip() in result.strip(), f"Expected: {expected}\nGot: {result}"
+
 
 class TestDirectFileModule:
     """Test with direct file (non-subdirectory) module for comparison"""
