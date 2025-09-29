@@ -38,7 +38,6 @@ class Migration(migrations.Migration):
                 ),
                 ("merge_key", models.CharField(blank=True, max_length=255, null=True)),
                 ("partition_count", models.IntegerField(blank=True, null=True)),
-                ("partition_size", models.IntegerField(blank=True, null=True)),
                 (
                     "created_by",
                     models.ForeignKey(

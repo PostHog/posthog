@@ -204,7 +204,7 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    logger.ainfo(f"Running snapshot for saved query {inputs.saved_query_id}")
+    await logger.ainfo(f"Running snapshot for saved query {inputs.saved_query_id}")
 
     saved_query = await aget_saved_query_by_id(inputs.saved_query_id, inputs.team_id)
 
@@ -222,8 +222,8 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
     # TODO: remove this once we have a way to get the partition settings from config
     if delta_snapshot.get_delta_table() is None:
         partition_settings = calculate_partition_settings(saved_query)
+        await logger.adebug(f"Calculated partition settings: {partition_settings}")
         saved_query.datawarehousesnapshotconfig.partition_count = partition_settings.partition_count
-        saved_query.datawarehousesnapshotconfig.partition_size = partition_settings.partition_size
         await database_sync_to_async(saved_query.datawarehousesnapshotconfig.save)()
     else:
         partition_settings = get_partition_settings(saved_query)
@@ -231,7 +231,7 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
     if partition_settings is None:
         raise Exception("Partition settings are required for snapshot")
 
-    logger.ainfo(f"Partition settings: {partition_settings}")
+    await logger.ainfo(f"Partition settings: {partition_settings}")
 
     merge_key = delta_snapshot.merge_key
     if merge_key is None:
@@ -265,7 +265,7 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
             result = append_partition_key_to_table(
                 batch,
                 partition_settings.partition_count,
-                partition_settings.partition_size,
+                None,
                 [merge_key],
                 "md5",
                 None,
@@ -284,7 +284,7 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
     file_uris = []
     file_uris = snapshot_table.file_uris()
 
-    logger.ainfo(f"Preparing S3 files for querying")
+    await logger.ainfo(f"Preparing S3 files for querying")
 
     prepare_s3_files_for_querying(saved_query.snapshot_folder_path, saved_query.normalized_name, file_uris)
 
@@ -364,26 +364,28 @@ class RunWorkflow(PostHogWorkflow):
         except exceptions.ActivityError as e:
             finish_snapshot_job_inputs.error = str(e.cause)
 
-            await temporalio.workflow.execute_activity(
-                restore_from_backup_activity,
-                RestoreFromBackupInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=1,
-                ),
-            )
+            if snapshot_exists:
+                await temporalio.workflow.execute_activity(
+                    restore_from_backup_activity,
+                    RestoreFromBackupInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=1,
+                    ),
+                )
             raise
         except Exception as e:
             finish_snapshot_job_inputs.error = str(e)
 
-            await temporalio.workflow.execute_activity(
-                restore_from_backup_activity,
-                RestoreFromBackupInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=1,
-                ),
-            )
+            if snapshot_exists:
+                await temporalio.workflow.execute_activity(
+                    restore_from_backup_activity,
+                    RestoreFromBackupInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=1,
+                    ),
+                )
             raise
         finally:
             await temporalio.workflow.execute_activity(

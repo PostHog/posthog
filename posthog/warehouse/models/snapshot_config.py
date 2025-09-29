@@ -27,7 +27,6 @@ class DataWarehouseSnapshotConfig(CreatedMetaFields, UUIDTModel, DeletedMetaFiel
 
     # default is md5 based partitioning right now
     partition_count = models.IntegerField(null=True, blank=True)
-    partition_size = models.IntegerField(null=True, blank=True)
 
 
 class DataWarehouseSnapshotConfigSerializer(serializers.ModelSerializer):
