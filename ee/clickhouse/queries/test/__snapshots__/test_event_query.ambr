@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestEventQuery.test_account_filters
   '''
-  /* cohort_calculation:cohort_calc:7de94dd9 */
+  /* cohort_calculation:cohort_calc:8e07bfe9 */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -10,7 +10,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:7de94dd9%'
+    AND query LIKE '%cohort_calc:8e07bfe9%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
