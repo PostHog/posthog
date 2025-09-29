@@ -1,6 +1,6 @@
 from products.replay.backend.max_tools import SearchSessionRecordingsTool
 
-from ee.hogai.ai.product_base import AIProduct
+from ee.hogai.ai.products_infrastructure import AIProduct
 
 
 class ReplayAIProduct(AIProduct):

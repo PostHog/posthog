@@ -4,8 +4,8 @@ import pytest
 
 from posthog.models import Organization, Team, User
 
-from ee.hogai.ai.product_registry import get_all_tool_schemas
 from ee.hogai.ai.products.analytics import AnalyticsAIProduct
+from ee.hogai.ai.products_infrastructure import get_all_tool_schemas
 from ee.hogai.graph.root.nodes import RootNode
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.utils.types import AssistantState

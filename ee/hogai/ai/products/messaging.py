@@ -1,6 +1,6 @@
 from products.messaging.backend.max_tools import CreateMessageTemplateTool
 
-from ee.hogai.ai.product_base import AIProduct
+from ee.hogai.ai.products_infrastructure import AIProduct
 
 
 class MessagingAIProduct(AIProduct):

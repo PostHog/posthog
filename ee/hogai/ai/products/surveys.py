@@ -1,6 +1,6 @@
 from products.surveys.backend.max_tools import CreateSurveyTool, SurveyAnalysisTool
 
-from ee.hogai.ai.product_base import AIProduct
+from ee.hogai.ai.products_infrastructure import AIProduct
 
 
 class SurveysAIProduct(AIProduct):

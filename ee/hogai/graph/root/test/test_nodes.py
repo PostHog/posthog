@@ -361,7 +361,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 mock_tool_class.return_value = mock_tool_instance
 
                 # We need to patch at the point where it's imported
-                with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool:
+                with patch("ee.hogai.ai.products_infrastructure.get_contextual_tool_class") as mock_get_tool:
                     mock_get_tool.return_value = mock_tool_class
 
                     # Verify that context_manager has the right tools
@@ -737,7 +737,7 @@ class TestRootNodeTools(BaseTest):
         )
 
         with (
-            patch("ee.hogai.ai.product_registry.get_tool_class") as mock_get_tool_class,
+            patch("ee.hogai.ai.products_infrastructure.get_tool_class") as mock_get_tool_class,
             patch("ee.hogai.graph.root.nodes.get_tool_class") as mock_get_tool_class_2,
         ):
             # Mock tool class that returns the mock tool instance
@@ -786,7 +786,7 @@ class TestRootNodeTools(BaseTest):
         )
 
         with (
-            patch("ee.hogai.ai.product_registry.get_tool_class") as mock_get_tool_class,
+            patch("ee.hogai.ai.products_infrastructure.get_tool_class") as mock_get_tool_class,
             patch("ee.hogai.graph.root.nodes.get_tool_class") as mock_get_tool_class_2,
         ):
             # Mock tool class that raises an exception
@@ -840,7 +840,7 @@ class TestRootNodeTools(BaseTest):
         )
 
         with (
-            patch("ee.hogai.ai.product_registry.get_tool_class") as mock_get_tool_class,
+            patch("ee.hogai.ai.products_infrastructure.get_tool_class") as mock_get_tool_class,
             patch("ee.hogai.graph.root.nodes.get_tool_class") as mock_get_tool_class_2,
         ):
             # Mock tool class for search_session_recordings

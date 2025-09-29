@@ -32,8 +32,7 @@ from posthog.schema import (
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.ai.assembly import build_available_tools
-from ee.hogai.ai.product_registry import get_tool_class
+from ee.hogai.ai.products_infrastructure import build_available_tools, get_tool_class
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
@@ -248,6 +247,10 @@ class RootNode(AssistantNode):
         if extra_tools is None:
             extra_tools = []
 
+        # Set config for context_manager to access
+        old_config = self.config
+        self.config = config
+
         base_model = MaxChatAnthropic(
             model="claude-sonnet-4-0",
             streaming=True,
@@ -265,15 +268,36 @@ class RootNode(AssistantNode):
         if self._is_hard_limit_reached(state):
             return base_model
 
-        contextual_tools = set(self._get_contextual_tools(config).keys())
+        contextual_tools = set(self.context_manager.get_contextual_tools().keys())
         available_tools = build_available_tools(self._team, self._user, contextual_tools)
+
+        # TODO: Once we have properly wrapped this as a MaxTool, we can remove this logic and add them to core tools
+        if self._has_insight_search_feature_flag():
+            from ee.hogai.tool import search_insights
+
+            available_tools.append(search_insights)
+
+        if self._has_session_summarization_feature_flag():
+            from ee.hogai.tool import session_summarization
+
+            available_tools.append(session_summarization)
+
+        # Add dashboard creation tool (always available)
+        from ee.hogai.tool import create_dashboard
+
+        available_tools.append(create_dashboard)
 
         if "retrieve_billing_information" in extra_tools:
             from ee.hogai.tool import retrieve_billing_information
 
             available_tools.append(retrieve_billing_information)
 
-        return base_model.bind_tools(available_tools, parallel_tool_calls=False)
+        result = base_model.bind_tools(available_tools, parallel_tool_calls=False)
+
+        # Restore original config
+        self.config = old_config
+
+        return result
 
     def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
         filtered_conversation = [message for message in state.messages if isinstance(message, RootMessageUnion)]
