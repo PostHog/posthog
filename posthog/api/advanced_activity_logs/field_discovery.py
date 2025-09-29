@@ -162,11 +162,10 @@ class AdvancedActivityLogFieldDiscovery:
             else:
                 static_filters = new_static_filters
         else:
-            static_filters = (
-                existing_cache.get("static_filters")
-                if existing_cache
-                else self._get_static_filters(self._get_base_queryset())
-            )
+            if existing_cache and existing_cache.get("static_filters"):
+                static_filters = existing_cache["static_filters"]
+            else:
+                static_filters = self._get_static_filters(self._get_base_queryset())
 
         cache_data = {
             "static_filters": static_filters,
