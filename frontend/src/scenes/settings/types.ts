@@ -30,6 +30,7 @@ export type SettingSectionId =
     | 'environment-crm'
     | 'environment-max'
     | 'environment-integrations'
+    | 'environment-activity-logs'
     | 'environment-access-control'
     | 'environment-danger-zone'
     | 'project-details'
