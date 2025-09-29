@@ -1,5 +1,5 @@
 import math
-from datetime import UTC, datetime
+from datetime import datetime
 
 from django.conf import settings
 
@@ -113,7 +113,7 @@ class DeltaSnapshot:
 
         return delta_table
 
-    def snapshot(self, data: pa.RecordBatch):
+    def snapshot(self, data: pa.RecordBatch, snapshot_now: datetime):
         delta_table = self.get_delta_table()
         self.schema.add_pyarrow_record_batch(data)
 
@@ -140,10 +140,12 @@ class DeltaSnapshot:
             predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
             predicate = " AND ".join(predicate_ops)
             filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
-            self._merge_table(delta_table, filtered_table, predicate)
+            self._merge_table(delta_table, filtered_table, predicate, snapshot_now)
 
-    def _merge_table(self, delta_table: deltalake.DeltaTable, data: pa.RecordBatch, predicate: str):
-        now_micros = int(datetime.now(UTC).timestamp() * 1_000_000)
+    def _merge_table(
+        self, delta_table: deltalake.DeltaTable, data: pa.RecordBatch, predicate: str, snapshot_now: datetime
+    ):
+        now_micros = int(snapshot_now.timestamp() * 1_000_000)
 
         delta_table.merge(
             source=data,

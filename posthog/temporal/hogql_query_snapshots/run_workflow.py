@@ -204,7 +204,7 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    logger.info(f"Running snapshot for saved query {inputs.saved_query_id}")
+    logger.ainfo(f"Running snapshot for saved query {inputs.saved_query_id}")
 
     saved_query = await aget_saved_query_by_id(inputs.saved_query_id, inputs.team_id)
 
@@ -231,11 +231,14 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
     if partition_settings is None:
         raise Exception("Partition settings are required for snapshot")
 
+    logger.ainfo(f"Partition settings: {partition_settings}")
+
     merge_key = delta_snapshot.merge_key
     if merge_key is None:
         raise Exception("Merge key is required for snapshot")
 
-    snapshot_ts = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+    snapshot_now = dt.datetime.now(dt.UTC)
+    snapshot_ts = snapshot_now.strftime("%Y-%m-%d %H:%M:%S.%f")
 
     async for res in hogql_table(
         f"""
@@ -271,7 +274,7 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
             if result is not None:
                 batch, _, _ = result
 
-        delta_snapshot.snapshot(batch)
+        delta_snapshot.snapshot(batch, snapshot_now)
 
     snapshot_table = delta_snapshot.get_delta_table()
 
@@ -280,6 +283,8 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
 
     file_uris = []
     file_uris = snapshot_table.file_uris()
+
+    logger.ainfo(f"Preparing S3 files for querying")
 
     prepare_s3_files_for_querying(saved_query.snapshot_folder_path, saved_query.normalized_name, file_uris)
 
