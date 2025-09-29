@@ -2546,7 +2546,7 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
 
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
-    exposure_config?: ExperimentEventExposureConfig
+    exposure_config?: EventsNode | ActionsNode | ExperimentEventExposureConfig
     multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 

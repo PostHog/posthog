@@ -217,7 +217,7 @@ def build_common_exposure_conditions(
         elif isinstance(exposure_config, dict):
             kind = exposure_config.get("kind")
 
-        if kind == "ExperimentEventExposureConfig":
+        if kind in ["EventsNode", "ExperimentEventExposureConfig"]:
             exposure_property_filters: list[ast.Expr] = []
 
             # Get properties - handle both dict and object access patterns

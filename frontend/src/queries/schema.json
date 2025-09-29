@@ -11275,7 +11275,17 @@
             "additionalProperties": false,
             "properties": {
                 "exposure_config": {
-                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ExperimentEventExposureConfig"
+                        }
+                    ]
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
