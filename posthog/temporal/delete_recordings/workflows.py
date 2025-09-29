@@ -1,6 +1,5 @@
 import json
 import asyncio
-from dataclasses import dataclass
 from datetime import timedelta
 
 from temporalio import common, workflow
@@ -8,19 +7,17 @@ from temporalio.workflow import ParentClosePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_recordings.activities import (
-    DeleteRecordingBlocksInput,
-    LoadRecordingBlocksInput,
-    LoadRecordingsWithPersonInput,
     delete_recording_blocks,
     load_recording_blocks,
     load_recordings_with_person,
 )
-
-
-@dataclass(frozen=True)
-class DeleteRecordingInput:
-    session_id: str
-    team_id: int
+from posthog.temporal.delete_recordings.types import (
+    DeleteRecordingBlocksInput,
+    DeleteRecordingInput,
+    DeleteRecordingsWithPersonInput,
+    LoadRecordingBlocksInput,
+    LoadRecordingsWithPersonInput,
+)
 
 
 @workflow.defn(name="delete-recording")
@@ -54,12 +51,6 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
             ),
             heartbeat_timeout=timedelta(seconds=10),
         )
-
-
-@dataclass(frozen=True)
-class DeleteRecordingsWithPersonInput:
-    distinct_ids: list[str]
-    team_id: int
 
 
 @workflow.defn(name="delete-recordings-with-person")

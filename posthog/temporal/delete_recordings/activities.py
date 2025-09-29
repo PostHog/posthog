@@ -1,5 +1,4 @@
 import json
-from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 
@@ -14,7 +13,7 @@ from posthog.hogql.printer import print_ast
 
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.session_recording_api import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import (
     RecordingBlock,
     RecordingBlockListing,
@@ -25,12 +24,14 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.delete_recordings.types import (
+    DeleteRecordingBlocksInput,
+    DeleteRecordingError,
+    LoadRecordingBlocksInput,
+    LoadRecordingsWithPersonInput,
+)
 
 LOGGER = get_write_only_logger()
-
-
-class DeleteRecordingError(Exception):
-    pass
 
 
 def _parse_block_listing_response(raw_response: bytes) -> list[tuple]:
@@ -54,12 +55,6 @@ def _parse_block_listing_response(raw_response: bytes) -> list[tuple]:
         raise DeleteRecordingError("Got malformed JSON response from ClickHouse.") from e
     except IndexError as e:
         raise DeleteRecordingError("No rows in response from ClickHouse.") from e
-
-
-@dataclass(frozen=True)
-class LoadRecordingBlocksInput:
-    session_id: str
-    team_id: int
 
 
 @activity.defn(name="load-recording-blocks")
@@ -95,13 +90,6 @@ async def load_recording_blocks(input: LoadRecordingBlocksInput) -> list[Recordi
         return blocks
 
 
-@dataclass(frozen=True)
-class DeleteRecordingBlocksInput:
-    session_id: str
-    team_id: int
-    blocks: list[RecordingBlock]
-
-
 @activity.defn(name="delete-recording-blocks")
 async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
     async with Heartbeater():
@@ -118,12 +106,6 @@ def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
     result = json.loads(raw_response)
 
     return [session["session_id"] for session in result["data"]]
-
-
-@dataclass(frozen=True)
-class LoadRecordingsWithPersonInput:
-    distinct_ids: list[str]
-    team_id: int
 
 
 @activity.defn(name="load-recordings-with-person")
