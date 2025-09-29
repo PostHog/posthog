@@ -47,6 +47,10 @@ def build_billing_token(license: License, organization: Organization, user: Opti
 
     if user:
         payload["distinct_id"] = str(user.distinct_id)
+        org_membership = user.organization_memberships.get(organization=organization)
+
+        if org_membership:
+            payload["organization_role"] = org_membership.get_level_display()
 
     encoded_jwt = jwt.encode(
         payload,
