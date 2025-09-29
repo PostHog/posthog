@@ -43,7 +43,7 @@ Here's an example of how your output must be structured:
 1. Primary Request and Intent:
    [Detailed description]
 
-2. Key Rsearch Concepts:
+2. Key Research Concepts:
    - [Concept 1]
    - [Concept 2]
    - [...]
