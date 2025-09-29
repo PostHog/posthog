@@ -95,7 +95,6 @@ async def start_job_snapshot_run(
         status=DataWarehouseSnapshotJob.Status.RUNNING,
         workflow_id=workflow_id,
         workflow_run_id=workflow_run_id,
-        created_by_id=saved_query.created_by_id,
     )
 
 

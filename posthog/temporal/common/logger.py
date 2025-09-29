@@ -864,5 +864,9 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
         # date. Plus one more leaves us at the end of right at the end of 'batch_export_id'.
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "batch_exports"
+    elif workflow_type == "hogql-query-snapshots-run":
+        # This works because the WorkflowID is made up like f"{saved_query_id}-{data_interval_end}"
+        log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
+        log_source = "hogql_query_snapshot_run"
 
     return (log_source, log_source_id)
