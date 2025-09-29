@@ -4,6 +4,7 @@ from dags import (
     web_preaggregated,
     web_preaggregated_asset_checks,
     web_preaggregated_daily,
+    web_preaggregated_data_quality_comparison,
     web_preaggregated_hourly,
     web_preaggregated_team_selection,
 )
@@ -22,6 +23,7 @@ defs = dagster.Definitions(
         web_preaggregated_hourly.web_bounces_hourly,
         web_preaggregated.web_pre_aggregated_bounces,
         web_preaggregated.web_pre_aggregated_stats,
+        web_preaggregated_data_quality_comparison.web_pre_aggregated_accuracy,
     ],
     asset_checks=[
         web_preaggregated_asset_checks.web_analytics_accuracy_check,
