@@ -160,8 +160,8 @@ class CreateSurveyTool(MaxTool):
 class SurveyToolkit(TaxonomyAgentToolkit):
     """Toolkit for survey creation and feature flag lookup operations."""
 
-    def __init__(self, team: Team):
-        super().__init__(team)
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user)
 
     def get_tools(self) -> list:
         """Get all tools (default + custom). Override in subclasses to add custom tools."""

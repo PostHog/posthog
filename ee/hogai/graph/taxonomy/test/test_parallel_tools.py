@@ -12,12 +12,14 @@ from posthog.schema import (
     EventTaxonomyItem,
 )
 
+from posthog.models import Action
+
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 
 
 class TestTaxonomyToolkit(BaseTest):
     def setUp(self):
-        self.toolkit = TaxonomyAgentToolkit(self.team)
+        self.toolkit = TaxonomyAgentToolkit(self.team, self.user)
 
     def _create_mock_taxonomy_response(self, response_type="event", results=None, **kwargs):
         """Helper to create mock taxonomy responses"""
@@ -345,6 +347,18 @@ class TestTaxonomyToolkit(BaseTest):
     # Events and actions
 
     @patch("ee.hogai.graph.taxonomy.toolkit.EventTaxonomyQueryRunner")
+    @patch("ee.hogai.graph.taxonomy.toolkit.Action")
+    def test_retrieve_event_or_action_properties_action_not_found(self, mock_action, mock_runner_class):
+        mock_runner = Mock()
+        mock_runner.run.side_effect = Action.DoesNotExist
+        mock_action.objects.filter.return_value = []
+        mock_action.DoesNotExist = Action.DoesNotExist
+        mock_runner_class.return_value = mock_runner
+
+        result = self.toolkit.retrieve_event_or_action_properties_parallel([999])
+        self.assertEqual(result["999"], "No actions exist in the project.")
+
+    @patch("ee.hogai.graph.taxonomy.toolkit.EventTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
     def test_retrieve_event_or_action_properties(self, mock_group_mapping, mock_property_definition, mock_runner_class):
@@ -361,8 +375,8 @@ class TestTaxonomyToolkit(BaseTest):
         mock_runner.run.return_value = mock_response
         mock_runner_class.return_value = mock_runner
 
-        result = self.toolkit.retrieve_event_or_action_properties("test_event")
-        self.assertIn("$browser", result)
+        result = self.toolkit.retrieve_event_or_action_properties_parallel(["test_event"])
+        self.assertIn("$browser", result["test_event"])
 
     def _get_mock_property_definition(self):
         mock_prop_browser = Mock()
@@ -449,7 +463,7 @@ class TestTaxonomyToolkit(BaseTest):
         mock_queryset.order_by.return_value = [mock_group]
         mock_group_mapping.objects.filter.return_value = mock_queryset
 
-        result = self.toolkit.retrieve_entity_properties(["person", "invalid_entity", "session"])
+        result = self.toolkit.retrieve_entity_properties_parallel(["person", "invalid_entity", "session"])
 
         # Should contain error message for invalid entity
         self.assertIn("Entity invalid_entity not found", result["invalid_entity"])
@@ -475,10 +489,9 @@ class TestTaxonomyToolkit(BaseTest):
         mock_queryset.order_by.return_value = [mock_group]
         mock_group_mapping.objects.filter.return_value = mock_queryset
 
-        result = self.toolkit.retrieve_entity_properties("person")
+        result = self.toolkit.retrieve_entity_properties_parallel(["person"])
 
         self.assertIn("Properties do not exist in the taxonomy for the entity person.", result["person"])
-        assert "person" in result
 
     @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")

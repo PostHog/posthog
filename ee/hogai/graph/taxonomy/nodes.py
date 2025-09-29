@@ -50,7 +50,7 @@ class TaxonomyAgentNode(
 
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
-        self._toolkit = toolkit_class(team=team)
+        self._toolkit = toolkit_class(team=team, user=user)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentNode)
 
     @property
@@ -156,7 +156,7 @@ class TaxonomyAgentToolsNode(
 
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
-        self._toolkit = toolkit_class(team=team)
+        self._toolkit = toolkit_class(team=team, user=user)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentToolsNode)
 
     @property

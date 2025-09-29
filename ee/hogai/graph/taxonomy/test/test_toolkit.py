@@ -5,7 +5,6 @@ from langchain_core.agents import AgentAction
 from parameterized import parameterized
 from pydantic import BaseModel
 
-from posthog.models import Action
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
@@ -19,7 +18,7 @@ class DummyToolkit(TaxonomyAgentToolkit):
 class TestTaxonomyAgentToolkit(BaseTest):
     def setUp(self):
         super().setUp()
-        self.toolkit = DummyToolkit(self.team)
+        self.toolkit = DummyToolkit(self.team, self.user)
 
     def test_toolkit_initialization(self):
         self.assertEqual(self.toolkit._team, self.team)
@@ -44,7 +43,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
                 team=self.team, project_id=self.team.project_id, group_type_index=i, group_type=group_type
             )
 
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         expected = ["person", "session", "organization", "project"]
         self.assertEqual(toolkit._entity_names, expected)
 
@@ -70,11 +69,6 @@ class TestTaxonomyAgentToolkit(BaseTest):
         result = self.toolkit._format_property_values("test_property", sample_values, sample_count, format_as_string)
         self.assertIn(expected_substring, result)
 
-    def test_retrieve_event_or_action_properties_action_not_found(self):
-        Action.objects.all().delete()
-        result = self.toolkit.retrieve_event_or_action_properties(999)
-        self.assertEqual(result, "No actions exist in the project.")
-
     def test_handle_incorrect_response(self):
         class TestModel(BaseModel):
             field: str = "test"
@@ -92,9 +86,9 @@ class TestTaxonomyAgentToolkit(BaseTest):
             ("ask_user_for_help", {"request": "Help needed"}, "Help needed"),
         ]
     )
-    @patch.object(DummyToolkit, "retrieve_entity_properties", return_value={"person": "mocked"})
+    @patch.object(DummyToolkit, "retrieve_entity_properties_parallel", return_value={"person": "mocked"})
     @patch.object(DummyToolkit, "retrieve_entity_property_values", return_value={"person": ["mocked"]})
-    @patch.object(DummyToolkit, "retrieve_event_or_action_properties", return_value="mocked")
+    @patch.object(DummyToolkit, "retrieve_event_or_action_properties_parallel", return_value={"test_event": "mocked"})
     @patch.object(DummyToolkit, "retrieve_event_or_action_property_values", return_value={"test_event": ["mocked"]})
     def test_handle_tools(self, tool_name, tool_args, expected_result, *mocks):
         class Arguments(BaseModel):
@@ -145,7 +139,12 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
     @parameterized.expand(
         [
-            ("retrieve_entity_properties", {"entity": "person"}, "retrieve_entity_properties", {"entity": "person"}),
+            (
+                "retrieve_entity_properties_parallel",
+                {"entity": "person"},
+                "retrieve_entity_properties_parallel",
+                {"entity": "person"},
+            ),
             (
                 "retrieve_event_properties",
                 {"event_name": "test_event"},
@@ -170,7 +169,12 @@ class TestTaxonomyAgentToolkit(BaseTest):
                 "retrieve_event_property_values",
                 {"event_name": "test_event", "property_name": "$browser"},
             ),
-            ("retrieve_entity_properties", {"entity": "session"}, "retrieve_entity_properties", {"entity": "session"}),
+            (
+                "retrieve_entity_properties_parallel",
+                {"entity": "session"},
+                "retrieve_entity_properties_parallel",
+                {"entity": "session"},
+            ),
         ]
     )
     def test_get_tool_input_model_with_valid_tools(self, tool_name, tool_input, expected_name, expected_args):
@@ -197,7 +201,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
                 return [CustomTool]
 
-        custom_toolkit = CustomToolkit(self.team)
+        custom_toolkit = CustomToolkit(self.team, self.user)
 
         action = AgentAction(tool="custom_tool", tool_input={"custom_field": "test_value"}, log="test log")
 
@@ -215,7 +219,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
             def _get_custom_tools(self):
                 raise NotImplementedError("This is a test error")
 
-        basic_toolkit = BasicToolkit(self.team)
+        basic_toolkit = BasicToolkit(self.team, self.user)
 
         # Should not raise NotImplementedError, should fall back to default tools
         tools = basic_toolkit.get_tools()
@@ -250,7 +254,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
                 return [custom_tool_1, custom_tool_2]
 
-        custom_toolkit = CustomToolkit(self.team)
+        custom_toolkit = CustomToolkit(self.team, self.user)
 
         # Should return both default and custom tools
         tools = custom_toolkit.get_tools()
