@@ -3,14 +3,22 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconBolt, IconPlusSmall, IconWebhooks } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonLabel, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonDivider,
+    LemonLabel,
+    LemonSelect,
+    LemonTag,
+    lemonToast,
+} from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 import { campaignLogic } from '../../campaignLogic'
@@ -28,12 +36,6 @@ export function StepTriggerConfiguration({
 
     const type = node.data.config.type
     const validationResult = actionValidationErrorsById[node.id]
-
-    const webhookTriggerEnabled = useFeatureFlag('MESSAGING_TRIGGER_WEBHOOK')
-
-    if (!webhookTriggerEnabled && node.data.config.type === 'event') {
-        return <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
-    }
 
     return (
         <>
@@ -66,25 +68,48 @@ export function StepTriggerConfiguration({
                                 </div>
                             ),
                         },
+                        {
+                            label: 'Tracking pixel',
+                            value: 'tracking_pixel',
+                            icon: <IconAdsClick />,
+                            labelInMenu: (
+                                <div className="flex flex-col my-1">
+                                    <div className="font-semibold">Tracking pixel</div>
+                                    <p className="text-xs text-muted">
+                                        Trigger your workflow using a 1x1 tracking pixel
+                                    </p>
+                                </div>
+                            ),
+                        },
                     ]}
                     value={type}
                     placeholder="Select trigger type"
                     onChange={(value) => {
                         value === 'event'
                             ? setCampaignActionConfig(node.id, { type: 'event', filters: {} })
-                            : setCampaignActionConfig(node.id, {
-                                  type: 'webhook',
-                                  template_id: 'template-source-webhook',
-                                  inputs: {},
-                              })
+                            : value === 'webhook'
+                              ? setCampaignActionConfig(node.id, {
+                                    type: 'webhook',
+                                    template_id: 'template-source-webhook',
+                                    inputs: {},
+                                })
+                              : value === 'tracking_pixel'
+                                ? setCampaignActionConfig(node.id, {
+                                      type: 'tracking_pixel',
+                                      template_id: 'template-source-webhook-pixel',
+                                      inputs: {},
+                                  })
+                                : null
                     }}
                 />
             </LemonField.Pure>
             {node.data.config.type === 'event' ? (
                 <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
-            ) : (
+            ) : node.data.config.type === 'webhook' ? (
                 <StepTriggerConfigurationWebhook action={node.data} config={node.data.config} />
-            )}
+            ) : node.data.config.type === 'tracking_pixel' ? (
+                <StepTriggerConfigurationTrackingPixel action={node.data} config={node.data.config} />
+            ) : null}
         </>
     )
 }
@@ -136,32 +161,122 @@ function StepTriggerConfigurationWebhook({
     const { campaign, actionValidationErrorsById } = useValues(campaignLogic)
     const validationResult = actionValidationErrorsById[action.id]
 
+    const webhookUrl = campaign.id === 'new' ? null : publicWebhooksHostOrigin() + '/public/webhooks/' + campaign.id
+
     return (
         <>
-            <div className="p-2 rounded border deprecated-space-y-2 bg-surface-secondary">
-                <LemonLabel>Webhook URL</LemonLabel>
-                {campaign.id === 'new' ? (
-                    <div className="text-xs text-muted italic border rounded p-1 bg-surface-primary">
-                        The webhook URL will be shown here once you save the workflow
-                    </div>
-                ) : (
-                    <CodeSnippet thing="Webhook URL">
-                        {publicWebhooksHostOrigin() + '/public/webhooks/' + campaign.id}
-                    </CodeSnippet>
-                )}
+            <LemonCollapse
+                className="shrink-0"
+                defaultActiveKey="instructions"
+                panels={[
+                    {
+                        key: 'instructions',
+                        header: 'Usage instructions',
+                        className: 'p-3 bg-surface-secondary flex flex-col gap-2',
+                        content: (
+                            <>
+                                {!webhookUrl ? (
+                                    <div className="text-xs text-muted italic border rounded p-1 bg-surface-primary">
+                                        The webhook URL will be shown here once you save the workflow
+                                    </div>
+                                ) : (
+                                    <CodeSnippet thing="Webhook URL">{webhookUrl}</CodeSnippet>
+                                )}
 
-                <p className="text-sm">
-                    The webhook can be called with a POST request and any JSON payload. You can then use the
-                    configuration options to parse the <code>request.body</code> or <code>request.headers</code> to map
-                    to the required fields.
-                </p>
-            </div>
+                                <div className="text-sm">
+                                    The webhook can be called with any JSON payload. You can then use the configuration
+                                    options to parse the <code>request.body</code> or <code>request.headers</code> to
+                                    map to the required fields.
+                                </div>
+                            </>
+                        ),
+                    },
+                ]}
+            />
             <HogFlowFunctionConfiguration
                 templateId={config.template_id}
                 inputs={config.inputs}
                 setInputs={(inputs) =>
                     setCampaignActionConfig(action.id, {
                         type: 'webhook',
+                        inputs,
+                        template_id: config.template_id,
+                        template_uuid: config.template_uuid,
+                    })
+                }
+                errors={validationResult?.errors}
+            />
+        </>
+    )
+}
+
+function StepTriggerConfigurationTrackingPixel({
+    action,
+    config,
+}: {
+    action: Extract<HogFlowAction, { type: 'trigger' }>
+    config: Extract<HogFlowAction['config'], { type: 'tracking_pixel' }>
+}): JSX.Element {
+    const { setCampaignActionConfig } = useActions(campaignLogic)
+    const { campaign, actionValidationErrorsById } = useValues(campaignLogic)
+    const validationResult = actionValidationErrorsById[action.id]
+
+    const trackingPixelUrl =
+        campaign.id !== 'new' ? `${publicWebhooksHostOrigin()}/public/webhooks/${campaign.id}` : null
+
+    const trackingPixelHtml = trackingPixelUrl
+        ? `<img 
+    src="${trackingPixelUrl}.gif"
+    width="1" height="1" style="display:none;" alt=""
+/>`
+        : null
+
+    return (
+        <>
+            <LemonCollapse
+                className="shrink-0"
+                defaultActiveKey="instructions"
+                panels={[
+                    {
+                        key: 'instructions',
+                        header: 'Usage instructions',
+                        className: 'p-3 bg-surface-secondary flex flex-col gap-2',
+                        content: (
+                            <>
+                                {!trackingPixelUrl ? (
+                                    <div className="text-xs text-muted italic border rounded p-1 bg-surface-primary">
+                                        The tracking pixel URL will be shown here once you save the workflow
+                                    </div>
+                                ) : (
+                                    <CodeSnippet thing="Tracking pixel URL">{trackingPixelUrl}</CodeSnippet>
+                                )}
+
+                                <div className="text-sm">
+                                    The tracking pixel can be called with a GET request to the URL above. You can embed
+                                    it as an image or call it with an HTTP request in any other way.
+                                </div>
+
+                                {trackingPixelUrl && (
+                                    <CodeSnippet thing="Tracking pixel HTML">{trackingPixelHtml}</CodeSnippet>
+                                )}
+
+                                <div>
+                                    You can use query parameters to pass in data that you can parse into the event
+                                    properties below, or you can hard code the values. This will not create a PostHog
+                                    event by default, it will only be used to trigger the workflow.
+                                </div>
+                            </>
+                        ),
+                    },
+                ]}
+            />
+
+            <HogFlowFunctionConfiguration
+                templateId={config.template_id}
+                inputs={config.inputs}
+                setInputs={(inputs) =>
+                    setCampaignActionConfig(action.id, {
+                        type: 'tracking_pixel',
                         inputs,
                         template_id: config.template_id,
                         template_uuid: config.template_uuid,
