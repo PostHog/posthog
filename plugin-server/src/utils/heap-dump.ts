@@ -1,8 +1,9 @@
-import * as fs from 'fs'
-import * as path from 'path'
+import { S3Client } from '@aws-sdk/client-s3'
+import { Upload } from '@aws-sdk/lib-storage'
 import * as v8 from 'v8'
 
 import { logger } from './logger'
+import { getObjectStorage } from './object_storage'
 
 /**
  * Simple heap dump utility based on signal handling
@@ -15,11 +16,14 @@ import { logger } from './logger'
 
 interface HeapDumpConfig {
     enabled: boolean
-    outputPath: string
+    s3Bucket: string
+    s3Prefix?: string
 }
 
 let isHeapDumpEnabled = false
-let heapDumpOutputPath = '/tmp/heap-dumps'
+let s3Client: S3Client | undefined
+let s3Bucket: string | undefined
+let s3Prefix = 'heap-dumps'
 
 export function initializeHeapDump(config: HeapDumpConfig): void {
     if (!config.enabled) {
@@ -28,113 +32,97 @@ export function initializeHeapDump(config: HeapDumpConfig): void {
     }
 
     isHeapDumpEnabled = true
-    heapDumpOutputPath = config.outputPath
+    s3Bucket = config.s3Bucket
+    s3Prefix = config.s3Prefix || 'heap-dumps'
 
-    // Ensure output directory exists
-    try {
-        fs.mkdirSync(heapDumpOutputPath, { recursive: true })
-    } catch (error) {
-        logger.error('Failed to create heap dump directory', { error, path: heapDumpOutputPath })
+    // Initialize S3 client - required for heap dumps
+    const objectStorage = getObjectStorage({})
+    if (objectStorage) {
+        s3Client = objectStorage.s3
+        logger.info('📸 S3 storage configured for heap dumps', { bucket: s3Bucket, prefix: s3Prefix })
+    } else {
+        logger.error('📸 S3 bucket configured but object storage not available')
         return
     }
 
     // Set up signal handler for SIGUSR2
     process.on('SIGUSR2', () => {
         logger.info('📸 Received SIGUSR2 signal, creating heap dump...')
-        createHeapDump()
+        createHeapDump().catch((error) => {
+            logger.error('❌ Heap dump failed', { error })
+        })
     })
 
     logger.info('📸 Heap dump initialized', {
-        outputPath: heapDumpOutputPath,
+        s3Bucket,
+        s3Prefix,
         pid: process.pid,
         instructions: `Send SIGUSR2 signal to create heap dump: kill -USR2 ${process.pid}`,
     })
 }
 
-function createHeapDump(): void {
-    if (!isHeapDumpEnabled) {
-        logger.warn('Heap dump requested but functionality is disabled')
+async function createHeapDump(): Promise<void> {
+    if (!isHeapDumpEnabled || !s3Client || !s3Bucket) {
+        logger.warn('Heap dump requested but functionality is disabled or S3 not configured')
         return
     }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const workerId = process.env.WORKER_ID || 'unknown'
     const filename = `heapdump-${workerId}-${process.pid}-${timestamp}.heapsnapshot`
-    const filepath = path.join(heapDumpOutputPath, filename)
 
     try {
         const startTime = Date.now()
         const memoryBefore = process.memoryUsage()
 
-        logger.info('📸 Starting heap dump creation', {
+        logger.info('📸 Starting heap dump streaming to S3', {
             filename,
+            bucket: s3Bucket,
             memoryUsage: memoryBefore,
         })
 
-        // Create heap snapshot and write to file
+        // Create heap snapshot
         const snapshot = v8.getHeapSnapshot()
-        const fileStream = fs.createWriteStream(filepath)
 
-        snapshot.pipe(fileStream)
+        // Stream directly to S3
+        const date = new Date().toISOString().split('T')[0]
+        const s3Key = `${s3Prefix}/${date}/${filename}`
 
-        snapshot.on('end', () => {
-            const duration = Date.now() - startTime
-            const stats = fs.statSync(filepath)
-            const memoryAfter = process.memoryUsage()
-
-            logger.info('✅ Heap dump created successfully', {
-                filename,
-                filepath,
-                size: stats.size,
-                duration: `${duration}ms`,
-                memoryBefore,
-                memoryAfter,
-                pid: process.pid,
-                workerId,
-            })
+        const upload = new Upload({
+            client: s3Client,
+            params: {
+                Bucket: s3Bucket,
+                Key: s3Key,
+                Body: snapshot,
+                ContentType: 'application/octet-stream',
+                Metadata: {
+                    workerId,
+                    pid: process.pid.toString(),
+                    timestamp: new Date().toISOString(),
+                },
+            },
         })
 
-        snapshot.on('error', (error) => {
-            logger.error('❌ Failed to create heap dump', {
-                error,
-                filename,
-                filepath,
-            })
-        })
+        const result = await upload.done()
+        const duration = Date.now() - startTime
+        const memoryAfter = process.memoryUsage()
 
-        fileStream.on('error', (error) => {
-            logger.error('❌ Failed to write heap dump to file', {
-                error,
-                filename,
-                filepath,
-            })
+        logger.info('✅ Heap dump streamed to S3 successfully', {
+            filename,
+            s3Key,
+            bucket: s3Bucket,
+            location: result.Location,
+            duration: `${duration}ms`,
+            memoryBefore,
+            memoryAfter,
+            pid: process.pid,
+            workerId,
         })
     } catch (error) {
-        logger.error('❌ Unexpected error during heap dump creation', {
+        logger.error('❌ Failed to stream heap dump to S3', {
             error,
             filename,
-            filepath,
+            bucket: s3Bucket,
         })
-    }
-}
-
-/**
- * Get current heap dump configuration status
- */
-export function getHeapDumpStatus(): {
-    enabled: boolean
-    outputPath: string
-    pid: number
-    workerId: string
-    instructions: string
-} {
-    return {
-        enabled: isHeapDumpEnabled,
-        outputPath: heapDumpOutputPath,
-        pid: process.pid,
-        workerId: process.env.WORKER_ID || 'unknown',
-        instructions: isHeapDumpEnabled
-            ? `Send SIGUSR2 signal to create heap dump: kill -USR2 ${process.pid}`
-            : 'Heap dumps are disabled',
     }
 }

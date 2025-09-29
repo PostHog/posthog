@@ -200,7 +200,8 @@ export type CdpConfig = {
 
     // Heap dump configuration
     HEAP_DUMP_ENABLED: boolean
-    HEAP_DUMP_OUTPUT_PATH: string
+    HEAP_DUMP_S3_BUCKET: string
+    HEAP_DUMP_S3_PREFIX: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -473,7 +474,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     // Heap dump configuration
     HEAP_DUMP_ENABLED: boolean
-    HEAP_DUMP_OUTPUT_PATH: string
+    HEAP_DUMP_S3_BUCKET: string
+    HEAP_DUMP_S3_PREFIX: string
 }
 
 export interface Hub extends PluginsServerConfig {

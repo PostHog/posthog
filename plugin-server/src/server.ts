@@ -33,6 +33,7 @@ import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
 import { isTestEnv } from './utils/env-utils'
+import { initializeHeapDump } from './utils/heap-dump'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
@@ -81,6 +82,13 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
+
+        // Initialize heap dump functionality for all services
+        initializeHeapDump({
+            enabled: hub.HEAP_DUMP_ENABLED,
+            s3Bucket: hub.HEAP_DUMP_S3_BUCKET || hub.OBJECT_STORAGE_BUCKET,
+            s3Prefix: hub.HEAP_DUMP_S3_PREFIX,
+        })
 
         let _initPluginsPromise: Promise<void> | undefined
 
