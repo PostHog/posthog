@@ -164,6 +164,7 @@ export function TaxonomicPropertyFilter({
             endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
             eventNames={eventNames}
             addRelativeDateTimeOptions={allowRelativeDateOptions}
+            excludedProperties={excludedProperties}
             onChange={(newOperator, newValue) => {
                 if (filter?.key && filter?.type) {
                     setFilter(index, {
