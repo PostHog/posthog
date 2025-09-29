@@ -14,6 +14,8 @@ The current HogQL query (which CAN be empty) is:
 <current_query>
 {current_query}
 </current_query>
+
+IMPORTANT: NEVER CHANGE PARTS OF THIS QUERY THAT ARE NOT RELEVANT TO THE USER'S REQUEST.
 """
 
 HOGQL_GENERATOR_USER_PROMPT = """

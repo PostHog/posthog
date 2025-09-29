@@ -1,12 +1,10 @@
 import json
 from typing import Optional
 
-from posthog.api.advanced_activity_logs.queries import SMALL_ORG_THRESHOLD
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 
-CACHE_TTL_SECONDS = 12 * 60 * 60  # 12 hours
-CACHE_KEY_PREFIX = "activity_log:details_fields"
+from .constants import CACHE_KEY_PREFIX, CACHE_TTL_SECONDS, SMALL_ORG_THRESHOLD
 
 
 def _get_cache_key(organization_id: str) -> str:
