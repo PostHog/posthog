@@ -14,7 +14,6 @@ table should always aggregate again on session_id (the HogQL session table will 
 don't need to consider this).
 
 Upgrades over v2:
-* Uses the UUIDv7ToDateTime function in the ORDER BY clause, which was not available when we built v2
 * Has a property map for storing lower-tier ad ids, making it easier to add new ad ids in the future
 * Stores presence of ad ids separately from the value, so e.g. channel type calculations only need to read 1 bit instead of a gclid string up to 100 chars
 * Parses JSON only once per event rather than once per column per event, saving CPU usage
@@ -67,7 +66,11 @@ RAW_SESSIONS_TABLE_BASE_SQL_V3 = """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    session_id_v7 UUID,
+
+    -- sadly we need to use a UInt128 here, as the UUID type in clickhouse has insane ordering properties
+    -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
+    -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
+    session_id_v7 UInt128,
 
     -- ClickHouse will pick the latest value of distinct_id for the session
     -- this is fine since even if the distinct_id changes during a session
@@ -151,15 +154,9 @@ def RAW_SESSIONS_TABLE_SQL_V3():
     return (
         RAW_SESSIONS_TABLE_BASE_SQL_V3
         + """
-PARTITION BY toYYYYMM(UUIDv7ToDateTime(session_id_v7))
+PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
 ORDER BY (
     team_id,
-
-    -- sadly we need to include this as clickhouse UUIDs have insane ordering
-    -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
-    -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
-    UUIDv7ToDateTime(session_id_v7),
-
     session_id_v7
 )
 """
@@ -255,7 +252,7 @@ def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where="TRUE"):
 WITH parsed_events AS (
     SELECT
         team_id,
-        `$session_id`,
+        `$session_id_uuid` AS session_id_v7,
         distinct_id AS _distinct_id,
         person_id,
         timestamp,
@@ -273,8 +270,8 @@ WITH parsed_events AS (
 )
 
 SELECT
-   team_id,
-    toUUID(`$session_id`) as session_id_v7,
+    team_id,
+    session_id_v7,
 
     initializeAggregation('argMaxState', _distinct_id, timestamp) as distinct_id,
     initializeAggregation('argMaxState', person_id, timestamp) as person_id,
@@ -421,7 +418,7 @@ RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3 = (
 CREATE OR REPLACE VIEW {TABLE_BASE_NAME_V3}_v AS
 SELECT
     session_id_v7,
-    UUIDv7ToDateTime(session_id_v7) as session_timestamp,
+    fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) as session_timestamp,
     team_id,
 
     argMaxMerge(distinct_id) as distinct_id,
