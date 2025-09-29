@@ -722,27 +722,30 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("tasks:read", "GET", "/api/projects/@current/tasks/", True),
-            ("tasks:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
-            ("tasks:read", "GET", "/api/projects/@current/workflows/", True),
-            ("tasks:read", "GET", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
-            ("tasks:read", "GET", "/api/projects/@current/agents/", True),
-            ("tasks:read", "POST", "/api/projects/@current/tasks/", False),
-            ("tasks:read", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", False),
-            ("tasks:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),
-            ("tasks:read", "POST", "/api/projects/@current/workflows/", False),
-            ("tasks:read", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", False),
-            ("tasks:write", "GET", "/api/projects/@current/tasks/", True),
-            ("tasks:write", "POST", "/api/projects/@current/tasks/", True),
-            ("tasks:write", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", True),
-            ("tasks:write", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", True),
-            ("tasks:write", "POST", "/api/projects/@current/workflows/", True),
-            ("tasks:write", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
+            ("task:read", "GET", "/api/projects/@current/tasks/", True),
+            ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
+            ("task:read", "GET", "/api/projects/@current/workflows/", True),
+            ("task:read", "GET", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
+            ("task:read", "GET", "/api/projects/@current/agents/", True),
+            ("task:read", "POST", "/api/projects/@current/tasks/", False),
+            ("task:read", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", False),
+            ("task:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),
+            ("task:read", "POST", "/api/projects/@current/workflows/", False),
+            ("task:read", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", False),
+            ("task:write", "GET", "/api/projects/@current/tasks/", True),
+            ("task:write", "POST", "/api/projects/@current/tasks/", True),
+            ("task:write", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", True),
+            ("task:write", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", True),
+            ("task:write", "POST", "/api/projects/@current/workflows/", True),
+            ("task:write", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
             ("other_scope:read", "GET", "/api/projects/@current/tasks/", False),
             ("other_scope:write", "POST", "/api/projects/@current/tasks/", False),
         ]
     )
     def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
+        task = self.create_task()
+        workflow = task.workflow
+
         api_key = PersonalAPIKey.objects.create(
             user=self.user,
             label=f"Test API Key - {scope}",
@@ -752,7 +755,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         api_key.scopes = [scope]
         api_key.save()
 
-        url = url_template.format(task_id=self.task.id, workflow_id=self.workflow.id)
+        url = url_template.format(task_id=task.id, workflow_id=workflow.id)
 
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key.value}")
 
@@ -798,6 +801,8 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             )
 
     def test_no_scope_denies_access(self):
+        task = self.create_task()
+
         api_key = PersonalAPIKey.objects.create(
             user=self.user,
             label="Test API Key - No Scope",
@@ -811,7 +816,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
         test_endpoints = [
             ("GET", "/api/projects/@current/tasks/"),
-            ("GET", f"/api/projects/@current/tasks/{self.task.id}/"),
+            ("GET", f"/api/projects/@current/tasks/{task.id}/"),
             ("GET", "/api/projects/@current/workflows/"),
             ("GET", "/api/projects/@current/agents/"),
         ]

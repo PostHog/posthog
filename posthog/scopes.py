@@ -51,7 +51,7 @@ APIScopeObject = Literal[
     "warehouse_view",
     "warehouse_table",
     "logs",  # logs product,
-    "tasks",
+    "task",
 ]
 
 APIScopeActions = Literal[

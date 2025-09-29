@@ -8,12 +8,14 @@ from django.utils.dateparse import parse_datetime
 
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
 from .agents import get_agent_dict_by_id, get_all_agents
@@ -47,8 +49,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     serializer_class = TaskSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    scope_object = "tasks"
+    scope_object = "task"
     queryset = Task.objects.all()
     posthog_feature_flag = {
         "tasks": [
@@ -434,8 +437,9 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     serializer_class = TaskWorkflowSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    scope_object = "tasks"
+    scope_object = "task"
     queryset = TaskWorkflow.objects.all()
     posthog_feature_flag = {
         "tasks": [
@@ -536,8 +540,9 @@ class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     serializer_class = WorkflowStageSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    scope_object = "tasks"
+    scope_object = "task"
     queryset = WorkflowStage.objects.all()
     posthog_feature_flag = {"tasks": ["list", "retrieve", "create", "update", "partial_update", "destroy", "archive"]}
     filter_rewrite_rules = {"team_id": "workflow__team_id"}
@@ -579,7 +584,8 @@ class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     """
 
     serializer_class = AgentDefinitionSerializer
-    scope_object = "tasks"
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    scope_object = "task"
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     queryset = None  # No model queryset since we're using hardcoded agents
     posthog_feature_flag = {"tasks": ["list", "retrieve"]}
