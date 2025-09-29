@@ -24,7 +24,7 @@ export function AuditLogTableHeader(): JSX.Element {
 
             <div className="col-span-2">Scope</div>
 
-            <div className="col-span-1">Timestamp</div>
+            <div className="col-span-1">Time</div>
 
             <div className="col-span-1" />
         </div>
