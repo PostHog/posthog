@@ -2,110 +2,357 @@ import posthog from 'posthog-js'
 
 import { EventType } from '@posthog/rrweb-types'
 
-import { RecordingSnapshot } from '~/types'
+import { RecordingSnapshot, SessionRecordingSnapshotSource, SnapshotSourceType } from '~/types'
 
-import { ViewportResolution, patchMetaEventIntoWebData } from './patch-meta-event'
+import { ViewportResolution } from './patch-meta-event'
+import { ProcessingCache, processAllSnapshots } from './process-all-snapshots'
+import { keyForSource } from './source-key'
 import { clearThrottle } from './throttle-capturing'
 
-describe('patchMetaEventIntoWebData', () => {
+describe('processAllSnapshots - inline meta patching', () => {
     const mockViewportForTimestamp = (): ViewportResolution => ({
         width: '1024',
         height: '768',
         href: 'https://blah.io',
     })
 
-    function createFullSnapshot(): RecordingSnapshot {
+    function createFullSnapshot(timestamp: number = 1000): RecordingSnapshot {
         return {
             type: EventType.FullSnapshot,
-            timestamp: 1000,
+            timestamp,
             windowId: 'window1',
-            data: {} as any,
+            data: {
+                node: {
+                    type: 2,
+                    tagName: 'html',
+                    attributes: {},
+                    childNodes: [],
+                },
+            },
         }
     }
 
-    function createMeta(width: number, height: number, href: string = 'https://blah.io'): RecordingSnapshot {
+    function createMeta(
+        width: number,
+        height: number,
+        timestamp: number = 1000,
+        href: string = 'https://blah.io'
+    ): RecordingSnapshot {
         return {
             type: EventType.Meta,
-            timestamp: 1000,
+            timestamp,
             windowId: 'window1',
             data: {
-                width: width,
-                height: height,
-                href: href,
+                width,
+                height,
+                href,
+            },
+        }
+    }
+
+    function createIncrementalSnapshot(timestamp: number = 1500): RecordingSnapshot {
+        return {
+            type: EventType.IncrementalSnapshot,
+            timestamp,
+            windowId: 'window1',
+            data: {},
+        } as RecordingSnapshot
+    }
+
+    function createSource(
+        sourceType: SnapshotSourceType = 'blob',
+        blobKey: string = 'blob-key'
+    ): SessionRecordingSnapshotSource {
+        return {
+            source: sourceType,
+            start_timestamp: '2023-01-01T00:00:00Z',
+            end_timestamp: '2023-01-01T01:00:00Z',
+            blob_key: blobKey,
+        }
+    }
+
+    function createSnapshotsBySource(
+        source: SessionRecordingSnapshotSource,
+        snapshots: RecordingSnapshot[]
+    ): Record<string, { snapshots: RecordingSnapshot[] }> {
+        const sourceKey = keyForSource(source)
+        return {
+            [sourceKey]: {
+                snapshots,
             },
         }
     }
 
     it('adds meta event before full snapshot when none exists', () => {
-        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
+        const source = createSource()
+        const sources = [source]
+        const snapshots = [createFullSnapshot()]
+        const snapshotsBySource = createSnapshotsBySource(source, snapshots)
+        const processingCache: ProcessingCache = {}
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
+        const result = processAllSnapshots(
+            sources,
+            snapshotsBySource,
+            processingCache,
+            mockViewportForTimestamp,
+            '12345'
+        )
 
-        expect(result).toEqual([createMeta(1024, 768), createFullSnapshot()])
+        expect(result).toHaveLength(2)
+        expect(result[0].type).toBe(EventType.Meta)
+        expect(result[0].data).toEqual({
+            width: 1024,
+            height: 768,
+            href: 'https://blah.io',
+        })
+        expect(result[1].type).toBe(EventType.FullSnapshot)
     })
 
     it('does not add meta event if one already exists before full snapshot', () => {
-        const snapshots: RecordingSnapshot[] = [createMeta(800, 600, 'http://test'), createFullSnapshot()]
+        const source = createSource()
+        const sources = [source]
+        const snapshots = [createMeta(800, 600, 1000, 'http://test'), createFullSnapshot()]
+        const snapshotsBySource = createSnapshotsBySource(source, snapshots)
+        const processingCache: ProcessingCache = {}
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
+        const result = processAllSnapshots(
+            sources,
+            snapshotsBySource,
+            processingCache,
+            mockViewportForTimestamp,
+            '12345'
+        )
 
         expect(result).toHaveLength(2)
-        expect(result[0]).toBe(snapshots[0])
-        expect(result[1]).toBe(snapshots[1])
+        expect(result[0].type).toBe(EventType.Meta)
+        expect(result[0].data.width).toBe(800)
+        expect(result[1].type).toBe(EventType.FullSnapshot)
     })
 
-    it('handles multiple full snapshots correctly', () => {
-        const snapshots: RecordingSnapshot[] = [
-            createFullSnapshot(),
-            {
-                type: EventType.IncrementalSnapshot,
-                timestamp: 1500,
-                windowId: 'window1',
-                data: {},
-            } as RecordingSnapshot,
-            createFullSnapshot(),
-        ]
+    it('handles multiple full snapshots correctly - each gets its own meta event', () => {
+        const source = createSource()
+        const sources = [source]
+        const snapshots = [createFullSnapshot(1000), createIncrementalSnapshot(1500), createFullSnapshot(2000)]
+        const snapshotsBySource = createSnapshotsBySource(source, snapshots)
+        const processingCache: ProcessingCache = {}
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
+        const result = processAllSnapshots(
+            sources,
+            snapshotsBySource,
+            processingCache,
+            mockViewportForTimestamp,
+            '12345'
+        )
 
         expect(result).toHaveLength(5)
         expect(result[0].type).toBe(EventType.Meta)
+        expect(result[0].timestamp).toBe(1000)
         expect(result[1].type).toBe(EventType.FullSnapshot)
+        expect(result[1].timestamp).toBe(1000)
         expect(result[2].type).toBe(EventType.IncrementalSnapshot)
+        expect(result[2].timestamp).toBe(1500)
         expect(result[3].type).toBe(EventType.Meta)
+        expect(result[3].timestamp).toBe(2000)
         expect(result[4].type).toBe(EventType.FullSnapshot)
+        expect(result[4].timestamp).toBe(2000)
     })
 
     it('logs error when viewport dimensions are not available', () => {
         const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
-        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
+        const source = createSource()
+        const sources = [source]
+        const snapshots = [createFullSnapshot()]
+        const snapshotsBySource = createSnapshotsBySource(source, snapshots)
+        const processingCache: ProcessingCache = {}
 
         jest.spyOn(posthog, 'captureException')
 
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
+        const result = processAllSnapshots(
+            sources,
+            snapshotsBySource,
+            processingCache,
+            mockViewportForTimestampNoData,
+            '12345'
+        )
 
         expect(posthog.captureException).toHaveBeenCalledWith(
             new Error('No event viewport or meta snapshot found for full snapshot'),
-            expect.any(Object)
+            expect.objectContaining({
+                snapshot: expect.any(Object),
+            })
         )
         expect(result).toHaveLength(1)
-        expect(result[0]).toBe(snapshots[0])
+        expect(result[0].type).toBe(EventType.FullSnapshot)
     })
 
-    it('does not logs error twice for the same session', () => {
+    it('does not log error twice for the same session', () => {
         clearThrottle()
 
         const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
-        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
+        const source = createSource()
+        const sources = [source]
+        const snapshots = [createFullSnapshot()]
+        const snapshotsBySource = createSnapshotsBySource(source, snapshots)
+        const processingCache: ProcessingCache = {}
 
         jest.spyOn(posthog, 'captureException')
 
         expect(posthog.captureException).toHaveBeenCalledTimes(0)
-        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
+        processAllSnapshots(sources, snapshotsBySource, processingCache, mockViewportForTimestampNoData, '12345')
         expect(posthog.captureException).toHaveBeenCalledTimes(1)
-        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
+        processAllSnapshots(sources, snapshotsBySource, {}, mockViewportForTimestampNoData, '12345')
         expect(posthog.captureException).toHaveBeenCalledTimes(1)
-        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '54321')
+        processAllSnapshots(sources, snapshotsBySource, {}, mockViewportForTimestampNoData, '54321')
         expect(posthog.captureException).toHaveBeenCalledTimes(2)
+    })
+
+    it('caches snapshots with meta events included - main bug fix', () => {
+        const source = createSource()
+        const sources = [source]
+        const snapshots = [createFullSnapshot()]
+        const snapshotsBySource = createSnapshotsBySource(source, snapshots)
+        const processingCache: ProcessingCache = {}
+
+        // First call - should process and add meta event
+        const result1 = processAllSnapshots(
+            sources,
+            snapshotsBySource,
+            processingCache,
+            mockViewportForTimestamp,
+            '12345'
+        )
+
+        expect(result1).toHaveLength(2)
+        expect(result1[0].type).toBe(EventType.Meta)
+        expect(result1[1].type).toBe(EventType.FullSnapshot)
+
+        // Second call - should use cache and still include meta event
+        const result2 = processAllSnapshots(
+            sources,
+            snapshotsBySource,
+            processingCache,
+            mockViewportForTimestamp,
+            '12345'
+        )
+
+        expect(result2).toHaveLength(2)
+        expect(result2[0].type).toBe(EventType.Meta)
+        expect(result2[1].type).toBe(EventType.FullSnapshot)
+
+        // Cache should contain the processed snapshots with meta events
+        const sourceKey = keyForSource(source)
+        expect(processingCache[sourceKey]).toHaveLength(2)
+        expect(processingCache[sourceKey][0].type).toBe(EventType.Meta)
+        expect(processingCache[sourceKey][1].type).toBe(EventType.FullSnapshot)
+    })
+
+    it('handles multiple sources correctly', () => {
+        const source1 = createSource('blob', 'blob-key-1')
+        const source2 = createSource('blob', 'blob-key-2')
+        const sources = [source1, source2]
+        const snapshotsBySource = {
+            ...createSnapshotsBySource(source1, [createFullSnapshot(1000)]),
+            ...createSnapshotsBySource(source2, [createMeta(800, 600, 2000), createFullSnapshot(2000)]),
+        }
+        const processingCache: ProcessingCache = {}
+
+        const result = processAllSnapshots(
+            sources,
+            snapshotsBySource,
+            processingCache,
+            mockViewportForTimestamp,
+            '12345'
+        )
+
+        expect(result).toHaveLength(4)
+        // Results should be sorted by timestamp
+        expect(result[0].type).toBe(EventType.Meta) // Added for source1
+        expect(result[0].timestamp).toBe(1000)
+        expect(result[1].type).toBe(EventType.FullSnapshot) // From source1
+        expect(result[1].timestamp).toBe(1000)
+        expect(result[2].type).toBe(EventType.Meta) // From source2
+        expect(result[2].timestamp).toBe(2000)
+        expect(result[3].type).toBe(EventType.FullSnapshot) // From source2
+        expect(result[3].timestamp).toBe(2000)
+    })
+
+    it('does not patch meta event when previous source ends with meta and next starts with full snapshot', () => {
+        const source1 = createSource('blob', 'blob-key-1')
+        const source2 = createSource('blob', 'blob-key-2')
+        const sources = [source1, source2]
+        const snapshotsBySource = {
+            ...createSnapshotsBySource(source1, [
+                createFullSnapshot(1000),
+                createMeta(1024, 768, 1500), // Source1 ends with meta
+            ]),
+            ...createSnapshotsBySource(source2, [
+                createFullSnapshot(2000), // Source2 starts with full snapshot
+            ]),
+        }
+        const processingCache: ProcessingCache = {}
+
+        const result = processAllSnapshots(
+            sources,
+            snapshotsBySource,
+            processingCache,
+            mockViewportForTimestamp,
+            '12345'
+        )
+
+        expect(result).toHaveLength(4)
+        // Results should be sorted by timestamp
+        expect(result[0].type).toBe(EventType.Meta) // Added for first full snapshot
+        expect(result[0].timestamp).toBe(1000)
+        expect(result[1].type).toBe(EventType.FullSnapshot) // From source1
+        expect(result[1].timestamp).toBe(1000)
+        expect(result[2].type).toBe(EventType.Meta) // From source1 (original)
+        expect(result[2].timestamp).toBe(1500)
+        expect(result[3].type).toBe(EventType.FullSnapshot) // From source2 - should NOT have meta added
+        expect(result[3].timestamp).toBe(2000)
+
+        // Should be exactly 4 events, no extra meta event added before the second source's full snapshot
+        expect(result.filter((r) => r.type === EventType.Meta)).toHaveLength(2)
+        expect(result.filter((r) => r.type === EventType.FullSnapshot)).toHaveLength(2)
+    })
+
+    it('patches meta event when previous source ends without meta and next starts with full snapshot', () => {
+        const source1 = createSource('blob', 'blob-key-1')
+        const source2 = createSource('blob', 'blob-key-2')
+        const sources = [source1, source2]
+        const snapshotsBySource = {
+            ...createSnapshotsBySource(source1, [
+                createFullSnapshot(1000),
+                createIncrementalSnapshot(1500), // Source1 ends with incremental (no meta)
+            ]),
+            ...createSnapshotsBySource(source2, [
+                createFullSnapshot(2000), // Source2 starts with full snapshot
+            ]),
+        }
+        const processingCache: ProcessingCache = {}
+
+        const result = processAllSnapshots(
+            sources,
+            snapshotsBySource,
+            processingCache,
+            mockViewportForTimestamp,
+            '12345'
+        )
+
+        expect(result).toHaveLength(5)
+        // Results should be sorted by timestamp
+        expect(result[0].type).toBe(EventType.Meta) // Added for first full snapshot
+        expect(result[0].timestamp).toBe(1000)
+        expect(result[1].type).toBe(EventType.FullSnapshot) // From source1
+        expect(result[1].timestamp).toBe(1000)
+        expect(result[2].type).toBe(EventType.IncrementalSnapshot) // From source1
+        expect(result[2].timestamp).toBe(1500)
+        expect(result[3].type).toBe(EventType.Meta) // Added for second full snapshot (cross-source)
+        expect(result[3].timestamp).toBe(2000)
+        expect(result[4].type).toBe(EventType.FullSnapshot) // From source2
+        expect(result[4].timestamp).toBe(2000)
+
+        // Should have 2 meta events (both patched) and 2 full snapshots
+        expect(result.filter((r) => r.type === EventType.Meta)).toHaveLength(2)
+        expect(result.filter((r) => r.type === EventType.FullSnapshot)).toHaveLength(2)
     })
 })
