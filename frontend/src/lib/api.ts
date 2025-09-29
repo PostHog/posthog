@@ -42,7 +42,7 @@ import {
     SourceConfig,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -1278,6 +1278,14 @@ export class ApiRequest {
         return this.queryEndpoint().addPathComponent(name)
     }
 
+    public lastExecution(): ApiRequest {
+        return this.addPathComponent('last_execution')
+    }
+
+    public lastExecutionTimes(): ApiRequest {
+        return this.addPathComponent('last_execution_times')
+    }
+
     // Conversations
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
@@ -1624,25 +1632,13 @@ const api = {
                 return {}
             }
 
-            const query = hogql`
-                SELECT
-                    name,
-                    max(query_start_time) as last_executed_at
-                FROM query_log
-                WHERE name in (${hogql.raw(names.map((name) => `'${name}'`).join(','))})
-                GROUP BY name
-            `
-
-            const response = await api.queryHogQL(query, {
-                refresh: 'force_blocking',
+            const response = await new ApiRequest().queryEndpoint().lastExecutionTimes().create({
+                data: { names },
             })
 
             const result: Record<string, string> = {}
-            for (const row of response.results) {
-                const [name, lastExecutedAt] = row
-                if (name && lastExecutedAt) {
-                    result[name] = lastExecutedAt
-                }
+            for (const name of names) {
+                result[name] = response.last_execution_times[name]
             }
 
             return result
