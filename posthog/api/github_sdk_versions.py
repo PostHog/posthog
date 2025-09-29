@@ -6,6 +6,7 @@ from django.http import JsonResponse
 
 import requests
 import structlog
+from posthoganalytics import capture_exception
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -36,9 +37,13 @@ def github_sdk_versions(request: Request, sdk_type: str) -> JsonResponse:
             data["cached"] = True
             logger.info(f"[SDK Doctor] {sdk_type.title()} SDK details successfully read from server CACHE")
             return JsonResponse(data)
-        except (json.JSONDecodeError, AttributeError):
+        except (json.JSONDecodeError, AttributeError) as e:
             # Cache corrupted, continue to fetch fresh
-            pass
+            logger.warning(f"[SDK Doctor] Cache corrupted for {sdk_type}", error=str(e))
+            capture_exception(
+                Exception(f"Cache corruption for {sdk_type}: {str(e)}"),
+                properties={"sdk_type": sdk_type, "cache_key": cache_key},
+            )
 
     # Fetch fresh data
     logger.info(f"[SDK Doctor] {sdk_type.title()} SDK info not found in CACHE, querying GitHub API")
@@ -53,8 +58,14 @@ def github_sdk_versions(request: Request, sdk_type: str) -> JsonResponse:
             )
             return JsonResponse(github_data)
         else:
+            logger.error(f"[SDK Doctor] No data received from GitHub for {sdk_type}")
             return JsonResponse({"error": "The Doctor is unavailable. Please try again later."}, status=500)
-    except Exception:
+    except Exception as e:
+        logger.exception(f"[SDK Doctor] Failed to fetch {sdk_type} data from GitHub")
+        capture_exception(
+            Exception(f"GitHub fetch failed for {sdk_type}: {str(e)}"),
+            properties={"sdk_type": sdk_type, "operation": "fetch_github_data"},
+        )
         return JsonResponse({"error": "The Doctor is unavailable. Please try again later."}, status=500)
 
 
@@ -99,6 +110,7 @@ def fetch_web_sdk_data() -> Optional[dict[str, Any]]:
             "https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/browser/CHANGELOG.md", timeout=10
         )
         if not changelog_response.ok:
+            logger.error(f"[SDK Doctor] Failed to fetch Web SDK changelog", status_code=changelog_response.status_code)
             return None
 
         changelog_content = changelog_response.text
@@ -106,6 +118,7 @@ def fetch_web_sdk_data() -> Optional[dict[str, Any]]:
         matches = version_pattern.findall(changelog_content)
 
         if not matches:
+            logger.error(f"[SDK Doctor] No version matches found in Web SDK changelog")
             return None
 
         latest_version = matches[0]
