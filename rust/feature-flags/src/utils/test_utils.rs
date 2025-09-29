@@ -10,24 +10,14 @@ use crate::{
 };
 use anyhow::Error;
 use axum::async_trait;
-use common_database::{get_pool_with_timeouts, Client, CustomDatabaseError, DatabaseTimeouts};
+use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
-use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
-use std::{sync::Arc, time::Duration};
+use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres, Row};
+use std::sync::Arc;
 use uuid::Uuid;
-
-// Test database timeouts - generous timeouts for test environment
-pub const TEST_TIMEOUTS: DatabaseTimeouts = DatabaseTimeouts {
-    statement_timeout: Duration::from_secs(5),
-    lock_timeout: Duration::from_secs(2),
-    acquire_timeout: Duration::from_secs(10),
-    idle_timeout: Duration::from_secs(300),  // 5 minutes
-    max_lifetime: Duration::from_secs(1800), // 30 minutes
-    idle_in_transaction_session_timeout: Duration::from_secs(30), // More generous for tests
-};
 
 pub fn random_string(prefix: &str, length: usize) -> String {
     let suffix: String = rand::thread_rng()
@@ -149,29 +139,19 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
 
 pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
-    let test_timeouts = TEST_TIMEOUTS;
     Arc::new(
-        get_pool_with_timeouts(
-            &config.read_database_url,
-            config.max_pg_connections,
-            test_timeouts,
-        )
-        .await
-        .expect("Failed to create Postgres client"),
+        get_pool(&config.read_database_url, config.max_pg_connections)
+            .await
+            .expect("Failed to create Postgres client"),
     )
 }
 
 pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
-    let test_timeouts = TEST_TIMEOUTS;
     Arc::new(
-        get_pool_with_timeouts(
-            &config.write_database_url,
-            config.max_pg_connections,
-            test_timeouts,
-        )
-        .await
-        .expect("Failed to create Postgres client"),
+        get_pool(&config.write_database_url, config.max_pg_connections)
+            .await
+            .expect("Failed to create Postgres client"),
     )
 }
 
@@ -181,39 +161,29 @@ pub async fn setup_dual_pg_readers(
     config: Option<&Config>,
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
-    let test_timeouts = TEST_TIMEOUTS;
 
     if config.is_persons_db_routing_enabled() {
         // Separate persons and non-persons databases
         let persons_reader = Arc::new(
-            get_pool_with_timeouts(
+            get_pool(
                 &config.get_persons_read_database_url(),
                 config.max_pg_connections,
-                test_timeouts.clone(),
             )
             .await
             .expect("Failed to create Postgres persons reader client"),
         );
         let non_persons_reader = Arc::new(
-            get_pool_with_timeouts(
-                &config.read_database_url,
-                config.max_pg_connections,
-                test_timeouts,
-            )
-            .await
-            .expect("Failed to create Postgres client"),
+            get_pool(&config.read_database_url, config.max_pg_connections)
+                .await
+                .expect("Failed to create Postgres client"),
         );
         (persons_reader, non_persons_reader)
     } else {
         // Same database for both
         let client = Arc::new(
-            get_pool_with_timeouts(
-                &config.read_database_url,
-                config.max_pg_connections,
-                test_timeouts,
-            )
-            .await
-            .expect("Failed to create Postgres client"),
+            get_pool(&config.read_database_url, config.max_pg_connections)
+                .await
+                .expect("Failed to create Postgres client"),
         );
         (client.clone(), client)
     }
@@ -225,39 +195,29 @@ pub async fn setup_dual_pg_writers(
     config: Option<&Config>,
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
-    let test_timeouts = TEST_TIMEOUTS;
 
     if config.is_persons_db_routing_enabled() {
         // Separate persons and non-persons databases
         let persons_writer = Arc::new(
-            get_pool_with_timeouts(
+            get_pool(
                 &config.get_persons_write_database_url(),
                 config.max_pg_connections,
-                test_timeouts.clone(),
             )
             .await
             .expect("Failed to create Postgres persons writer client"),
         );
         let non_persons_writer = Arc::new(
-            get_pool_with_timeouts(
-                &config.write_database_url,
-                config.max_pg_connections,
-                test_timeouts,
-            )
-            .await
-            .expect("Failed to create Postgres client"),
+            get_pool(&config.write_database_url, config.max_pg_connections)
+                .await
+                .expect("Failed to create Postgres client"),
         );
         (persons_writer, non_persons_writer)
     } else {
         // Same database for both
         let client = Arc::new(
-            get_pool_with_timeouts(
-                &config.write_database_url,
-                config.max_pg_connections,
-                test_timeouts,
-            )
-            .await
-            .expect("Failed to create Postgres client"),
+            get_pool(&config.write_database_url, config.max_pg_connections)
+                .await
+                .expect("Failed to create Postgres client"),
         );
         (client.clone(), client)
     }
@@ -267,6 +227,16 @@ pub struct MockPgClient;
 
 #[async_trait]
 impl Client for MockPgClient {
+    async fn run_query(
+        &self,
+        _query: String,
+        _parameters: Vec<String>,
+        _timeout_ms: Option<u64>,
+    ) -> Result<Vec<PgRow>, CustomDatabaseError> {
+        // Simulate a database connection failure
+        Err(CustomDatabaseError::Other(SqlxError::PoolTimedOut))
+    }
+
     async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
         // Simulate a database connection failure
         Err(CustomDatabaseError::Other(SqlxError::PoolTimedOut))
@@ -290,15 +260,15 @@ pub async fn insert_new_team_in_pg(
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
     // Create new organization from scratch (in non-persons database)
-    let mut conn = non_persons_client.get_connection().await?;
-    sqlx::query(r#"INSERT INTO posthog_organization
+    non_persons_client.run_query(
+        r#"INSERT INTO posthog_organization
         (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources)
         VALUES
         ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true)
-        ON CONFLICT DO NOTHING"#)
-        .bind(ORG_ID)
-        .execute(&mut *conn)
-        .await?;
+        ON CONFLICT DO NOTHING"#.to_string(),
+        vec![ORG_ID.to_string()],
+        Some(2000),
+    ).await?;
 
     // Create team model
     let id = match team_id {
