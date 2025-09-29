@@ -92,12 +92,6 @@ from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
 
-# Keeping products imports at the bottom to avoid circular imports errors
-# Products Imports
-from products.tasks.backend.models import Task
-from products.early_access_features.backend.models import EarlyAccessFeature
-from products.llm_analytics.backend.models import Dataset, DatasetItem
-
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 __all__ = [
@@ -120,10 +114,7 @@ __all__ = [
     "DashboardTile",
     "DashboardTemplate",
     "DataColorTheme",
-    "Dataset",
-    "DatasetItem",
     "DeletionType",
-    "EarlyAccessFeature",
     "Element",
     "ElementGroup",
     "Entity",
@@ -205,7 +196,6 @@ __all__ = [
     "Survey",
     "Tag",
     "TaggedItem",
-    "Task",
     "Team",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",

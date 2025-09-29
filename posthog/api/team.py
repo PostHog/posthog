@@ -44,6 +44,12 @@ from posthog.permissions import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.session_recordings.data_retention import (
+    VALID_RETENTION_PERIODS,
+    parse_feature_to_entitlement,
+    retention_violates_entitlement,
+    validate_retention_period,
+)
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
@@ -135,6 +141,7 @@ TEAM_CONFIG_FIELDS = (
     "session_recording_url_blocklist_config",
     "session_recording_event_trigger_config",
     "session_recording_trigger_match_type_config",
+    "session_recording_retention_period",
     "session_replay_config",
     "survey_config",
     "week_start_day",
@@ -370,6 +377,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return value
 
     @staticmethod
+    def validate_session_recording_retention_period(value) -> Literal["30d", "90d", "1y", "5y"] | None:
+        if not validate_retention_period(value):
+            raise exceptions.ValidationError(
+                f"Must provide a valid retention period. Options are: {VALID_RETENTION_PERIODS}."
+            )
+
+        return value
+
+    @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
         if value is None:
             return None
@@ -539,6 +555,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("marketing_analytics_config", None):
             self._update_marketing_analytics_config(instance, config_data)
 
+        if "session_recording_retention_period" in validated_data:
+            self._verify_update_session_recording_retention_period(
+                instance, validated_data["session_recording_retention_period"]
+            )
+
         if "survey_config" in validated_data:
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:
                 validated_data["survey_config"] = {
@@ -672,6 +693,24 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         self._capture_diff(instance, "marketing_analytics_config", old_config, new_config)
         return instance
+
+    def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):
+        retention_feature = instance.organization.get_available_feature(AvailableFeature.SESSION_REPLAY_DATA_RETENTION)
+        highest_retention_entitlement = parse_feature_to_entitlement(retention_feature)
+
+        if highest_retention_entitlement is None:
+            raise exceptions.APIException(detail="Invalid retention entitlement.")  # HTTP 500
+
+        # Should be validated already, but let's be extra sure to avoid IndexErrors below
+        if not validate_retention_period(new_retention_period):
+            raise exceptions.ValidationError(  # HTTP 400
+                f"Must provide a valid retention period. Options are: {VALID_RETENTION_PERIODS}."
+            )
+
+        if retention_violates_entitlement(new_retention_period, highest_retention_entitlement):
+            raise exceptions.PermissionDenied(  # HTTP 403
+                f"This organization does not have permission to set retention period of length '{new_retention_period}' - longest allowable retention period is '{highest_retention_entitlement}'."
+            )
 
     def _capture_diff(self, instance: Team, key: str, before: dict, after: dict):
         changes = dict_changes_between(
@@ -993,7 +1032,7 @@ def validate_team_attrs(
             raise exceptions.ValidationError(
                 {"primary_dashboard": "Primary dashboard cannot be set on project creation."}
             )
-        if attrs["primary_dashboard"].team_id != instance.id:
+        if attrs["primary_dashboard"] and attrs["primary_dashboard"].team_id != instance.id:
             raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
 
     if "autocapture_exceptions_errors_to_ignore" in attrs:

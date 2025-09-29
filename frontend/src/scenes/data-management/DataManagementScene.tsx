@@ -5,7 +5,6 @@ import React from 'react'
 import { IconInfo } from '@posthog/icons'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
@@ -15,7 +14,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
-import { AdvancedActivityLogsList } from 'scenes/audit-logs/AdvancedActivityLogsList'
 import { Comments } from 'scenes/data-management/comments/Comments'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -39,7 +37,6 @@ export enum DataManagementTab {
     Annotations = 'annotations',
     Comments = 'comments',
     History = 'history',
-    ActivityLogs = 'activity-logs',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
     MarketingAnalytics = 'marketing-analytics',
@@ -127,12 +124,6 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         ),
         tooltipDocLink: 'https://posthog.com/docs/data#history',
     },
-    [DataManagementTab.ActivityLogs]: {
-        url: urls.advancedActivityLogs(),
-        label: 'Activity logs',
-        content: <AdvancedActivityLogsList />,
-        flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
-    },
     [DataManagementTab.Revenue]: {
         url: urls.revenueSettings(),
         label: (
@@ -192,6 +183,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                         key: tab,
                         name: capitalizeFirstLetter(tab),
                         path: tabs[tab].url,
+                        iconType: 'event_definition',
                     },
                 ]
             },
@@ -253,12 +245,7 @@ export function DataManagementScene(): JSX.Element | null {
     const { enabledTabs, tab } = useValues(dataManagementSceneLogic)
 
     if (enabledTabs.includes(tab)) {
-        return (
-            <>
-                <PageHeader buttons={<>{tabs[tab].buttons}</>} />
-                {tabs[tab].content}
-            </>
-        )
+        return <>{tabs[tab].content}</>
     }
     return null
 }
