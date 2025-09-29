@@ -15,12 +15,11 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
 from posthog.models.team.team import Team
 
 
 def normalize_to_exposure_criteria(
-    exposure_criteria: Union[Experiment, ExperimentExposureCriteria, dict, None],
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
 ) -> Optional[ExperimentExposureCriteria]:
     """
     Normalizes various input types to a properly typed ExperimentExposureCriteria object.
@@ -35,12 +34,6 @@ def normalize_to_exposure_criteria(
         ExperimentExposureCriteria object or None
     """
     if exposure_criteria is None:
-        return None
-
-    # Handle Experiment object (backwards compatibility)
-    if isinstance(exposure_criteria, Experiment):
-        if exposure_criteria.exposure_criteria:
-            return normalize_to_exposure_criteria(exposure_criteria.exposure_criteria)
         return None
 
     # Already a typed object, return as-is
@@ -59,18 +52,17 @@ def normalize_to_exposure_criteria(
 
 
 def get_multiple_variant_handling_from_experiment(
-    exposure_criteria: Union[Experiment, ExperimentExposureCriteria, dict, None],
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
 ) -> MultipleVariantHandling:
     """
     Determines how to handle entities exposed to multiple variants based on experiment configuration.
     """
-    # Normalize to typed object
     criteria = normalize_to_exposure_criteria(exposure_criteria)
 
     if criteria and criteria.multiple_variant_handling:
         return criteria.multiple_variant_handling
 
-    # Default to "exclude" if not specified (maintains backwards compatibility)
+    # Default to "exclude" if not specified
     return MultipleVariantHandling.EXCLUDE
 
 
