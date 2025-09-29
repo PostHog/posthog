@@ -390,6 +390,15 @@ class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         return queryset.filter(is_archived=False)
 
+    def perform_create(self, serializer):
+        workflow_id = self.kwargs.get("parent_lookup_workflow_id")
+
+        if workflow_id:
+            if not TaskWorkflow.objects.filter(id=workflow_id, team=self.team).exists():
+                raise NotFound("Workflow not found")
+
+        serializer.save()
+
     @action(detail=True, methods=["post"])
     def archive(self, request, pk=None, **kwargs):
         """Archive a stage instead of deleting it"""

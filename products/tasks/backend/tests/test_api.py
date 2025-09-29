@@ -530,3 +530,189 @@ class TestTaskProgressAPI(BaseTaskAPITest):
         data = response.json()
         # Should include the updated progress
         self.assertEqual(len(data["progress_updates"]), 1)
+
+
+class TestPermissionsAndFeatureFlags(BaseTaskAPITest):
+    def setUp(self):
+        super().setUp()
+        # Create another team/org for cross-team tests
+        self.other_org = Organization.objects.create(name="Other Org")
+        self.other_team = Team.objects.create(organization=self.other_org, name="Other Team")
+        self.other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        self.other_org.members.add(self.other_user)
+        OrganizationMembership.objects.filter(user=self.other_user, organization=self.other_org).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_workflows_feature_flag_required(self):
+        self.set_tasks_feature_flag(False)
+        workflow = self.create_workflow()
+
+        endpoints = [
+            ("/api/projects/@current/workflows/", "GET"),
+            (f"/api/projects/@current/workflows/{workflow.id}/", "GET"),
+            ("/api/projects/@current/workflows/", "POST"),
+            (f"/api/projects/@current/workflows/{workflow.id}/", "PATCH"),
+            (f"/api/projects/@current/workflows/{workflow.id}/", "DELETE"),
+            (f"/api/projects/@current/workflows/{workflow.id}/set_default/", "POST"),
+            (f"/api/projects/@current/workflows/{workflow.id}/deactivate/", "POST"),
+            ("/api/projects/@current/workflows/create_default/", "POST"),
+        ]
+
+        for url, method in endpoints:
+            response = getattr(self.client, method.lower())(url, format="json")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
+
+    def test_tasks_feature_flag_required(self):
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+
+        endpoints = [
+            ("/api/projects/@current/tasks/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/", "GET"),
+            ("/api/projects/@current/tasks/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/", "PATCH"),
+            (f"/api/projects/@current/tasks/{task.id}/", "DELETE"),
+            (f"/api/projects/@current/tasks/{task.id}/update_stage/", "PATCH"),
+            (f"/api/projects/@current/tasks/{task.id}/update_position/", "PATCH"),
+            ("/api/projects/@current/tasks/bulk_reorder/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/progress/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/progress_stream/", "GET"),
+        ]
+
+        for url, method in endpoints:
+            response = getattr(self.client, method.lower())(url, format="json")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
+
+    def test_workflow_stages_feature_flag_required(self):
+        self.set_tasks_feature_flag(False)
+        workflow = self.create_workflow()
+        stage = workflow.stages.first()
+
+        endpoints = [
+            (f"/api/projects/@current/workflows/{workflow.id}/stages/", "GET"),
+            (f"/api/projects/@current/workflows/{workflow.id}/stages/{stage.id}/", "GET"),
+            (f"/api/projects/@current/workflows/{workflow.id}/stages/", "POST"),
+            (f"/api/projects/@current/workflows/{workflow.id}/stages/{stage.id}/", "PATCH"),
+            (f"/api/projects/@current/workflows/{workflow.id}/stages/{stage.id}/", "DELETE"),
+            (f"/api/projects/@current/workflows/{workflow.id}/stages/{stage.id}/archive/", "POST"),
+        ]
+
+        for url, method in endpoints:
+            response = getattr(self.client, method.lower())(url, format="json")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
+
+    def test_authentication_required(self):
+        # Create resources before removing authentication
+        workflow = self.create_workflow()
+        task = self.create_task(workflow=workflow)
+
+        # Now remove authentication
+        self.client.force_authenticate(None)
+
+        endpoints = [
+            ("/api/projects/@current/workflows/", "GET"),
+            ("/api/projects/@current/tasks/", "GET"),
+            (f"/api/projects/@current/workflows/{workflow.id}/stages/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/progress/", "GET"),
+        ]
+
+        for url, method in endpoints:
+            response = getattr(self.client, method.lower())(url)
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, f"Failed for {method} {url}")
+
+    def test_cross_team_workflow_access_forbidden(self):
+        # Create workflow in other team
+        other_workflow = TaskWorkflow.objects.create(team=self.other_team, name="Other Team Workflow", is_default=True)
+
+        # Try to access other team's workflow
+        response = self.client.get(f"/api/projects/@current/workflows/{other_workflow.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Try to update other team's workflow
+        response = self.client.patch(
+            f"/api/projects/@current/workflows/{other_workflow.id}/", {"name": "Hacked Name"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Try to delete other team's workflow
+        response = self.client.delete(f"/api/projects/@current/workflows/{other_workflow.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cross_team_task_access_forbidden(self):
+        # Create task in other team
+        other_task = Task.objects.create(
+            team=self.other_team,
+            title="Other Team Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        # Try to access other team's task
+        response = self.client.get(f"/api/projects/@current/tasks/{other_task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Try to update other team's task
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{other_task.id}/", {"title": "Hacked Title"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Try to delete other team's task
+        response = self.client.delete(f"/api/projects/@current/tasks/{other_task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cross_team_workflow_stage_access_forbidden(self):
+        # Create workflow and stage in other team
+        other_workflow = TaskWorkflow.objects.create(team=self.other_team, name="Other Team Workflow", is_default=True)
+        other_stage = WorkflowStage.objects.create(workflow=other_workflow, name="Other Stage", key="other", position=0)
+
+        # Try to access other team's stages - should return empty list, not 404
+        # because the workflow exists but stages are filtered by team
+        response = self.client.get(f"/api/projects/@current/workflows/{other_workflow.id}/stages/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 0)
+
+        # Try to access specific other team's stage
+        response = self.client.get(f"/api/projects/@current/workflows/{other_workflow.id}/stages/{other_stage.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Try to create stage in other team's workflow
+        response = self.client.post(
+            f"/api/projects/@current/workflows/{other_workflow.id}/stages/",
+            {
+                "workflow": str(other_workflow.id),
+                "name": "Hacked Stage",
+                "key": "hacked",
+                "position": 1,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_endpoints_only_return_team_resources(self):
+        # Create resources in both teams
+        my_workflow = self.create_workflow("My Workflow")
+        my_task = self.create_task("My Task")
+
+        other_workflow = TaskWorkflow.objects.create(team=self.other_team, name="Other Workflow", is_default=True)
+        other_task = Task.objects.create(
+            team=self.other_team,
+            title="Other Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        # List workflows should only return my team's workflows
+        response = self.client.get("/api/projects/@current/workflows/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        workflow_ids = [w["id"] for w in response.json()["results"]]
+        self.assertIn(str(my_workflow.id), workflow_ids)
+        self.assertNotIn(str(other_workflow.id), workflow_ids)
+
+        # List tasks should only return my team's tasks
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task_ids = [t["id"] for t in response.json()["results"]]
+        self.assertIn(str(my_task.id), task_ids)
+        self.assertNotIn(str(other_task.id), task_ids)

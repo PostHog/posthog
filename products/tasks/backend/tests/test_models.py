@@ -449,14 +449,15 @@ class TestTask(TestCase):
         )
         self.assertEqual(str(task), "Test Task (backlog)")
 
-    def test_str_representation_without_workflow(self):
+    def test_str_representation_with_auto_assigned_workflow(self):
         task = Task.objects.create(
             team=self.team,
             title="Test Task",
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
-        self.assertEqual(str(task), "Test Task (no workflow)")
+        # Task gets auto-assigned to default workflow and first stage
+        self.assertEqual(str(task), "Test Task (backlog)")
 
     def test_save_auto_assigns_first_stage(self):
         task = Task.objects.create(
