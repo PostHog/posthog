@@ -116,43 +116,35 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
     }
 
     return (
-        <div className="px-4 py-4">
-            <div className="mb-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-3">
-                        <div>
-                            <div className="text-xs font-medium text-muted-alt uppercase tracking-wider mb-1">
-                                Description
-                            </div>
-                            <div className="text-sm text-default [&_div]:inline [&_div]:mr-1">
-                                {logItem.description}
-                            </div>
+        <div className="p-4 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                    <div>
+                        <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
+                            Description
                         </div>
-                        {logItem.extendedDescription && (
-                            <div>
-                                <div className="text-xs font-medium text-muted-alt uppercase tracking-wider mb-1">
-                                    Extended Description
-                                </div>
-                                <div className="text-sm text-default [&_div]:inline [&_div]:mr-1">
-                                    {logItem.extendedDescription}
-                                </div>
-                            </div>
-                        )}
-                        {unprocessed.item_id && (
-                            <div>
-                                <div className="text-xs font-medium text-muted-alt uppercase tracking-wider mb-1">
-                                    Item ID
-                                </div>
-                                <div className="text-sm text-default">{unprocessed.item_id}</div>
-                            </div>
-                        )}
+                        <div className="text-[13px] text-default">{logItem.description}</div>
                     </div>
+                    {logItem.extendedDescription && (
+                        <div>
+                            <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
+                                Extended Description
+                            </div>
+                            <div className="text-[13px] text-default">{logItem.extendedDescription}</div>
+                        </div>
+                    )}
+                    {unprocessed.item_id && (
+                        <div>
+                            <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
+                                Item ID
+                            </div>
+                            <div className="text-[13px] text-default">{unprocessed.item_id}</div>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            <div>
-                <ActivityDetailsSection logItem={logItem} />
-            </div>
+            <ActivityDetailsSection logItem={logItem} />
         </div>
     )
 }
@@ -171,9 +163,9 @@ const ActivityDetailsSection = ({ logItem }: { logItem: HumanizedActivityLogItem
                 logItem.extendedDescription
                     ? {
                           key: 'extended description',
-                          label: 'Extended Description',
+                          label: 'Extended description',
                           tooltip: 'Some activities have a more detailed description that is not shown when collapsed.',
-                          content: <div className="[&_div]:inline [&_div]:mr-1">{logItem.extendedDescription}</div>,
+                          content: <div>{logItem.extendedDescription}</div>,
                       }
                     : false,
                 {
