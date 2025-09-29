@@ -2,8 +2,8 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 import * as v8 from 'v8'
 
+import { PluginsServerConfig } from '../types'
 import { logger } from './logger'
-import { getObjectStorage } from './object_storage'
 
 /**
  * Simple heap dump utility based on signal handling
@@ -14,34 +14,28 @@ import { getObjectStorage } from './object_storage'
  * - Heap dump will be written to the configured directory
  */
 
-interface HeapDumpConfig {
-    enabled: boolean
-    s3Bucket: string
-    s3Prefix?: string
-}
+// No interface needed - we'll use PluginsServerConfig directly
 
 let isHeapDumpEnabled = false
 let s3Client: S3Client | undefined
 let s3Bucket: string | undefined
 let s3Prefix = 'heap-dumps'
 
-export function initializeHeapDump(config: HeapDumpConfig): void {
-    if (!config.enabled) {
+export function initializeHeapDump(config: PluginsServerConfig, heapDumpS3Client?: S3Client): void {
+    if (!config.HEAP_DUMP_ENABLED) {
         logger.debug('Heap dump functionality is disabled')
         return
     }
 
     isHeapDumpEnabled = true
-    s3Bucket = config.s3Bucket
-    s3Prefix = config.s3Prefix || 'heap-dumps'
+    s3Bucket = config.HEAP_DUMP_S3_BUCKET
+    s3Prefix = config.HEAP_DUMP_S3_PREFIX
 
-    // Initialize S3 client - required for heap dumps
-    const objectStorage = getObjectStorage({})
-    if (objectStorage) {
-        s3Client = objectStorage.s3
-        logger.info('📸 S3 storage configured for heap dumps', { bucket: s3Bucket, prefix: s3Prefix })
+    if (heapDumpS3Client && s3Bucket) {
+        s3Client = heapDumpS3Client
+        logger.info('📸 S3 client configured for heap dumps', { bucket: s3Bucket, prefix: s3Prefix })
     } else {
-        logger.error('📸 S3 bucket configured but object storage not available')
+        logger.error('📸 Heap dump S3 client or bucket not provided')
         return
     }
 

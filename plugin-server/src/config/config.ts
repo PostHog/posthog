@@ -210,8 +210,10 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         // Heap dump configuration
         HEAP_DUMP_ENABLED: false,
-        HEAP_DUMP_S3_BUCKET: '', // Use OBJECT_STORAGE_BUCKET if not specified
+        HEAP_DUMP_S3_BUCKET: '',
         HEAP_DUMP_S3_PREFIX: 'heap-dumps',
+        HEAP_DUMP_S3_ENDPOINT: '',
+        HEAP_DUMP_S3_REGION: '',
 
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
