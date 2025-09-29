@@ -71,6 +71,42 @@ pub enum FlagError {
     CookielessError(#[from] CookielessManagerError),
 }
 
+impl FlagError {
+    pub fn is_5xx(&self) -> bool {
+        let status = match self {
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+            FlagError::ClientFacing(_) => return false, // All other ClientFacing are 4XX
+            FlagError::Internal(_)
+            | FlagError::CacheUpdateError
+            | FlagError::DeserializeFiltersError
+            | FlagError::DatabaseError(_, _)
+            | FlagError::NoGroupTypeMappings
+            | FlagError::RowNotFound
+            | FlagError::DependencyNotFound(_, _)
+            | FlagError::CohortFiltersParsingError
+            | FlagError::DependencyCycle(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
+
+            FlagError::RedisDataParsingError
+            | FlagError::RedisUnavailable
+            | FlagError::DatabaseUnavailable
+            | FlagError::TimeoutError => StatusCode::SERVICE_UNAVAILABLE,
+
+            FlagError::CookielessError(
+                CookielessManagerError::HashError(_)
+                | CookielessManagerError::ChronoError(_)
+                | CookielessManagerError::RedisError(_, _)
+                | CookielessManagerError::SaltCacheError(_)
+                | CookielessManagerError::InvalidIdentifyCount(_),
+            ) => StatusCode::INTERNAL_SERVER_ERROR,
+            FlagError::CookielessError(_) => return false, // Other CookielessErrors are 4XX
+            _ => return false,                             // Everything else is 4XX
+        };
+        status.is_server_error()
+    }
+}
+
 impl IntoResponse for FlagError {
     fn into_response(self) -> Response {
         match self {
@@ -249,5 +285,35 @@ impl From<sqlx::Error> for FlagError {
             sqlx::Error::RowNotFound => FlagError::RowNotFound,
             _ => FlagError::DatabaseError(e, None),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_5xx() {
+        // Test 5XX errors
+        assert!(FlagError::Internal("test".to_string()).is_5xx());
+        assert!(FlagError::CacheUpdateError.is_5xx());
+        assert!(FlagError::DatabaseUnavailable.is_5xx());
+        assert!(FlagError::RedisUnavailable.is_5xx());
+        assert!(FlagError::TimeoutError.is_5xx());
+        assert!(FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).is_5xx());
+
+        // Test 4XX errors
+        assert!(
+            !FlagError::ClientFacing(ClientFacingError::BadRequest("test".to_string())).is_5xx()
+        );
+        assert!(
+            !FlagError::ClientFacing(ClientFacingError::Unauthorized("test".to_string())).is_5xx()
+        );
+        assert!(!FlagError::ClientFacing(ClientFacingError::RateLimited).is_5xx());
+        assert!(!FlagError::ClientFacing(ClientFacingError::BillingLimit).is_5xx());
+        assert!(!FlagError::MissingDistinctId.is_5xx());
+        assert!(!FlagError::NoTokenError.is_5xx());
+        assert!(!FlagError::TokenValidationError.is_5xx());
+        assert!(!FlagError::PersonNotFound.is_5xx());
     }
 }
