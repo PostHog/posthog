@@ -338,7 +338,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </ButtonPrimitive>
                         )}
 
-                        {exportContext ? (
+                        {exportContext && insight.short_id != null ? (
                             <SceneExportDropdownMenu
                                 dropdownMenuItems={[
                                     {
