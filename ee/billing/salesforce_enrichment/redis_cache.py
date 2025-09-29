@@ -72,27 +72,29 @@ async def get_cached_accounts_count() -> Optional[int]:
     Returns:
         Total number of cached accounts, or None if cache miss/error
     """
+    logger = LOGGER.bind()
+
     try:
-        LOGGER.info("Getting Redis client")
+        logger.info("Getting Redis client")
         redis_client = get_async_client()
 
-        LOGGER.info("Fetching Redis data")
+        logger.info("Fetching Redis data")
         raw_redis_data = await asyncio.wait_for(redis_client.get(SALESFORCE_ACCOUNTS_CACHE_KEY), timeout=30.0)
 
         if not raw_redis_data:
-            LOGGER.info("No cached data found")
+            logger.info("No cached data found")
             return None
 
         accounts_json = _decompress_redis_data(raw_redis_data)
         all_accounts = json.loads(accounts_json)
         count = len(all_accounts)
-        LOGGER.info(f"Found {count} cached accounts")
+        logger.info(f"Found {count} cached accounts")
         return count
 
     except TimeoutError:
-        LOGGER.exception("Redis operation timed out after 30 seconds")
+        logger.exception("Redis operation timed out after 30 seconds")
         return None
     except Exception as e:
-        LOGGER.exception(f"Redis error: {str(e)}")
+        logger.exception(f"Redis error: {str(e)}")
         capture_exception(e)
         return None
