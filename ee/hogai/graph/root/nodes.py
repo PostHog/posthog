@@ -130,9 +130,10 @@ class RootNode(AssistantNode):
         if await self._should_summarize_conversation(state, tools, langchain_messages):
             # Exclude the last message if it's the first turn.
             messages_to_summarize = langchain_messages[:-1] if self._is_first_turn(state) else langchain_messages
-            summary = await AnthropicConversationSummarizer().summarize(messages_to_summarize, config)
-            summary_message = HumanMessage(
-                content=ROOT_CONVERSATION_SUMMARY_PROMPT.format(summary=summary), id=str(uuid4()), visible=False
+            summary = await AnthropicConversationSummarizer().summarize(messages_to_summarize)
+            summary_message = ContextMessage(
+                content=ROOT_CONVERSATION_SUMMARY_PROMPT.format(summary=summary),
+                id=str(uuid4()),
             )
 
             # Insert the summary message before the last human message
@@ -176,8 +177,7 @@ class RootNode(AssistantNode):
             template_format="mustache",
         ).format_messages(
             personality_prompt=MAX_PERSONALITY_PROMPT,
-            core_memory_prompt=CORE_MEMORY_PROMPT,
-            core_memory=core_memory,
+            core_memory_prompt=CORE_MEMORY_PROMPT.format(core_memory=core_memory),
             billing_context=billing_context_prompt,
         )
 
