@@ -2,6 +2,8 @@ from typing import Any
 
 import pytest
 
+from langchain_core.runnables import RunnableConfig
+
 from posthog.models import Organization, Team, User
 
 from ee.hogai.ai.products.analytics import AnalyticsAIProduct
@@ -48,7 +50,7 @@ def test_rootnode_includes_product_tool_schemas_in_bind(monkeypatch):
 
     captured: dict[str, Any] = {}
 
-    def fake_bind_tools(self, tools, parallel_tool_calls=False):  # type: ignore[override]
+    def fake_bind_tools(self, tools, parallel_tool_calls=False):
         captured["tools"] = tools
         return "BOUND"
 
@@ -56,7 +58,7 @@ def test_rootnode_includes_product_tool_schemas_in_bind(monkeypatch):
 
     root = RootNode(team, user)
     state = AssistantState(messages=[])
-    config = {"configurable": {"team": team, "user": user, "contextual_tools": {}}}
+    config = RunnableConfig(configurable={"team": team, "user": user, "contextual_tools": {}})
 
     bound = root._get_model(state, config)
     assert bound == "BOUND"
@@ -77,7 +79,7 @@ def test_rootnode_includes_contextual_tools_alongside_products(monkeypatch):
 
     captured: dict[str, Any] = {}
 
-    def fake_bind_tools(self, tools, parallel_tool_calls=False):  # type: ignore[override]
+    def fake_bind_tools(self, tools, parallel_tool_calls=False):
         captured["tools"] = tools
         return "BOUND"
 
@@ -85,13 +87,13 @@ def test_rootnode_includes_contextual_tools_alongside_products(monkeypatch):
 
     root = RootNode(team, user)
     state = AssistantState(messages=[])
-    config = {
-        "configurable": {
+    config = RunnableConfig(
+        configurable={
             "team": team,
             "user": user,
             "contextual_tools": {"navigate": {"current_page": "insights"}},
         }
-    }
+    )
 
     bound = root._get_model(state, config)
     assert bound == "BOUND"
@@ -143,7 +145,7 @@ def test_product_gating_excludes_tools_in_root_bind(monkeypatch):
 
     captured: dict[str, Any] = {}
 
-    def fake_bind_tools(self, tools, parallel_tool_calls=False):  # type: ignore[override]
+    def fake_bind_tools(self, tools, parallel_tool_calls=False):
         captured["tools"] = tools
         return "BOUND"
 
@@ -151,7 +153,7 @@ def test_product_gating_excludes_tools_in_root_bind(monkeypatch):
 
     root = RootNode(team, user)
     state = AssistantState(messages=[])
-    config = {"configurable": {"team": team, "user": user, "contextual_tools": {}}}
+    config = RunnableConfig(configurable={"team": team, "user": user, "contextual_tools": {}})
     bound = root._get_model(state, config)
     assert bound == "BOUND"
 

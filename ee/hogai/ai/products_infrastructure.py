@@ -70,7 +70,7 @@ def tool_to_schema(Tool: type[MaxTool]) -> type[BaseModel]:
         schema_cls = type(f"{tool_name}_Args", (BaseModel,), {})
 
     # Create schema with correct name and description
-    PydanticTool = type(tool_name, (schema_cls,), {})  # type: ignore[arg-type]
+    PydanticTool = type(tool_name, (schema_cls,), {})
     desc = ""
     if hasattr(Tool, "model_fields") and "description" in Tool.model_fields:
         desc = Tool.model_fields["description"].default or ""
@@ -150,7 +150,7 @@ def ensure_products_loaded() -> None:
 
 def get_core_tool_schemas(team: Team, user: User) -> list[type[BaseModel]]:
     """Return schemas for core tools that should always be available to the agent."""
-    return [search_documentation] if settings.INKEEP_API_KEY else []
+    return [search_documentation] if getattr(settings, "INKEEP_API_KEY", None) else []
 
 
 def get_all_tool_schemas(team: Team, user: User) -> list[type[BaseModel]]:
@@ -172,7 +172,7 @@ def get_tool_class(tool_name: str) -> type[MaxTool] | None:
         return tool_class
     try:
         return get_contextual_tool_class(tool_name)
-    except (ImportError, AttributeError, KeyError):
+    except (ImportError, AttributeError, KeyError, ValueError):
         return None
 
 
