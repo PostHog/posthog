@@ -117,30 +117,30 @@ class DeltaSnapshot:
         delta_table = self.get_delta_table()
         self.schema.add_pyarrow_record_batch(data)
 
-        use_partitioning = PARTITION_KEY in data.column_names
+        partition_exists = PARTITION_KEY in data.column_names
+
+        if not partition_exists:
+            raise Exception("Partition key not found in data. This is required for snapshots.")
 
         if delta_table is None:
             delta_table = deltalake.DeltaTable.create(
                 table_uri=self._get_delta_table_uri(),
                 schema=make_schema_nullable(data.schema),
                 storage_options=self._get_credentials(),
-                partition_by=PARTITION_KEY if use_partitioning else None,
+                partition_by=PARTITION_KEY,
             )
         else:
             delta_table = self._evolve_delta_schema(data.schema)
 
-        if use_partitioning:
-            predicate_ops = [
-                "source._ph_merge_key = target._ph_merge_key",
-            ]
-            unique_partitions = pc.unique(data[PARTITION_KEY])
-            for partition in unique_partitions:
-                predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
-                predicate = " AND ".join(predicate_ops)
-                filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
-                self._merge_table(delta_table, filtered_table, predicate)
-        else:
-            self._merge_table(delta_table, data, "source._ph_merge_key = target._ph_merge_key")
+        predicate_ops = [
+            "source._ph_merge_key = target._ph_merge_key",
+        ]
+        unique_partitions = pc.unique(data[PARTITION_KEY])
+        for partition in unique_partitions:
+            predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
+            predicate = " AND ".join(predicate_ops)
+            filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
+            self._merge_table(delta_table, filtered_table, predicate)
 
     def _merge_table(self, delta_table: deltalake.DeltaTable, data: pa.RecordBatch, predicate: str):
         now_micros = int(datetime.now(UTC).timestamp() * 1_000_000)

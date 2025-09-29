@@ -599,12 +599,11 @@ def create_hogql_database(
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
                 if saved_query.type == DataWarehouseSavedQuery.Type.SNAPSHOT:
-                    table_chain = [SNAPSHOTS_TABLE_GROUP_NAME]
-                    table_chain.append(saved_query.name)
+                    table_chain = [SNAPSHOTS_TABLE_GROUP_NAME, saved_query.name]
                     s3_table = saved_query.hogql_definition(modifiers)
-                    joined_table_chain = ".".join(table_chain)
-                    s3_table.name = joined_table_chain
-                    warehouse_tables_dot_notation_mapping[joined_table_chain] = saved_query.name
+                    joined_table_name = ".".join(table_chain)
+                    s3_table.name = joined_table_name
+                    warehouse_tables_dot_notation_mapping[joined_table_name] = saved_query.name
                     create_nested_table_group(table_chain, views, s3_table)
                 else:
                     views[saved_query.name] = saved_query.hogql_definition(modifiers)
@@ -685,17 +684,16 @@ def create_hogql_database(
                     # where a.b.c will contain the s3_table
                     create_nested_table_group(table_chain_parts, warehouse_tables, s3_table)
 
-                    joined_table_chain = ".".join(table_chain_parts)
-                    s3_table.name = joined_table_chain
-                    warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+                    joined_table_name = ".".join(table_chain_parts)
+                    s3_table.name = joined_table_name
+                    warehouse_tables_dot_notation_mapping[joined_table_name] = table.name
 
                 if table.type == DataWarehouseTable.Type.SNAPSHOT:
-                    snapshot_table_chain: list[str] = [SNAPSHOTS_TABLE_GROUP_NAME]
-                    snapshot_table_chain.append(table.name)
+                    snapshot_table_chain: list[str] = [SNAPSHOTS_TABLE_GROUP_NAME, table.name]
                     create_nested_table_group(snapshot_table_chain, warehouse_tables, s3_table)
-                    joined_table_chain = ".".join(snapshot_table_chain)
-                    s3_table.name = joined_table_chain
-                    warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+                    joined_table_name = ".".join(snapshot_table_chain)
+                    s3_table.name = joined_table_name
+                    warehouse_tables_dot_notation_mapping[joined_table_name] = table.name
 
     def define_mappings(store: TableStore, get_table: Callable):
         table: Table | None = None
