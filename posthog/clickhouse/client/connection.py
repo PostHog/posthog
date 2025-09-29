@@ -199,7 +199,6 @@ def get_client_from_pool(
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
-    return None
     """
     Returns the client for a given workload.
 
