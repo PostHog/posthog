@@ -310,8 +310,8 @@ async fn test_anon_distinct_id_from_person_properties() -> Result<()> {
     let flag_row = FeatureFlagRow {
         id: 102,
         team_id: team.id,
-        name: Some("Person Properties Test Flag".to_string()),
-        key: "person-props-test-flag".to_string(),
+        name: Some("Experience Flag".to_string()),
+        key: "experience-flag-test".to_string(),
         filters: json!({
             "groups": [{"rollout_percentage": 50}]
         }),
@@ -355,7 +355,7 @@ async fn test_anon_distinct_id_from_person_properties() -> Result<()> {
     let json_response = res.json::<Value>().await?;
 
     assert_eq!(
-        json_response["flags"]["person-props-test-flag"]["enabled"],
+        json_response["flags"]["experience-flag-test"]["enabled"],
         json!(false),
         "User should initially evaluate to false"
     );
@@ -374,7 +374,7 @@ async fn test_anon_distinct_id_from_person_properties() -> Result<()> {
     let anon_json = anon_res.json::<Value>().await?;
 
     assert_eq!(
-        anon_json["flags"]["person-props-test-flag"]["enabled"],
+        anon_json["flags"]["experience-flag-test"]["enabled"],
         json!(true),
         "Anon ID should evaluate to true"
     );
@@ -396,7 +396,7 @@ async fn test_anon_distinct_id_from_person_properties() -> Result<()> {
     let override_json = override_res.json::<Value>().await?;
 
     assert_eq!(
-        override_json["flags"]["person-props-test-flag"]["enabled"],
+        override_json["flags"]["experience-flag-test"]["enabled"],
         json!(true),
         "With $anon_distinct_id in person_properties, should evaluate to true"
     );
@@ -414,7 +414,7 @@ async fn test_anon_distinct_id_from_person_properties() -> Result<()> {
     let final_json = final_res.json::<Value>().await?;
 
     assert_eq!(
-        final_json["flags"]["person-props-test-flag"]["enabled"],
+        final_json["flags"]["experience-flag-test"]["enabled"],
         json!(true),
         "Override should persist even without $anon_distinct_id"
     );
@@ -430,12 +430,12 @@ async fn test_top_level_anon_distinct_id_takes_precedence() -> Result<()> {
         .await
         .expect("Failed to insert team");
 
-    // Create flag
+    // Create flag (use same key as other tests for consistent hashing)
     let flag_row = FeatureFlagRow {
         id: 103,
         team_id: team.id,
-        name: Some("Precedence Test Flag".to_string()),
-        key: "precedence-test-flag".to_string(),
+        name: Some("Experience Flag".to_string()),
+        key: "experience-flag-test".to_string(),
         filters: json!({
             "groups": [{"rollout_percentage": 50}]
         }),
@@ -483,7 +483,7 @@ async fn test_top_level_anon_distinct_id_takes_precedence() -> Result<()> {
     let true_json = true_res.json::<Value>().await?;
 
     assert_eq!(
-        true_json["flags"]["precedence-test-flag"]["enabled"],
+        true_json["flags"]["experience-flag-test"]["enabled"],
         json!(true),
         "true_eval_id should evaluate to true"
     );
@@ -506,7 +506,7 @@ async fn test_top_level_anon_distinct_id_takes_precedence() -> Result<()> {
     let json_response = res.json::<Value>().await?;
 
     assert_eq!(
-        json_response["flags"]["precedence-test-flag"]["enabled"],
+        json_response["flags"]["experience-flag-test"]["enabled"],
         json!(true),
         "Top-level $anon_distinct_id should take precedence (evaluates to true)"
     );
