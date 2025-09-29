@@ -197,7 +197,7 @@
 # ---
 # name: TestFormula.test_breakdown_cohort
   '''
-  /* cohort_calculation:cohort_calc:7835013d */
+  /* cohort_calculation:cohort_calc:a68efbd3 */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -206,7 +206,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:7835013d%'
+    AND query LIKE '%cohort_calc:a68efbd3%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
