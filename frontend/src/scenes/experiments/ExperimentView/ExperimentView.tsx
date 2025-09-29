@@ -200,7 +200,8 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft } =
+        useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
@@ -226,11 +227,15 @@ export function ExperimentView(): JSX.Element {
                                 label: 'Metrics',
                                 content: <MetricsTab />,
                             },
-                            {
-                                key: 'code',
-                                label: 'Code',
-                                content: <CodeTab />,
-                            },
+                            ...(!isExperimentDraft
+                                ? [
+                                      {
+                                          key: 'code',
+                                          label: 'Code',
+                                          content: <CodeTab />,
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'variants',
                                 label: 'Variants',

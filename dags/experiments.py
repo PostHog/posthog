@@ -35,11 +35,14 @@ experiment_timeseries_partitions_def = dagster.DynamicPartitionsDefinition(name=
 # =============================================================================
 
 
-def _get_experiment_metrics() -> list[tuple[int, str, str, dict[str, Any]]]:
+def _get_experiment_metrics(context: dagster.SensorEvaluationContext) -> list[tuple[int, str, str, dict[str, Any]]]:
     """
     Discover active experiment-metric combinations from the database.
 
     Each combination will become a dynamic partition for the experiment_timeseries asset.
+
+    Args:
+        context: Dagster context for logging to UI.
 
     Returns:
         List of tuples containing (experiment_id, metric_uuid, fingerprint, metric_dict)
@@ -68,10 +71,11 @@ def _get_experiment_metrics() -> list[tuple[int, str, str, dict[str, Any]]]:
                 continue
             fingerprint = metric.get("fingerprint")
             if not fingerprint:
-                raise ValueError(
+                context.log.error(
                     f"Metric {metric_uuid} for experiment {experiment.id} is missing fingerprint. "
-                    "Metrics must have fingerprints computed during creation/update."
+                    "Skipping this metric. Metrics must have fingerprints computed during creation/update."
                 )
+                continue
 
             experiment_metrics.append((experiment.id, metric_uuid, fingerprint, metric))
 
@@ -253,7 +257,7 @@ def experiment_discovery_sensor(context: dagster.SensorEvaluationContext):
     experiment_timeseries asset and triggers processing only for the new partitions.
     """
     try:
-        current_experiment_metrics = _get_experiment_metrics()
+        current_experiment_metrics = _get_experiment_metrics(context)
         if not current_experiment_metrics:
             context.log.debug("No experiment-metrics found for timeseries analysis")
             return dagster.SkipReason("No experiments with metrics found")
