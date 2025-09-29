@@ -245,7 +245,7 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             assert client.bucket == SESSION_RECORDING_V2_S3_BUCKET
 
     @patch("posthog.storage.session_recording_v2_object_storage.get_session")
-    async def test_does_not_create_client_if_required_settings_missing(self, patched_aiobotocore_get_session) -> None:
+    async def test_throws_runtimeerror_if_required_settings_missing(self, patched_aiobotocore_get_session) -> None:
         test_cases = [
             {"SESSION_RECORDING_V2_S3_BUCKET": ""},
             {"SESSION_RECORDING_V2_S3_ENDPOINT": ""},
@@ -262,9 +262,11 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
                 create_client_mock = MagicMock(AsyncContextManager)
                 patched_aiobotocore_get_session.return_value.create_client = create_client_mock
 
-                async with async_client() as client:
-                    create_client_mock.assert_not_called()
-                    assert client.read_bytes("any_key", 0, 100) is None
+                with self.assertRaises(RuntimeError) as _:
+                    async with async_client() as _:
+                        pass
+
+                create_client_mock.assert_not_called()
 
     async def test_read_bytes_with_byte_range(self):
         mock_client = AsyncMock()
