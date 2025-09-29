@@ -292,11 +292,9 @@ export class IngestionConsumer {
             createNewBatchPipeline<PreprocessedEventWithStores>().pipeSequentially(eventProcessingPipeline)
 
         const resultHandlingPipeline = ResultHandlingPipeline.of(perDistinctIdBatchPipeline, pipelineConfig)
-        this.perDistinctIdPipeline = new SideEffectHandlingPipeline(
-            resultHandlingPipeline,
-            this.promiseScheduler,
-            { await: false }
-        )
+        this.perDistinctIdPipeline = new SideEffectHandlingPipeline(resultHandlingPipeline, this.promiseScheduler, {
+            await: false,
+        })
     }
 
     public async stop(): Promise<void> {
