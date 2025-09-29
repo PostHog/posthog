@@ -130,7 +130,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                                     {infoLoading ? (
                                         <LemonSkeleton className="h-4 w-24" />
                                     ) : info?.lastSeen ? (
-                                        <TZLabel time={info.lastSeen} />
+                                        <TZLabel time={info.lastSeen.toISOString()} />
                                     ) : (
                                         'unknown'
                                     )}
