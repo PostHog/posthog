@@ -55,6 +55,7 @@ class OrgQuotaLimitingInformation(TypedDict):
     quota_limiting_suspended_until: Optional[int]
 
 
+# These quota resource identifiers match billing default_plans_config.yml usage_key
 class QuotaResource(Enum):
     EVENTS = "events"
     EXCEPTIONS = "exceptions"
@@ -86,6 +87,7 @@ OVERAGE_BUFFER = {
     QuotaResource.ROWS_EXPORTED: 0,
 }
 
+# These trust score keys match billing default_plans_config.yml product keys (top level key)
 TRUST_SCORE_KEYS = {
     QuotaResource.EVENTS: "events",
     QuotaResource.EXCEPTIONS: "exceptions",
