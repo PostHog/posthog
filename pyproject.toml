@@ -195,6 +195,7 @@ dev = [
     "mypy~=1.18.2",
     "mypy-baseline~=0.7.3",
     "mypy-extensions~=1.1.0",
+    "ty==0.0.1a21",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.10.15",
@@ -341,3 +342,17 @@ python_version = "3.12"
 [tool.mypy-baseline]
 sort_baseline = true
 ignore_categories = ["note"]
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.src]
+exclude = [
+    "bin/**",
+    "gunicorn.config.py",
+    "manage.py",
+    "posthog/hogql/grammar/**",
+]
+
+[tool.ty.rules]
+unresolved-import = "ignore"
