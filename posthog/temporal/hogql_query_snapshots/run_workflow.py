@@ -22,7 +22,11 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import append_partition_key_to_table
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.hogql_query_snapshots.backup import clear_backup_object, create_backup_object, restore_from_backup
-from posthog.temporal.hogql_query_snapshots.delta_snapshot import DeltaSnapshot, calculate_partition_settings
+from posthog.temporal.hogql_query_snapshots.delta_snapshot import (
+    DeltaSnapshot,
+    calculate_partition_settings,
+    get_partition_settings,
+)
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery, aget_saved_query_by_id
 from posthog.warehouse.models.snapshot_job import DataWarehouseSnapshotJob
@@ -217,10 +221,16 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
     partition_settings = calculate_partition_settings(saved_query)
 
     # TODO: remove this once we have a way to get the partition settings from config
-    # if delta_snapshot.get_delta_table() is None:
-    #     partition_settings = calculate_partition_settings(saved_query)
-    # else:
-    #     partition_settings = get_partition_settings(saved_query)
+    if delta_snapshot.get_delta_table() is None:
+        partition_settings = calculate_partition_settings(saved_query)
+        saved_query.datawarehousesnapshotconfig.partition_count = partition_settings.partition_count
+        saved_query.datawarehousesnapshotconfig.partition_size = partition_settings.partition_size
+        await database_sync_to_async(saved_query.datawarehousesnapshotconfig.save)()
+    else:
+        partition_settings = get_partition_settings(saved_query)
+
+    if partition_settings is None:
+        raise Exception("Partition settings are required for snapshot")
 
     merge_key = delta_snapshot.merge_key
     if merge_key is None:

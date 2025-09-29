@@ -64,7 +64,7 @@ from posthog.warehouse.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
-from posthog.warehouse.models.snapshot_config import DataWarehouseSnapshotConfig
+from posthog.warehouse.models.snapshot_config import DataWarehouseSnapshotConfig, DataWarehouseSnapshotConfigSerializer
 
 logger = structlog.get_logger(__name__)
 
@@ -117,7 +117,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
     def get_snapshot_config(self, view: DataWarehouseSavedQuery) -> DataWarehouseSnapshotConfig | None:
         try:
-            return view.datawarehousesnapshotconfig.config
+            return DataWarehouseSnapshotConfigSerializer(view.datawarehousesnapshotconfig).data
         except DataWarehouseSnapshotConfig.DoesNotExist:
             return None
         except Exception:
@@ -670,10 +670,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if not saved_query.datawarehousesnapshotconfig:
             return response.Response({"error": "Snapshot config does not exist"}, status=status.HTTP_400_BAD_REQUEST)
 
-        saved_query.datawarehousesnapshotconfig.config = {
-            **saved_query.datawarehousesnapshotconfig.config,
-            **request.data,
-        }
+        serializer = DataWarehouseSnapshotConfigSerializer(
+            saved_query.datawarehousesnapshotconfig, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         saved_query.datawarehousesnapshotconfig.save()
         return response.Response(status=status.HTTP_200_OK)
 

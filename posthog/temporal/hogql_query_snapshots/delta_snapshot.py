@@ -38,11 +38,11 @@ class DeltaSnapshot:
 
     @property
     def merge_key(self) -> str | None:
-        return self.saved_query.datawarehousesnapshotconfig.config.get("merge_key", None)
+        return self.saved_query.datawarehousesnapshotconfig.merge_key
 
     @property
     def columns(self) -> list[str]:
-        return self.saved_query.datawarehousesnapshotconfig.config.get("fields", [])
+        return self.saved_query.datawarehousesnapshotconfig.fields
 
     def _get_delta_table_uri(self) -> str:
         return f"{settings.BUCKET_URL}/{self.saved_query.snapshot_folder_path}/{self.saved_query.normalized_name}"
@@ -201,12 +201,12 @@ def calculate_partition_settings(saved_query: DataWarehouseSavedQuery) -> Partit
 
 def get_partition_settings(saved_query: DataWarehouseSavedQuery) -> PartitionSettings | None:
     try:
-        config = saved_query.datawarehousesnapshotconfig.config
+        config = saved_query.datawarehousesnapshotconfig
     except DataWarehouseSnapshotConfig.DoesNotExist:
         return None
 
-    count = config.get("partition_count", None)
-    size = config.get("partition_size", None)
+    count = config.partition_count
+    size = config.partition_size
 
     if count is None or size is None:
         return None

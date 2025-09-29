@@ -1014,3 +1014,101 @@ class TestSavedQuery(APIBaseTest):
         )
         assert response.status_code == 400
         assert response.json()["detail"] == "A table with this name already exists."
+
+    def test_enable_snapshot_creates_config_and_serializer_returns_it(self):
+        # Create a saved query
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        assert response.status_code == 201, response.content
+        saved_query = response.json()
+
+        # Initially no snapshot_config should be present
+        self.assertIsNone(saved_query.get("snapshot_config"))
+        self.assertFalse(saved_query.get("snapshot_enabled"))
+
+        # Enable snapshot, which should create DataWarehouseSnapshotConfig and start workflow
+        with (
+            patch("posthog.warehouse.api.saved_query.sync_saved_query_snapshot_workflow") as mock_sync_snapshot,
+            patch("posthog.warehouse.api.saved_query.snapshot_workflow_exists", return_value=False),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"snapshot_enabled": True},
+            )
+            assert response.status_code == 200, response.content
+            data = response.json()
+            self.assertTrue(data["snapshot_enabled"])  # flag toggled
+            # Serializer should embed snapshot_config now (even if defaults)
+            self.assertIsNotNone(data.get("snapshot_config"))
+            # Basic shape
+            self.assertIn("mode", data["snapshot_config"])  # default 'check'
+            self.assertIn("fields", data["snapshot_config"])  # default []
+            mock_sync_snapshot.assert_called_once()
+
+    def test_update_snapshot_config_endpoint(self):
+        # Create saved query
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        assert response.status_code == 201, response.content
+        saved_query = response.json()
+
+        # Enable snapshots to ensure a config exists
+        with (
+            patch("posthog.warehouse.api.saved_query.sync_saved_query_snapshot_workflow") as mock_sync_snapshot,
+            patch("posthog.warehouse.api.saved_query.snapshot_workflow_exists", return_value=False),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"snapshot_enabled": True},
+            )
+            assert response.status_code == 200, response.content
+            mock_sync_snapshot.assert_called_once()
+
+        # Update snapshot config via the dedicated endpoint
+        update_payload = {
+            "mode": "check",
+            "fields": ["id", "event"],
+            "timestamp_field": "timestamp",
+            "frequency": "day",
+            "merge_key": "id",
+            "partition_count": 16,
+            "partition_size": 100000,
+        }
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}/snapshot_config",
+            update_payload,
+        )
+        assert response.status_code == 200, response.content
+
+        # Fetch and ensure serializer returns updated config
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+        )
+        assert response.status_code == 200, response.content
+        data = response.json()
+        self.assertTrue(data["snapshot_enabled"])  # still enabled
+        config = data.get("snapshot_config")
+        self.assertIsNotNone(config)
+        self.assertEqual(config["mode"], update_payload["mode"])  # 'check'
+        self.assertEqual(config["fields"], update_payload["fields"])  # list
+        self.assertEqual(config["timestamp_field"], update_payload["timestamp_field"])  # str
+        self.assertEqual(config["frequency"], update_payload["frequency"])  # 'day'
+        self.assertEqual(config["merge_key"], update_payload["merge_key"])  # 'id'
+        self.assertEqual(config["partition_count"], update_payload["partition_count"])  # int
+        self.assertEqual(config["partition_size"], update_payload["partition_size"])  # int
