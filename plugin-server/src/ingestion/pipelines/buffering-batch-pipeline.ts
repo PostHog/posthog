@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { ConcurrentBatchProcessingPipeline } from './concurrent-batch-pipeline'
 import { Pipeline } from './pipeline.interface'
+import { SequentialBatchPipeline } from './sequential-batch-pipeline'
 
 export class BufferingBatchPipeline<T = { message: Message }> implements BatchPipeline<T, T> {
     private buffer: BatchPipelineResultWithContext<T> = []
@@ -22,5 +23,9 @@ export class BufferingBatchPipeline<T = { message: Message }> implements BatchPi
 
     pipeConcurrently<U>(processor: Pipeline<T, U>): ConcurrentBatchProcessingPipeline<T, T, U> {
         return new ConcurrentBatchProcessingPipeline(processor, this)
+    }
+
+    pipeSequentially<U>(processor: Pipeline<T, U>): SequentialBatchPipeline<T, T, U> {
+        return new SequentialBatchPipeline(processor, this)
     }
 }
