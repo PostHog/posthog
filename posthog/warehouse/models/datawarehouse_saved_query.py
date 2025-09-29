@@ -94,7 +94,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     # If this is query itself is a snapshot, these fields will be unused
     snapshot_enabled = models.BooleanField(default=False)
 
-    # Snapshot SDC2 table
+    # Snapshot SCD2 table
     snapshot_table = models.ForeignKey(
         "posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True, related_name="snapshot_table"
     )

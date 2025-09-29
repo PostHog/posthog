@@ -24,7 +24,7 @@ def make_schema_nullable(schema: pa.Schema) -> pa.Schema:
     nullable_fields = []
     for field in schema:
         # Create a new field with the same name and type, but nullable=True
-        nullable_field = pa.field(field.name, field.type, nullable=True, metadata=field.metadata)
+        nullable_field = field.with_nullable(True)
         nullable_fields.append(nullable_field)
     return pa.schema(nullable_fields)
 
@@ -49,7 +49,7 @@ class DeltaSnapshot:
 
     @property
     def backup_delta_table_uri(self) -> str:
-        return self._get_delta_table_uri() + "_backup"
+        return self._get_delta_table_uri() + "__backup"
 
     def _get_credentials(self):
         if not settings.AIRBYTE_BUCKET_KEY or not settings.AIRBYTE_BUCKET_SECRET or not settings.AIRBYTE_BUCKET_REGION:
@@ -139,7 +139,6 @@ class DeltaSnapshot:
                 predicate = " AND ".join(predicate_ops)
                 filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
                 self._merge_table(delta_table, filtered_table, predicate)
-            self._merge_table(delta_table, data, predicate)
         else:
             self._merge_table(delta_table, data, "source._ph_merge_key = target._ph_merge_key")
 
@@ -172,7 +171,7 @@ class DeltaSnapshot:
             source=data,
             source_alias="source",
             target_alias="target",
-            predicate=f"source._ph_merge_key = target._ph_merge_key AND target._ph_valid_until IS NULL",
+            predicate=f"{predicate} AND target._ph_valid_until IS NULL",
             streamed_exec=True,
         ).when_not_matched_insert_all().execute()
 

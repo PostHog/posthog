@@ -1,10 +1,10 @@
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 
 
-class DataWarehouseSnapshotJob(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
+class DataWarehouseSnapshotJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         COMPLETED = "Completed", "Completed"

@@ -160,7 +160,7 @@ async def finish_snapshot_job_activity(inputs: FinishSnapshotJobInputs) -> None:
     job.status = (
         DataWarehouseSnapshotJob.Status.COMPLETED if inputs.error is None else DataWarehouseSnapshotJob.Status.FAILED
     )
-    job.error = inputs.error if inputs.error is not None else None
+    job.error = inputs.error
 
     if workflow_saved_query is None:
         raise Exception(f"Saved query: {inputs.saved_query_id} cannot be found")
@@ -295,18 +295,13 @@ class RunWorkflowInputs:
 
 @temporalio.workflow.defn(name="data-snapshots-run")
 class RunWorkflow(PostHogWorkflow):
-    """A Temporal Workflow to run PostHog data snapshots."""
-
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RunWorkflowInputs:
-        """Parse inputs from the management command CLI."""
         loaded = json.loads(inputs[0])
         return RunWorkflowInputs(**loaded)
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> None:
-        """Run the workflow."""
-
         job_id, snapshot_exists = await temporalio.workflow.execute_activity(
             create_snapshot_job_activity,
             CreateSnapshotJobInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
@@ -320,7 +315,7 @@ class RunWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 create_backup_snapshot_job_activity,
                 CreateBackupSnapshotJobInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
-                start_to_close_timeout=dt.timedelta(minutes=5),
+                start_to_close_timeout=dt.timedelta(minutes=20),
                 retry_policy=RetryPolicy(
                     maximum_attempts=1,
                 ),
