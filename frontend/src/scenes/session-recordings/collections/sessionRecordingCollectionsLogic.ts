@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -67,7 +67,7 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
             {
                 setSavedPlaylistsFilters: (state, { filters }) =>
                     objectClean({
-                        ...Object.fromEntries(Object.entries(state || {}).filter(([key]) => key in filters)),
+                        ...state,
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
@@ -221,7 +221,10 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
             if (removeProjectIdIfPresent(router.values.location.pathname) === urls.replay(ReplayTabs.Playlists)) {
                 const nextValues = values.filters
                 const urlValues = objectClean(router.values.searchParams)
-                if (!objectsEqual(nextValues, urlValues)) {
+                if (
+                    !objectsEqual(nextValues, urlValues) &&
+                    !objectsEqual(nextValues, objectClean(DEFAULT_PLAYLIST_FILTERS))
+                ) {
                     return [urls.replay(ReplayTabs.Playlists), nextValues, {}, { replace: false }]
                 }
             }
@@ -231,6 +234,15 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
             setSavedPlaylistsFilters: changeUrl,
         }
     }),
+    urlToAction(({ actions, values }) => ({
+        [urls.replay(ReplayTabs.Playlists)]: (_, searchParams) => {
+            const currentFilters = values.filters
+            const nextFilters = objectClean(searchParams)
+            if (!objectsEqual(currentFilters, nextFilters)) {
+                actions.setSavedPlaylistsFilters(nextFilters)
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadPlaylists()
     }),
