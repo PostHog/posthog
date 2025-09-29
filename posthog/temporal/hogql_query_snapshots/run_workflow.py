@@ -211,7 +211,7 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
     if saved_query is None:
         raise Exception(f"Saved query: {inputs.saved_query_id} cannot be found")
 
-    hogql_query = saved_query.query["query"]
+    hogql_query = saved_query.name
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
     delta_snapshot = DeltaSnapshot(saved_query)
 
@@ -251,7 +251,7 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
                     {merge_key} AS _ph_merge_key,
                     toString(cityHash64(concatWithSeparator('_', {', '.join(stringified_hashed_columns)}))) AS _ph_row_hash,
                     toDateTime('{snapshot_ts}', 'UTC') AS _ph_snapshot_ts
-                FROM ({hogql_query})
+                FROM {hogql_query}
             """,
         team,
         logger,

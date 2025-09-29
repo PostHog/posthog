@@ -212,4 +212,5 @@ def get_partition_settings(saved_query: DataWarehouseSavedQuery) -> PartitionSet
     if count is None:
         return None
 
-    return PartitionSettings(partition_count=count)
+    # partition size is not used for delta snapshots
+    return PartitionSettings(partition_count=count, partition_size=1)
