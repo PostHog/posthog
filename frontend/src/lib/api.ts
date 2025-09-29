@@ -30,6 +30,7 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    NamedQueryRequest,
     Node,
     NodeKind,
     PersistedFolder,
@@ -39,8 +40,9 @@ import {
     RecordingsQueryResponse,
     RefreshType,
     SourceConfig,
+    TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
+import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -130,6 +132,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
+    QueryEndpointType,
     QueryTabState,
     RawAnnotationType,
     RawBatchExportBackfill,
@@ -676,6 +679,10 @@ export class ApiRequest {
 
     public cohortsAddPersonsToStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('add_persons_to_static_cohort')
+    }
+
+    public cohortsRemovePersonFromStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('remove_person_from_static_cohort')
     }
 
     public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1281,6 +1288,14 @@ export class ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
+    public queryEndpoint(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('named_query')
+    }
+
+    public queryEndpointDetail(name: string): ApiRequest {
+        return this.queryEndpoint().addPathComponent(name)
+    }
+
     // Conversations
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
@@ -1578,7 +1593,8 @@ const api = {
             basic?: boolean,
             refresh?: RefreshType,
             filtersOverride?: DashboardFilter | null,
-            variablesOverride?: Record<string, HogQLVariable> | null
+            variablesOverride?: Record<string, HogQLVariable> | null,
+            tileFiltersOverride?: TileFilters | null
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
@@ -1589,6 +1605,7 @@ const api = {
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
+                        tile_filters_override: tileFiltersOverride,
                     })
                 )
                 .get()
@@ -1604,6 +1621,49 @@ const api = {
         },
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
+        },
+    },
+
+    queryEndpoint: {
+        async list(): Promise<CountedPaginatedResponse<QueryEndpointType>> {
+            return await new ApiRequest().queryEndpoint().get()
+        },
+        async create(data: NamedQueryRequest): Promise<QueryEndpointType> {
+            return await new ApiRequest().queryEndpoint().create({ data })
+        },
+        async delete(name: string): Promise<void> {
+            return await new ApiRequest().queryEndpointDetail(name).delete()
+        },
+        async update(name: string, data: NamedQueryRequest): Promise<QueryEndpointType> {
+            return await new ApiRequest().queryEndpointDetail(name).update({ data })
+        },
+        async getLastExecutionTimes(names: string[]): Promise<Record<string, string>> {
+            if (names.length === 0) {
+                return {}
+            }
+
+            const query = hogql`
+                SELECT
+                    name,
+                    max(query_start_time) as last_executed_at
+                FROM query_log
+                WHERE name in (${hogql.raw(names.map((name) => `'${name}'`).join(','))})
+                GROUP BY name
+            `
+
+            const response = await api.queryHogQL(query, {
+                refresh: 'force_blocking',
+            })
+
+            const result: Record<string, string> = {}
+            for (const row of response.results) {
+                const [name, lastExecutedAt] = row
+                if (name && lastExecutedAt) {
+                    result[name] = lastExecutedAt
+                }
+            }
+
+            return result
         },
     },
 
@@ -2227,6 +2287,10 @@ const api = {
         },
         async addPersonsToStaticCohort(cohortId: CohortType['id'], ids: string[]): Promise<{ success: boolean }> {
             return await new ApiRequest().cohortsAddPersonsToStatic(cohortId).update({ data: { person_ids: ids } })
+        },
+        async removePersonFromCohort(cohortId: CohortType['id'], personId: string): Promise<{ success: boolean }> {
+            const payload = { person_id: personId }
+            return await new ApiRequest().cohortsRemovePersonFromStatic(cohortId).update({ data: payload })
         },
     },
 

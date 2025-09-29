@@ -3,7 +3,7 @@ import datetime
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL_V3
+from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 from posthog.models.utils import uuid7
 
 distinct_id_counter = 0
@@ -305,7 +305,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         # just test that the backfill SQL can be run without error
         sync_execute(
-            "INSERT INTO raw_sessions_v3" + RAW_SESSION_TABLE_BACKFILL_SELECT_SQL_V3("team_id = %(team_id)s"),
+            RAW_SESSION_TABLE_BACKFILL_SQL_V3("team_id = %(team_id)s"),
             {"team_id": self.team.id},
         )
 
@@ -381,3 +381,187 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             False,
             "1",
         )
+
+    def test_autocapture_does_not_set_attribution_when_pageview_present(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$current_url": "/1",
+                "utm_source": "source1",
+            },
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$current_url": "/2",
+                "utm_source": "source2",
+            },
+            timestamp="2024-03-09",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert result[0]["entry_url"] == "/2"
+        assert result[0]["end_url"] == "/2"
+        assert result[0]["urls"] == ["/2"]
+        assert result[0]["entry_utm_source"] == "source2"
+
+    def test_autocapture_does_set_attribution_when_only_event(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$current_url": "/1",
+                "utm_source": "source1",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert result[0]["entry_url"] == "/1"
+        assert result[0]["end_url"] == "/1"
+        assert result[0]["urls"] == []
+        assert result[0]["entry_utm_source"] == "source1"
+
+    def test_store_all_feature_flag_values(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_string": "f1_a",
+                "$feature/flag_int": 1,
+                "$feature/flag_complex": ["hello", 123],
+                "$feature/flag_duplicates": "a",
+            },
+            timestamp="2024-03-08",
+        )
+
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_string": "f1_b",
+                "$feature/flag_int": 2,
+                "$feature/flag_complex": {"key": "value"},
+                "$feature/flag_duplicates": "a",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        # contains all values
+        assert set(result[0]["flag_values"]["$feature/flag_string"]) == {"f1_a", "f1_b"}
+        # converts to string
+        assert set(result[0]["flag_values"]["$feature/flag_int"]) == {"1", "2"}
+        # converts to json string
+        assert set(result[0]["flag_values"]["$feature/flag_complex"]) == {'["hello",123]', '{"key":"value"}'}
+        # deduplicates
+        assert result[0]["flag_values"]["$feature/flag_duplicates"] == ["a"]
+
+    def test_lookup_feature_flag(self):
+        distinct_id_1 = create_distinct_id()
+        session_id_1 = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id_1,
+            properties={
+                "$session_id": session_id_1,
+                "$feature/flag_string": "f1_a",
+            },
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="custom event",
+            distinct_id=distinct_id_1,
+            properties={
+                "$session_id": session_id_1,
+                "$feature/flag_string": "f1_b",
+            },
+            timestamp="2024-03-08",
+        )
+
+        distinct_id_2 = create_distinct_id()
+        session_id_2 = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id_2,
+            properties={
+                "$session_id": session_id_2,
+                "$feature/flag_string": "f1_c",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = query_with_columns(
+            """
+            select
+                session_id_v7,
+                has(flag_values['$feature/flag_string'], 'f1_a') as has_f1_a,
+                has(flag_values['$feature/flag_string'], 'f1_b') as has_f1_b,
+                has(flag_values['$feature/flag_string'], 'f1_c') as has_f1_c
+            from raw_sessions_v3_v
+            where
+                team_id = %(team_id)s
+            ORDER BY session_id_v7
+                """,
+            {
+                "team_id": self.team.id,
+            },
+        )
+        assert result[0]["has_f1_a"]
+        assert result[0]["has_f1_b"]
+        assert not result[0]["has_f1_c"]
+
+        assert not result[1]["has_f1_a"]
+        assert not result[1]["has_f1_b"]
+        assert result[1]["has_f1_c"]
+
+    def test_tracks_all_distinct_ids(self):
+        distinct_id_1 = create_distinct_id()
+        distinct_id_2 = create_distinct_id()
+        session_id = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id_1,
+            properties={"$current_url": "/", "$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id_2,
+            properties={"$current_url": "/", "$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert set(result[0]["distinct_ids"]) == {distinct_id_1, distinct_id_2}

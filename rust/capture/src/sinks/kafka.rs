@@ -242,6 +242,8 @@ impl KafkaSink {
         let event_key = event.key();
         let session_id = metadata.session_id.clone();
         let distinct_id = event.distinct_id.clone();
+        let uuid = event.uuid.to_string();
+        let event_name = metadata.event_name.clone();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
@@ -320,6 +322,14 @@ impl KafkaSink {
                     .insert(Header {
                         key: "timestamp",
                         value: computed_timestamp.map(|ts| ts.to_string()).as_deref(),
+                    })
+                    .insert(Header {
+                        key: "event",
+                        value: Some(&event_name),
+                    })
+                    .insert(Header {
+                        key: "uuid",
+                        value: Some(&uuid),
                     }),
             ),
         }) {
@@ -501,6 +511,7 @@ mod tests {
             data_type: DataType::AnalyticsMain,
             session_id: None,
             computed_timestamp: None,
+            event_name: "test_event".to_string(),
         };
 
         let event = ProcessedEvent {

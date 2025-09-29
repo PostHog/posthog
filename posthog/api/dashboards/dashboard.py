@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.db.models import Prefetch
+from django.db.models import Prefetch, QuerySet
 from django.dispatch import receiver
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
@@ -127,6 +127,13 @@ class CanEditDashboard(BasePermission):
 class TextSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    body = serializers.CharField(
+        max_length=4000,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        error_messages={"max_length": "Text body cannot exceed 4000 characters"},
+    )
 
     class Meta:
         model = Text
@@ -378,6 +385,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 insight=insight,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
+                filters_overrides=existing_tile.filters_overrides,
             )
         elif existing_tile.text:
             new_data = {
@@ -394,6 +402,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 text=text,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
+                filters_overrides=existing_tile.filters_overrides,
             )
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
@@ -440,6 +449,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
         for tile_data in tiles:
             self._update_tiles(instance, tile_data, user)
 
+        duplicate_tiles = initial_data.pop("duplicate_tiles", [])
+        for tile_data in duplicate_tiles:
+            existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
+            existing_tile.layouts = {}
+            self._deep_duplicate_tiles(instance, existing_tile)
+
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 
@@ -460,16 +475,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
             else:
                 created_by = user
                 last_modified_by = None
-            text_defaults = {
-                **tile_data["text"],
-                "team_id": instance.team_id,
-                "created_by": created_by,
-                "last_modified_by": last_modified_by,
-                "last_modified_at": now(),
-            }
-            if "team" in text_defaults:
-                text_defaults.pop("team")  # We're already setting `team_id`
-            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=text_defaults)
+
+            text_data = {**tile_data["text"], "team": instance.team_id}
+            text_serializer = TextSerializer(data=text_data)
+            if not text_serializer.is_valid():
+                raise serializers.ValidationError({"text": text_serializer.errors})
+
+            validated_data = text_serializer.validated_data
+            validated_data["created_by"] = created_by
+            validated_data["last_modified_by"] = last_modified_by
+            validated_data["last_modified_at"] = now()
+
+            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=validated_data)
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 defaults={**tile_data, "text": text, "dashboard": instance},
@@ -596,6 +613,14 @@ class DashboardsViewSet(
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = super().filter_queryset(queryset)
+        tags = self.request.query_params.getlist("tags")
+        if not tags:
+            return queryset
+
+        return queryset.filter(tagged_items__tag__name__in=tags).distinct()
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
     def dangerously_get_queryset(self):

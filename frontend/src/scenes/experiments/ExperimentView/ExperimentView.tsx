@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
@@ -6,14 +6,17 @@ import { LemonTabs } from '@posthog/lemon-ui'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
+import { LegacyMetricSourceModal } from '../Metrics/LegacyMetricSourceModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
+import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
 import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
@@ -26,7 +29,12 @@ import {
     ResultsQuery,
 } from '../components/ResultsBreakdown'
 import { experimentLogic } from '../experimentLogic'
-import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
+import {
+    appendMetricToOrderingArray,
+    isLegacyExperiment,
+    isLegacyExperimentQuery,
+    removeMetricFromOrderingArray,
+} from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -192,77 +200,152 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, usesNewQueryRunner } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft } =
+        useValues(experimentLogic)
+    const { setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
+
+    const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
 
     const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
 
     return (
-        <>
+        <SceneContent>
             <PageHeaderCustom />
-            <div className="deprecated-space-y-8 experiment-view">
-                {experimentLoading ? (
-                    <LoadingState />
-                ) : (
-                    <>
-                        <Info />
-                        {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
-                        <LemonTabs
-                            activeKey={activeTabKey}
-                            onChange={(key) => setActiveTabKey(key)}
-                            tabs={[
-                                {
-                                    key: 'metrics',
-                                    label: 'Metrics',
-                                    content: <MetricsTab />,
-                                },
-                                {
-                                    key: 'code',
-                                    label: 'Code',
-                                    content: <CodeTab />,
-                                },
-                                {
-                                    key: 'variants',
-                                    label: 'Variants',
-                                    content: <VariantsTab />,
-                                },
-                                {
-                                    key: 'history',
-                                    label: 'History',
-                                    content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
-                                },
-                            ]}
-                        />
+            {experimentLoading ? (
+                <LoadingState />
+            ) : (
+                <>
+                    <Info />
+                    {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
+                    <LemonTabs
+                        activeKey={activeTabKey}
+                        onChange={(key) => setActiveTabKey(key)}
+                        sceneInset
+                        tabs={[
+                            {
+                                key: 'metrics',
+                                label: 'Metrics',
+                                content: <MetricsTab />,
+                            },
+                            ...(!isExperimentDraft
+                                ? [
+                                      {
+                                          key: 'code',
+                                          label: 'Code',
+                                          content: <CodeTab />,
+                                      },
+                                  ]
+                                : []),
+                            {
+                                key: 'variants',
+                                label: 'Variants',
+                                content: <VariantsTab />,
+                            },
+                            {
+                                key: 'history',
+                                label: 'History',
+                                content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
+                            },
+                        ]}
+                    />
 
-                        <MetricSourceModal experimentId={experimentId} isSecondary={true} />
-                        <MetricSourceModal experimentId={experimentId} isSecondary={false} />
+                    {usesNewQueryRunner ? (
+                        <>
+                            <MetricSourceModal isSecondary={true} />
+                            <MetricSourceModal isSecondary={false} />
+                        </>
+                    ) : (
+                        <>
+                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={true} />
+                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={false} />
+                        </>
+                    )}
 
-                        {usesNewQueryRunner ? (
-                            <>
-                                <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
-                                <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
-                                <ExposureCriteriaModal />
-                                <RunningTimeCalculatorModal />
-                            </>
-                        ) : (
-                            <>
-                                <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
-                                <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
-                            </>
-                        )}
+                    {usesNewQueryRunner ? (
+                        <>
+                            <ExperimentMetricModal
+                                experimentId={experimentId}
+                                onSave={(metric, context) => {
+                                    // Check if this is an edit (metric with same UUID already exists) or create
+                                    const existingMetricIndex = experiment[context.field].findIndex(
+                                        (m) => m.uuid === metric.uuid
+                                    )
+                                    const isEdit = existingMetricIndex !== -1
 
-                        <SharedMetricModal experimentId={experimentId} isSecondary={true} />
-                        <SharedMetricModal experimentId={experimentId} isSecondary={false} />
+                                    let newMetrics
+                                    let newOrderingArray
 
-                        <DistributionModal experimentId={experimentId} />
-                        <ReleaseConditionsModal experimentId={experimentId} />
+                                    if (isEdit) {
+                                        // Replace existing metric
+                                        newMetrics = experiment[context.field].map((m) =>
+                                            m.uuid === metric.uuid ? metric : m
+                                        )
+                                        // Keep existing ordering for edits
+                                        newOrderingArray = experiment[context.orderingField]
+                                    } else {
+                                        // Add new metric
+                                        newMetrics = [...experiment[context.field], metric]
+                                        // Add to ordering array for new metrics
+                                        newOrderingArray = appendMetricToOrderingArray(
+                                            experiment,
+                                            metric.uuid!,
+                                            context.type === 'secondary'
+                                        )
+                                    }
 
-                        <StopExperimentModal experimentId={experimentId} />
-                        <EditConclusionModal experimentId={experimentId} />
+                                    setExperiment({
+                                        [context.field]: newMetrics,
+                                        [context.orderingField]: newOrderingArray,
+                                    })
 
-                        <VariantDeltaTimeseries />
-                    </>
-                )}
-            </div>
-        </>
+                                    updateExperimentMetrics()
+                                    closeExperimentMetricModal()
+                                }}
+                                onDelete={(metric, context) => {
+                                    //bail if the metric has no uuid
+                                    if (!metric.uuid) {
+                                        return
+                                    }
+
+                                    const newOrderingArray = removeMetricFromOrderingArray(
+                                        experiment,
+                                        metric.uuid,
+                                        context.type === 'secondary'
+                                    )
+
+                                    const newMetrics = experiment[context.field].filter((m) => m.uuid !== metric.uuid)
+
+                                    setExperiment({
+                                        [context.field]: newMetrics,
+                                        [context.orderingField]: newOrderingArray,
+                                    })
+
+                                    updateExperimentMetrics()
+                                    closeExperimentMetricModal()
+                                }}
+                            />
+                            <ExposureCriteriaModal />
+                            <RunningTimeCalculatorModal />
+                        </>
+                    ) : (
+                        <>
+                            <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
+                            <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
+                        </>
+                    )}
+
+                    <SharedMetricModal experimentId={experimentId} isSecondary={true} />
+                    <SharedMetricModal experimentId={experimentId} isSecondary={false} />
+
+                    <DistributionModal experimentId={experimentId} />
+                    <ReleaseConditionsModal experimentId={experimentId} />
+
+                    <StopExperimentModal experimentId={experimentId} />
+                    <EditConclusionModal experimentId={experimentId} />
+
+                    <VariantDeltaTimeseries />
+                </>
+            )}
+        </SceneContent>
     )
 }
