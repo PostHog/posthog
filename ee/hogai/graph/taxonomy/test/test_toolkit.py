@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
@@ -83,7 +84,6 @@ class TestTaxonomyAgentToolkit(BaseTest):
             ("retrieve_entity_property_values", {"entity": "person", "property_name": "email"}, "mocked"),
             ("retrieve_event_properties", {"event_name": "test_event"}, "mocked"),
             ("retrieve_event_property_values", {"event_name": "test_event", "property_name": "$browser"}, "mocked"),
-            # ("ask_user_for_help", {"request": "Help needed"}, "Help needed"),
         ]
     )
     @patch.object(DummyToolkit, "retrieve_entity_properties_parallel", return_value={"person": "mocked"})
@@ -97,7 +97,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
         for key, value in tool_args.items():
             setattr(Arguments, key, value)
 
-        class ToolInput(BaseModel):
+        class ToolInput(TaxonomyTool):
             name: str
             arguments: Arguments
 
@@ -108,7 +108,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
         self.assertEqual(result["test_call_id"], expected_result)
 
     def test_handle_tools_invalid_tool(self):
-        class ToolInput(BaseModel):
+        class ToolInput(TaxonomyTool):
             name: str = "invalid_tool"
             arguments: dict = {}
 

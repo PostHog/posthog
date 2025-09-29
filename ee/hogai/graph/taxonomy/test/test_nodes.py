@@ -302,7 +302,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
             result = self.node._get_reset_state("test output", "test_tool", original_state)
 
             self.assertEqual(len(result.intermediate_steps), 1)
-            action, output = result.intermediate_steps[0]
+            action, output = result.intermediate_steps[0]  # type: ignore
             self.assertEqual(action.tool, "test_tool")
             self.assertEqual(action.tool_input, "test output")
             self.assertIsNone(output)

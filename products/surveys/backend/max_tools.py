@@ -186,9 +186,10 @@ class SurveyToolkit(TaxonomyAgentToolkit):
     def handle_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict[str, str]:
         """Handle custom tool execution."""
         if "lookup_feature_flag" in tool_metadata:
-            tool_input, tool_call_id = tool_metadata["lookup_feature_flag"][0]
-            result = self._lookup_feature_flag(tool_input.arguments.flag_key)
-            return {tool_call_id: result}
+            if tool_metadata["lookup_feature_flag"]:
+                tool_input, tool_call_id = tool_metadata["lookup_feature_flag"][0]
+                result = self._lookup_feature_flag(tool_input.arguments.flag_key)  # type: ignore
+                return {tool_call_id: result}
         return super().handle_tools(tool_metadata)
 
     def _lookup_feature_flag(self, flag_key: str) -> str:

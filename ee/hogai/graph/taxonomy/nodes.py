@@ -17,6 +17,7 @@ from posthog.schema import MaxEventContext
 from posthog.models import Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
 
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import format_events_yaml
 from ee.hogai.utils.types.composed import MaxNodeName
@@ -167,7 +168,7 @@ class TaxonomyAgentToolsNode(
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []
-        tools_metadata = {}
+        tools_metadata: dict[str, list[tuple[TaxonomyTool, str]]] = {}
         tool_msgs = []
         steps = []
 
