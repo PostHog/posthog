@@ -13,15 +13,19 @@ use tokio::time::sleep;
 
 #[derive(Deserialize)]
 pub struct ProfileQueryParams {
+    // seconds to run the profiler before taking snapshot
     pub seconds: Option<u64>,
+    // profiler samplefrequency in Hz
+    pub frequency: Option<i32>,
 }
 
 pub async fn handle_profile(
     Query(params): Query<ProfileQueryParams>,
 ) -> Result<Response, Response> {
     let seconds = params.seconds.unwrap_or(10);
+    let frequency = params.frequency.unwrap_or(200);
 
-    match generate_report(seconds).await {
+    match generate_report(frequency, seconds).await {
         Ok(body) => Ok((
             StatusCode::OK,
             [("Content-Type", "application/octet-stream")],
@@ -41,9 +45,9 @@ pub async fn handle_profile(
     }
 }
 
-async fn generate_report(seconds: u64) -> Result<Vec<u8>> {
+async fn generate_report(frequency: i32, seconds: u64) -> Result<Vec<u8>> {
     let guard = ProfilerGuardBuilder::default()
-        .frequency(500)
+        .frequency(frequency)
         .blocklist(&["libc", "libgcc", "pthread", "vdso"])
         .build()
         .context("Failed to build profiler guard")?;
