@@ -403,10 +403,6 @@ const fetchSdkData = async (
                     releaseDates: iosReleaseDates,
                 }
 
-                console.info(
-                    `[SDK Doctor] iOS SDK complete result: latestVersion=${iosResult.latestVersion}, release dates count=${Object.keys(iosResult.releaseDates).length}`
-                )
-
                 // Return result
                 return iosResult
 
@@ -436,10 +432,6 @@ const fetchSdkData = async (
                     versions: androidVersions,
                     releaseDates: androidReleaseDates,
                 }
-
-                console.info(
-                    `[SDK Doctor] Android SDK complete result: latestVersion=${androidResult.latestVersion}, release dates count=${Object.keys(androidResult.releaseDates).length}`
-                )
 
                 // Return result
                 return androidResult
@@ -479,9 +471,6 @@ const fetchSdkData = async (
                     releaseDates: phpReleaseDates,
                 }
 
-                console.info(
-                    `[SDK Doctor] PHP SDK complete result: latestVersion=${phpResult.latestVersion}, versions count=${phpVersions.length}, versions=${phpVersions.slice(0, 5).join(', ')}`
-                )
                 console.info(`[SDK Doctor] PHP SDK setting cache and returning result for 'php' type`)
 
                 // Return result
@@ -514,9 +503,6 @@ const fetchSdkData = async (
                     versions: elixirVersions,
                     releaseDates: elixirReleaseDates,
                 }
-                console.info(
-                    `[SDK Doctor] Elixir SDK complete result: latestVersion=${elixirResult.latestVersion}, versions count=${elixirVersions.length}, versions=${elixirVersions.slice(0, 5).join(', ')}`
-                )
                 console.info(`[SDK Doctor] Elixir SDK setting cache and returning result for 'elixir' type`)
                 // Return result
                 return elixirResult
@@ -552,9 +538,6 @@ const fetchSdkData = async (
                     versions: dotnetVersions,
                     releaseDates: dotnetReleaseDates,
                 }
-                console.info(
-                    `[SDK Doctor] .NET SDK complete result: latestVersion=${dotnetResult.latestVersion}, versions count=${dotnetVersions.length}, versions=${dotnetVersions.slice(0, 5).join(', ')}`
-                )
                 console.info(`[SDK Doctor] .NET SDK setting cache and returning result for 'dotnet' type`)
                 // Return result
                 return dotnetResult
@@ -649,10 +632,6 @@ const fetchSdkData = async (
             releaseDates,
         }
 
-        console.info(
-            `[SDK Doctor] fetchSdkData() returning for ${sdkType}: latestVersion=${result.latestVersion}, release dates count=${Object.keys(result.releaseDates).length}`
-        )
-
         // Return result (server handles caching)
         return result
     } catch (error) {
@@ -729,10 +708,6 @@ const fetchGoGitHubReleaseDates = async (): Promise<Record<string, string>> => {
             // Shorter delay since we're only processing 5 versions
             await new Promise((resolve) => setTimeout(resolve, 100))
         }
-
-        console.info(
-            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Go SDK version dates via Full changelog links`
-        )
 
         return releaseDates
     } catch (error) {
@@ -1590,17 +1565,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 // Get release date for the current version
                                 let releaseDate: string | undefined
                                 let daysSinceRelease: number | undefined
-                                let isRecentRelease = false
 
                                 if (releaseDates[info.version]) {
                                     releaseDate = releaseDates[info.version]
                                     const releaseTimestamp = new Date(releaseDate).getTime()
                                     const now = Date.now()
                                     daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
-                                    isRecentRelease = daysSinceRelease < 2 // 48 hours
-                                    console.info(
-                                        `[SDK Doctor] Go SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
-                                    )
                                 }
 
                                 // Apply Go SDK specific logic (no time-based detection due to infrequent releases)
@@ -1609,15 +1579,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     if (releasesBehind >= 3) {
                                         // 3 or more releases behind - outdated
                                         isOutdated = true
-                                        console.info(
-                                            `[SDK Doctor] Go SDK ${info.version} is ${releasesBehind} releases behind - marking as outdated`
-                                        )
                                     } else {
                                         // 1-2 releases behind - close enough (Go SDK exception due to infrequent releases)
                                         isOutdated = false
-                                        console.info(
-                                            `[SDK Doctor] Go SDK ${info.version} is ${releasesBehind} releases behind - marking as close enough (Go SDK exception)`
-                                        )
                                     }
                                 }
 
@@ -1634,10 +1598,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
-
-                                console.info(
-                                    `[SDK Doctor] Go SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
-                                )
                             } else if (info.type === 'web') {
                                 // DIRECT IMPLEMENTATION FOR WEB SDK - bypass the complex pipeline
 
@@ -1685,10 +1645,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     const now = Date.now()
                                     daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
                                     isRecentRelease = daysSinceRelease < 2 // 48 hours
-
-                                    console.info(
-                                        `[SDK Doctor] Web SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
-                                    )
                                 }
 
                                 // Apply the dual-check logic directly
@@ -1697,27 +1653,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     if (isRecentRelease) {
                                         // Recent release (within time threshold) - always "Close enough" regardless of releases behind
                                         isOutdated = false
-                                        console.info(
-                                            `[SDK Doctor] Web SDK ${info.version} is ${releasesBehind} releases behind but recent (${daysSinceRelease} days old) - marking as close enough`
-                                        )
                                     } else if (releasesBehind >= 3) {
                                         // 3 or more releases behind AND not recent - outdated
                                         isOutdated = true
-                                        console.info(
-                                            `[SDK Doctor] Web SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
-                                        )
                                     } else if (releasesBehind >= 2) {
                                         // 2+ releases behind AND not recent - outdated
                                         isOutdated = true
-                                        console.info(
-                                            `[SDK Doctor] Web SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
-                                        )
                                     } else {
                                         // 1 release behind - close enough
                                         isOutdated = false
-                                        console.info(
-                                            `[SDK Doctor] Web SDK ${info.version} is ${releasesBehind} releases behind - marking as close enough`
-                                        )
                                     }
                                 }
 
@@ -1734,10 +1678,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
-
-                                console.info(
-                                    `[SDK Doctor] Web SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
-                                )
                             } else if (info.type === 'python') {
                                 // DIRECT IMPLEMENTATION FOR PYTHON SDK - bypass the complex pipeline
 
@@ -1789,10 +1729,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     const now = Date.now()
                                     daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
                                     isRecentRelease = daysSinceRelease < 2 // 48 hours
-
-                                    console.info(
-                                        `[SDK Doctor] Python SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
-                                    )
                                 }
 
                                 // Apply the dual-check logic directly
@@ -1801,27 +1737,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     if (isRecentRelease) {
                                         // Recent release (within time threshold) - always "Close enough" regardless of releases behind
                                         isOutdated = false
-                                        console.info(
-                                            `[SDK Doctor] Python SDK ${info.version} is ${releasesBehind} releases behind but recent (${daysSinceRelease} days old) - marking as close enough`
-                                        )
                                     } else if (releasesBehind >= 3) {
                                         // 3 or more releases behind AND not recent - outdated
                                         isOutdated = true
-                                        console.info(
-                                            `[SDK Doctor] Python SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
-                                        )
                                     } else if (releasesBehind >= 2) {
                                         // 2+ releases behind AND not recent - outdated
                                         isOutdated = true
-                                        console.info(
-                                            `[SDK Doctor] Python SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
-                                        )
                                     } else {
                                         // 1 release behind - close enough
                                         isOutdated = false
-                                        console.info(
-                                            `[SDK Doctor] Python SDK ${info.version} is ${releasesBehind} releases behind - marking as close enough`
-                                        )
                                     }
                                 }
 
@@ -1838,10 +1762,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
-
-                                console.info(
-                                    `[SDK Doctor] Python SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
-                                )
                             } else if (info.type === 'react-native') {
                                 // DIRECT IMPLEMENTATION FOR REACT NATIVE SDK - bypass the complex pipeline
                                 console.info(
@@ -1896,10 +1816,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     const now = Date.now()
                                     daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
                                     isRecentRelease = daysSinceRelease < 2 // 48 hours
-
-                                    console.info(
-                                        `[SDK Doctor] React Native SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
-                                    )
                                 }
 
                                 // Apply the dual-check logic directly
@@ -1945,10 +1861,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
-
-                                console.info(
-                                    `[SDK Doctor] React Native SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
-                                )
                             } else if (info.type === 'flutter') {
                                 // DIRECT IMPLEMENTATION FOR FLUTTER SDK - bypass the complex pipeline
 
@@ -2000,10 +1912,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     const now = Date.now()
                                     daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
                                     isRecentRelease = daysSinceRelease < 2 // 48 hours
-
-                                    console.info(
-                                        `[SDK Doctor] Flutter SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
-                                    )
                                 }
 
                                 // Apply the dual-check logic directly
@@ -2049,10 +1957,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
-
-                                console.info(
-                                    `[SDK Doctor] Flutter SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
-                                )
                             } else if (info.type === 'ios') {
                                 // DIRECT IMPLEMENTATION FOR iOS SDK - bypass the complex pipeline
 
@@ -2100,10 +2004,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     const now = Date.now()
                                     daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
                                     isRecentRelease = daysSinceRelease < 2 // 48 hours
-
-                                    console.info(
-                                        `[SDK Doctor] iOS SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
-                                    )
                                 }
 
                                 // Apply the dual-check logic directly
@@ -2149,10 +2049,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
-
-                                console.info(
-                                    `[SDK Doctor] iOS SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
-                                )
                             } else if (info.type === 'android') {
                                 // DIRECT IMPLEMENTATION FOR ANDROID SDK - bypass the complex pipeline
 
@@ -2208,10 +2104,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     const now = Date.now()
                                     daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
                                     isRecentRelease = daysSinceRelease < 2 // 48 hours
-
-                                    console.info(
-                                        `[SDK Doctor] Android SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
-                                    )
                                 }
 
                                 // Apply the dual-check logic directly
@@ -2257,10 +2149,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
-
-                                console.info(
-                                    `[SDK Doctor] Android SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
-                                )
                             } else if (info.type === 'php') {
                                 // DIRECT IMPLEMENTATION FOR PHP SDK - simplified logic
 
@@ -2318,10 +2206,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
-
-                                console.info(
-                                    `[SDK Doctor] PHP SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
-                                )
                             } else if (info.type === 'ruby') {
                                 // DIRECT IMPLEMENTATION FOR RUBY SDK - simplified logic
 
@@ -2379,10 +2263,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
-
-                                console.info(
-                                    `[SDK Doctor] Ruby SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
-                                )
                             } else if (info.type === 'elixir') {
                                 // DIRECT IMPLEMENTATION FOR ELIXIR SDK - simplified logic
                                 // Get Elixir SDK data directly
@@ -2434,9 +2314,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
-                                console.info(
-                                    `[SDK Doctor] Elixir SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
-                                )
                             } else if (info.type === 'dotnet') {
                                 // DIRECT IMPLEMENTATION FOR .NET SDK - simplified logic
                                 // Get .NET SDK data directly
@@ -2488,9 +2365,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     lastSeenTimestamp: new Date().toISOString(),
                                     error: undefined,
                                 }
-                                console.info(
-                                    `[SDK Doctor] .NET SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
-                                )
                             } else {
                                 // Use the existing async check for remaining SDKs
                                 console.info(
@@ -2709,12 +2583,6 @@ async function checkVersionAgainstLatestAsync(
 
         // Debug: Verify releaseDates are preserved
         if (type === 'go' && IS_DEBUG_MODE) {
-            console.info(
-                `[SDK Doctor] checkVersionAgainstLatestAsync - Go releaseDates preserved:`,
-                latestVersionsData[type]?.releaseDates
-                    ? Object.keys(latestVersionsData[type].releaseDates!).slice(0, 3)
-                    : 'undefined'
-            )
         }
 
         return checkVersionAgainstLatest(type, version, latestVersionsData)
@@ -2794,15 +2662,8 @@ function checkVersionAgainstLatest(
         }
 
         // Basic release count logic first (will be enhanced with time-based logic below)
-        const releaseCountOutdated = releasesBehind > 2
 
         if (IS_DEBUG_MODE) {
-            console.info(
-                `[SDK Doctor] Release count check: releasesBehind=${releasesBehind}, releaseCountOutdated=${releaseCountOutdated}`
-            )
-            console.info(
-                `[SDK Doctor] String comparison: "${version}" === "${latestVersion}" = ${version === latestVersion}`
-            )
         }
 
         // Age-based analysis
@@ -2832,9 +2693,7 @@ function checkVersionAgainstLatest(
 
         if (daysSinceRelease !== undefined) {
             isRecentRelease = daysSinceRelease < 2 // 48 hours
-        } else if (
-            ['web', 'python', 'node', 'react-native', 'flutter', 'ios', 'android', 'go', 'ruby'].includes(type)
-        ) {
+        } else if (['web', 'python', 'react-native', 'flutter', 'ios', 'android', 'go', 'ruby'].includes(type)) {
             // For these SDKs, we require GitHub API data for accurate detection
             // Return error state instead of misleading fallbacks
             const errorMessage = `The Doctor is unavailable. Please try again later.`
@@ -2855,13 +2714,9 @@ function checkVersionAgainstLatest(
 
         // Apply SDK-specific logic
         let isOutdated = false
-        if (['go', 'php', 'ruby', 'elixir', 'dotnet'].includes(type)) {
-            // Go, PHP, Ruby, Elixir, .NET SDK exception: infrequent releases, so 1-2 releases = "Close enough", 3+ = "Outdated"
+        if (['go', 'php', 'ruby', 'elixir', 'dotnet', 'node'].includes(type)) {
+            // Go, PHP, Ruby, Elixir, .NET, Node.js SDK exception: infrequent releases, so 1-2 releases = "Close enough", 3+ = "Outdated"
             isOutdated = releasesBehind >= 3
-            const statusLabel = releasesBehind === 0 ? 'current' : releasesBehind < 3 ? 'close enough' : 'outdated'
-            console.info(
-                `[SDK Doctor] ${type} SDK ${version} is ${releasesBehind} releases behind - marking as ${statusLabel} (${type} SDK exception)`
-            )
         } else {
             // Standard logic: 2+ releases behind AND >48h old
             // This means even 3+ releases behind shows "Close enough" if released recently
