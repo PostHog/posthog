@@ -60,10 +60,13 @@ class ImportTransformer(cst.CSTTransformer):
         # Handle both cases:
         # 1. Direct file: 'from posthog.models.experiment import ...' (module_name = "experiment")
         # 2. Subdirectory: 'from posthog.models.error_tracking import ...' (module_name = "error_tracking/error_tracking")
+        # 3. Sub-module: 'from posthog.models.error_tracking.sql import ...' (module_name = "error_tracking/error_tracking")
         if "/" in self.module_name:
-            # For subdirectory case, check against subdirectory name
+            # For subdirectory case, check against subdirectory name and sub-modules
             subdirectory_name = self.module_name.split("/")[0]
-            return module_str == f"posthog.models.{subdirectory_name}"
+            return module_str == f"posthog.models.{subdirectory_name}" or module_str.startswith(
+                f"posthog.models.{subdirectory_name}."
+            )
         else:
             # For direct file case, check against module name
             return module_str == f"posthog.models.{self.module_name}"
@@ -116,8 +119,25 @@ class ImportTransformer(cst.CSTTransformer):
         """Transform 'from posthog.models.experiment import ...' statements"""
         self.changed = True
 
-        # Replace module with new location
-        new_module = cst.parse_expression(f"products.{self.target_app}.backend.models")
+        module_str = self._get_module_string(node.module)
+
+        # Handle sub-modules: preserve the sub-module part
+        if "/" in self.module_name:
+            subdirectory_name = self.module_name.split("/")[0]
+            base_path = f"posthog.models.{subdirectory_name}"
+
+            if module_str.startswith(base_path + "."):
+                # Has sub-module like .sql or .hogvm_stl
+                sub_module = module_str[len(base_path) :]  # Gets ".sql" or ".hogvm_stl"
+                new_module_str = f"products.{self.target_app}.backend{sub_module}"
+            else:
+                # Just the base subdirectory import
+                new_module_str = f"products.{self.target_app}.backend.models"
+        else:
+            # Direct file case
+            new_module_str = f"products.{self.target_app}.backend.models"
+
+        new_module = cst.parse_expression(new_module_str)
         return node.with_changes(module=new_module)
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
@@ -258,9 +278,9 @@ class ModelMigrator:
             # Only add Meta class to Django Model classes, not managers or other classes
             is_model_class = any(
                 isinstance(base, ast.Name)
-                and base.id in ["Model", "models.Model"]
+                and base.id.endswith("Model")
                 or isinstance(base, ast.Attribute)
-                and base.attr == "Model"
+                and base.attr.endswith("Model")
                 for base in node.bases
             )
             if not is_model_class:
@@ -839,21 +859,69 @@ class {app_name.title()}Config(AppConfig):
         if updated_files > 0:
             logger.info("✅ Updated external references in %d files", updated_files)
 
+    def _expand_subdirectory_files(self, source_files: list[str]) -> tuple[list[str], list[str]]:
+        """Expand subdirectory entries to include all Python files and identify non-model files"""
+        expanded_files = []
+        non_model_files = []
+
+        for source_file in source_files:
+            if "/" in source_file:
+                # This is a subdirectory file - expand to include all files from the subdirectory
+                subdirectory = source_file.split("/")[0]
+                subdirectory_path = self.root_dir / "posthog" / "models" / subdirectory
+
+                if subdirectory_path.exists() and subdirectory_path.is_dir():
+                    logger.info("🔍 Expanding subdirectory: %s", subdirectory)
+
+                    # Find all Python files in the subdirectory (recursively)
+                    for py_file in subdirectory_path.rglob("*.py"):
+                        if py_file.name == "__pycache__" or py_file.name == "__init__.py":
+                            continue
+
+                        # Calculate relative path from posthog/models/
+                        relative_path = py_file.relative_to(self.root_dir / "posthog" / "models")
+                        relative_str = str(relative_path)
+
+                        expanded_files.append(relative_str)
+
+                        # If it's not the main model file, it's a supporting file
+                        if relative_str != source_file:
+                            non_model_files.append(relative_str)
+
+                    logger.info(
+                        "📂 Found %d files in subdirectory %s",
+                        len([f for f in expanded_files if f.startswith(subdirectory)]),
+                        subdirectory,
+                    )
+                else:
+                    # Just add the original file if subdirectory doesn't exist
+                    expanded_files.append(source_file)
+            else:
+                # Regular file, add as-is
+                expanded_files.append(source_file)
+
+        return expanded_files, non_model_files
+
     def move_model_files_and_update_imports(self, source_files: list[str], target_app: str) -> bool:
         """Move files manually first, then use LibCST to update imports"""
         logger.info("🔄 Moving %d model files...", len(source_files))
 
+        # Step 0: Expand any subdirectories to include all their files
+        expanded_files, non_model_files = self._expand_subdirectory_files(source_files)
+        logger.info("📁 Expanded to %d total files (%d supporting files)", len(expanded_files), len(non_model_files))
+
         target_dir = self.root_dir / "products" / target_app / "backend"
         target_models_py = target_dir / "models.py"
 
-        # Step 1: Get model class names to avoid circular imports
+        # Step 1: Get model class names to avoid circular imports (only from original model files)
         model_names = self._extract_class_names_from_files(source_files)
         logger.info("📋 Model classes found: %s", list(model_names))
 
-        # Step 2: Manually move and combine files
+        # Step 2: Process model files (combine into models.py) and supporting files (copy individually)
         combined_content = []
         imports_seen = set()
 
+        # First, process model files for combining
         for source_file in source_files:
             source_path = self.root_dir / "posthog" / "models" / source_file
             if not source_path.exists():
@@ -894,7 +962,11 @@ class {app_name.title()}Config(AppConfig):
                             file_content.append(updated_line)
                 else:
                     # We're in the content section - include everything except TYPE_CHECKING blocks
-                    if not (stripped == "if TYPE_CHECKING:" or stripped == ""):
+                    if stripped == "if TYPE_CHECKING:":
+                        # Skip TYPE_CHECKING blocks but preserve other empty lines
+                        continue
+                    else:
+                        # Keep all lines including empty ones to preserve formatting
                         updated_line = self._update_foreign_key_references(line, model_names)
                         file_content.append(updated_line)
 
@@ -928,8 +1000,8 @@ class {app_name.title()}Config(AppConfig):
                 while j < len(combined_content):
                     if j + 1 < len(combined_content) and combined_content[j + 1].startswith("# === From "):
                         break
-                    if combined_content[j].strip():  # Skip empty lines at section boundaries
-                        final_content.append(combined_content[j])
+                    # Keep all lines including empty ones to preserve original formatting
+                    final_content.append(combined_content[j])
                     j += 1
                 final_content.extend(["", ""])
 
@@ -941,7 +1013,32 @@ class {app_name.title()}Config(AppConfig):
 
         logger.info("✅ Created combined models.py: %s", target_models_py)
 
-        # Step 2: Use libcst to update imports across the codebase
+        # Step 2a: Copy supporting files (sql.py, hogvm_stl.py, test files, etc.)
+        if non_model_files:
+            logger.info("📁 Copying %d supporting files...", len(non_model_files))
+            for support_file in non_model_files:
+                source_path = self.root_dir / "posthog" / "models" / support_file
+
+                # Preserve directory structure in backend/
+                if "/" in support_file:
+                    # Create subdirectories as needed (e.g., backend/test/)
+                    target_file_path = target_dir / support_file.split("/", 1)[1]  # Remove first directory part
+                else:
+                    target_file_path = target_dir / support_file
+
+                # Create parent directories if needed
+                target_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Move the file
+                if source_path.exists():
+                    import shutil
+
+                    shutil.move(source_path, target_file_path)
+                    logger.info("📄 Moved %s → %s", support_file, target_file_path.relative_to(self.root_dir))
+                else:
+                    logger.warning("⚠️  Supporting file not found: %s", source_path)
+
+        # Step 3: Use libcst to update imports across the codebase
         logger.info("🔄 Using libcst to update imports across codebase...")
         for source_file in source_files:
             module_name = source_file.replace(".py", "")
@@ -995,6 +1092,11 @@ class {app_name.title()}Config(AppConfig):
             f"posthog.models.{search_module_name}",  # Direct module imports
             "posthog.models import",  # General posthog.models imports
         ]
+        # Add sub-module patterns for subdirectories
+        if "/" in module_name:
+            relevant_patterns.append(
+                f"posthog.models.{search_module_name}\\."
+            )  # Sub-module imports like .sql, .hogvm_stl
 
         candidate_files = set()
         for pattern in relevant_patterns:
@@ -1282,6 +1384,9 @@ class {app_name.title()}Config(AppConfig):
             if not target_models_file.exists():
                 logger.error("❌ Cannot continue: target models.py not found at %s", target_models_file)
                 return False
+
+            # Ensure db_table declarations are present even in continue mode
+            self._ensure_model_db_tables(target_models_file)
 
             with open(target_models_file) as f:
                 content = f.read()

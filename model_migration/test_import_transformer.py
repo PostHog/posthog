@@ -9,13 +9,14 @@ import sys
 from pathlib import Path
 
 import pytest
+from unittest.mock import patch
 
 import libcst as cst
 
 # Add the model_migration directory to the path so we can import the module
 sys.path.insert(0, str(Path(__file__).parent))
 
-from migrate_models import ImportTransformer
+from migrate_models import ImportTransformer, ModelMigrator
 
 
 class TestImportTransformer:
@@ -118,6 +119,176 @@ class TestDirectFileModule:
 
         assert transformer.changed is True
         assert expected.strip() in new_tree.code.strip()
+
+
+class TestSubdirectoryExpansion:
+    """Test the subdirectory expansion and file movement logic"""
+
+    def setup_method(self):
+        """Set up test migrator instance"""
+        with patch.object(ModelMigrator, "load_config", return_value={"migrations": []}):
+            self.migrator = ModelMigrator("dummy_config.json")
+            self.migrator.root_dir = Path("/fake/root")
+
+    @patch("pathlib.Path.exists")
+    @patch("pathlib.Path.is_dir")
+    @patch("pathlib.Path.rglob")
+    def test_expand_subdirectory_files(self, mock_rglob, mock_is_dir, mock_exists):
+        """Test expansion of subdirectory to include all Python files"""
+        # Mock directory structure:
+        # posthog/models/error_tracking/
+        #   ├── error_tracking.py (main model file)
+        #   ├── sql.py (supporting file)
+        #   ├── hogvm_stl.py (supporting file)
+        #   ├── __init__.py (skip this)
+        #   └── test/
+        #       └── test_error_tracking.py (test file)
+
+        # Mock the directory existence and structure
+        mock_exists.return_value = True
+        mock_is_dir.return_value = True
+
+        # Mock the files found by rglob
+        mock_files = [
+            Path("/fake/root/posthog/models/error_tracking/error_tracking.py"),
+            Path("/fake/root/posthog/models/error_tracking/sql.py"),
+            Path("/fake/root/posthog/models/error_tracking/hogvm_stl.py"),
+            Path("/fake/root/posthog/models/error_tracking/__init__.py"),  # Should be skipped
+            Path("/fake/root/posthog/models/error_tracking/test/test_error_tracking.py"),
+        ]
+        mock_rglob.return_value = mock_files
+
+        # Test the expansion
+        source_files = ["error_tracking/error_tracking.py"]
+        expanded_files, non_model_files = self.migrator._expand_subdirectory_files(source_files)
+
+        # Verify results
+        expected_expanded = [
+            "error_tracking/error_tracking.py",
+            "error_tracking/sql.py",
+            "error_tracking/hogvm_stl.py",
+            "error_tracking/test/test_error_tracking.py",
+        ]
+        expected_non_model = [
+            "error_tracking/sql.py",
+            "error_tracking/hogvm_stl.py",
+            "error_tracking/test/test_error_tracking.py",
+        ]
+
+        assert set(expanded_files) == set(expected_expanded)
+        assert set(non_model_files) == set(expected_non_model)
+
+    def test_expand_regular_files(self):
+        """Test that regular (non-subdirectory) files are passed through unchanged"""
+        source_files = ["experiment.py", "web_experiment.py"]
+        expanded_files, non_model_files = self.migrator._expand_subdirectory_files(source_files)
+
+        assert expanded_files == source_files
+        assert non_model_files == []
+
+    @patch("pathlib.Path.exists")
+    @patch("pathlib.Path.is_dir")
+    def test_expand_nonexistent_subdirectory(self, mock_is_dir, mock_exists):
+        """Test handling of subdirectory that doesn't exist"""
+        mock_exists.return_value = False
+        mock_is_dir.return_value = False
+
+        source_files = ["nonexistent/model.py"]
+        expanded_files, non_model_files = self.migrator._expand_subdirectory_files(source_files)
+
+        # Should fall back to original file
+        assert expanded_files == source_files
+        assert non_model_files == []
+
+
+class TestFileMovement:
+    """Test the actual file movement logic"""
+
+    def setup_method(self):
+        """Set up test migrator instance"""
+        with patch.object(ModelMigrator, "load_config", return_value={"migrations": []}):
+            self.migrator = ModelMigrator("dummy_config.json")
+            self.migrator.root_dir = Path("/fake/root")
+
+    @patch("shutil.move")
+    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.exists")
+    @patch.object(ModelMigrator, "_expand_subdirectory_files")
+    @patch.object(ModelMigrator, "_extract_class_names_from_files")
+    @patch.object(ModelMigrator, "_ensure_model_db_tables")
+    @patch.object(ModelMigrator, "_update_imports_for_module")
+    @patch("builtins.open", create=True)
+    def test_move_subdirectory_files(
+        self,
+        mock_open,
+        mock_update_imports,
+        mock_ensure_tables,
+        mock_extract_classes,
+        mock_expand_files,
+        mock_exists,
+        mock_mkdir,
+        mock_move,
+    ):
+        """Test complete file movement for subdirectory structure"""
+        # Setup mocks
+        mock_expand_files.return_value = (
+            ["error_tracking/error_tracking.py", "error_tracking/sql.py", "error_tracking/test/test_error_tracking.py"],
+            ["error_tracking/sql.py", "error_tracking/test/test_error_tracking.py"],
+        )
+        mock_extract_classes.return_value = {"ErrorTrackingIssue", "ErrorTrackingStackFrame"}
+        mock_exists.return_value = True
+
+        # Mock file content for models.py creation
+        mock_file_content = "from django.db import models\n\nclass ErrorTrackingIssue(models.Model):\n    pass\n"
+        mock_open.return_value.__enter__.return_value.read.return_value = mock_file_content
+
+        # Call the method
+        result = self.migrator.move_model_files_and_update_imports(
+            ["error_tracking/error_tracking.py"], "error_tracking"
+        )
+
+        # Verify expansion was called
+        mock_expand_files.assert_called_once_with(["error_tracking/error_tracking.py"])
+
+        # Verify supporting files were moved
+        assert mock_move.call_count == 2  # sql.py and test_error_tracking.py
+
+        # Verify directory creation for test folder
+        mock_mkdir.assert_called()
+
+        # Verify import updates were called
+        mock_update_imports.assert_called()
+
+        assert result is True
+
+    @patch("pathlib.Path.exists")
+    @patch.object(ModelMigrator, "_expand_subdirectory_files")
+    def test_missing_supporting_file_warning(self, mock_expand_files, mock_exists):
+        """Test that missing supporting files generate warnings"""
+        mock_expand_files.return_value = (
+            ["error_tracking/error_tracking.py", "error_tracking/missing.py"],
+            ["error_tracking/missing.py"],
+        )
+
+        # Main model file exists, supporting file doesn't
+        def exists_side_effect(path):
+            return "error_tracking.py" in str(path)
+
+        mock_exists.side_effect = exists_side_effect
+
+        with (
+            patch("builtins.open", create=True),
+            patch.object(ModelMigrator, "_extract_class_names_from_files", return_value=set()),
+            patch.object(ModelMigrator, "_ensure_model_db_tables"),
+            patch.object(ModelMigrator, "_update_imports_for_module"),
+            patch("logging.Logger.warning") as mock_warning,
+        ):
+            self.migrator.move_model_files_and_update_imports(["error_tracking/error_tracking.py"], "error_tracking")
+
+            # Should have warned about missing file
+            mock_warning.assert_called()
+            warning_calls = [call for call in mock_warning.call_args_list if "Supporting file not found" in str(call)]
+            assert len(warning_calls) > 0
 
 
 if __name__ == "__main__":
