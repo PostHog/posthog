@@ -20,7 +20,6 @@ export class PersonPropertyService {
         // - another thread created the person during a race
         // - the person might have been merged between start of processing and now
         // we simply and stupidly start from scratch
-        return await promiseRetry(() => this.updateProperties(), 'update_person')
         return await promiseRetry(
             () => this.updateProperties(),
             'update_person',
