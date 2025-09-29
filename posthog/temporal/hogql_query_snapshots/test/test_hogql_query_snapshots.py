@@ -231,7 +231,7 @@ async def test_finish_snapshot_job_activity_success(ateam, saved_query, auser):
     assert job.error is None
 
     # Verify a snapshot saved query was created
-    snapshot_saved_query: DataWarehouseSavedQuery | None = job.table
+    snapshot_saved_query: DataWarehouseSavedQuery | None = job.saved_query
     assert isinstance(snapshot_saved_query, DataWarehouseSavedQuery)
     assert snapshot_saved_query.type == DataWarehouseSavedQuery.Type.SNAPSHOT
     assert snapshot_saved_query.name == f"{snapshot_table.name}_2024_01_01_12_00_00_123456"
@@ -270,7 +270,7 @@ async def test_finish_snapshot_job_activity_with_error(ateam, saved_query, auser
     await sync_to_async(job.refresh_from_db)()
     assert job.status == DataWarehouseSnapshotJob.Status.FAILED
     assert job.error == error_message
-    assert job.table is None
+    assert job.saved_query is None
 
 
 @pytest.mark.asyncio
@@ -391,7 +391,7 @@ async def test_full_workflow_success(ateam, saved_query):
     job = jobs[0]
     assert job.status == DataWarehouseSnapshotJob.Status.COMPLETED
     assert job.error is None
-    assert job.table is not None
+    assert job.saved_query is not None
 
     # Verify snapshot table exists
     snapshot_table = await sync_to_async(
@@ -469,7 +469,7 @@ async def test_workflow_failure_handling(ateam, saved_query):
     job = jobs[0]
     assert job.status == DataWarehouseSnapshotJob.Status.FAILED
     assert "AttributeError: 'NoneType' object has no attribute 'schema'" in str(job.error)
-    assert job.table is None
+    assert job.saved_query is None
 
 
 @pytest.mark.asyncio
