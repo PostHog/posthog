@@ -4645,5 +4645,6 @@
             "refresh_attempt": 0
         }
     ],
-    "tags": []
+    "tags": [],
+    "user_access_level": "editor"
 }
