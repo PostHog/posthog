@@ -140,6 +140,8 @@ services:
             - --memory 3G
             - --reserve-memory 500M
             - --overprovisioned
+            - --set redpanda.empty_seed_starts_cluster=false
+            - --seeds kafka:33145
             - --set redpanda.auto_create_topics_enabled=true
         volumes:
             - redpanda-data:/var/lib/redpanda/data
