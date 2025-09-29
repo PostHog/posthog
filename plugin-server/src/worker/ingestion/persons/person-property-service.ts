@@ -23,7 +23,7 @@ export class PersonPropertyService {
         return await promiseRetry(
             () => this.updateProperties(),
             'update_person',
-            deafultRetryConfig.MAX_RETRIES_DEFAULT,
+            defaultRetryConfig.MAX_RETRIES_DEFAULT,
             defaultRetryConfig.RETRY_INTERVAL_DEFAULT,
             undefined,
             [PersonPropertiesSizeViolationError]
