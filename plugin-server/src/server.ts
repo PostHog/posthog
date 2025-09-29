@@ -84,25 +84,19 @@ export class PluginServer {
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
 
-        // Create S3 client for heap dumps if enabled
-        let heapDumpS3Client: S3Client | undefined
-        if (
-            this.config.HEAP_DUMP_ENABLED &&
-            this.config.HEAP_DUMP_S3_BUCKET &&
-            this.config.HEAP_DUMP_S3_ENDPOINT &&
-            this.config.HEAP_DUMP_S3_REGION
-        ) {
-            const s3Config: S3ClientConfig = {
-                region: this.config.HEAP_DUMP_S3_REGION,
-                endpoint: this.config.HEAP_DUMP_S3_ENDPOINT,
-                forcePathStyle: true,
-                // Credentials automatically provided by IAM role via OIDC/IRSA
-            }
-            heapDumpS3Client = new S3Client(s3Config)
-        }
-
         // Initialize heap dump functionality for all services
-        initializeHeapDump(this.config, heapDumpS3Client)
+        if (this.config.HEAP_DUMP_ENABLED) {
+            let heapDumpS3Client: S3Client | undefined
+            if (this.config.HEAP_DUMP_S3_BUCKET && this.config.HEAP_DUMP_S3_REGION) {
+                const s3Config: S3ClientConfig = {
+                    region: this.config.HEAP_DUMP_S3_REGION,
+                }
+
+                heapDumpS3Client = new S3Client(s3Config)
+            }
+
+            initializeHeapDump(this.config, heapDumpS3Client)
+        }
 
         let _initPluginsPromise: Promise<void> | undefined
 
