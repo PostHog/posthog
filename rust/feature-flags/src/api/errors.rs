@@ -91,7 +91,7 @@ impl FlagError {
             FlagError::RedisDataParsingError
             | FlagError::RedisUnavailable
             | FlagError::DatabaseUnavailable
-            | FlagError::TimeoutError => StatusCode::SERVICE_UNAVAILABLE,
+            | FlagError::TimeoutError(_) => StatusCode::SERVICE_UNAVAILABLE,
 
             FlagError::CookielessError(
                 CookielessManagerError::HashError(_)
@@ -319,7 +319,7 @@ mod tests {
         assert!(FlagError::CacheUpdateError.is_5xx());
         assert!(FlagError::DatabaseUnavailable.is_5xx());
         assert!(FlagError::RedisUnavailable.is_5xx());
-        assert!(FlagError::TimeoutError.is_5xx());
+        assert!(FlagError::TimeoutError(None).is_5xx());
         assert!(FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).is_5xx());
 
         // Test 4XX errors
