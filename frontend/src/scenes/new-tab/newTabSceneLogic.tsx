@@ -8,6 +8,8 @@ import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { urls } from 'scenes/urls'
 
 import {
     ProductIconWrapper,
@@ -69,7 +71,20 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     }),
     loaders(({ values }) => ({
         recents: [
-            { results: [], hasMore: false, startTime: null, endTime: null } as SearchResults,
+            (() => {
+                if ('sessionStorage' in window) {
+                    try {
+                        const value = window.sessionStorage.getItem(`newTab-recentItems-${getCurrentTeamId()}`)
+                        const recents = value ? JSON.parse(value) : null
+                        if (recents) {
+                            return recents
+                        }
+                    } catch {
+                        // do nothing
+                    }
+                }
+                return { results: [], hasMore: false, startTime: null, endTime: null }
+            }) as any as SearchResults,
             {
                 loadRecents: async (_, breakpoint) => {
                     if (values.recentsLoading) {
@@ -83,13 +98,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         notType: 'folder',
                     })
                     breakpoint()
-                    const results = response.results.slice(0, PAGINATION_LIMIT)
-                    return {
+                    const recents = {
                         searchTerm,
-                        results: results,
+                        results: response.results.slice(0, PAGINATION_LIMIT),
                         hasMore: response.results.length > PAGINATION_LIMIT,
                         lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
                     }
+                    if ('sessionStorage' in window && searchTerm === '') {
+                        try {
+                            window.sessionStorage.setItem(
+                                `newTab-recentItems-${getCurrentTeamId()}`,
+                                JSON.stringify(recents)
+                            )
+                        } catch {
+                            // do nothing
+                        }
+                    }
+                    return recents
                 },
             },
         ],
@@ -316,12 +341,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
-        '*': (_, searchParams) => {
+        [urls.newTab()]: (_, searchParams) => {
             if (searchParams.search && searchParams.search !== values.search) {
                 actions.setSearch(String(searchParams.search))
             }
             if (searchParams.category && searchParams.category !== values.selectedCategory) {
-                actions.setSelectedCategory(String(searchParams.category))
+                actions.setSelectedCategory(searchParams.category)
             }
             // Set defaults from URL if no params
             if (!searchParams.search && values.search) {
