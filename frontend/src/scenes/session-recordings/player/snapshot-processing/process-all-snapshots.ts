@@ -127,14 +127,22 @@ export function processAllSnapshots(
                         result.push(metaEvent)
                         sourceResult.push(metaEvent)
                         throttleCapture(`${sessionRecordingId}-patched-meta`, () => {
-                            posthog.capture('patched meta into web recording')
+                            posthog.capture('patched meta into web recording', {
+                                throttleCaptureKey: `${sessionRecordingId}-patched-meta`,
+                                sessionRecordingId,
+                                sourceKey: sourceKey,
+                                feature: 'session-recording-meta-patching',
+                            })
                         })
                     } else {
                         throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
                             posthog.captureException(
                                 new Error('No event viewport or meta snapshot found for full snapshot'),
                                 {
-                                    snapshot,
+                                    throttleCaptureKey: `${sessionRecordingId}-no-viewport-found`,
+                                    sessionRecordingId,
+                                    sourceKey: sourceKey,
+                                    feature: 'session-recording-meta-patching',
                                 }
                             )
                         })
