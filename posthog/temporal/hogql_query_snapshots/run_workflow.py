@@ -155,7 +155,7 @@ async def finish_snapshot_job_activity(inputs: FinishSnapshotJobInputs) -> None:
 
         saved_query.columns = await database_sync_to_async(saved_query.get_columns)()
         await database_sync_to_async(saved_query.save)()
-        job.table = saved_query
+        job.saved_query = saved_query
 
     job.status = (
         DataWarehouseSnapshotJob.Status.COMPLETED if inputs.error is None else DataWarehouseSnapshotJob.Status.FAILED
