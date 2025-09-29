@@ -348,7 +348,6 @@ class Task(models.Model):
         # Since we only support single repository, return the first (and only) one
         return repositories[0]
 
-    # NOTE: Remove this? we probably want to support multiple integrations for a team, and make all of those available here?
     @property
     def legacy_github_integration(self):
         """Get the team's main GitHub integration if available (legacy compatibility)"""
@@ -370,7 +369,7 @@ class Task(models.Model):
         try:
             return TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
         except TaskWorkflow.DoesNotExist:
-            return None  # NOTE: throw here?
+            return None
 
     def get_next_stage(self):
         """Get the next stage in the linear workflow"""

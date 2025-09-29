@@ -78,7 +78,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logger.info(f"perform_update called for task {task.id} with validated_data: {serializer.validated_data}")
 
         # Save the changes
-        serializer.save()  # NOTE: Should we move this to the end of the method, if not let's move this to a signal?
+        serializer.save()
 
         # Check if current_stage changed and trigger workflow
         new_stage = serializer.validated_data.get("current_stage")
@@ -403,9 +403,7 @@ class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def archive(self, request, pk=None, **kwargs):
         """Archive a stage instead of deleting it"""
         stage = self.get_object()
-
         stage.archive()
-
         return Response({"message": "Stage archived successfully"})
 
 
