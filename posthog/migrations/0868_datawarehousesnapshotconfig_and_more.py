@@ -104,7 +104,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "table",
+                    "saved_query",
                     models.ForeignKey(
                         blank=True,
                         null=True,
