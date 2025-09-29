@@ -139,9 +139,18 @@ class TaskWorkflow(models.Model):
 
             WorkflowStage.objects.bulk_create(stages)
 
+        return workflow
+
     @classmethod
     def create_default_workflow(cls, team: Team):
         return TaskWorkflow.from_template(DEFAULT_WORKFLOW_TEMPLATE, team, is_default=True)
+
+    def can_delete(self):
+        """Check if this workflow can be safely deleted"""
+        if self.is_default:
+            return False, "Cannot delete the default workflow"
+
+        return True, ""
 
 
 class WorkflowStage(models.Model):
@@ -287,11 +296,19 @@ class Task(models.Model):
 
     def save(self, *args, **kwargs):
         """Override save to handle workflow consistency."""
+        # Auto-assign default workflow if no workflow is set
+        if not self.workflow:
+            default_workflow = TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
+            if default_workflow:
+                self.workflow = default_workflow
+
+        # Auto-assign first stage if workflow is set but no stage
         if self.workflow and not self.current_stage:
             first_stage = self.workflow.active_stages.first()
             if first_stage:
                 self.current_stage = first_stage
 
+        # Clear stage if it doesn't belong to the current workflow
         if self.current_stage and self.workflow and self.current_stage.workflow != self.workflow:
             self.current_stage = None
 

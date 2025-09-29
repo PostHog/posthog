@@ -90,7 +90,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             logger.info(f"Task {task.id} updated but status unchanged ({previous_status})")
 
     @action(detail=True, methods=["patch"])
-    def update_stage(self, request, pk=None):
+    def update_stage(self, request, pk=None, **kwargs):
         logger.info(f"update_stage called for task {pk} with data: {request.data}")
 
         task = cast(Task, self.get_object())
@@ -122,7 +122,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskSerializer(task).data)
 
     @action(detail=True, methods=["patch"])
-    def update_position(self, request, pk=None):
+    def update_position(self, request, pk=None, **kwargs):
         task = self.get_object()
 
         new_position = request.data.get("position")
@@ -339,7 +339,7 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return {**super().get_serializer_context(), "team": self.team}
 
     @action(detail=True, methods=["post"])
-    def set_default(self, request, pk=None):
+    def set_default(self, request, pk=None, **kwargs):
         """Set this workflow as the team's default"""
         workflow = self.get_object()
 
@@ -364,7 +364,7 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"error": "Cannot deactivate the default workflow"}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=["post"])
-    def create_default(self, request):
+    def create_default(self, request, **kwargs):
         """Create a default workflow for the team"""
         existing_default = TaskWorkflow.objects.filter(team=self.team, is_default=True).first()
 
@@ -385,12 +385,13 @@ class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = WorkflowStage.objects.all()
     posthog_feature_flag = {"tasks": ["list", "retrieve", "create", "update", "partial_update", "destroy", "archive"]}
+    filter_rewrite_rules = {"team_id": "workflow__team_id"}
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(workflow__team=self.team, is_archived=False)
+        return queryset.filter(is_archived=False)
 
     @action(detail=True, methods=["post"])
-    def archive(self, request, pk=None):
+    def archive(self, request, pk=None, **kwargs):
         """Archive a stage instead of deleting it"""
         stage = self.get_object()
 

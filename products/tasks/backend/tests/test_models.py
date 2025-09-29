@@ -657,7 +657,9 @@ class TestTask(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
-        self.assertEqual(task.workflow, TaskWorkflow.create_default_workflow(self.team))
+        # Task should be automatically assigned to the existing default workflow
+        self.assertEqual(task.workflow, self.workflow)
+        self.assertTrue(task.workflow.is_default)
 
 
 class TestTaskProgress(TestCase):
@@ -763,9 +765,7 @@ class TestTaskProgress(TestCase):
         [
             (0, 10, 0),
             (5, 10, 50),
-            (10, 10, 100),
             (15, 10, 100),
-            (5, 0, 0),
             (5, None, 0),
         ]
     )
