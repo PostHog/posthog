@@ -20,7 +20,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
 export const scene: SceneExport = {
@@ -33,7 +32,7 @@ const getCategoryDisplayName = (category: string): string => {
         'create-new': 'Create new',
         apps: 'Apps',
         'data-management': 'Data management',
-        'project-items': 'Project items',
+        recents: 'Recents',
     }
     return displayNames[category] || category
 }
@@ -51,7 +50,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
-    const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
 
     // scroll it to view
     useEffect(() => {
@@ -179,7 +177,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-3 @lg/main-content:px-8">
                     {filteredItemsGrid.length === 0 ? (
                         <div className="flex flex-col gap-4">
-                            {selectedCategory === 'project-items' ? (
+                            {selectedCategory === 'recents' ? (
                                 <div className="flex flex-col gap-2 text-center py-8">
                                     <h3 className="text-lg font-medium text-muted">Search for project items</h3>
                                     <p className="text-muted">
@@ -224,45 +222,20 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                     getCategoryDisplayName(category)
                                                 )}
                                             </h3>
-                                            {category === 'project-items' && isSearching && <Spinner size="small" />}
+                                            {category === 'recents' && isSearching && <Spinner size="small" />}
                                         </div>
                                     </div>
                                     <div className="flex flex-col gap-2">
-                                        {category === 'project-items' && types.length === 0 ? (
+                                        {category === 'recents' && types.length === 0 ? (
                                             // Special handling for empty project items
                                             <div className="flex flex-col gap-2 text-tertiary text-balance">
-                                                {search.trim().length >= 2 ? (
-                                                    isSearching ? (
-                                                        'Searching...'
-                                                    ) : (
-                                                        'No results found'
-                                                    )
-                                                ) : (
-                                                    <>
-                                                        <span className="text-tertiary">
-                                                            You must search to see project items, or explore the project
-                                                            tree
-                                                        </span>
-                                                        <ListBox.Item asChild>
-                                                            <ButtonPrimitive
-                                                                size="sm"
-                                                                onClick={() => {
-                                                                    showLayoutPanel(true)
-                                                                    setActivePanelIdentifier('Project')
-                                                                }}
-                                                                variant="panel"
-                                                            >
-                                                                Open project tree
-                                                            </ButtonPrimitive>
-                                                        </ListBox.Item>
-                                                    </>
-                                                )}
+                                                {isSearching ? 'Searching...' : 'No results found'}
                                             </div>
                                         ) : (
                                             types.map((qt, index) => (
                                                 // If we have filtered results set virtual focus to first item
                                                 <ListBox.Item
-                                                    key={qt.name}
+                                                    key={index}
                                                     asChild
                                                     focusFirst={filteredItemsGrid.length > 0 && index === 0}
                                                 >
