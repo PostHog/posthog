@@ -109,6 +109,105 @@ class TestImportTransformer:
         assert expected.strip() in result.strip(), f"Expected: {expected}\nGot: {result}"
 
 
+class TestForeignKeyReferences:
+    """Test the foreign key reference updates"""
+
+    def test_direct_foreign_key_to_string_conversion(self):
+        """Test: ForeignKey(Team, ...) → ForeignKey("posthog.Team", ...)"""
+        from unittest.mock import patch
+
+        from migrate_models import ModelMigrator
+
+        with patch.object(ModelMigrator, "load_config", return_value={"migrations": []}):
+            migrator = ModelMigrator("dummy_config.json")
+
+        model_names = {"ErrorTrackingIssue"}  # Models being moved
+
+        # Test ForeignKey conversion
+        source = "    team = models.ForeignKey(Team, on_delete=models.CASCADE)"
+        expected = '    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)'
+        result = migrator._update_foreign_key_references(source, model_names)
+        assert result == expected, f"Expected: {expected}\nGot: {result}"
+
+    def test_direct_many_to_many_field_conversion(self):
+        """Test: ManyToManyField(User) → ManyToManyField("posthog.User")"""
+        from unittest.mock import patch
+
+        from migrate_models import ModelMigrator
+
+        with patch.object(ModelMigrator, "load_config", return_value={"migrations": []}):
+            migrator = ModelMigrator("dummy_config.json")
+
+        model_names = {"ErrorTrackingIssue"}
+
+        source = "    users = models.ManyToManyField(User)"
+        expected = '    users = models.ManyToManyField("posthog.User")'
+        result = migrator._update_foreign_key_references(source, model_names)
+        assert result == expected, f"Expected: {expected}\nGot: {result}"
+
+    def test_direct_one_to_one_field_conversion(self):
+        """Test: OneToOneField(Team, ...) → OneToOneField("posthog.Team", ...)"""
+        from unittest.mock import patch
+
+        from migrate_models import ModelMigrator
+
+        with patch.object(ModelMigrator, "load_config", return_value={"migrations": []}):
+            migrator = ModelMigrator("dummy_config.json")
+
+        model_names = {"ErrorTrackingIssue"}
+
+        source = "    team_config = models.OneToOneField(Team, on_delete=models.CASCADE)"
+        expected = '    team_config = models.OneToOneField("posthog.Team", on_delete=models.CASCADE)'
+        result = migrator._update_foreign_key_references(source, model_names)
+        assert result == expected, f"Expected: {expected}\nGot: {result}"
+
+    def test_do_not_convert_moved_models(self):
+        """Test that direct references to models being moved are not converted"""
+        from unittest.mock import patch
+
+        from migrate_models import ModelMigrator
+
+        with patch.object(ModelMigrator, "load_config", return_value={"migrations": []}):
+            migrator = ModelMigrator("dummy_config.json")
+
+        model_names = {"ErrorTrackingSymbolSet"}  # This model is being moved
+
+        source = "    symbol_set = models.ForeignKey(ErrorTrackingSymbolSet, on_delete=models.SET_NULL)"
+        result = migrator._update_foreign_key_references(source, model_names)
+        assert result == source, f"Expected unchanged: {source}\nGot: {result}"
+
+    def test_existing_string_references_unchanged(self):
+        """Test that existing string references work as before"""
+        from unittest.mock import patch
+
+        from migrate_models import ModelMigrator
+
+        with patch.object(ModelMigrator, "load_config", return_value={"migrations": []}):
+            migrator = ModelMigrator("dummy_config.json")
+
+        model_names = {"ErrorTrackingIssue"}
+
+        # Already has posthog prefix - should not change
+        source = '    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)'
+        result = migrator._update_foreign_key_references(source, model_names)
+        assert result == source, f"Expected unchanged: {source}\nGot: {result}"
+
+    def test_non_foreign_key_lines_unchanged(self):
+        """Test that non-FK lines are not affected"""
+        from unittest.mock import patch
+
+        from migrate_models import ModelMigrator
+
+        with patch.object(ModelMigrator, "load_config", return_value={"migrations": []}):
+            migrator = ModelMigrator("dummy_config.json")
+
+        model_names = {"ErrorTrackingIssue"}
+
+        source = "    name = models.CharField(max_length=255)"
+        result = migrator._update_foreign_key_references(source, model_names)
+        assert result == source, f"Expected unchanged: {source}\nGot: {result}"
+
+
 class TestDirectFileModule:
     """Test with direct file (non-subdirectory) module for comparison"""
 

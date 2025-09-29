@@ -803,13 +803,32 @@ class {app_name.title()}Config(AppConfig):
         return class_names
 
     def _update_foreign_key_references(self, line: str, model_names: set[str]) -> str:
-        """Update string-based foreign key references to include posthog. prefix"""
+        """Update both string-based and direct foreign key references to include posthog. prefix"""
         import re
 
         # Only update references in ForeignKey, ManyToManyField, OneToOneField lines
         if not any(field_type in line for field_type in ["ForeignKey", "ManyToManyField", "OneToOneField"]):
             return line
 
+        # First handle direct class references: ForeignKey(ClassName, ...) or ForeignKey(ClassName)
+        # Pattern: field_type(ClassName, or field_type(ClassName)
+        direct_pattern = r"\b(ForeignKey|ManyToManyField|OneToOneField)\(([A-Z][a-zA-Z]*)([\),])"
+
+        def replace_direct(match):
+            field_type = match.group(1)
+            model_ref = match.group(2)
+            delimiter = match.group(3)
+
+            # Don't change if it's a model being moved
+            if model_ref in model_names:
+                return match.group(0)
+
+            # Convert to string reference with posthog prefix
+            return f'{field_type}("posthog.{model_ref}"{delimiter}'
+
+        line = re.sub(direct_pattern, replace_direct, line)
+
+        # Then handle existing string references (existing logic)
         # Pattern to match quoted model references in field definitions
         # Matches: "ModelName" but not "posthog.ModelName" (already prefixed)
         pattern = r'"([A-Z][a-zA-Z]*)"'
