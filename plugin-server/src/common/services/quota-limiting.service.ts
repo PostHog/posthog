@@ -6,7 +6,7 @@ import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 
 // subset of resources that we care about in this service
-export type QuotaResource = 'events' | 'cdp_invocations'
+export type QuotaResource = 'events' | 'cdp_trigger_events'
 
 export const QUOTA_LIMITER_CACHE_KEY = '@posthog/quota-limits/'
 
