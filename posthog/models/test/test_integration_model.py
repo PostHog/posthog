@@ -1,4 +1,5 @@
 import time
+import socket
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
@@ -11,6 +12,8 @@ from django.db import connection
 
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
+    DatabricksIntegration,
+    DatabricksIntegrationError,
     GitHubIntegration,
     GoogleCloudIntegration,
     Integration,
@@ -564,3 +567,37 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.sensitive_config == {
             "access_token": "ACCESS_TOKEN",
         }
+
+
+class TestDatabricksIntegrationModel(BaseTest):
+    @patch("posthog.models.integration.socket.socket")
+    def test_integration_from_config_with_valid_config(self, mock_socket):
+        mock_socket.return_value.connect.return_value = None
+        integration = DatabricksIntegration.integration_from_config(
+            team_id=self.team.pk,
+            server_hostname="databricks.com",
+            client_id="client_id",
+            client_secret="client_secret",
+            created_by=self.user,
+        )
+        assert integration.team == self.team
+        assert integration.created_by == self.user
+        assert integration.config == {"server_hostname": "databricks.com"}
+        assert integration.sensitive_config == {"client_id": "client_id", "client_secret": "client_secret"}
+
+    @patch("posthog.models.integration.socket.socket")
+    def test_integration_from_config_with_invalid_server_hostname(self, mock_socket):
+        # this is the error raised when the server hostname is invalid
+        mock_socket.return_value.connect.side_effect = socket.gaierror(
+            8, "nodename nor servname provided, or not known"
+        )
+        with pytest.raises(
+            DatabricksIntegrationError, match="Databricks integration is not valid: could not connect to 'invalid'"
+        ):
+            DatabricksIntegration.integration_from_config(
+                team_id=self.team.pk,
+                server_hostname="invalid",
+                client_id="client_id",
+                client_secret="client_secret",
+                created_by=self.user,
+            )

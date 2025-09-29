@@ -513,12 +513,12 @@ class SurveyAnalysisTool(MaxTool):
             lines.append("\n**📝 Question Breakdown:**")
             for question, breakdown in list(analysis.question_breakdown.items())[:3]:  # Top 3 questions
                 lines.append(f"\n**Q: {question}**")
-                lines.append(f"Theme: {breakdown.theme}")
-                lines.append(f"Sentiment: {breakdown.sentiment.title()}")
+                lines.append(f"\nTheme: {breakdown.theme}")
+                lines.append(f"\nSentiment: {breakdown.sentiment.title()}")
                 if breakdown.key_insights:
-                    lines.append("Key insights:")
+                    lines.append("\nKey insights:")
                     for insight in breakdown.key_insights[:2]:  # Limit to 2 insights per question
-                        lines.append(f"• {insight}")
+                        lines.append(f"- {insight}")
 
         lines.append("\n---")
         lines.append("💡 *Need more detail? Ask me to dive deeper into any specific aspect.*")
