@@ -52,11 +52,6 @@ from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_TABLE_SQL,
 )
 from posthog.models.cohort.sql import CREATE_COHORTPEOPLE_TABLE_SQL
-from posthog.models.error_tracking.sql import (
-    ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL,
-    ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
-    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
-)
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_RECENT_TABLE_SQL,
     DISTRIBUTED_EVENTS_TABLE_SQL,
@@ -152,6 +147,12 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
     WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL,
+)
+
+from products.error_tracking.backend.sql import (
+    ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL,
+    ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
 )
 
 # Queries to create tables, you must pass function, otherwise the table is created before

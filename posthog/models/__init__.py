@@ -27,16 +27,6 @@ from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .error_tracking import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingStackFrame,
-    ErrorTrackingSymbolSet,
-    ErrorTrackingIssueAssignment,
-    ErrorTrackingAssignmentRule,
-    ErrorTrackingGroupingRule,
-    ErrorTrackingSuppressionRule,
-)
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
