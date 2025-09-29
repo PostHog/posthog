@@ -15,12 +15,19 @@ import { createCohortDataNodeLogicKey } from './cohortUtils'
 
 export type AddPersonToCohortModalProps = {
     id?: CohortType['id']
+    tabId: string
 }
 
 export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>([
     props({} as AddPersonToCohortModalProps),
     path(['scenes', 'cohorts', 'addPersonToCohortModalLogic']),
-    key((props) => props.id || 'new'),
+    key((props) => {
+        // This should not show when props.id === 'new' but we still handle the case
+        if (props.id === 'new' || !props.id) {
+            return 'new'
+        }
+        return `${props.id}-${props.tabId}`
+    }),
     actions({
         showAddPersonToCohortModal: true,
         hideAddPersonToCohortModal: true,

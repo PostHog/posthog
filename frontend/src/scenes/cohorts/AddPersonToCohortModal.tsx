@@ -5,13 +5,13 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { AddPersonToCohortModalBody } from './AddPersonToCohortModalBody'
 import { AddPersonToCohortModalProps, addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 
-export function AddPersonToCohortModal({ id }: AddPersonToCohortModalProps): JSX.Element {
-    const logicProps = { id }
+export function AddPersonToCohortModal({ id, tabId }: AddPersonToCohortModalProps): JSX.Element {
+    const logicProps = { id, tabId }
     const logic = addPersonToCohortModalLogic(logicProps)
     const { hideAddPersonToCohortModal, addPersonsToCohort } = useActions(logic)
     const { addPersonToCohortModalVisible, personsToAddToCohort, isCohortUpdating } = useValues(logic)
     return (
-        <BindLogic logic={addPersonToCohortModalLogic} props={{ id }}>
+        <BindLogic logic={addPersonToCohortModalLogic} props={logicProps}>
             <LemonModal
                 title="Add users to cohort"
                 onClose={hideAddPersonToCohortModal}

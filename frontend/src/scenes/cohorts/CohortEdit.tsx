@@ -132,7 +132,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     return (
         <BindLogic logic={cohortEditLogic} props={logicProps}>
             <div className="cohort">
-                <AddPersonToCohortModal id={id} />
+                <AddPersonToCohortModal id={id} tabId={tabId} />
 
                 <ScenePanel>
                     <ScenePanelInfoSection>
