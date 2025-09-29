@@ -18,25 +18,33 @@ impl DatabasePools {
     pub async fn from_config(config: &Config) -> Result<Self, FlagError> {
         let acquire_timeout = Duration::from_secs(config.acquire_timeout_secs);
         let non_persons_reader = Arc::new(
-            get_pool_with_timeout(&config.read_database_url, config.max_pg_connections, acquire_timeout)
-                .await
-                .map_err(|e| {
-                    FlagError::DatabaseError(
-                        e,
-                        Some("Failed to create non-persons reader pool".to_string()),
-                    )
-                })?,
+            get_pool_with_timeout(
+                &config.read_database_url,
+                config.max_pg_connections,
+                acquire_timeout,
+            )
+            .await
+            .map_err(|e| {
+                FlagError::DatabaseError(
+                    e,
+                    Some("Failed to create non-persons reader pool".to_string()),
+                )
+            })?,
         );
 
         let non_persons_writer = Arc::new(
-            get_pool_with_timeout(&config.write_database_url, config.max_pg_connections, acquire_timeout)
-                .await
-                .map_err(|e| {
-                    FlagError::DatabaseError(
-                        e,
-                        Some("Failed to create flag matching writer pool".to_string()),
-                    )
-                })?,
+            get_pool_with_timeout(
+                &config.write_database_url,
+                config.max_pg_connections,
+                acquire_timeout,
+            )
+            .await
+            .map_err(|e| {
+                FlagError::DatabaseError(
+                    e,
+                    Some("Failed to create flag matching writer pool".to_string()),
+                )
+            })?,
         );
 
         // Create persons pools if configured, otherwise reuse the non-persons pools

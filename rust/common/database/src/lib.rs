@@ -47,7 +47,7 @@ pub struct PoolStats {
 }
 
 pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
-    get_pool_with_timeout(url, max_connections, Duration::from_secs(20)).await
+    get_pool_with_timeout(url, max_connections, config.acquire_timeout_secs).await
 }
 
 pub async fn get_pool_with_timeout(
