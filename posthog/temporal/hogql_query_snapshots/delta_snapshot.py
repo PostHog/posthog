@@ -6,16 +6,13 @@ from django.conf import settings
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
-from conditional_cache import lru_cache
-from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 
-from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.delta.base import DeltaMixin
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.snapshot_config import DataWarehouseSnapshotConfig
-from posthog.warehouse.s3 import ensure_bucket_exists
 from posthog.warehouse.types import PartitionSettings
 
 
@@ -29,7 +26,7 @@ def make_schema_nullable(schema: pa.Schema) -> pa.Schema:
     return pa.schema(nullable_fields)
 
 
-class DeltaSnapshot:
+class DeltaSnapshot(DeltaMixin):
     VALID_UNTIL_COLUMN: str = "_ph_valid_until"
 
     def __init__(self, saved_query: DataWarehouseSavedQuery):
@@ -50,68 +47,6 @@ class DeltaSnapshot:
     @property
     def backup_delta_table_uri(self) -> str:
         return self._get_delta_table_uri() + "__backup"
-
-    def _get_credentials(self):
-        if not settings.AIRBYTE_BUCKET_KEY or not settings.AIRBYTE_BUCKET_SECRET or not settings.AIRBYTE_BUCKET_REGION:
-            raise KeyError(
-                "Missing env vars for data warehouse. Required vars: AIRBYTE_BUCKET_KEY, AIRBYTE_BUCKET_SECRET, AIRBYTE_BUCKET_REGION"
-            )
-
-        if settings.USE_LOCAL_SETUP:
-            ensure_bucket_exists(
-                settings.BUCKET_URL,
-                settings.AIRBYTE_BUCKET_KEY,
-                settings.AIRBYTE_BUCKET_SECRET,
-                settings.OBJECT_STORAGE_ENDPOINT,
-            )
-
-            return {
-                "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-                "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-                "region_name": settings.AIRBYTE_BUCKET_REGION,
-                "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-                "AWS_ALLOW_HTTP": "true",
-                "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-            }
-
-        return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
-    @lru_cache(maxsize=1, condition=lambda result: result is not None)
-    def get_delta_table(self) -> deltalake.DeltaTable | None:
-        delta_uri = self._get_delta_table_uri()
-        storage_options = self._get_credentials()
-
-        if deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options):
-            try:
-                return deltalake.DeltaTable(table_uri=delta_uri, storage_options=storage_options)
-            except Exception as e:
-                capture_exception(e)
-
-        return None
-
-    def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
-        delta_table = self.get_delta_table()
-        if delta_table is None:
-            raise Exception("Deltalake table not found")
-
-        delta_table_schema = delta_table.schema().to_pyarrow()
-
-        new_fields = [
-            deltalake.Field.from_pyarrow(field.with_nullable(True))
-            for field in ensure_delta_compatible_arrow_schema(schema)
-            if field.name not in delta_table_schema.names
-        ]
-        if new_fields:
-            delta_table.alter.add_columns(new_fields)
-
-        return delta_table
 
     def snapshot(self, data: pa.RecordBatch):
         delta_table = self.get_delta_table()
