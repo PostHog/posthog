@@ -67,6 +67,17 @@ export function ChartFilter(): JSX.Element {
                         <ChartFilterOptionLabel label="Bar chart" description="Trends over time as vertical bars." />
                     ),
                 },
+                {
+                    value: ChartDisplayType.ActionsUnstackedBar,
+                    icon: <IconGraph />,
+                    label: 'Unstacked bar chart',
+                    labelInMenu: (
+                        <ChartFilterOptionLabel
+                            label="Unstacked bar chart"
+                            description="Trends over time as vertical bars side-by-side."
+                        />
+                    ),
+                },
             ],
         },
         {
