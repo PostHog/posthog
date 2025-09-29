@@ -323,6 +323,9 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog dags dags/
 COPY --chown=posthog:posthog products products/
 
+# precompile .py files to .pyc
+RUN python -m compileall
+
 # Keep server command backwards compatible
 RUN cp ./bin/docker-server-unit ./bin/docker-server
 
