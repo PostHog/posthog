@@ -164,20 +164,24 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         <IconCopy /> Duplicate as static cohort
                     </ButtonPrimitive>
                 </ScenePanelActionsSection>
-                <ScenePanelDivider />
-                <ScenePanelActionsSection>
-                    <ButtonPrimitive
-                        onClick={() => {
-                            deleteCohort()
-                        }}
-                        variant="danger"
-                        menuItem
-                        data-attr={`${RESOURCE_TYPE}-delete`}
-                    >
-                        <IconTrash />
-                        Delete
-                    </ButtonPrimitive>
-                </ScenePanelActionsSection>
+                {!isNewCohort && (
+                    <>
+                        <ScenePanelDivider />
+                        <ScenePanelActionsSection>
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    deleteCohort()
+                                }}
+                                variant="danger"
+                                menuItem
+                                data-attr={`${RESOURCE_TYPE}-delete`}
+                            >
+                                <IconTrash />
+                                Delete
+                            </ButtonPrimitive>
+                        </ScenePanelActionsSection>
+                    </>
+                )}
             </ScenePanel>
 
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
