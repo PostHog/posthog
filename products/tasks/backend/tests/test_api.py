@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
@@ -12,6 +12,10 @@ from products.tasks.backend.models import Task, TaskProgress, TaskWorkflow, Work
 
 
 class BaseTaskAPITest(TestCase):
+    feature_flag_patcher: MagicMock
+    mock_feature_flag: MagicMock
+    client: APIClient
+
     def setUp(self):
         self.client = APIClient()
         self.organization = Organization.objects.create(name="Test Org")
@@ -38,7 +42,7 @@ class BaseTaskAPITest(TestCase):
         self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")
         self.mock_feature_flag = self.feature_flag_patcher.start()
 
-        def check_flag(flag_name, *args, **kwargs):
+        def check_flag(flag_name, *_args, **_kwargs):
             if flag_name == "tasks":
                 return enabled
             return False
@@ -603,11 +607,9 @@ class TestPermissionsAndFeatureFlags(BaseTaskAPITest):
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
 
     def test_authentication_required(self):
-        # Create resources before removing authentication
         workflow = self.create_workflow()
         task = self.create_task(workflow=workflow)
 
-        # Now remove authentication
         self.client.force_authenticate(None)
 
         endpoints = [

@@ -560,6 +560,7 @@ class TestTask(TestCase):
         )
 
         primary_repo = task.primary_repository
+        assert primary_repo is not None
         self.assertEqual(primary_repo["org"], "PostHog")
         self.assertEqual(primary_repo["repo"], "posthog")
 
@@ -660,6 +661,7 @@ class TestTask(TestCase):
 
         # Task should be automatically assigned to the existing default workflow
         self.assertEqual(task.workflow, self.workflow)
+        assert task.workflow is not None
         self.assertTrue(task.workflow.is_default)
 
 
