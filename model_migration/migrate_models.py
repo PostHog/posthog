@@ -1183,7 +1183,7 @@ class {app_name.title()}Config(AppConfig):
             content = f.read()
 
         # Check if already added
-        app_config_path = f'"products.{target_app}.backend.apps.{target_app.title()}Config"'
+        app_config_path = f'"products.{target_app}.backend.apps.{target_app.title().strip("_")}Config"'
         if app_config_path in content:
             logger.info("✅ App %s already in settings", target_app)
             return True
