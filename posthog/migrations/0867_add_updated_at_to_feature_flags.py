@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0861_alter_survey_questions"),
+        ("posthog", "0866_add_integration_to_batch_export_destination"),
     ]
 
     operations = [
