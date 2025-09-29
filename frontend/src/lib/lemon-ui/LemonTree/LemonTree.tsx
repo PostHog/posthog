@@ -388,12 +388,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         className: cn(
                                             'group/lemon-tree-button gap-[5px]',
                                             'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3',
-                                            // pr-1 to maximize available rendering space, when hovering, show the side action,
-                                            // add padding to the right (follow button primmitive group padding)
-                                            'pr-1 group-hover/lemon-tree-button-group:pr-[var(--button-height-base)] group-has-[.data-[state=open]]:pr-[var(--button-height-base)]',
                                             {
+                                                // pr-1 to maximize available rendering space, when hovering, show the side action,
+                                                // add padding to the right (follow button primmitive group padding)
+                                                'pr-1 group-hover/lemon-tree-button-group:pr-[var(--button-height-base)] group-has-[.data-[state=open]]:pr-[var(--button-height-base)]':
+                                                    size === 'default',
                                                 // If has custom side action button, add back default padding to the right
-                                                'pr-[var(--button-height-base)]': itemSideActionButton?.(item),
+                                                'pr-[var(--button-height-base)]':
+                                                    itemSideActionButton?.(item) && size === 'default',
                                                 'bg-fill-button-tertiary-hover':
                                                     ((selectMode === 'folder-only' || selectMode === 'all') &&
                                                         selectedId === item.id &&
