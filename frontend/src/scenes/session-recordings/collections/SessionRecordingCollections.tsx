@@ -18,13 +18,13 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     PlaylistRecordingsCounts,
-    SessionRecordingCollectionType,
+    SessionRecordingPlaylistType,
 } from '~/types'
 
 import { SessionRecordingCollectionsEmptyState } from './SessionRecordingCollectionsEmptyState'
 import { PLAYLISTS_PER_PAGE, sessionRecordingCollectionsLogic } from './sessionRecordingCollectionsLogic'
 
-function nameColumn(): LemonTableColumn<SessionRecordingCollectionType, 'name'> {
+function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
     return {
         title: 'Name',
         dataIndex: 'name',
@@ -41,7 +41,7 @@ function nameColumn(): LemonTableColumn<SessionRecordingCollectionType, 'name'> 
     }
 }
 
-export function countColumn(): LemonTableColumn<SessionRecordingCollectionType, 'recordings_counts'> {
+export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'recordings_counts'> {
     return {
         dataIndex: 'recordings_counts',
         title: 'Count',
@@ -115,7 +115,7 @@ export function SessionRecordingCollections(): JSX.Element {
         sessionRecordingCollectionsLogic
     )
 
-    const columns: LemonTableColumns<SessionRecordingCollectionType> = [
+    const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
         {
             width: 0,
             dataIndex: 'pinned',
@@ -134,18 +134,12 @@ export function SessionRecordingCollections(): JSX.Element {
                 )
             },
         },
-        countColumn() as LemonTableColumn<
-            SessionRecordingCollectionType,
-            keyof SessionRecordingCollectionType | undefined
-        >,
-        nameColumn() as LemonTableColumn<
-            SessionRecordingCollectionType,
-            keyof SessionRecordingCollectionType | undefined
-        >,
+        countColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
+        nameColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
         {
-            ...(createdByColumn<SessionRecordingCollectionType>() as LemonTableColumn<
-                SessionRecordingCollectionType,
-                keyof SessionRecordingCollectionType | undefined
+            ...(createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
+                SessionRecordingPlaylistType,
+                keyof SessionRecordingPlaylistType | undefined
             >),
             width: 0,
         },

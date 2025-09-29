@@ -1578,24 +1578,6 @@ export interface PlaylistRecordingsCounts {
     collection: PlaylistCollectionCount
 }
 
-export interface SessionRecordingCollectionType {
-    /** The primary key in the database, used as well in API endpoints */
-    id: number
-    short_id: string
-    name: string
-    derived_name?: string | null
-    description?: string
-    pinned?: boolean
-    deleted: boolean
-    created_at: string
-    created_by: UserBasicType | null
-    last_modified_at: string
-    last_modified_by: UserBasicType | null
-    recordings_counts?: PlaylistRecordingsCounts
-    type: 'collection'
-    _create_in_folder?: string | null
-}
-
 export interface SessionRecordingPlaylistType {
     /** The primary key in the database, used as well in API endpoints */
     id: number
