@@ -77,6 +77,7 @@ export const API_SCOPES: APIScope[] = [
             ),
         },
     },
+    { key: 'tasks', objectPlural: 'tasks' },
     {
         key: 'webhook',
         info: 'Webhook configuration is currently only enabled for the Zapier integration.',

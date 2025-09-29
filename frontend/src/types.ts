@@ -4510,6 +4510,7 @@ export type APIScopeObject =
     | 'sharing_configuration'
     | 'subscription'
     | 'survey'
+    | 'tasks'
     | 'user'
     | 'webhook'
     | 'warehouse_view'

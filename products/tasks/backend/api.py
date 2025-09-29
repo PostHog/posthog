@@ -48,9 +48,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     serializer_class = TaskSerializer
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    # Scope and object used by APIScopePermission. Use either an existing object name or INTERNAL to bypass access-level mapping.
-    required_scopes = ["INTERNAL"]
-    scope_object = "INTERNAL"
+    scope_object = "tasks"
     queryset = Task.objects.all()
     posthog_feature_flag = {
         "tasks": [
@@ -437,8 +435,7 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     serializer_class = TaskWorkflowSerializer
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    required_scopes = ["INTERNAL"]
-    scope_object = "INTERNAL"
+    scope_object = "tasks"
     queryset = TaskWorkflow.objects.all()
     posthog_feature_flag = {
         "tasks": [
@@ -540,8 +537,7 @@ class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     serializer_class = WorkflowStageSerializer
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    required_scopes = ["INTERNAL"]
-    scope_object = "INTERNAL"
+    scope_object = "tasks"
     queryset = WorkflowStage.objects.all()
     posthog_feature_flag = {"tasks": ["list", "retrieve", "create", "update", "partial_update", "destroy", "archive"]}
     filter_rewrite_rules = {"team_id": "workflow__team_id"}
@@ -583,9 +579,8 @@ class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     """
 
     serializer_class = AgentDefinitionSerializer
+    scope_object = "tasks"
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    required_scopes = ["INTERNAL"]
-    scope_object = "INTERNAL"
     queryset = None  # No model queryset since we're using hardcoded agents
     posthog_feature_flag = {"tasks": ["list", "retrieve"]}
 
