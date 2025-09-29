@@ -40,6 +40,11 @@ class TaxonomyAgentState(BaseStateWithIntermediateSteps, Generic[OutputType]):
 
     messages: Sequence[AssistantMessageUnion] = Field(default=[])
 
+    iteration_count: int = Field(default=0)
+    """
+    The number of iterations the taxonomy agent has gone through.
+    """
+
 
 class TaxonomyNodeName(StrEnum):
     """Generic node names for taxonomy agents."""

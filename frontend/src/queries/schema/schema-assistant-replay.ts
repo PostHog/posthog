@@ -1,6 +1,7 @@
 import {
     EventPropertyFilter,
     FilterLogicalOperator,
+    GroupPropertyFilter,
     PersonPropertyFilter,
     RecordingDurationFilter,
     RecordingPropertyFilter,
@@ -35,3 +36,4 @@ export type MaxUniversalFilterValue =
     | PersonPropertyFilter
     | SessionPropertyFilter
     | RecordingPropertyFilter
+    | GroupPropertyFilter

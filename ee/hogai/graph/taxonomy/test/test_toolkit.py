@@ -83,7 +83,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
             ("retrieve_entity_property_values", {"entity": "person", "property_name": "email"}, "mocked"),
             ("retrieve_event_properties", {"event_name": "test_event"}, "mocked"),
             ("retrieve_event_property_values", {"event_name": "test_event", "property_name": "$browser"}, "mocked"),
-            ("ask_user_for_help", {"request": "Help needed"}, "Help needed"),
+            # ("ask_user_for_help", {"request": "Help needed"}, "Help needed"),
         ]
     )
     @patch.object(DummyToolkit, "retrieve_entity_properties_parallel", return_value={"person": "mocked"})
@@ -102,10 +102,10 @@ class TestTaxonomyAgentToolkit(BaseTest):
             arguments: Arguments
 
         tool_input = ToolInput(name=tool_name, arguments=Arguments(**tool_args))
-        tool_name_result, result = self.toolkit.handle_tools(tool_name, tool_input)
+        result = self.toolkit.handle_tools({tool_name: [(tool_input, "test_call_id")]})
 
-        self.assertEqual(result, expected_result)
-        self.assertEqual(tool_name_result, tool_name)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result["test_call_id"], expected_result)
 
     def test_handle_tools_invalid_tool(self):
         class ToolInput(BaseModel):
@@ -115,7 +115,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
         tool_input = ToolInput()
 
         with self.assertRaises(TaxonomyToolNotFoundError):
-            self.toolkit.handle_tools("invalid_tool", tool_input)
+            self.toolkit.handle_tools({"invalid_tool": [(tool_input, "invalid_tool")]})
 
     def test_format_properties_formats(self):
         props = [("prop1", "String", "Test description"), ("prop2", "Numeric", None)]

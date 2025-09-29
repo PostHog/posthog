@@ -581,6 +581,7 @@ class TaxonomyAgentToolkit:
                 status=TaskExecutionStatus.FAILED,
             )
 
+    @database_sync_to_async
     def _get_definitions_for_entity(
         self, entity: str, property_names: list[str], query: ActorsPropertyTaxonomyQuery
     ) -> dict[str, PropertyDefinition]:
@@ -648,7 +649,7 @@ class TaxonomyAgentToolkit:
                 results.append(self._retrieve_session_properties(property_name))
             return results
 
-        query = self._build_query(entity, property_names, groups)
+        query = await self._build_query(entity, property_names, groups)
         if query is None:
             results.append(TaxonomyErrorMessages.entity_not_found(entity))
             return results
@@ -669,9 +670,9 @@ class TaxonomyAgentToolkit:
         else:
             property_values_results = [property_values_response.results]
 
-        property_definitions: dict[str, PropertyDefinition] = await database_sync_to_async(
-            self._get_definitions_for_entity
-        )(entity, property_names, query)
+        property_definitions: dict[str, PropertyDefinition] = await self._get_definitions_for_entity(
+            entity, property_names, query
+        )
 
         results.extend(
             self._process_property_values(
@@ -680,6 +681,7 @@ class TaxonomyAgentToolkit:
         )
         return results
 
+    @database_sync_to_async
     def _build_query(
         self, entity: str, properties: list[str], groups: list[GroupTypeMapping]
     ) -> ActorsPropertyTaxonomyQuery | None:
@@ -825,30 +827,140 @@ class TaxonomyAgentToolkit:
 
         return results
 
-    def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
-        # Here we handle the tool execution for base taxonomy tools.
-        if tool_name == "retrieve_entity_property_values":
-            entity = tool_input.arguments.entity  # type: ignore
-            property_name = tool_input.arguments.property_name  # type: ignore
-            result = self.retrieve_entity_property_values({entity: [property_name]})[entity][0]
-        elif tool_name == "retrieve_entity_properties":
-            entity = tool_input.arguments.entity  # type: ignore
-            result = self.retrieve_entity_properties_parallel([entity])[entity]
-        elif tool_name == "retrieve_event_property_values":
-            event_name_or_action_id = tool_input.arguments.event_name  # type: ignore
-            property_name = tool_input.arguments.property_name  # type: ignore
-            result = self.retrieve_event_or_action_property_values({event_name_or_action_id: [property_name]})[
-                event_name_or_action_id
-            ][0]
-        elif tool_name == "retrieve_event_properties":
-            event_name = tool_input.arguments.event_name  # type: ignore
-            result = self.retrieve_event_or_action_properties_parallel([event_name])[event_name]
-        elif tool_name == "ask_user_for_help":
-            result = tool_input.arguments.request  # type: ignore
-        else:
-            raise TaxonomyToolNotFoundError(f"Tool {tool_name} not found in taxonomy toolkit.")
+    def _collect_tools(
+        self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]
+    ) -> tuple[dict, dict, dict, list, dict, dict, dict, dict]:
+        """
+        Collect and group tool calls by type for batch processing.
+        Returns grouped data and mappings for result distribution.
+        """
+        # Group tool calls by type for batch processing
+        entity_property_values = {}  # entity -> [property_names]
+        entity_properties = []  # [entities]
+        event_property_values = {}  # event_name -> [property_names]
+        event_properties = []  # [event_names]
 
-        return tool_name, result
+        # Mapping from (entity, property) -> tool_call_id for result distribution
+        entity_prop_mapping = {}  # (entity, property) -> tool_call_id
+        entity_mapping = {}  # entity -> tool_call_id
+        event_prop_mapping = {}  # (event, property) -> tool_call_id
+        event_mapping = {}  # event -> tool_call_id
+
+        # Single pass to collect all tool calls by type
+        for tool_name, tool_inputs in tool_metadata.items():
+            if tool_name == "retrieve_entity_property_values":
+                for tool_input, tool_call_id in tool_inputs:
+                    entity = tool_input.arguments.entity  # type: ignore
+                    property_name = tool_input.arguments.property_name  # type: ignore
+                    if entity not in entity_property_values:
+                        entity_property_values[entity] = []
+                    entity_property_values[entity].append(property_name)
+                    entity_prop_mapping[(entity, property_name)] = tool_call_id
+
+            elif tool_name == "retrieve_entity_properties":
+                for tool_input, tool_call_id in tool_inputs:
+                    entity = tool_input.arguments.entity  # type: ignore
+                    entity_properties.append(entity)
+                    entity_mapping[entity] = tool_call_id
+
+            elif tool_name == "retrieve_event_property_values":
+                for tool_input, tool_call_id in tool_inputs:
+                    event_name = tool_input.arguments.event_name  # type: ignore
+                    property_name = tool_input.arguments.property_name  # type: ignore
+                    if event_name not in event_property_values:
+                        event_property_values[event_name] = []
+                    event_property_values[event_name].append(property_name)
+                    event_prop_mapping[(event_name, property_name)] = tool_call_id
+
+            elif tool_name == "retrieve_event_properties":
+                for tool_input, tool_call_id in tool_inputs:
+                    event_name = tool_input.arguments.event_name  # type: ignore
+                    event_properties.append(event_name)
+                    event_mapping[event_name] = tool_call_id
+            else:
+                raise TaxonomyToolNotFoundError(f"Tool {tool_name} not found in taxonomy toolkit.")
+
+        return (
+            entity_property_values,
+            entity_properties,
+            event_property_values,
+            event_properties,
+            entity_prop_mapping,
+            entity_mapping,
+            event_prop_mapping,
+            event_mapping,
+        )
+
+    def _execute_tools(
+        self,
+        entity_property_values: dict,
+        entity_properties: list,
+        event_property_values: dict,
+        event_properties: list,
+        entity_prop_mapping: dict,
+        entity_mapping: dict,
+        event_prop_mapping: dict,
+        event_mapping: dict,
+    ) -> dict[str, str]:
+        """
+        Execute batch operations and distribute results.
+        Returns a dict mapping tool_call_id to result for each individual tool call.
+        """
+        results = {}
+
+        # Execute batch operations and distribute results in single passes
+        if entity_property_values:
+            batch_results = self.retrieve_entity_property_values(entity_property_values)
+            for entity, property_results in batch_results.items():
+                for i, property_name in enumerate(entity_property_values[entity]):
+                    results[entity_prop_mapping[(entity, property_name)]] = property_results[i]
+
+        if entity_properties:
+            batch_results = self.retrieve_entity_properties_parallel(entity_properties)
+            for entity, result in batch_results.items():
+                results[entity_mapping[entity]] = result
+
+        if event_property_values:
+            batch_results = self.retrieve_event_or_action_property_values(event_property_values)
+            for event_name, property_results in batch_results.items():
+                for i, property_name in enumerate(event_property_values[event_name]):
+                    results[event_prop_mapping[(event_name, property_name)]] = property_results[i]
+
+        if event_properties:
+            batch_results = self.retrieve_event_or_action_properties_parallel(event_properties)
+            for event_name, result in batch_results.items():
+                results[event_mapping[event_name]] = result
+
+        return results
+
+    def handle_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict[str, str]:
+        """
+        Handle multiple tool calls with maximum optimization by batching similar operations.
+        Returns a dict mapping tool_call_id to result for each individual tool call.
+        """
+        # Collect and group tools
+        (
+            entity_property_values,
+            entity_properties,
+            event_property_values,
+            event_properties,
+            entity_prop_mapping,
+            entity_mapping,
+            event_prop_mapping,
+            event_mapping,
+        ) = self._collect_tools(tool_metadata)
+
+        # Execute tools and return results
+        return self._execute_tools(
+            entity_property_values,
+            entity_properties,
+            event_property_values,
+            event_properties,
+            entity_prop_mapping,
+            entity_mapping,
+            event_prop_mapping,
+            event_mapping,
+        )
 
     def get_tool_input_model(self, action: AgentAction) -> TaxonomyTool:
         try:
