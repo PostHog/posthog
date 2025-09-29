@@ -51,6 +51,7 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
     Consumer as ConsumerFromStage,
     run_consumer_from_stage,
 )
+from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
 from products.batch_exports.backend.temporal.pipeline.transformer import RedshiftQueryStreamTransformer
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
@@ -799,7 +800,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
         else:
             model = inputs.batch_export_schema
 
-        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
         assert inputs.batch_export_id is not None
         producer_task = await producer.start(
@@ -970,9 +971,21 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             batch_export_schema=inputs.batch_export_schema,
         )
 
-        await execute_batch_export_insert_activity(
-            insert_into_redshift_activity,
-            insert_inputs,
-            interval=inputs.interval,
-            finish_inputs=finish_inputs,
-        )
+        if (
+            str(inputs.team_id) in settings.BATCH_EXPORT_REDSHIFT_USE_STAGE_TEAM_IDS
+            or inputs.team_id % 100 < settings.BATCH_EXPORT_REDSHIFT_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
+        ):
+            await execute_batch_export_using_internal_stage(
+                insert_into_redshift_activity_from_stage,
+                insert_inputs,
+                interval=inputs.interval,
+                maximum_retry_interval_seconds=240,
+            )
+        else:
+            await execute_batch_export_insert_activity(
+                insert_into_redshift_activity,
+                insert_inputs,
+                interval=inputs.interval,
+                finish_inputs=finish_inputs,
+                maximum_retry_interval_seconds=240,
+            )
