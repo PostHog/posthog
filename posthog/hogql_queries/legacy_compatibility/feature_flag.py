@@ -109,7 +109,7 @@ def llm_analytics_traces_query_v2(team: Team) -> bool:
                 "id": str(team.id),
             },
         },
-        only_evaluate_locally=True,
+        only_evaluate_locally=False,
         send_feature_flag_events=False,
     )
 
