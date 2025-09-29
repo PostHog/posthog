@@ -121,7 +121,7 @@ async def test_delete_recording_with_person_workflow():
     async def load_recordings_with_person_mocked(input: LoadRecordingsWithPersonInput) -> list[str]:
         assert input.distinct_ids == TEST_DISTINCT_IDS
         assert input.team_id == TEST_TEAM_ID
-        return TEST_SESSIONS.keys()
+        return list(TEST_SESSIONS.keys())
 
     @activity.defn(name="load-recording-blocks")
     async def load_recording_blocks_mocked(input: LoadRecordingBlocksInput) -> list[RecordingBlock]:
