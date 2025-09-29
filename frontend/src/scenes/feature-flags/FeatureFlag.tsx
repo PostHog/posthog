@@ -53,6 +53,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { useMaxTool } from 'scenes/max/useMaxTool'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
@@ -687,7 +688,17 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <IconCopy />
                                     Duplicate
                                 </ButtonPrimitive>
-                                <SceneAddToNotebookDropdownMenu dataAttrKey={RESOURCE_TYPE} />
+                                {featureFlag.id != null && (
+                                    <SceneAddToNotebookDropdownMenu
+                                        dataAttrKey={RESOURCE_TYPE}
+                                        resource={{
+                                            type: NotebookNodeType.FeatureFlag,
+                                            attrs: {
+                                                id: featureFlag.id.toString(),
+                                            },
+                                        }}
+                                    />
+                                )}
                                 {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
                                     <ButtonPrimitive
                                         menuItem
