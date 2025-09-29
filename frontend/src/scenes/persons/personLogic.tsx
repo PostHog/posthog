@@ -1,5 +1,5 @@
-import { actions, afterMount, kea, key, path, props } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, kea, key, path, props } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -27,7 +27,7 @@ export const personLogic = kea<personLogicType>([
         loadPerson: true,
         loadInfo: true,
     }),
-    loaders(({ props }) => ({
+    lazyLoaders(({ props }) => ({
         person: [
             null as PersonType | null,
             {
@@ -80,8 +80,4 @@ export const personLogic = kea<personLogicType>([
             },
         ],
     })),
-    afterMount(({ actions }) => {
-        actions.loadPerson()
-        actions.loadInfo()
-    }),
 ])
