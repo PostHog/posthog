@@ -1,6 +1,7 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
 
 import { HealthCheckResult, Hub } from '../../types'
+import { initializeHeapDump } from '../../utils/heap-dump'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
@@ -31,6 +32,12 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         }
 
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
+
+        // Initialize heap dump functionality
+        initializeHeapDump({
+            enabled: hub.HEAP_DUMP_ENABLED,
+            outputPath: hub.HEAP_DUMP_OUTPUT_PATH,
+        })
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
