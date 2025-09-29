@@ -244,7 +244,9 @@ class TaxonomyAgentToolkit:
 
         return self._format_property_values(property_name, sample_values, sample_count, format_as_string=is_str)
 
-    def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str, properties: list[str] | None = None):
+    def _retrieve_event_or_action_taxonomy(
+        self, event_name_or_action_id: str | int, properties: list[str] | None = None
+    ):
         """
         Retrieve event/action taxonomy with efficient caching.
         Multiple properties are batched in a single query to maximize cache hits.
@@ -382,7 +384,12 @@ class TaxonomyAgentToolkit:
         for task_result in result.task_results:
             if task_result.id == "group_properties":
                 for artifact in task_result.artifacts:
-                    final_result[artifact.id] = artifact.content
+                    if artifact.id is None:
+                        continue
+                    if isinstance(artifact.id, int):
+                        final_result[str(artifact.id)] = artifact.content
+                    else:
+                        final_result[artifact.id] = artifact.content
             else:
                 final_result[task_result.id] = task_result.result
         return final_result
@@ -673,31 +680,6 @@ class TaxonomyAgentToolkit:
         )
         return results
 
-    def _get_definitions_for_entity(
-        self, entity: str, property_names: list[str], query: ActorsPropertyTaxonomyQuery
-    ) -> dict[str, PropertyDefinition]:
-        """Get property definitions for one entity and properties."""
-        if not property_names:
-            return {}
-
-        if query.groupTypeIndex is not None:
-            prop_type = PropertyDefinition.Type.GROUP
-            group_type_index = query.groupTypeIndex
-        elif entity == "event":
-            prop_type = PropertyDefinition.Type.EVENT
-            group_type_index = None
-        else:
-            prop_type = PropertyDefinition.Type.PERSON
-            group_type_index = None
-
-        property_definitions = PropertyDefinition.objects.filter(
-            team=self._team,
-            name__in=property_names,
-            type=prop_type,
-            group_type_index=group_type_index,
-        )
-        return {prop.name: prop for prop in property_definitions}
-
     def _build_query(
         self, entity: str, properties: list[str], groups: list[GroupTypeMapping]
     ) -> ActorsPropertyTaxonomyQuery | None:
@@ -850,9 +832,8 @@ class TaxonomyAgentToolkit:
             property_name = tool_input.arguments.property_name  # type: ignore
             result = self.retrieve_entity_property_values({entity: [property_name]})[entity][0]
         elif tool_name == "retrieve_entity_properties":
-            result = self.retrieve_entity_properties_parallel([tool_input.arguments.entity])[
-                tool_input.arguments.entity
-            ]  # type: ignore
+            entity = tool_input.arguments.entity  # type: ignore
+            result = self.retrieve_entity_properties_parallel([entity])[entity]
         elif tool_name == "retrieve_event_property_values":
             event_name_or_action_id = tool_input.arguments.event_name  # type: ignore
             property_name = tool_input.arguments.property_name  # type: ignore
@@ -860,9 +841,8 @@ class TaxonomyAgentToolkit:
                 event_name_or_action_id
             ][0]
         elif tool_name == "retrieve_event_properties":
-            result = self.retrieve_event_or_action_properties_parallel([tool_input.arguments.event_name])[
-                tool_input.arguments.event_name
-            ]  # type: ignore
+            event_name = tool_input.arguments.event_name  # type: ignore
+            result = self.retrieve_event_or_action_properties_parallel([event_name])[event_name]
         elif tool_name == "ask_user_for_help":
             result = tool_input.arguments.request  # type: ignore
         else:
