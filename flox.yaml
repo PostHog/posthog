@@ -101,13 +101,13 @@ hook:
         # Guide through installing and configuring direnv if it's not present (optionally)
 
         if [[ -t 0 ]] && ! command -v direnv >/dev/null 2>&1 && [ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]; then
-          read -p "=I For auto-activation of the environment, we recommend direnv (https://direnv.net).
-        S Would you like direnv to be set up in $(basename "$SHELL") now? (Y/n)" -n 1 -r
+          read -p "👉 For auto-activation of the environment, we recommend direnv (https://direnv.net).
+        ❓ Would you like direnv to be set up in $(basename "$SHELL") now? (Y/n)" -n 1 -r
           echo
           if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then
             bin/setup-direnv
           else
-            echo "� Skipping direnv setup. This message will not be shown again, but if you change your mind, just run 'bin/setup-direnv'"
+            echo "⏭️ Skipping direnv setup. This message will not be shown again, but if you change your mind, just run 'bin/setup-direnv'"
           fi
           touch $FLOX_ENV_CACHE/.hush-direnv
           echo
@@ -127,23 +127,23 @@ hook:
         # Add required entries to /etc/hosts if not present
         if ! grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
           echo
-          echo "=� Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to 127.0.0.1..."
+          echo "🚨 Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to 127.0.0.1..."
           echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
-          echo " /etc/hosts amended for IPv4"
+          echo "✅ /etc/hosts amended for IPv4"
         fi
 
         if ! grep -q "::1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
           echo
-          echo "=� Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to ::1..."
+          echo "🚨 Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to ::1..."
           echo "::1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
-          echo " /etc/hosts amended for IPv6"
+          echo "✅ /etc/hosts amended for IPv6"
         fi
 
         if [ -f "$DOTENV_FILE" ]; then
           set -o allexport
           source "$DOTENV_FILE"
           set +o allexport
-          echo " Environment variables loaded from '$DOTENV_FILE' file"
+          echo "✅ Environment variables loaded from '$DOTENV_FILE' file"
         fi
 
         # The block below only runs when in an interactive shell
