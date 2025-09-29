@@ -1219,7 +1219,7 @@ class {app_name.title()}Config(AppConfig):
         def replacement(match):
             apps_content = match.group(2)
             # Add new app before the closing bracket
-            return f"{match.group(1)}{apps_content}    {app_config_path},\n{match.group(3)}"
+            return f"{match.group(1)}{apps_content}    {app_config_path.strip('_')},\n{match.group(3)}"
 
         new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
 
