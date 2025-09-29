@@ -40,7 +40,7 @@ class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
     exceptions: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
-    surveys: Optional[OrganizationUsageResource]
+    survey_responses: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
     cdp_trigger_events: Optional[OrganizationUsageResource]
     rows_exported: Optional[OrganizationUsageResource]
