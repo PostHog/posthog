@@ -64,10 +64,11 @@ from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
 
 DEFAULT_PAGE_LIMIT = 100
-# Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
+# Sync with .../lib/constants.tsx and .../ingestion/webhook-formatter.ts
 PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     "email",
     "Email",
+    "$email",
     "name",
     "Name",
     "username",
