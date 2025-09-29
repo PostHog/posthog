@@ -159,7 +159,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence
   '''
-  /* cohort_calculation:cohort_calc:9d4c25d3 */
+  /* cohort_calculation:cohort_calc:d1b6d269 */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -168,7 +168,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:9d4c25d3%'
+    AND query LIKE '%cohort_calc:d1b6d269%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -324,7 +324,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra
   '''
-  /* cohort_calculation:cohort_calc:82427332 */
+  /* cohort_calculation:cohort_calc:ad69ef75 */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -333,7 +333,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:82427332%'
+    AND query LIKE '%cohort_calc:ad69ef75%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -443,22 +443,22 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.12
   '''
-  /* cohort_calculation: */ (
-                               (SELECT persons.id AS id
-                                FROM
-                                  (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
-                                          person.id AS id
-                                   FROM person
-                                   WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                 (SELECT where_optimization.id AS id
-                                                                                  FROM person AS where_optimization
-                                                                                  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
-                                   GROUP BY person.id
-                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                WHERE ifNull(equals(persons.properties___name, 'test'), 0)
-                                ORDER BY persons.id ASC
-                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
-                                                          join_algorithm='auto'))
+  (
+     (SELECT persons.id AS id
+      FROM
+        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+                person.id AS id
+         FROM person
+         WHERE and(equals(person.team_id, 99999), in(id,
+                                                       (SELECT where_optimization.id AS id
+                                                        FROM person AS where_optimization
+                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
+         GROUP BY person.id
+         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+      WHERE ifNull(equals(persons.properties___name, 'test'), 0)
+      ORDER BY persons.id ASC
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -497,7 +497,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.13
   '''
-  /* cohort_calculation: */
+  
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
     (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
@@ -625,7 +625,7 @@
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.4
   '''
-  /* cohort_calculation:cohort_calc:8b41f763 */
+  /* cohort_calculation:cohort_calc:4c0cb756 */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -634,7 +634,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:8b41f763%'
+    AND query LIKE '%cohort_calc:4c0cb756%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -1852,7 +1852,7 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters
   '''
-  /* cohort_calculation:cohort_calc:6c2ab6eb */
+  /* cohort_calculation:cohort_calc:e0a1610f */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -1861,7 +1861,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:6c2ab6eb%'
+    AND query LIKE '%cohort_calc:e0a1610f%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -2253,7 +2253,7 @@
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
   '''
-  /* cohort_calculation:cohort_calc:f1e731c7 */
+  /* cohort_calculation:cohort_calc:9aa3099c */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -2262,7 +2262,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:f1e731c7%'
+    AND query LIKE '%cohort_calc:9aa3099c%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
