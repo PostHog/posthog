@@ -212,7 +212,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 >
                                     <div className="mb-4">
                                         <div className="flex items-center gap-2">
-                                            <h3 className="text-lg font-medium text-muted">
+                                            <h3 className="mb-0 text-lg font-medium text-muted">
                                                 {search ? (
                                                     <SearchHighlightMultiple
                                                         string={getCategoryDisplayName(category)}
