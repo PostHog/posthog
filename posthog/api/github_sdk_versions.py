@@ -6,11 +6,13 @@ from django.http import JsonResponse
 
 import requests
 import structlog
-from posthoganalytics import capture_exception
+import posthoganalytics
+from rest_framework import exceptions
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
+from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
@@ -20,12 +22,17 @@ GITHUB_SDK_CACHE_EXPIRY = 6 * 60 * 60
 
 
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def github_sdk_versions(request: Request, sdk_type: str) -> JsonResponse:
     """
     Fetch and cache GitHub SDK version data for SDK Doctor.
     Replaces client-side GitHub API calls with server-side caching.
+    Protected by sdk-doctor-beta feature flag.
     """
+    # Check if user has access to SDK Doctor beta
+    if not posthoganalytics.feature_enabled("sdk-doctor-beta", str(request.user.distinct_id)):
+        raise exceptions.ValidationError("SDK Doctor is not enabled for this user")
+
     redis_client = get_client()
     cache_key = f"github:sdk_versions:{sdk_type}"
 
@@ -40,10 +47,7 @@ def github_sdk_versions(request: Request, sdk_type: str) -> JsonResponse:
         except (json.JSONDecodeError, AttributeError) as e:
             # Cache corrupted, continue to fetch fresh
             logger.warning(f"[SDK Doctor] Cache corrupted for {sdk_type}", error=str(e))
-            capture_exception(
-                Exception(f"Cache corruption for {sdk_type}: {str(e)}"),
-                properties={"sdk_type": sdk_type, "cache_key": cache_key},
-            )
+            capture_exception(e)
 
     # Fetch fresh data
     logger.info(f"[SDK Doctor] {sdk_type.title()} SDK info not found in CACHE, querying GitHub API")
@@ -62,10 +66,7 @@ def github_sdk_versions(request: Request, sdk_type: str) -> JsonResponse:
             return JsonResponse({"error": "The Doctor is unavailable. Please try again later."}, status=500)
     except Exception as e:
         logger.exception(f"[SDK Doctor] Failed to fetch {sdk_type} data from GitHub")
-        capture_exception(
-            Exception(f"GitHub fetch failed for {sdk_type}: {str(e)}"),
-            properties={"sdk_type": sdk_type, "operation": "fetch_github_data"},
-        )
+        capture_exception(e)
         return JsonResponse({"error": "The Doctor is unavailable. Please try again later."}, status=500)
 
 

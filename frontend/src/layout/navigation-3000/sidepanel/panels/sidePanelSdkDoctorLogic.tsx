@@ -1,6 +1,7 @@
 /* oxlint-disable no-console */
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 // import { isNotNil } from 'lib/utils' // Unused after bulk fetching removal
@@ -636,6 +637,7 @@ const fetchSdkData = async (
         return result
     } catch (error) {
         console.warn(`[SDK Doctor] Failed to fetch ${sdkType} data:`, error)
+        posthog.captureException(error)
         return null
     }
 }
@@ -754,6 +756,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         return response.results
                     } catch (error) {
                         console.error('Error loading events:', error)
+                        posthog.captureException(error)
                         return values.recentEvents || [] // Return existing data on error
                     }
                 },
@@ -855,6 +858,17 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
                     if (webEvents.length === 0) {
+                        // Clean up feature flag detection when no web events present
+                        // This prevents stale detections from persisting when all events are filtered
+                        if (state.detected) {
+                            return {
+                                detected: false,
+                                detectedAt: '',
+                                flagsCalledBeforeLoading: [],
+                                flagExampleEvents: {},
+                                sessionCount: 0,
+                            }
+                        }
                         return state
                     }
 
@@ -1344,6 +1358,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             }
                         } catch (error) {
                             console.warn(`[SDK Doctor] Error checking version for ${sdkType} ${version}:`, error)
+                            posthog.captureException(error)
                             // Fallback to basic info
                             versionCheckResult = {
                                 isOutdated: false,
@@ -2402,6 +2417,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             }
                         } catch (error) {
                             console.warn(`[SDK Doctor] Error processing ${info.type} SDK ${info.version}:`, error)
+                            posthog.captureException(error)
                         }
                     }
                 }
@@ -2588,6 +2604,7 @@ async function checkVersionAgainstLatestAsync(
         return checkVersionAgainstLatest(type, version, latestVersionsData)
     } catch (error) {
         console.warn(`[SDK Doctor] Error in async version check for ${type}:`, error)
+        posthog.captureException(error)
         return {
             isOutdated: false,
             releasesAhead: 0,

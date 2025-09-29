@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconBolt, IconEllipsis, IconStethoscope, IconWarning } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonMenu,
     LemonTable,
@@ -20,48 +22,54 @@ import { SdkType, SdkVersionInfo, sidePanelSdkDoctorLogic } from './sidePanelSdk
 
 // Helper function to create enhanced event URLs with SDK debugging columns
 const createEnhancedEventUrl = (eventId: string, timestamp: string): string => {
-    const eventTime = new Date(timestamp).getTime()
-    const timeWindow = 30000 // 30 seconds window around the event
-    const before = new Date(eventTime + timeWindow).toISOString()
-    const after = new Date(eventTime - timeWindow).toISOString()
+    try {
+        const eventTime = new Date(timestamp).getTime()
+        const timeWindow = 30000 // 30 seconds window around the event
+        const before = new Date(eventTime + timeWindow).toISOString()
+        const after = new Date(eventTime - timeWindow).toISOString()
 
-    const query = {
-        kind: 'DataTableNode',
-        full: true,
-        source: {
-            kind: 'EventsQuery',
-            select: [
-                '*',
-                'person_display_name -- Person',
-                'event',
-                'properties.$session_id',
-                'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
-                'properties.$feature_flag',
-                'properties.$lib',
-                'properties.$lib_version',
-                'timestamp',
-            ],
-            orderBy: ['timestamp DESC'],
-            after,
-            properties: [
-                {
-                    type: 'hogql',
-                    key: `uuid = '${eventId}'`,
-                    value: null,
+        const query = {
+            kind: 'DataTableNode',
+            full: true,
+            source: {
+                kind: 'EventsQuery',
+                select: [
+                    '*',
+                    'person_display_name -- Person',
+                    'event',
+                    'properties.$session_id',
+                    'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
+                    'properties.$feature_flag',
+                    'properties.$lib',
+                    'properties.$lib_version',
+                    'timestamp',
+                ],
+                orderBy: ['timestamp DESC'],
+                after,
+                properties: [
+                    {
+                        type: 'hogql',
+                        key: `uuid = '${eventId}'`,
+                        value: null,
+                    },
+                ],
+                modifiers: {
+                    usePresortedEventsTable: true,
                 },
-            ],
-            modifiers: {
-                usePresortedEventsTable: true,
+                before,
             },
-            before,
-        },
-        propertiesViaUrl: true,
-        showSavedQueries: true,
-        showPersistentColumnConfigurator: true,
-    }
+            propertiesViaUrl: true,
+            showSavedQueries: true,
+            showPersistentColumnConfigurator: true,
+        }
 
-    const encodedQuery = encodeURIComponent(JSON.stringify(query))
-    return `/project/1/activity/explore#q=${encodedQuery}`
+        const encodedQuery = encodeURIComponent(JSON.stringify(query))
+        return `/project/1/activity/explore#q=${encodedQuery}`
+    } catch (error) {
+        posthog.captureException(error)
+        // Fallback to simple event URL
+        return `/project/1/events/${eventId}/${encodeURIComponent(timestamp)}`
+    }
 }
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
@@ -365,6 +373,19 @@ export function SidePanelSdkDoctor(): JSX.Element {
                     <LemonButton size="small" icon={<IconEllipsis />} />
                 </LemonMenu>
             </SidePanelPaneHeader>
+
+            {/* Beta feedback banner */}
+            <div className="p-3 border-b border-border">
+                <LemonBanner type="info">
+                    <div>
+                        <strong>SDK Doctor is in... beta!</strong> Help us improve by sharing your feedback?{' '}
+                        <Link to="mailto:hey@posthog.com?subject=SDK Doctor Beta Feedback" target="_blank">
+                            Send feedback
+                        </Link>
+                    </div>
+                </LemonBanner>
+            </div>
+
             <div className="p-3 overflow-y-auto flex-1">
                 {/* TODO: Multi-init detection temporarily disabled for post-MVP */}
                 {/* Show warning for multiple initializations if detected */}
