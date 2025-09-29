@@ -1341,6 +1341,8 @@ export interface EventHeaders {
     token?: string
     distinct_id?: string
     timestamp?: string
+    event?: string
+    uuid?: string
 }
 
 export interface IncomingEvent {

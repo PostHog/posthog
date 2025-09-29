@@ -1,7 +1,7 @@
-import { createApplyDropRestrictionsStep } from '../../../src/ingestion/event-preprocessing/apply-drop-events-restrictions'
-import { drop, ok } from '../../../src/ingestion/pipelines/results'
-import { EventHeaders } from '../../../src/types'
-import { EventIngestionRestrictionManager } from '../../../src/utils/event-ingestion-restriction-manager'
+import { EventHeaders } from '../../types'
+import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { drop, ok } from '../pipelines/results'
+import { createApplyDropRestrictionsStep } from './apply-drop-events-restrictions'
 
 describe('createApplyDropRestrictionsStep', () => {
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -16,7 +16,7 @@ describe('createApplyDropRestrictionsStep', () => {
         step = createApplyDropRestrictionsStep(eventIngestionRestrictionManager)
     })
 
-    it('should return success when token is present and not dropped', () => {
+    it('should return success when token is present and not dropped', async () => {
         const input = {
             message: {} as any,
             headers: {
@@ -26,13 +26,13 @@ describe('createApplyDropRestrictionsStep', () => {
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith('valid-token-123', 'user-456')
     })
 
-    it('should return drop when token is present but should be dropped', () => {
+    it('should return drop when token is present but should be dropped', async () => {
         const input = {
             message: {} as any,
             headers: {
@@ -42,7 +42,7 @@ describe('createApplyDropRestrictionsStep', () => {
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
 
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(drop('Event dropped due to token restrictions'))
         expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
@@ -51,27 +51,27 @@ describe('createApplyDropRestrictionsStep', () => {
         )
     })
 
-    it('should handle undefined headers', () => {
+    it('should handle undefined headers', async () => {
         const input = {
             message: {} as any,
             headers: {} as EventHeaders,
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(undefined, undefined)
     })
 
-    it('should handle empty headers', () => {
+    it('should handle empty headers', async () => {
         const input = {
             message: {} as any,
             headers: {},
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
-        const result = step(input)
+        const result = await step(input)
 
         expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(undefined, undefined)
