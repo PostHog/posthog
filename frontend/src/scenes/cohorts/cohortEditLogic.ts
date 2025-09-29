@@ -293,7 +293,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     try {
                         const cohort = await api.cohorts.get(id)
                         breakpoint()
-                        cohortsModel.actions.updateCohort(cohort)
+                        cohortsModel.findMounted()?.actions.updateCohort(cohort)
                         actions.setCohort(cohort)
                         actions.checkIfFinishedCalculating(cohort)
                         return processCohort(cohort)
@@ -312,7 +312,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     try {
                         if (cohort.id !== 'new') {
                             cohort = await api.cohorts.update(cohort.id, cohortFormData as Partial<CohortType>)
-                            cohortsModel.actions.updateCohort(cohort)
+                            cohortsModel.findMounted()?.actions.updateCohort(cohort)
 
                             if (cohort.experiment_set && cohort.experiment_set.length > 0) {
                                 // someone edited an exposure cohort. Track what kind of updates were made
@@ -320,7 +320,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             }
                         } else {
                             cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
-                            cohortsModel.actions.cohortCreated(cohort)
+                            cohortsModel.findMounted()?.actions.cohortCreated(cohort)
                         }
                     } catch (error: any) {
                         breakpoint()
@@ -501,7 +501,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     count: cohort.count,
                 }
                 actions.setCohort({ ...values.cohort, ...calculationFields })
-                cohortsModel.actions.updateCohort(cohort)
+                cohortsModel.findMounted()?.actions.updateCohort(cohort)
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
                 if (values.pollTimeout) {
                     clearTimeout(values.pollTimeout)
