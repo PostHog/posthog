@@ -1,4 +1,5 @@
-import { BaseMathType, Experiment, ExperimentConclusion, GroupMathType, HogQLMathType, PropertyMathType } from '~/types'
+import { BaseMathType, ExperimentConclusion, GroupMathType, HogQLMathType, PropertyMathType } from '~/types'
+import type { Experiment } from '~/types'
 
 export enum MetricInsightId {
     Trends = 'new-experiment-trends-metric',
@@ -63,19 +64,19 @@ export const NEW_EXPERIMENT: Experiment = {
     type: 'product',
     feature_flag_key: '',
     filters: {},
-    metrics: [],
-    metrics_secondary: [],
+    metrics: [] as any[],
+    metrics_secondary: [] as any[],
+    secondary_metrics: [] as any[],
     primary_metrics_ordered_uuids: null,
     secondary_metrics_ordered_uuids: null,
-    saved_metrics_ids: [],
-    saved_metrics: [],
+    saved_metrics_ids: [] as any[],
+    saved_metrics: [] as any[],
     parameters: {
         feature_flag_variants: [
             { key: 'control', rollout_percentage: 50 },
             { key: 'test', rollout_percentage: 50 },
-        ],
+        ] as any[],
     },
-    secondary_metrics: [],
     created_at: null,
     created_by: null,
     updated_at: null,
@@ -83,4 +84,4 @@ export const NEW_EXPERIMENT: Experiment = {
     exposure_criteria: {
         filterTestAccounts: true,
     },
-} as const
+}

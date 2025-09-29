@@ -9,7 +9,7 @@ type ExperimentTypePanelProps = {
 }
 
 export const ExperimentTypePanel = ({ experiment, setExperimentType }: ExperimentTypePanelProps): JSX.Element => (
-    <div className="flex gap-4 mb-4">
+    <div className="flex gap-4">
         <SelectableCard
             title="Product experiment"
             description="Use custom code to manage how variants modify your product."
