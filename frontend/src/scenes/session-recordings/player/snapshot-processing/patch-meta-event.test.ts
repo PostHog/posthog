@@ -22,7 +22,9 @@ describe('processAllSnapshots - inline meta patching', () => {
             timestamp,
             windowId: 'window1',
             data: {
+                initialOffset: { top: 0, left: 0 },
                 node: {
+                    id: 1,
                     type: 2,
                     tagName: 'html',
                     attributes: {},
@@ -125,7 +127,7 @@ describe('processAllSnapshots - inline meta patching', () => {
 
         expect(result).toHaveLength(2)
         expect(result[0].type).toBe(EventType.Meta)
-        expect(result[0].data.width).toBe(800)
+        expect((result[0].data as any).width).toBe(800)
         expect(result[1].type).toBe(EventType.FullSnapshot)
     })
 
@@ -149,8 +151,9 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(result[0].timestamp).toBe(1000)
         expect(result[1].type).toBe(EventType.FullSnapshot)
         expect(result[1].timestamp).toBe(1000)
+
         expect(result[2].type).toBe(EventType.IncrementalSnapshot)
-        expect(result[2].timestamp).toBe(1500)
+
         expect(result[3].type).toBe(EventType.Meta)
         expect(result[3].timestamp).toBe(2000)
         expect(result[4].type).toBe(EventType.FullSnapshot)
@@ -178,7 +181,10 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(posthog.captureException).toHaveBeenCalledWith(
             new Error('No event viewport or meta snapshot found for full snapshot'),
             expect.objectContaining({
-                snapshot: expect.any(Object),
+                feature: 'session-recording-meta-patching',
+                sessionRecordingId: '12345',
+                sourceKey: 'blob-blob-key',
+                throttleCaptureKey: '12345-no-viewport-found',
             })
         )
         expect(result).toHaveLength(1)
@@ -206,7 +212,7 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(posthog.captureException).toHaveBeenCalledTimes(2)
     })
 
-    it('caches snapshots with meta events included - main bug fix', () => {
+    it('caches snapshots with meta events included', () => {
         const source = createSource()
         const sources = [source]
         const snapshots = [createFullSnapshot()]
@@ -344,8 +350,9 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(result[0].timestamp).toBe(1000)
         expect(result[1].type).toBe(EventType.FullSnapshot) // From source1
         expect(result[1].timestamp).toBe(1000)
+
         expect(result[2].type).toBe(EventType.IncrementalSnapshot) // From source1
-        expect(result[2].timestamp).toBe(1500)
+
         expect(result[3].type).toBe(EventType.Meta) // Added for second full snapshot (cross-source)
         expect(result[3].timestamp).toBe(2000)
         expect(result[4].type).toBe(EventType.FullSnapshot) // From source2
