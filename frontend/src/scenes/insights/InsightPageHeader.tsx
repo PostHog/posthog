@@ -51,6 +51,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -250,16 +251,26 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
 
                         {insight.short_id && (
-                            <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
+                            <SceneAddToNotebookDropdownMenu dataAttrKey={RESOURCE_TYPE}
+                                resource={{
+                                    type: NotebookNodeType.Query,
+                                    attrs: {
+                                        query: {
+                                            kind: NodeKind.SavedInsightNode,
+                                            shortId: insight.short_id,
+                                        },
+                                    },
+                                }} />
                         )}
+
                         <SceneAddToDashboardButton
                             dashboard={
                                 hasDashboardItemId
                                     ? {
-                                          onClick: () => {
-                                              setAddToDashboardModalOpenModal(true)
-                                          },
-                                      }
+                                        onClick: () => {
+                                            setAddToDashboardModalOpenModal(true)
+                                        },
+                                    }
                                     : undefined
                             }
                             dataAttrKey={RESOURCE_TYPE}
