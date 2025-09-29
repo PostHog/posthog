@@ -1278,10 +1278,6 @@ export class ApiRequest {
         return this.queryEndpoint().addPathComponent(name)
     }
 
-    public lastExecution(): ApiRequest {
-        return this.addPathComponent('last_execution')
-    }
-
     public lastExecutionTimes(): ApiRequest {
         return this.addPathComponent('last_execution_times')
     }
