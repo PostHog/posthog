@@ -7,6 +7,7 @@ This module defines:
 - Sensors and schedules for continuous timeseries calculation
 """
 
+import json
 from datetime import datetime
 from typing import Any, Union
 from zoneinfo import ZoneInfo
@@ -160,7 +161,7 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
 
         completed_at = datetime.now(ZoneInfo("UTC"))
 
-        ExperimentMetricResult.objects.update_or_create(
+        experiment_metric_result, created = ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
             fingerprint=fingerprint,
@@ -179,11 +180,16 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
         context.add_output_metadata(
             metadata={
                 "experiment_id": experiment_id,
+                "experiment_metric_result_id": experiment_metric_result.id,
                 "metric_uuid": metric_uuid,
                 "fingerprint": fingerprint,
                 "metric_type": metric_type,
                 "metric_name": metric.get("name", f"Metric {metric_uuid}"),
                 "experiment_name": experiment.name,
+                "experiment_start_date": experiment.start_date.isoformat() if experiment.start_date else None,
+                "experiment_exposure_criteria": json.dumps(experiment.exposure_criteria)
+                if experiment.exposure_criteria
+                else None,
                 "metric_definition": str(metric),
                 "query_from": query_from_utc.isoformat(),
                 "query_to": query_to_utc.isoformat(),
