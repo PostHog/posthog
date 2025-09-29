@@ -329,8 +329,6 @@ class Database(BaseModel):
         for f_name, f_def in field_definitions.items():
             self.merge_or_setattr(f_name, f_def)
 
-            # No need to add TableGroups to the view table names,
-            # they're already with their chained names
             if isinstance(f_def, TableGroup):
                 self._view_table_names.extend([f"{f_name}.{x}" for x in f_def.resolve_all_table_names()])
             else:
