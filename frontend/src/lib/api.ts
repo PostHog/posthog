@@ -91,7 +91,6 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
-    FeatureFlagAssociatedRoleType,
     FeatureFlagStatusResponse,
     FeatureFlagType,
     GoogleAdsConversionActionType,
@@ -119,7 +118,6 @@ import {
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
-    OrganizationResourcePermissionType,
     OrganizationType,
     PersonListParams,
     PersonType,
@@ -138,7 +136,6 @@ import {
     RawBatchExportRun,
     RoleMemberType,
     RoleType,
-    RolesListParams,
     ScheduledChangeType,
     SchemaIncrementalFieldsResponse,
     SearchListParams,
@@ -394,14 +391,6 @@ export class ApiRequest {
 
     public organizationsDetail(id: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId()): ApiRequest {
         return this.organizations().addPathComponent(id)
-    }
-
-    public organizationResourceAccess(): ApiRequest {
-        return this.organizations().current().addPathComponent('resource_access')
-    }
-
-    public organizationResourceAccessDetail(id: OrganizationResourcePermissionType['id']): ApiRequest {
-        return this.organizationResourceAccess().addPathComponent(id)
     }
 
     public organizationFeatureFlags(orgId: OrganizationType['id'], featureFlagKey: FeatureFlagType['key']): ApiRequest {
@@ -946,7 +935,7 @@ export class ApiRequest {
 
     // # Tasks
     public tasks(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('tasks')
+        return this.projectsDetail(teamId).addPathComponent('tasks')
     }
 
     public task(id: Task['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1241,13 +1230,6 @@ export class ApiRequest {
 
     public featureFlagAccessPermissions(flagId: FeatureFlagType['id']): ApiRequest {
         return this.featureFlag(flagId).addPathComponent('role_access')
-    }
-
-    public featureFlagAccessPermissionsDetail(
-        flagId: FeatureFlagType['id'],
-        id: FeatureFlagAssociatedRoleType['id']
-    ): ApiRequest {
-        return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
     }
 
     // # Queries
@@ -2417,34 +2399,12 @@ const api = {
         },
     },
 
-    resourceAccessPermissions: {
-        featureFlags: {
-            async create(featureFlagId: number, roleId: RoleType['id']): Promise<FeatureFlagAssociatedRoleType> {
-                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).create({
-                    data: {
-                        role_id: roleId,
-                    },
-                })
-            },
-            async list(featureFlagId: number): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
-                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).get()
-            },
-
-            async delete(
-                featureFlagId: number,
-                id: FeatureFlagAssociatedRoleType['id']
-            ): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
-                return await new ApiRequest().featureFlagAccessPermissionsDetail(featureFlagId, id).delete()
-            },
-        },
-    },
-
     roles: {
         async get(roleId: RoleType['id']): Promise<RoleType> {
             return await new ApiRequest().rolesDetail(roleId).get()
         },
-        async list(params: RolesListParams = {}): Promise<PaginatedResponse<RoleType>> {
-            return await new ApiRequest().roles().withQueryString(toParams(params)).get()
+        async list(): Promise<PaginatedResponse<RoleType>> {
+            return await new ApiRequest().roles().get()
         },
         async delete(roleId: RoleType['id']): Promise<void> {
             return await new ApiRequest().rolesDetail(roleId).delete()
@@ -3864,23 +3824,6 @@ const api = {
         },
         async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
             return await new ApiRequest().integrationEmailVerify(id).create()
-        },
-    },
-
-    resourcePermissions: {
-        async list(): Promise<PaginatedResponse<OrganizationResourcePermissionType>> {
-            return await new ApiRequest().organizationResourceAccess().get()
-        },
-        async create(data: Partial<OrganizationResourcePermissionType>): Promise<OrganizationResourcePermissionType> {
-            return await new ApiRequest().organizationResourceAccess().create({ data })
-        },
-        async update(
-            resourceId: OrganizationResourcePermissionType['id'],
-            data: Partial<OrganizationResourcePermissionType>
-        ): Promise<OrganizationResourcePermissionType> {
-            return await new ApiRequest().organizationResourceAccessDetail(resourceId).update({
-                data,
-            })
         },
     },
 

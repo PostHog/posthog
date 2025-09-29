@@ -369,8 +369,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.268.6
-        version: 1.268.6(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.268.8
+        version: 1.268.8(@rrweb/types@2.0.0-alpha.17)
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -823,8 +823,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.268.6
-        version: 1.268.6(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.268.8
+        version: 1.268.8(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -1792,8 +1792,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.268.6
-        version: 1.268.6(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.268.8
+        version: 1.268.8(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2129,8 +2129,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.268.6
-        version: 1.268.6(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.268.8
+        version: 1.268.8(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2376,8 +2376,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.268.6
-        version: 1.268.6(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.268.8
+        version: 1.268.8(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -5754,8 +5754,8 @@ packages:
       webpack-plugin-serve:
         optional: true
 
-  '@posthog/core@1.2.1':
-    resolution: {integrity: sha512-zNw96BipqM5/Tf161Q8/K5zpwGY3ezfb2wz+Yc3fIT5OQHW8eEzkQldPgtFKMUkqImc73ukEa2IdUpS6vEGH7w==}
+  '@posthog/core@1.2.2':
+    resolution: {integrity: sha512-f16Ozx6LIigRG+HsJdt+7kgSxZTHeX5f1JlCGKI1lXcvlZgfsCR338FuMI2QRYXGl+jg/vYFzGOTQBxl90lnBg==}
 
   '@posthog/icons@0.30.0':
     resolution: {integrity: sha512-V3QBSLwcEeSitNetafrGYqzXG2uWXzoNAc0z6yvQ7UBMPx/DFOxTfRoIaRb1m6GnAhXzR8fbprhJDmqKZB2D6w==}
@@ -15136,8 +15136,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.268.6:
-    resolution: {integrity: sha512-3IWd5dbs/Bs6akesiDNn+QhN7QBU6xdYV31KG8ive/6srSV7DBcH0W+UgclNvlZanVqpwPTg3mbOgNKa7mEPrQ==}
+  posthog-js@1.268.8:
+    resolution: {integrity: sha512-BJiKK4MlUvs7ybnQcy1KkwAz+SZkE/wRLotetIoank5kbqZs8FLbeyozFvmmgx4aoMmaVymYBSmYphYjYQeidw==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -17502,8 +17502,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.308.0:
-    resolution: {integrity: sha512-Bez7DDhQEdU9rUtknR0G7+ypEHU19MQp6g5/PVVsAc7o+6GELabWIprFVYbktpb2AG0N7kr6w5UMmGDljIq3Qw==}
+  unlayer-types@1.309.0:
+    resolution: {integrity: sha512-V+4Xx56GJmpY0Lx8RHIXtxJmCiyF2Qs7qneCD8sE030VfpW/irxu6Hx+CLPzYhT9k3Ho/vs8hqBCRqDgAU1K3w==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -23605,7 +23605,7 @@ snapshots:
       type-fest: 4.41.0
       webpack-hot-middleware: 2.25.4
 
-  '@posthog/core@1.2.1': {}
+  '@posthog/core@1.2.2': {}
 
   '@posthog/icons@0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
@@ -35493,9 +35493,9 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.268.6(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.268.8(@rrweb/types@2.0.0-alpha.17):
     dependencies:
-      '@posthog/core': 1.2.1
+      '@posthog/core': 1.2.2
       core-js: 3.45.1
       fflate: 0.4.8
       preact: 10.27.2
@@ -36304,7 +36304,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.308.0
+      unlayer-types: 1.309.0
 
   react-error-overlay@6.0.9: {}
 
@@ -38278,7 +38278,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.308.0: {}
+  unlayer-types@1.309.0: {}
 
   unpipe@1.0.0: {}
 

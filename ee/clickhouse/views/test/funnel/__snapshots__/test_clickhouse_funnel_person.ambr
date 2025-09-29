@@ -56,7 +56,6 @@
                               e."$group_0" as aggregation_target,
                               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                               person.person_props as person_props,
-                              person.pmat_email as pmat_email,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -80,7 +79,6 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
                          (SELECT id,
-                                 argMax(pmat_email, version) as pmat_email,
                                  argMax(properties, version) as person_props
                           FROM person
                           WHERE team_id = 99999
@@ -97,7 +95,7 @@
                          AND event IN ['step one', 'step three', 'step two']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-10 23:59:59', 'UTC')
-                         AND (("pmat_email" ILIKE '%g0%'
+                         AND ((replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%g0%'
                                OR replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '') ILIKE '%g0%'
                                OR replaceRegexpAll(JSONExtractRaw(e.properties, 'distinct_id'), '^"|"$', '') ILIKE '%g0%'
                                OR replaceRegexpAll(JSONExtractRaw(group_properties_0, 'name'), '^"|"$', '') ILIKE '%g0%'
