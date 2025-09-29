@@ -184,7 +184,26 @@ def select_from_sessions_table_v3(
     aggregate_fields: dict[str, ast.Expr] = {
         "session_id": ast.Call(
             name="toString",
-            args=[ast.Field(chain=[table_name, "session_id_v7"])],
+            args=[
+                ast.Call(
+                    name="reinterpretAsUUID",
+                    args=[
+                        ast.Call(
+                            name="bitOr",
+                            args=[
+                                ast.Call(
+                                    name="bitShiftLeft",
+                                    args=[ast.Field(chain=[table_name, "session_id_v7"]), ast.Constant(value=64)],
+                                ),
+                                ast.Call(
+                                    name="bitShiftRight",
+                                    args=[ast.Field(chain=[table_name, "session_id_v7"]), ast.Constant(value=64)],
+                                ),
+                            ],
+                        )
+                    ],
+                )
+            ],
         ),  # try not to use this, prefer to use session_id_v7
         "distinct_id": arg_max_merge_field("distinct_id"),
         "person_id": arg_max_merge_field("person_id"),
@@ -394,7 +413,11 @@ def session_id_to_session_id_v7_as_uuid_expr(session_id: ast.Expr) -> ast.Expr:
     return ast.Call(name="toUUID", args=[session_id])
 
 
-def uuid_to_uint128_expr(uuid: ast.Expr) -> ast.Expr:
+def session_id_to_uint128_as_uuid_expr(session_id: ast.Expr) -> ast.Expr:
+    return ast.Call(name="_toUInt128", args=[(session_id_to_session_id_v7_as_uuid_expr(session_id))])
+
+
+def uint128_to_uuid_expr(uuid: ast.Expr) -> ast.Expr:
     return ast.Call(
         name="reinterpretAsUUID",
         args=[
@@ -429,7 +452,7 @@ def join_events_table_to_sessions_table_v3(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=uuid_to_uint128_expr(ast.Field(chain=[join_to_add.from_table, "$session_id_uuid"])),
+            left=ast.Field(chain=[join_to_add.from_table, "$session_id_uuid"]),
             right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
         ),
         constraint_type="ON",
