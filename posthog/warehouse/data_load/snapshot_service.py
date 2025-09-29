@@ -51,7 +51,7 @@ def get_snapshot_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule:
 
     return Schedule(
         action=ScheduleActionStartWorkflow(
-            "data-snapshots-run",
+            "hogql-query-snapshots-run",
             asdict(inputs),
             id=str(saved_query.id) + "-snapshot",
             # reuse queue for now

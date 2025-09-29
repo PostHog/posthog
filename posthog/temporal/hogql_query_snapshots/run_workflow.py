@@ -263,10 +263,14 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
                 batch, _, _ = result
 
         delta_snapshot.snapshot(batch)
-        snapshot_table = delta_snapshot.get_delta_table()
-        file_uris = []
-        if snapshot_table is not None:
-            file_uris = snapshot_table.file_uris()
+
+    snapshot_table = delta_snapshot.get_delta_table()
+
+    if snapshot_table is None:
+        raise Exception("Snapshot table not found after snapshot")
+
+    file_uris = []
+    file_uris = snapshot_table.file_uris()
 
     prepare_s3_files_for_querying(saved_query.snapshot_folder_path, saved_query.normalized_name, file_uris)
 
@@ -293,7 +297,7 @@ class RunWorkflowInputs:
         }
 
 
-@temporalio.workflow.defn(name="data-snapshots-run")
+@temporalio.workflow.defn(name="hogql-query-snapshots-run")
 class RunWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RunWorkflowInputs:
