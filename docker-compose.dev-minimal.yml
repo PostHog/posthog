@@ -49,6 +49,8 @@ services:
                         path /public/webhooks/*
                         path /public/m/
                         path /public/m/*
+                        path /public/links/
+                        path /public/links/*
                     }
 
                     handle @capture {

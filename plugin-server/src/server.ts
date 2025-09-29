@@ -8,7 +8,8 @@ import express from 'ultimate-express'
 
 import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
-import { CdpApi } from './cdp/cdp-api'
+import { CdpApi } from './cdp/api/cdp-api'
+import { LinksApi } from './cdp/api/links-api'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
@@ -193,6 +194,15 @@ export class PluginServer {
                 serviceLoaders.push(async () => {
                     await initPlugins()
                     const api = new CdpApi(hub)
+                    this.expressApp.use('/', api.router())
+                    await api.start()
+                    return api.service
+                })
+            }
+
+            if (capabilities.linksApi) {
+                serviceLoaders.push(async () => {
+                    const api = new LinksApi(hub)
                     this.expressApp.use('/', api.router())
                     await api.start()
                     return api.service
