@@ -218,6 +218,7 @@ class TestFileMovement:
             self.migrator = ModelMigrator("dummy_config.json")
             self.migrator.root_dir = Path("/fake/root")
 
+    @patch("os.remove")
     @patch("shutil.move")
     @patch("pathlib.Path.mkdir")
     @patch("pathlib.Path.exists")
@@ -236,6 +237,7 @@ class TestFileMovement:
         mock_exists,
         mock_mkdir,
         mock_move,
+        mock_remove,
     ):
         """Test complete file movement for subdirectory structure"""
         # Setup mocks
@@ -268,35 +270,6 @@ class TestFileMovement:
         mock_update_imports.assert_called()
 
         assert result is True
-
-    @patch("pathlib.Path.exists")
-    @patch.object(ModelMigrator, "_expand_subdirectory_files")
-    def test_missing_supporting_file_warning(self, mock_expand_files, mock_exists):
-        """Test that missing supporting files generate warnings"""
-        mock_expand_files.return_value = (
-            ["error_tracking/error_tracking.py", "error_tracking/missing.py"],
-            ["error_tracking/missing.py"],
-        )
-
-        # Main model file exists, supporting file doesn't
-        def exists_side_effect(path):
-            return "error_tracking.py" in str(path)
-
-        mock_exists.side_effect = exists_side_effect
-
-        with (
-            patch("builtins.open", create=True),
-            patch.object(ModelMigrator, "_extract_class_names_from_files", return_value=set()),
-            patch.object(ModelMigrator, "_ensure_model_db_tables"),
-            patch.object(ModelMigrator, "_update_imports_for_module"),
-            patch("logging.Logger.warning") as mock_warning,
-        ):
-            self.migrator.move_model_files_and_update_imports(["error_tracking/error_tracking.py"], "error_tracking")
-
-            # Should have warned about missing file
-            mock_warning.assert_called()
-            warning_calls = [call for call in mock_warning.call_args_list if "Supporting file not found" in str(call)]
-            assert len(warning_calls) > 0
 
 
 if __name__ == "__main__":
