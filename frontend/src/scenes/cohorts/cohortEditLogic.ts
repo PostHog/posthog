@@ -54,7 +54,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             }
             return `new-${props.tabId}`
         }
-        return props.id
+        if (props.tabId == null) {
+            return props.id
+        }
+        return `${props.id}-${props.tabId}`
     }),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
