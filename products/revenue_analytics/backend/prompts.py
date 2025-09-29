@@ -1,7 +1,3 @@
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-
-from ee.hogai.graph.taxonomy.toolkit import enrich_props_with_descriptions, format_properties_xml
-
 FILTER_EXAMPLES_PROMPT = """
 <examples_and_rules>
 ## Examples and Rules
@@ -73,24 +69,14 @@ If the users simply asks you to show them their revenue, you should tell them th
 """.strip()
 
 
-FILTER_OPTIONS_ITERATION_LIMIT_PROMPT = """I've tried several approaches but haven't been able to find the right filtering options. Could you please be more specific about what kind of filters you're looking for? For example:
+FILTER_OPTIONS_ITERATION_LIMIT_PROMPT = """
+I've tried several approaches but haven't been able to find the right filtering options. Could you please be more specific about what kind of filters you're looking for? For example:
 - What type of events or actions are you interested in?
 - What properties do you want to filter on?
-- Are you looking for specific values or ranges?"""
+- Are you looking for specific values or ranges?
+""".strip()
 
-# Format all available revenue analytics properties in XML format, used below for our FILTER_FIELDS_TAXONOMY_PROMPT
-REVENUE_ANALYTICS_ENTITY_VALUES = format_properties_xml(
-    enrich_props_with_descriptions(
-        "revenue_analytics",
-        [
-            (prop_name, prop["type"])
-            for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["revenue_analytics_properties"].items()
-            if prop.get("type") is not None
-        ],
-    )
-)
-
-FILTER_FIELDS_TAXONOMY_PROMPT = f"""
+FILTER_FIELDS_TAXONOMY_PROMPT = """
 <filter_fields_taxonomy>
 For the filter fields, you will find information on how to correctly discover the type of the filter field.
 
@@ -102,7 +88,7 @@ The <key> represents the name of the property on which the filter is applied.
 There's only a fixed set of keys that are supported for revenue analytics filters. They always follow the `revenue_analytics_<entity>.<property>` format.
 You should always use the full key (including the entity and property) when retrieving properties. These are listed below accompanied by what type the property is.
 
-{REVENUE_ANALYTICS_ENTITY_VALUES}
+{revenue_analytics_entity_values}
 
 <value> Field
 
