@@ -199,6 +199,7 @@ def get_client_from_pool(
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
+    return None
     """
     Returns the client for a given workload.
 
@@ -287,4 +288,14 @@ def set_default_clickhouse_workload_type(workload: Workload):
     _default_workload = workload
 
 
-ch_pool = get_pool(workload=Workload.ONLINE)
+class LazyPool:
+    def __init__(self):
+        self._pool = None
+
+    def get_client(self):
+        if self._pool is None:
+            self._pool = get_pool(workload=Workload.ONLINE)
+        return self._pool.get_client()
+
+
+ch_pool = LazyPool()
