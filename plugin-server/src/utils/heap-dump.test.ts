@@ -28,12 +28,10 @@ describe('heap-dump', () => {
         uploadedData = Buffer.alloc(0)
         s3Client = {} as jest.Mocked<S3Client>
 
-        // Test config
         config = {
             HEAP_DUMP_ENABLED: true,
             HEAP_DUMP_S3_BUCKET: 'test-heap-dumps',
             HEAP_DUMP_S3_PREFIX: 'heap-dumps',
-            HEAP_DUMP_S3_ENDPOINT: 'https://s3.us-east-1.amazonaws.com',
             HEAP_DUMP_S3_REGION: 'us-east-1',
         } as PluginsServerConfig
 
@@ -80,6 +78,12 @@ describe('heap-dump', () => {
         it('should not setup handler when bucket is not configured', () => {
             config.HEAP_DUMP_S3_BUCKET = ''
             initializeHeapDump(config, s3Client)
+            expect(processOnSpy).not.toHaveBeenCalled()
+        })
+
+        it('should not setup handler when region is not configured', () => {
+            config.HEAP_DUMP_S3_REGION = ''
+            initializeHeapDump(config, undefined)
             expect(processOnSpy).not.toHaveBeenCalled()
         })
 
