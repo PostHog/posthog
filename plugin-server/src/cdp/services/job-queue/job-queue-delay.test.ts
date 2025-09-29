@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { defaultConfig } from '~/config/config'
 import { PluginsServerConfig } from '~/types'
 
-import { CyclotronJobQueueDelay } from './job-queue-delay'
+import { CyclotronJobQueueDelay, getDelayQueue } from './job-queue-delay'
 
 const mockKafkaConsumer = {
     isHealthy: jest.fn().mockReturnValue(true),
@@ -83,78 +83,45 @@ describe('CyclotronJobQueueDelay', () => {
 
     describe('message routing logic', () => {
         let mockProducer: any
-        let delayWithCancellationSpy: jest.SpyInstance
 
         beforeEach(async () => {
             await delayQueue.startAsConsumer()
             await delayQueue.startAsProducer()
             const { KafkaProducerWrapper } = require('../../../kafka/producer')
             mockProducer = await KafkaProducerWrapper.create.mock.results[0].value
-
-            // Mock delayWithCancellation to avoid actual delays in tests
-            delayWithCancellationSpy = jest
-                .spyOn(delayQueue as any, 'delayWithCancellation')
-                .mockResolvedValue(undefined)
-        })
-
-        afterEach(() => {
-            delayWithCancellationSpy?.mockRestore()
         })
 
         it.each([
             {
                 scheduledTime: () => DateTime.now().plus({ hours: 24 }),
-                expectedTopic: 'cdp_cyclotron_delay-24h',
+                expectedQueue: 'delay-24h',
             },
             {
                 scheduledTime: () => DateTime.now().plus({ minutes: 60 }),
-                expectedTopic: 'cdp_cyclotron_delay-60m',
+                expectedQueue: 'delay-60m',
             },
             {
                 scheduledTime: () => DateTime.now().plus({ minutes: 20 }),
-                expectedTopic: 'cdp_cyclotron_delay-10m',
+                expectedQueue: 'delay-10m',
             },
             {
                 scheduledTime: () => DateTime.now().plus({ minutes: 10 }),
-                expectedTopic: 'cdp_cyclotron_hog',
+                expectedQueue: 'delay-10m',
             },
             {
                 scheduledTime: () => DateTime.now().minus({ minutes: 1 }),
-                expectedTopic: 'cdp_cyclotron_hog',
+                expectedQueue: 'delay-10m',
             },
             {
                 scheduledTime: () => DateTime.now(),
-                expectedTopic: 'cdp_cyclotron_hog',
+                expectedQueue: 'delay-10m',
             },
             {
                 scheduledTime: () => DateTime.now().minus({ minutes: 5 }),
-                expectedTopic: 'cdp_cyclotron_hog',
+                expectedQueue: 'delay-10m',
             },
-        ])('should route to $expectedTopic', async ({ scheduledTime, expectedTopic }) => {
-            const returnTopic = 'cdp_cyclotron_hog'
-            const mockMessage = {
-                key: Buffer.from('test-key'),
-                value: Buffer.from('test-value'),
-                offset: 123,
-                size: 100,
-                topic: 'cdp_cyclotron_delay-10m',
-                partition: 0,
-                headers: [
-                    {
-                        returnTopic: Buffer.from(returnTopic),
-                        queueScheduledAt: Buffer.from(scheduledTime().toISO()),
-                    },
-                ],
-            }
-
-            await delayQueue['consumeKafkaBatch']([mockMessage])
-
-            expect(mockProducer.produce).toHaveBeenCalledWith({
-                value: mockMessage.value,
-                key: mockMessage.key,
-                topic: expectedTopic,
-                headers: mockMessage.headers,
-            })
+        ])('should return $expectedQueue for scheduled time $scheduledTime', ({ scheduledTime, expectedQueue }) => {
+            expect(getDelayQueue(scheduledTime())).toBe(expectedQueue)
         })
 
         it.each([
