@@ -118,7 +118,7 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                 await actions.loadCohortPersons()
                 if (response) {
                     lemonToast.success('Users added to cohort')
-                    const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: cohortId })
+                    const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: cohortId, tabId: props.tabId })
                     await mountedCohortEditLogic?.actions.updateCohortCount()
 
                     const mountedDataNodeLogic = dataNodeLogic.findMounted({
