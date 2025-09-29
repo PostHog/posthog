@@ -37,7 +37,7 @@ export const getFilterSummary = (exportAsset: ExportedAsset): string => {
 
     const activeFilters: string[] = []
     if (filters.start_date || filters.end_date) {
-        activeFilters.push(`Date filter: 1`)
+        activeFilters.push(`Date: 1`)
     }
     if (filters.users && filters.users.length > 0) {
         activeFilters.push(`Users: ${filters.users.length}`)
