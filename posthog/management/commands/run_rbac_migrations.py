@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.models.organization import Organization
+from posthog.rbac.migrations.rbac_dashboard_migration import rbac_dashboard_access_control_migration
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 
@@ -110,8 +111,9 @@ class Command(BaseCommand):
 
             team_success = org_result["team_migration"]["success"]
             ff_success = org_result["feature_flag_migration"]["success"]
+            dashboard_success = org_result["dashboard_migration"]["success"]
 
-            if team_success and ff_success:
+            if team_success and ff_success and dashboard_success:
                 self.stdout.write(self.style.SUCCESS(f"Organization {org_id} ({org_name}): All migrations successful"))
             else:
                 self.stdout.write(self.style.WARNING(f"Organization {org_id} ({org_name}): Some migrations failed"))
@@ -124,12 +126,17 @@ class Command(BaseCommand):
                     error = org_result["feature_flag_migration"]["error"] or "Unknown error"
                     self.stdout.write(self.style.ERROR(f"  Feature flag migration failed: {error}"))
 
+                if not dashboard_success:
+                    error = org_result["dashboard_migration"]["error"] or "Unknown error"
+                    self.stdout.write(self.style.ERROR(f"  Dashboard migration failed: {error}"))
+
     def find_organizations_needing_migration(self, rollout_date) -> list[int]:
         """
         Find organizations that need RBAC migration based on the following criteria:
         - Has a team with access_control = True
         - Has an OrganizationResourceAccess row
         - Has a Role with feature flag access settings
+        - Has dashboards with restriction_level = 37 (ONLY_COLLABORATORS_CAN_EDIT)
         - Created after the rollout date
 
         Returns:
@@ -149,9 +156,23 @@ class Command(BaseCommand):
 
         # Find organizations with roles that have feature flag access
         orgs_with_feature_flag_roles = (
-            Role.objects.filter(feature_flag_access__isnull=False).values_list("organization_id", flat=True).distinct()
+            Role.objects.filter(feature_flags_access_level__isnull=False)
+            .values_list("organization_id", flat=True)
+            .distinct()
         )
         logger.info(f"Found {len(orgs_with_feature_flag_roles)} organizations with feature flag roles")
+
+        # Find organizations with dashboards that have restriction level 37
+        from posthog.models.dashboard import Dashboard
+
+        orgs_with_restricted_dashboards = (
+            Organization.objects.filter(
+                team__dashboard__restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+            )
+            .values_list("id", flat=True)
+            .distinct()
+        )
+        logger.info(f"Found {len(orgs_with_restricted_dashboards)} organizations with restricted dashboards")
 
         # Find organizations created after the rollout date
         orgs_after_rollout_date = Organization.objects.filter(created_at__date__gte=rollout_date).values_list(
@@ -161,7 +182,10 @@ class Command(BaseCommand):
 
         # Combine all organization IDs
         needs_migration = (
-            set(orgs_with_team_access_control) | set(orgs_with_resource_access) | set(orgs_with_feature_flag_roles)
+            set(orgs_with_team_access_control)
+            | set(orgs_with_resource_access)
+            | set(orgs_with_feature_flag_roles)
+            | set(orgs_with_restricted_dashboards)
         )
         logger.info(f"Found {len(needs_migration)} total organizations that need migration")
 
@@ -191,6 +215,7 @@ class Command(BaseCommand):
                 "organization_id": org_id,
                 "team_migration": {"success": False, "error": None},
                 "feature_flag_migration": {"success": False, "error": None},
+                "dashboard_migration": {"success": False, "error": None},
             }
 
             # Verify organization exists
@@ -230,8 +255,24 @@ class Command(BaseCommand):
                     "Feature flag role access migration failed", organization_id=org_id, error=error_msg, exc_info=True
                 )
 
+            # Run dashboard access control migration
+            try:
+                rbac_dashboard_access_control_migration(org_id)
+                org_result["dashboard_migration"]["success"] = True
+                logger.info("Dashboard access control migration successful", organization_id=org_id)
+            except Exception as e:
+                error_msg = str(e)
+                org_result["dashboard_migration"]["error"] = error_msg
+                logger.error(
+                    "Dashboard access control migration failed", organization_id=org_id, error=error_msg, exc_info=True
+                )
+
             # Update summary counters
-            if org_result["team_migration"]["success"] and org_result["feature_flag_migration"]["success"]:
+            if (
+                org_result["team_migration"]["success"]
+                and org_result["feature_flag_migration"]["success"]
+                and org_result["dashboard_migration"]["success"]
+            ):
                 results["successful"] += 1
                 logger.info("All migrations successful for organization", organization_id=org_id)
             else:

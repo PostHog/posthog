@@ -13,7 +13,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
-import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { PayGateButton } from './PayGateButton'
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 
@@ -54,13 +53,12 @@ export function PayGateMini({
     loadingSkeleton,
     handleSubmit,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, isTrialFlow } = useValues(
+    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, ctaLabel } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { setBypassPaywall } = useActions(payGateMiniLogic({ feature, currentUsage }))
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { billingLoading } = useValues(billingLogic)
-    const { hideUpgradeModal } = useActions(upgradeModalLogic)
     const { user } = useValues(userLogic)
 
     useEffect(() => {
@@ -69,21 +67,20 @@ export function PayGateMini({
                 product_key: productWithFeature?.type,
                 feature: feature,
                 gate_variant: gateVariant,
+                cta_label: ctaLabel,
             })
         }
-    }, [gateVariant]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [gateVariant, ctaLabel]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleCtaClick = (): void => {
         if (handleSubmit) {
             handleSubmit()
         }
-        if (!isTrialFlow) {
-            hideUpgradeModal()
-        }
         posthog.capture('pay gate CTA clicked', {
             product_key: productWithFeature?.type,
             feature: feature,
             gate_variant: gateVariant,
+            cta_label: ctaLabel,
         })
     }
 

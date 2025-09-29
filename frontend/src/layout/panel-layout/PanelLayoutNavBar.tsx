@@ -68,6 +68,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         showLayoutNavBar,
     } = useActions(panelLayoutLogic)
     const {
+        pathname,
         isLayoutPanelVisible,
         activePanelIdentifier,
         activePanelIdentifierFromUrl,
@@ -80,7 +81,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
-    const { location } = useValues(router)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
@@ -113,7 +113,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     }
 
     const isStaticNavItemActive = (itemIdentifier: string): boolean => {
-        const currentPath = removeProjectIdIfPresent(location.pathname)
+        const currentPath = removeProjectIdIfPresent(pathname)
 
         if (itemIdentifier === 'Home' && currentPath === '/') {
             return true
@@ -311,7 +311,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         activePanelIdentifier === item.identifier ||
                                                         activePanelIdentifierFromUrl === item.identifier
                                                     }
-                                                    className="group"
+                                                    className="group pr-1"
                                                     menuItem={!isLayoutNavCollapsed}
                                                     iconOnly={isLayoutNavCollapsed}
                                                     tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
@@ -347,7 +347,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             .toLowerCase()}`}
                                                         buttonProps={{
                                                             menuItem: !isLayoutNavCollapsed,
-                                                            className: 'group',
+                                                            className: 'group pr-1',
                                                             iconOnly: isLayoutNavCollapsed,
                                                             active: isStaticNavItemActive(item.identifier),
                                                         }}
@@ -476,6 +476,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement="right"
                                     iconOnly={isLayoutNavCollapsed}
                                     data-attr="menu-item-me"
+                                    className="pr-1"
                                 >
                                     <ProfilePicture user={user} size={isLayoutNavCollapsed ? 'md' : 'xs'} />
                                     {!isLayoutNavCollapsed && (
