@@ -119,8 +119,8 @@ export class IngestionConsumer {
     private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
 
-    private batchPreprocessingPipeline!: ResultHandlingPipeline<{ message: Message }, PreprocessedEvent>
-    private mainEventPipeline!: ResultHandlingPipeline<PreprocessedEventWithStores, EventPipelineResult>
+    private preprocessingPipeline!: ResultHandlingPipeline<{ message: Message }, PreprocessedEvent>
+    private perDistinctIdPipeline!: ResultHandlingPipeline<PreprocessedEventWithStores, EventPipelineResult>
 
     constructor(
         private hub: Hub,
@@ -204,10 +204,10 @@ export class IngestionConsumer {
         ])
 
         // Initialize batch preprocessing pipeline after kafka producer is available
-        this.initializePipeline()
+        this.initializePreprocessingPipeline()
 
         // Initialize main event pipeline
-        this.initializeMainEventPipeline()
+        this.initializePerDistinctIdPipeline()
 
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
@@ -220,7 +220,7 @@ export class IngestionConsumer {
         })
     }
 
-    private initializePipeline(): void {
+    private initializePreprocessingPipeline(): void {
         const pipelineConfig: PipelineConfig = {
             kafkaProducer: this.kafkaProducer!,
             dlqTopic: this.dlqTopic,
@@ -249,10 +249,10 @@ export class IngestionConsumer {
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(this.hub))
 
-        this.batchPreprocessingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+        this.preprocessingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
     }
 
-    private initializeMainEventPipeline(): void {
+    private initializePerDistinctIdPipeline(): void {
         const pipelineConfig: PipelineConfig = {
             kafkaProducer: this.kafkaProducer!,
             dlqTopic: this.dlqTopic,
@@ -269,10 +269,10 @@ export class IngestionConsumer {
             }
         )
 
-        const mainEventBatchPipeline =
+        const perDistinctIdBatchPipeline =
             createNewBatchPipeline<PreprocessedEventWithStores>().pipeSequentially(eventProcessingPipeline)
 
-        this.mainEventPipeline = ResultHandlingPipeline.of(mainEventBatchPipeline, pipelineConfig)
+        this.perDistinctIdPipeline = ResultHandlingPipeline.of(perDistinctIdBatchPipeline, pipelineConfig)
     }
 
     public async stop(): Promise<void> {
@@ -551,8 +551,8 @@ export class IngestionConsumer {
 
         // Feed the batch to the main event pipeline
         const eventsSequence = createBatch(preprocessedEventsWithStores)
-        this.mainEventPipeline.feed(eventsSequence)
-        const results = await this.mainEventPipeline.next()
+        this.perDistinctIdPipeline.feed(eventsSequence)
+        const results = await this.perDistinctIdPipeline.next()
 
         if (results) {
             results.forEach((result) => {
@@ -568,10 +568,10 @@ export class IngestionConsumer {
         const batch = createBatch(messages.map((message) => ({ message })))
 
         // Feed batch to the pipeline
-        this.batchPreprocessingPipeline.feed(batch)
+        this.preprocessingPipeline.feed(batch)
 
         // Get all results from the gather pipeline (should return all results in one call)
-        const result = await this.batchPreprocessingPipeline.next()
+        const result = await this.preprocessingPipeline.next()
 
         if (result === null) {
             return []
