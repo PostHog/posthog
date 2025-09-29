@@ -27,6 +27,4 @@ def clear_backup_object(saved_query: DataWarehouseSavedQuery) -> None:
     s3 = get_s3_client()
     delta_snapshot = DeltaSnapshot(saved_query)
     backup_folder = delta_snapshot.backup_delta_table_uri
-
-    if s3.exists(backup_folder):
-        s3.delete(backup_folder, recursive=True)
+    s3.delete(backup_folder, recursive=True)
