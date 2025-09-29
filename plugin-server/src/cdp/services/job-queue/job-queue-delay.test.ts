@@ -1,5 +1,7 @@
-import { DateTime } from 'luxon'
+/* eslint-disable @typescript-eslint/require-await */
+import { DateTime, Settings } from 'luxon'
 
+import { createKafkaMessage } from '~/cdp/_tests/fixtures'
 import { defaultConfig } from '~/config/config'
 import { PluginsServerConfig } from '~/types'
 
@@ -42,6 +44,105 @@ describe('CyclotronJobQueueDelay', () => {
 
         mockKafkaConsumer.isShuttingDown.mockReturnValue(false)
         mockKafkaConsumer.isRebalancing.mockReturnValue(false)
+    })
+
+    describe('delay queue forwarding', () => {
+        jest.useFakeTimers()
+        Settings.defaultZone = 'UTC'
+
+        let delay24h: CyclotronJobQueueDelay
+        let delay60m: CyclotronJobQueueDelay
+        let delay10m: CyclotronJobQueueDelay
+        let produceSpy: jest.SpyInstance
+
+        beforeEach(async () => {
+            delay24h = new CyclotronJobQueueDelay(config, 'delay-24h', async () => ({
+                backgroundTask: Promise.resolve(),
+            }))
+            delay60m = new CyclotronJobQueueDelay(config, 'delay-60m', async () => ({
+                backgroundTask: Promise.resolve(),
+            }))
+            delay10m = new CyclotronJobQueueDelay(config, 'delay-10m', async () => ({
+                backgroundTask: Promise.resolve(),
+            }))
+
+            await delay24h.startAsProducer()
+            await delay60m.startAsProducer()
+            await delay10m.startAsProducer()
+
+            produceSpy = jest.spyOn(delay24h['getKafkaProducer'](), 'produce')
+        })
+
+        it('should forward job through delay queues to final destination', async () => {
+            jest.setSystemTime(new Date('2025-01-01T10:00:00.000Z'))
+            let mockTime = 0
+            const delayMock = jest
+                .spyOn(CyclotronJobQueueDelay.prototype as any, 'delayWithCancellation')
+                .mockImplementation(async () => {
+                    if (mockTime === 0) {
+                        jest.setSystemTime(new Date('2025-01-02T10:00:00.000Z'))
+                    } else if (mockTime === 1) {
+                        jest.setSystemTime(new Date('2025-01-02T11:00:00.000Z'))
+                    }
+                    mockTime++
+                    await Promise.resolve()
+                })
+
+            const getMessage = (waitMinutes: number) => {
+                return {
+                    key: Buffer.from('test-job-123'),
+                    topic: 'cdp_cyclotron_delay-24h',
+                    headers: [
+                        { returnTopic: Buffer.from('hog') },
+                        { queueScheduledAt: Buffer.from(DateTime.now().plus({ minutes: waitMinutes }).toISO()) },
+                    ] as any,
+                }
+            }
+
+            produceSpy.mockClear()
+
+            await delay24h['consumeKafkaBatch']([
+                createKafkaMessage({ data: 'delay-test' }, getMessage(1520 /* 24 hours + 80 minutes */)),
+            ])
+            expect(produceSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    topic: 'cdp_cyclotron_delay-60m',
+                })
+            )
+            produceSpy.mockClear()
+
+            await delay60m['consumeKafkaBatch']([
+                createKafkaMessage({ data: 'delay-test' }, getMessage(80 /* 60 minutes + 20 minutes */)),
+            ])
+            expect(produceSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    topic: 'cdp_cyclotron_delay-10m',
+                })
+            )
+            produceSpy.mockClear()
+
+            await delay10m['consumeKafkaBatch']([
+                createKafkaMessage({ data: 'delay-test' }, getMessage(20 /* 20 minutes */)),
+            ])
+            expect(produceSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    topic: 'cdp_cyclotron_delay-10m',
+                })
+            )
+            produceSpy.mockClear()
+
+            await delay10m['consumeKafkaBatch']([
+                createKafkaMessage({ data: 'delay-test' }, getMessage(10 /* 10 minutes */)),
+            ])
+            expect(produceSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    topic: 'hog',
+                })
+            )
+            delayMock.mockRestore()
+
+            jest.useRealTimers()
+        })
     })
 
     describe('delayWithCancellation', () => {
@@ -181,3 +282,5 @@ describe('CyclotronJobQueueDelay', () => {
         })
     })
 })
+
+/* eslint-enable @typescript-eslint/require-await */
