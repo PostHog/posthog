@@ -214,7 +214,7 @@ class TestTaskWorkflowAPI(BaseTaskAPITest):
     def test_permission_denied_without_auth(self):
         self.client.force_authenticate(None)
         response = self.client.get("/api/projects/@current/workflows/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_feature_flag_required(self):
         self.set_tasks_feature_flag(False)
@@ -622,7 +622,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
         for url, method in endpoints:
             response = getattr(self.client, method.lower())(url)
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, f"Failed for {method} {url}")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
 
     def test_cross_team_workflow_access_forbidden(self):
         # Create workflow in other team
@@ -726,7 +726,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:read", "GET", "/api/projects/@current/workflows/", True),
             ("task:read", "GET", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
-            ("task:read", "GET", "/api/projects/@current/agents/", True),
+            ("no_scope", "GET", "/api/projects/@current/agents/", True),
             ("task:read", "POST", "/api/projects/@current/tasks/", False),
             ("task:read", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", False),
             ("task:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),
@@ -751,12 +751,13 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             label=f"Test API Key - {scope}",
             scoped_organizations=[str(self.organization.id)],
             scoped_teams=[self.team.id],
+            scopes=[scope],
         )
-        api_key.scopes = [scope]
-        api_key.save()
 
         url = url_template.format(task_id=task.id, workflow_id=workflow.id)
 
+        # Use API key for authentication
+        self.client.force_authenticate(None)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key.value}")
 
         data = {}
@@ -812,6 +813,8 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         api_key.scopes = ["other_scope:read"]
         api_key.save()
 
+        # Use API key for authentication
+        self.client.force_authenticate(None)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key.value}")
 
         test_endpoints = [

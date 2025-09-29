@@ -130,7 +130,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         ],
     )
-    @action(detail=True, methods=["patch"])
+    @action(detail=True, methods=["patch"], required_scopes=["task:write"])
     def update_stage(self, request, pk=None, **kwargs):
         logger.info(f"update_stage called for task {pk} with data: {request.data}")
 
@@ -176,7 +176,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             404: OpenApiResponse(description="Task not found"),
         },
     )
-    @action(detail=True, methods=["patch"])
+    @action(detail=True, methods=["patch"], required_scopes=["task:write"])
     def update_position(self, request, pk=None, **kwargs):
         task = self.get_object()
 
@@ -215,7 +215,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         ],
     )
-    @action(detail=False, methods=["post"], url_path="bulk_reorder")
+    @action(detail=False, methods=["post"], url_path="bulk_reorder", required_scopes=["task:write"])
     def bulk_reorder(self, request, *args, **kwargs):
         payload = request.data or {}
         columns = payload.get("columns") or {}
@@ -354,7 +354,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             404: OpenApiResponse(description="Task not found"),
         },
     )
-    @action(detail=True, methods=["get"])
+    @action(detail=True, methods=["get"], required_scopes=["task:read"])
     def progress(self, request, pk=None, **kwargs):
         task = self.get_object()
 
@@ -395,7 +395,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             404: OpenApiResponse(description="Task not found"),
         },
     )
-    @action(detail=True, methods=["get"])
+    @action(detail=True, methods=["get"], required_scopes=["task:read"])
     def progress_stream(self, request, pk=None, **kwargs):
         task = self.get_object()
 
@@ -470,7 +470,7 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             404: OpenApiResponse(description="Workflow not found"),
         },
     )
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], required_scopes=["task:write"])
     def set_default(self, request, pk=None, **kwargs):
         workflow = self.get_object()
 
@@ -496,7 +496,7 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             404: OpenApiResponse(description="Workflow not found"),
         },
     )
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], required_scopes=["task:write"])
     def deactivate(self, request, pk=None, **kwargs):
         workflow = cast(TaskWorkflow, self.get_object())
 
@@ -518,7 +518,7 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             400: OpenApiResponse(response=ErrorResponseSerializer, description="Team already has a default workflow"),
         },
     )
-    @action(detail=False, methods=["post"])
+    @action(detail=False, methods=["post"], required_scopes=["task:write"])
     def create_default(self, request, **kwargs):
         existing_default = TaskWorkflow.objects.filter(team=self.team, is_default=True).first()
 
@@ -570,7 +570,7 @@ class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             404: OpenApiResponse(description="Stage not found"),
         },
     )
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], required_scopes=["task:write"])
     def archive(self, request, pk=None, **kwargs):
         stage = self.get_object()
         stage.archive()
@@ -585,8 +585,6 @@ class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
 
     serializer_class = AgentDefinitionSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
-    scope_object = "task"
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     queryset = None  # No model queryset since we're using hardcoded agents
     posthog_feature_flag = {"tasks": ["list", "retrieve"]}
 
