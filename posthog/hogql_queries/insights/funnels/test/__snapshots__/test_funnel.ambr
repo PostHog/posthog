@@ -512,7 +512,7 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
   '''
-  /* cohort_calculation:cohort_calc:a9caa7a1 */
+  /* cohort_calculation:cohort_calc:06017a76 */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -521,7 +521,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:a9caa7a1%'
+    AND query LIKE '%cohort_calc:06017a76%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
