@@ -7,12 +7,16 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import RevenueAnalyticsAssistantFilters
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models import Team, User
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+from products.revenue_analytics.backend.api import find_values_for_revenue_analytics_property
 
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import base_final_answer
+from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorMessages
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import AssistantNodeName
@@ -26,6 +30,22 @@ from .prompts import (
     USER_FILTER_OPTIONS_PROMPT,
 )
 
+
+class final_answer(base_final_answer[RevenueAnalyticsAssistantFilters]):
+    __doc__ = base_final_answer.__doc__
+
+
+class retrieve_revenue_analytics_property_values(BaseModel):
+    """
+    Use this tool to lookup values for a revenue analytics property.
+    """
+
+    property_key: str = Field(
+        description="The key of the property to look up values for",
+        pattern=r"^revenue_analytics_[a-zA-Z0-9_.]+$",
+    )
+
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -34,19 +54,34 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
+    def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
+        """Handle custom tool execution."""
+        if tool_name == "retrieve_revenue_analytics_property_values":
+            result = self._retrieve_revenue_analytics_property_values(tool_input.arguments.property_key)
+            return tool_name, result
+
+        return super().handle_tools(tool_name, tool_input)
+
     def _get_custom_tools(self) -> list:
-        """Get custom tools for filter options."""
+        return [final_answer, retrieve_revenue_analytics_property_values]
 
-        class final_answer(base_final_answer[RevenueAnalyticsAssistantFilters]):
-            __doc__ = base_final_answer.__doc__
+    # Do not include all of the default taxonomy tools, only use the ones we're defining here
+    # plus the generally useful tools like `ask_user_for_help`
+    def get_tools(self) -> list:
+        """Returns the list of tools available in this toolkit."""
+        return [*self._get_custom_tools(), ask_user_for_help]
 
-        return [final_answer]
-
-    def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
+    def _retrieve_revenue_analytics_property_values(self, property_name: str) -> str:
         """
-        Override parent implementation to use YAML format instead of XML.
+        Revenue analytics properties come from Clickhouse so let's run a separate query here.
         """
-        return self._format_properties_yaml(props)
+        if property_name not in CORE_FILTER_DEFINITIONS_BY_GROUP["revenue_analytics_properties"]:
+            return TaxonomyErrorMessages.property_not_found(property_name, "revenue_analytics")
+
+        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            values = find_values_for_revenue_analytics_property(property_name, self._team)
+
+        return self._format_property_values(values, sample_count=len(values))
 
 
 class RevenueAnalyticsFilterNode(
@@ -121,8 +156,6 @@ class FilterRevenueAnalyticsTool(MaxTool):
         - "revenue analytics" synonyms: "revenue", "MRR", "growth", "churn", and similar
       * When the user asks to search for revenue analytics or revenue
         - "search for" synonyms: "find", "look up", and similar
-    - When NOT to use the tool:
-      * When the user EXPLICITLY asks to create an insight related to revenue rather than looking at the revenue analytics page
     """
     thinking_message: str = "Coming up with filters"
     root_system_prompt_template: str = "Current revenue analytics filters are: {current_filters}"

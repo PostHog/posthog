@@ -25,14 +25,6 @@ Properties are always associated with an event or entity. When looking for prope
     Use `retrieve_entity_properties` with entity="session" to get the list of all available session properties.
 </session>
 
-<revenue_analytics>
-- Revenue Analytics Properties:
-    These should only be used when the user is talking about revenue analytics. These are always related to the customer, product or subscription attached to revenue data.
-    These should only be used in the context of revenue analytics filters. When filtering insights or dashboards, you should instead use event properties.
-    These follow a clear pattern of including the type of the entity before the property name. E.g. revenue_analytics_customer.country, revenue_analytics_product.name.
-    Use `retrieve_entity_properties` with entity="revenue_analytics" to get the list of all available revenue analytics properties.
-</revenue_analytics>
-
 <group>
 - Group Properties:
     PostHog users can group these events into custom groups. For example organisation, instance, account etc.
@@ -66,7 +58,7 @@ TAXONOMY_TOOL_USAGE_PROMPT = """
 2. **CRITICAL DISTINCTION**: EVENTS ARE NOT ENTITIES. THEY HAVE THEIR OWN PROPERTIES AND VALUES.
 
 3. **Tool Workflow**:
-   - **For ENTITY properties** (person, session, organization, groups, revenue_analytics): Use `retrieve_entity_properties` and `retrieve_entity_property_values`
+   - **For ENTITY properties** (person, session, organization, groups): Use `retrieve_entity_properties` and `retrieve_entity_property_values`
    - **For EVENT properties** (properties of specific events like pageview, signup, etc.): Use `retrieve_event_properties` and `retrieve_event_property_values`
    - Use `ask_user_for_help` when you need clarification
    - Use `final_answer` only when you have complete information
