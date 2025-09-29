@@ -76,6 +76,7 @@ export enum PluginServerMode {
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
+    links_api = 'links-api',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_internal_events = 'cdp-internal-events',
@@ -466,6 +467,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
+
+    // Links
+    SHORT_LINKS_DOMAIN: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -525,6 +529,7 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
+    linksApi?: boolean
     cdpProcessedEvents?: boolean
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean

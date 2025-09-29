@@ -161,7 +161,7 @@ export type HogFunctionFilterGlobals = {
     }
 }
 
-export type MetricLogSource = 'hog_function' | 'hog_flow'
+export type MetricLogSource = 'hog_function' | 'hog_flow' | 'link'
 
 export type LogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
 

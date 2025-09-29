@@ -324,6 +324,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: 'us-east-1',
+
+        // Links
+        SHORT_LINKS_DOMAIN: 'phog.gg',
     }
 }
 

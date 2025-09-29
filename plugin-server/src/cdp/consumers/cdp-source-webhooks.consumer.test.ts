@@ -8,7 +8,7 @@ import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/api/router'
 import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
-import { CdpApi } from '~/cdp/cdp-api'
+import { CdpApi } from '~/cdp/api/cdp-api'
 import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.template'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { HogFunctionType } from '~/cdp/types'

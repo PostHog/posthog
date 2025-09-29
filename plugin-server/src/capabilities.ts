@@ -22,11 +22,13 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorkerDelay: true,
                 cdpBehaviouralEvents: true,
                 cdpApi: true,
+                linksApi: true,
             }
 
         case PluginServerMode.local_cdp:
             return {
                 ingestionV2: true,
+                linksApi: true,
                 cdpProcessedEvents: true,
                 cdpPersonUpdates: true,
                 cdpInternalEvents: true,
@@ -94,6 +96,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpApi: true,
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
+            }
+
+        case PluginServerMode.links_api:
+            return {
+                linksApi: true,
             }
     }
 }
