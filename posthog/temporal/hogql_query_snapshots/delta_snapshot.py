@@ -208,9 +208,8 @@ def get_partition_settings(saved_query: DataWarehouseSavedQuery) -> PartitionSet
         return None
 
     count = config.partition_count
-    size = config.partition_size
 
-    if count is None or size is None:
+    if count is None:
         return None
 
-    return PartitionSettings(partition_count=count, partition_size=size)
+    return PartitionSettings(partition_count=count)
