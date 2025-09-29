@@ -1,0 +1,214 @@
+# Flox environment specification
+# Converted from .flox/env/manifest.toml for version control
+version: 1
+
+# Package installations
+install:
+    # Python - Python itself is installed on activation via `uv sync`
+    uv:
+        pkg-path: uv
+        pkg-group: uv
+        version: '0.7.8'
+    xmlsec:
+        pkg-path: xmlsec
+        version: '1.3.6'
+    freetds:
+        pkg-path: freetds # For pymssql
+
+    # Node
+    nodejs:
+        pkg-path: nodejs_22
+        pkg-group: nodejs
+        version: '22.17.0' # Same maj.min ver as in Dockerfile; diverges from patch ver
+    corepack:
+        pkg-path: corepack_22
+        pkg-group: nodejs
+        version: '22.17.0' # Same maj.min as in Dockerfile; diverges from patch ver
+    brotli:
+        pkg-path: brotli
+        pkg-group: nodejs
+    openssl:
+        pkg-path: openssl
+        version: '3.4.1'
+        pkg-group: openssl
+    nodemon:
+        pkg-path: nodemon
+
+    # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)
+    cargo:
+        pkg-path: cargo
+        pkg-group: rust-toolchain
+        version: '1.88.0'
+    rustc:
+        pkg-path: rustc
+        pkg-group: rust-toolchain
+    clippy:
+        pkg-path: clippy
+        pkg-group: rust-toolchain
+    rustfmt:
+        pkg-path: rustfmt
+        pkg-group: rust-toolchain
+    rust-lib-src:
+        pkg-path: rustPlatform.rustLibSrc
+        pkg-group: rust-toolchain
+    libiconv:
+        pkg-path: libiconv
+        systems: ['aarch64-darwin']
+        pkg-group: rust-toolchain
+
+    # rust-analyzer should be isolated in its own group, details in cookbook example
+    rust-analyzer:
+        pkg-path: rust-analyzer
+        pkg-group: rust-analyzer
+
+    # Go
+    go:
+        pkg-path: go
+        version: '1.22'
+        pkg-group: go
+
+    # CLI tools
+    mprocs:
+        pkg-path: mprocs
+    cmake:
+        pkg-path: cmake
+        version: '3.31.5'
+        pkg-group: cmake
+    sqlx-cli:
+        pkg-path: sqlx-cli
+        version: '0.8.3' # sqlx
+    postgresql:
+        pkg-path: postgresql_14 # psql
+    ffmpeg:
+        pkg-path: ffmpeg
+
+# Environment variables
+vars:
+    DEBUG: '1'
+    POSTHOG_SKIP_MIGRATION_CHECKS: '1'
+    DIRENV_LOG_FORMAT: '' # Disable direnv activation logging (in case direnv is present)
+    OPENSSL_ROOT_DIR: '$FLOX_ENV'
+    OPENSSL_LIB_DIR: '$FLOX_ENV/lib'
+    DOTENV_FILE: '.env'
+    OPENSSL_INCLUDE_DIR: '$FLOX_ENV/include'
+    LDFLAGS: '-L$FLOX_ENV/lib'
+    CPPFLAGS: '-I$FLOX_ENV/include'
+    UV_PROJECT_ENVIRONMENT: '$FLOX_ENV_CACHE/venv'
+
+# Activation hook
+hook:
+    on-activate: |
+        # Guide through installing and configuring direnv if it's not present (optionally)
+
+        if [[ -t 0 ]] && ! command -v direnv >/dev/null 2>&1 && [ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]; then
+          read -p "=I For auto-activation of the environment, we recommend direnv (https://direnv.net).
+        S Would you like direnv to be set up in $(basename "$SHELL") now? (Y/n)" -n 1 -r
+          echo
+          if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then
+            $FLOX_ENV_CACHE/../env/direnv-setup.sh
+          else
+            echo "� Skipping direnv setup. This message will not be shown again, but if you change your mind, just run '.flox/bin/direnv-setup.sh'"
+          fi
+          touch $FLOX_ENV_CACHE/.hush-direnv
+          echo
+        fi
+
+        # Ensure Python virtual environment - Python version is defined in pyproject.toml
+        uv sync
+
+        # Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)
+        # This also sets up pre-commit hooks via Husky
+        if [ ! -d "node_modules" ]; then
+          echo "Installing Node dependencies..."
+          pnpm install --silent
+          echo "Node dependencies installed"
+        fi
+
+        # Add required entries to /etc/hosts if not present
+        if ! grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
+          echo
+          echo "=� Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to 127.0.0.1..."
+          echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
+          echo " /etc/hosts amended for IPv4"
+        fi
+
+        if ! grep -q "::1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
+          echo
+          echo "=� Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to ::1..."
+          echo "::1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
+          echo " /etc/hosts amended for IPv6"
+        fi
+
+        if [ -f "$DOTENV_FILE" ]; then
+          set -o allexport
+          source "$DOTENV_FILE"
+          set +o allexport
+          echo " Environment variables loaded from '$DOTENV_FILE' file"
+        fi
+
+        # The block below only runs when in an interactive shell
+        if [[ -t 0 ]]; then
+          quotes=(
+            # https://github.com/PostHog/posthog.com/blob/cd0ad2e5a96c3ff7d2662ec696a5560022ff318d/src/components/Careers/FounderNote/Audio
+            "At PostHog, we don't follow trends, we set them, like records."
+            "Be bold, be fearless, and let's lead the way in tech innovation with beast mode."
+            "The future belongs to the bold and the strong."
+            "Break the mold, push the limits, and let's redefine what's possible with beast mode on."
+            "Our best feature? Still in the pipeline."
+            "Mindset matters. Stay positive, stay resilient, and keep grinding."
+            "Challenges are just opportunities in disguise."
+            "Ownership isn't a task, it's a mindset."
+          )
+
+          echo -e "\nInspirational James Hawkins quote he never said:\n\"${quotes[$RANDOM % ${#quotes[@]}]}\""
+
+          # Print intro message
+          echo -e "
+        \033[3mRun the following commands in the given order to get the stack up and running:\033[0m
+        1. Spin up containers - \033[33mdocker compose -f docker-compose.dev.yml up -d\033[0m
+        2. Run all migrations - \033[31mbin/migrate\033[0m
+        3. Start the stack - \033[32mbin/start\033[0m
+        4. (optional) Create a user with demo data - \033[34m./manage.py generate_demo_data\033[0m
+        "
+        fi
+
+# Shell profiles
+profile:
+    bash: |
+        if [ -f "$HOME/.bash_profile" ]; then
+          source "$HOME/.bash_profile"
+          # ensure even with your shell prefs in place we know this is a Flox.dev env
+          export PS1="\033[47m(flox)\033[0m $PS1"
+        fi
+        # Ensure flox binaries (especially Node.js) take precedence over system binaries
+        export PATH="$FLOX_ENV/bin:$PATH"
+        source $UV_PROJECT_ENVIRONMENT/bin/activate
+
+    zsh: |
+        if [[ -f "$HOME/.zshrc" ]]; then
+          source "$HOME/.zshrc"
+          # ensure even with your shell prefs in place we know this is a Flox.dev env
+          export PS1="%K{white}%F{black}(flox)%k%f $PS1"
+        fi
+        # Ensure flox binaries (especially Node.js) take precedence over system binaries
+        export PATH="$FLOX_ENV/bin:$PATH"
+        source $UV_PROJECT_ENVIRONMENT/bin/activate
+
+    fish: |
+        # Ensure flox binaries (especially Node.js) take precedence over system binaries
+        fish_add_path "$FLOX_ENV/bin"
+        source $UV_PROJECT_ENVIRONMENT/bin/activate.fish
+
+    tcsh: |
+        # Ensure flox binaries (especially Node.js) take precedence over system binaries
+        setenv PATH "$FLOX_ENV/bin:$PATH"
+        source $UV_PROJECT_ENVIRONMENT/bin/activate.csh
+
+# Services (commented out in original)
+services: {}
+    # db:
+    #   command: "postgres -D $FLOX_ENV_CACHE/postgres"
+
+# Additional options
+options:
+    systems: ['aarch64-darwin', 'aarch64-linux', 'x86_64-darwin', 'x86_64-linux']
