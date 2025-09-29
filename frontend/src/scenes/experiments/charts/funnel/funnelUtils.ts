@@ -18,7 +18,6 @@ export interface FunnelDataProcessingOptions {
 export interface ProcessedFunnelData {
     steps: FunnelStepWithNestedBreakdown[]
     stepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
-    visibleStepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
     flattenedBreakdowns: FlattenedFunnelStepByBreakdown[]
     hasFunnelResults: boolean
 }
@@ -41,7 +40,7 @@ export function processFunnelData(
     steps: FunnelStepWithNestedBreakdown[],
     options: FunnelDataProcessingOptions = {}
 ): ProcessedFunnelData {
-    const { stepReference = FunnelStepReference.total, disableBaseline = false, hiddenLegendBreakdowns = [] } = options
+    const { stepReference = FunnelStepReference.total } = options
 
     // Sort steps by order (same as funnelDataLogic)
     const sortedSteps = steps.sort((a, b) => a.order - b.order)
@@ -50,19 +49,7 @@ export function processFunnelData(
     const stepsWithMetrics = stepsWithConversionMetrics(sortedSteps, stepReference)
 
     // Flatten breakdowns for legend display (always use vertical layout)
-    const flattenedBreakdowns = flattenedStepsByBreakdown(
-        stepsWithMetrics,
-        FunnelLayout.vertical,
-        disableBaseline,
-        true
-    )
-
-    // Filter visible steps based on hidden legend breakdowns
-    const visibleSteps = getVisibleStepsWithConversionMetrics(
-        stepsWithMetrics,
-        flattenedBreakdowns,
-        hiddenLegendBreakdowns
-    )
+    const flattenedBreakdowns = flattenedStepsByBreakdown(stepsWithMetrics, FunnelLayout.vertical, true)
 
     // Check if we have valid funnel results
     const hasFunnelResults = !!(sortedSteps && sortedSteps[0] && sortedSteps[0].count > -1)
@@ -70,42 +57,7 @@ export function processFunnelData(
     return {
         steps: sortedSteps,
         stepsWithConversionMetrics: stepsWithMetrics,
-        visibleStepsWithConversionMetrics: visibleSteps,
         flattenedBreakdowns,
         hasFunnelResults,
     }
-}
-
-/**
- * Filters steps based on hidden legend breakdowns (extracted from funnelDataLogic).
- */
-function getVisibleStepsWithConversionMetrics(
-    steps: FunnelStepWithConversionMetrics[],
-    flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
-    hiddenLegendBreakdowns: string[]
-): FunnelStepWithConversionMetrics[] {
-    const isOnlySeries = flattenedBreakdowns.length <= 1
-    const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
-
-    return steps.map((step, stepIndex) => ({
-        ...step,
-        nested_breakdown: (baseLineSteps?.steps
-            ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
-            : step?.nested_breakdown
-        )
-            ?.map((b) => ({
-                ...b,
-            }))
-            ?.filter((b) => isOnlySeries || !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))),
-    }))
-}
-
-/**
- * Helper function to get visibility key for breakdown values.
- */
-function getVisibilityKey(breakdownValue: any): string {
-    if (Array.isArray(breakdownValue)) {
-        return breakdownValue.join('::')
-    }
-    return String(breakdownValue ?? '')
 }
