@@ -1016,7 +1016,7 @@ class TestQuotaLimiting(BaseTest):
                 "rows_synced": 7,
                 "feature_flags": 10,
                 TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 10,
-                "survey_responses": 10,
+                "surveys": 10,
             }
             self.organization.save()
 
