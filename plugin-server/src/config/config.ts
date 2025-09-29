@@ -136,6 +136,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
         LAZY_LOADER_TTL_MS: 1000 * 60 * 10, // 10 minutes
         LAZY_LOADER_EVICTION_ENABLED: false,
+        LAZY_LOADER_MAX_SIZE: 10000, // Maximum entries per cache before LRU eviction
         CAPTURE_INTERNAL_URL: isProdEnv()
             ? 'http://capture.posthog.svc.cluster.local:3000/capture'
             : 'http://localhost:8010/capture',
@@ -317,6 +318,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Messaging
         MAILJET_PUBLIC_KEY: '',
         MAILJET_SECRET_KEY: '',
+
+        // SES
+        SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
+        SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
+        SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
+        SES_REGION: 'us-east-1',
     }
 }
 

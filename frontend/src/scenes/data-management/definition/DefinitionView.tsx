@@ -164,6 +164,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                                 sideIcon={<IconPlayCircle />}
                                 data-attr="event-definition-view-recordings"
                                 size="small"
+                                targetBlank
                             >
                                 View recordings
                             </LemonButton>

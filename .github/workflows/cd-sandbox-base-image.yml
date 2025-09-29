@@ -18,6 +18,8 @@ jobs:
         outputs:
             sandbox_image: ${{ steps.filter.outputs.sandbox_image }}
         steps:
+            - uses: actions/checkout@v4
+
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
               with:
