@@ -721,6 +721,14 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
+            if (values.featureFlags[FEATURE_FLAGS.UNPAID_INVOICE_NAG]) {
+                actions.setBillingAlert({
+                    status: 'error',
+                    title: 'Your organization has an overdue invoice',
+                    message: 'Please pay it or your account risks suspension.',
+                })
+            }
+
             if (values.productSpecificAlert) {
                 actions.setBillingAlert(values.productSpecificAlert)
                 return
