@@ -5,7 +5,6 @@ import { uuid } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
-    ActionsNode,
     AnyEntityNode,
     EventsNode,
     ExperimentEventExposureConfig,
@@ -39,7 +38,6 @@ import {
 } from '~/types'
 
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
-import { createFilterForSource } from './metricQueryUtils'
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -507,9 +505,7 @@ export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel |
 /**
  * Used when setting a custom exposure criteria
  */
-export function exposureConfigToFilter(
-    exposure_config: ExperimentEventExposureConfig | EventsNode | ActionsNode
-): FilterType {
+export function exposureConfigToFilter(exposure_config: ExperimentEventExposureConfig): FilterType {
     if (exposure_config.kind === NodeKind.ExperimentEventExposureConfig) {
         return {
             events: [
@@ -525,29 +521,27 @@ export function exposureConfigToFilter(
             data_warehouse: [],
         }
     }
-    return createFilterForSource(exposure_config)
+
+    return {}
 }
 
 /**
  * Used when setting a custom exposure criteria
  */
-export function filterToExposureConfig(entity: Record<string, any> | undefined): EventsNode | ActionsNode | undefined {
+export function filterToExposureConfig(
+    entity: Record<string, any> | undefined
+): ExperimentEventExposureConfig | undefined {
     if (!entity) {
         return undefined
     }
 
-    if (entity.type === 'events') {
-        return {
-            kind: NodeKind.EventsNode,
-            ...entity,
-        }
-    }
-
-    if (entity.type === 'actions') {
-        return {
-            ...entity,
-            kind: NodeKind.ActionsNode,
-            id: entity.id,
+    if (entity.kind === NodeKind.EventsNode) {
+        if (entity.type === 'events') {
+            return {
+                kind: NodeKind.ExperimentEventExposureConfig,
+                event: entity.id,
+                properties: entity.properties,
+            }
         }
     }
 
