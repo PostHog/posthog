@@ -49,9 +49,11 @@ def _parse_block_listing_response(raw_response: bytes) -> list[tuple]:
             )
         ]
     except json.JSONDecodeError as e:
-        raise DeleteRecordingError("Unable to parse JSON response from ClickHouse") from e
+        raise DeleteRecordingError("Unable to parse JSON response from ClickHouse.") from e
     except KeyError as e:
         raise DeleteRecordingError("Got malformed JSON response from ClickHouse.") from e
+    except IndexError as e:
+        raise DeleteRecordingError("No rows in response from ClickHouse.") from e
 
 
 @dataclass(frozen=True)
@@ -60,7 +62,7 @@ class LoadRecordingBlocksInput:
     team_id: int
 
 
-@activity.defn(name="load_recording_blocks")
+@activity.defn(name="load-recording-blocks")
 async def load_recording_blocks(input: LoadRecordingBlocksInput) -> list[RecordingBlock]:
     async with Heartbeater():
         bind_contextvars(session_id=input.session_id, team_id=input.team_id)
@@ -100,7 +102,7 @@ class DeleteRecordingBlocksInput:
     blocks: list[RecordingBlock]
 
 
-@activity.defn(name="delete_recording_blocks")
+@activity.defn(name="delete-recording-blocks")
 async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
     async with Heartbeater():
         bind_contextvars(session_id=input.session_id, team_id=input.team_id, block_count=len(input.blocks))

@@ -90,5 +90,6 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
                         DeleteRecordingWorkflow.run,
                         DeleteRecordingInput(session_id=session_id, team_id=input.team_id),
                         parent_close_policy=ParentClosePolicy.ABANDON,
+                        execution_timeout=timedelta(minutes=1),
                     )
                 )
