@@ -143,7 +143,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     }),
     selectors({
-        isSearching: [(s) => [s.projectItemsLoading], (projectItemsLoading) => projectItemsLoading],
         categories: [
             () => [],
             (): { key: NEW_TAB_CATEGORY_ITEMS; label: string }[] => [
