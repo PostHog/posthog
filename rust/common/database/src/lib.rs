@@ -4,20 +4,27 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{
     pool::PoolConnection,
-    postgres::{PgPool, PgPoolOptions, PgRow},
+    postgres::{PgPool, PgPoolOptions},
     Error as SqlxError, Postgres,
 };
 use thiserror::Error;
-use tokio::time::timeout;
 
-const DATABASE_TIMEOUT_MILLISECS: u64 = 1000;
+// Default database timeouts - optimized for production low-latency flag evaluation
+pub const DEFAULT_TIMEOUTS: DatabaseTimeouts = DatabaseTimeouts {
+    statement_timeout: Duration::from_millis(300), // Aggressive for fast flag evaluation
+    lock_timeout: Duration::from_millis(100),      // Avoid blocking on locks
+    acquire_timeout: Duration::from_millis(200),   // Fail fast under load
+    idle_timeout: Duration::from_secs(300),        // Close idle connections after 5 minutes
+    max_lifetime: Duration::from_secs(1800),       // Force refresh every 30 minutes
+    idle_in_transaction_session_timeout: Duration::from_secs(15), // Kill leaked transactions
+};
 
 #[derive(Error, Debug)]
 pub enum CustomDatabaseError {
     #[error("Pg error: {0}")]
     Other(#[from] sqlx::Error),
 
-    #[error("Timeout error")]
+    #[error("Client timeout error")]
     Timeout(#[from] tokio::time::error::Elapsed),
 }
 
@@ -26,16 +33,16 @@ pub type PostgresWriter = Arc<dyn Client + Send + Sync>;
 
 /// A simple db wrapper
 /// Supports running any arbitrary query with a timeout.
+///
+/// ## Timeout Strategy
+/// - Session defaults optimized for fast flag evaluation reads (300ms statement, 100ms lock)
+/// - Use `begin_write_transaction()` for writes that need longer timeouts (2s statement, 500ms lock)
+/// - Pool acquire timeout is aggressive (200ms) for fail-fast behavior under load
+///
 /// TODO: Make sqlx prepared statements work with pgbouncer, potentially by setting pooling mode to session.
 #[async_trait]
 pub trait Client {
     async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError>;
-    async fn run_query(
-        &self,
-        query: String,
-        parameters: Vec<String>,
-        timeout_ms: Option<u64>,
-    ) -> Result<Vec<PgRow>, CustomDatabaseError>;
 
     fn get_pool_stats(&self) -> Option<PoolStats>;
 }
@@ -46,13 +53,72 @@ pub struct PoolStats {
     pub num_idle: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct DatabaseTimeouts {
+    pub statement_timeout: Duration,
+    pub lock_timeout: Duration,
+    pub acquire_timeout: Duration,
+    pub idle_timeout: Duration,
+    pub max_lifetime: Duration,
+    pub idle_in_transaction_session_timeout: Duration,
+}
+
 pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
+    get_pool_with_timeouts(url, max_connections, DEFAULT_TIMEOUTS).await
+}
+
+pub async fn get_pool_with_timeouts(
+    url: &str,
+    max_connections: u32,
+    timeouts: DatabaseTimeouts,
+) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
         .max_connections(max_connections)
-        .acquire_timeout(Duration::from_secs(1))
+        .acquire_timeout(timeouts.acquire_timeout)
         .test_before_acquire(true)
-        .idle_timeout(Duration::from_secs(300)) // Close idle connections after 5 minutes
-        .max_lifetime(Duration::from_secs(1800)) // Force refresh every 30 minutes
+        .idle_timeout(timeouts.idle_timeout)
+        .max_lifetime(timeouts.max_lifetime)
+        // Set PostgreSQL session-level timeouts for all queries on this connection
+        .after_connect(move |conn, _meta| {
+            Box::pin(async move {
+                // Convert to i64 with checked conversion to avoid overflow issues
+                let stmt_ms: i64 = timeouts
+                    .statement_timeout
+                    .as_millis()
+                    .try_into()
+                    .expect("statement_timeout too large");
+                let lock_ms: i64 = timeouts
+                    .lock_timeout
+                    .as_millis()
+                    .try_into()
+                    .expect("lock_timeout too large");
+
+                // Set statement timeout (PostgreSQL SET commands don't accept bind parameters)
+                sqlx::query(&format!("SET statement_timeout = '{stmt_ms}ms'"))
+                    .execute(&mut *conn)
+                    .await?;
+
+                // Set lock timeout to prevent getting stuck behind long transactions
+                sqlx::query(&format!("SET lock_timeout = '{lock_ms}ms'"))
+                    .execute(&mut *conn)
+                    .await?;
+
+                // Safety net: kill idle transactions to prevent leaked transactions
+                // from holding locks forever (doesn't affect normal autocommit reads)
+                let idle_tx_secs: i64 = timeouts
+                    .idle_in_transaction_session_timeout
+                    .as_secs()
+                    .try_into()
+                    .expect("idle_in_transaction_session_timeout too large");
+                sqlx::query(&format!(
+                    "SET idle_in_transaction_session_timeout = '{idle_tx_secs}s'"
+                ))
+                .execute(&mut *conn)
+                .await?;
+
+                Ok(())
+            })
+        })
         .connect(url)
         .await
 }
@@ -66,30 +132,9 @@ impl Client for PgPool {
         })
     }
 
-    async fn run_query(
-        &self,
-        query: String,
-        parameters: Vec<String>,
-        timeout_ms: Option<u64>,
-    ) -> Result<Vec<PgRow>, CustomDatabaseError> {
-        let built_query = sqlx::query(&query);
-        let built_query = parameters
-            .iter()
-            .fold(built_query, |acc, param| acc.bind(param));
-        let query_results = built_query.fetch_all(self);
-
-        let timeout_ms = match timeout_ms {
-            Some(ms) => ms,
-            None => DATABASE_TIMEOUT_MILLISECS,
-        };
-
-        let fut = timeout(Duration::from_millis(timeout_ms), query_results).await?;
-
-        Ok(fut?)
-    }
-
     async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
-        Ok(self.acquire().await?)
+        let conn = self.acquire().await?;
+        Ok(conn)
     }
 }
 
@@ -108,6 +153,84 @@ pub fn is_foreign_key_constraint_error(error: &SqlxError) -> bool {
             }
         }
         _ => false,
+    }
+}
+
+/// Determines if a sqlx::Error represents a timeout-related failure
+pub fn is_timeout_error(error: &SqlxError) -> bool {
+    match error {
+        // Pool acquisition timed out
+        SqlxError::PoolTimedOut => true,
+
+        // IO-level timeout (network/socket)
+        SqlxError::Io(e) if e.kind() == std::io::ErrorKind::TimedOut => true,
+
+        // Protocol text sometimes includes "timeout"
+        SqlxError::Protocol(msg) => msg.to_lowercase().contains("timeout"),
+
+        // Database-reported timeouts/cancels
+        SqlxError::Database(db_error) => {
+            if let Some(code) = db_error.code() {
+                let code = code.as_ref();
+                // 57014: query_canceled (e.g., statement_timeout)
+                // 55P03: lock_not_available (e.g., lock_timeout)
+                // 25P03: idle_in_transaction_session_timeout
+                code == "57014" || code == "55P03" || code == "25P03"
+            } else {
+                // Fallback heuristic (less reliable than SQLSTATE)
+                let msg = db_error.message().to_lowercase();
+                msg.contains("timeout")
+                    || msg.contains("canceling")   // Postgres US spelling
+                    || msg.contains("cancelling") // just in case
+            }
+        }
+
+        _ => false,
+    }
+}
+
+/// Extract the specific type of timeout from a sqlx::Error
+pub fn extract_timeout_type(error: &SqlxError) -> Option<&'static str> {
+    match error {
+        // Pool acquisition timed out
+        SqlxError::PoolTimedOut => Some("pool_timeout"),
+
+        // IO-level timeout (network/socket)
+        SqlxError::Io(e) if e.kind() == std::io::ErrorKind::TimedOut => Some("io_timeout"),
+
+        // Protocol text sometimes includes "timeout"
+        SqlxError::Protocol(msg) if msg.to_lowercase().contains("timeout") => {
+            Some("protocol_timeout")
+        }
+
+        // Database-reported timeouts/cancels
+        SqlxError::Database(db_error) => {
+            if let Some(code) = db_error.code() {
+                let code = code.as_ref();
+                match code {
+                    // 57014: query_canceled (e.g., statement_timeout)
+                    "57014" => Some("query_canceled"),
+                    // 55P03: lock_not_available (e.g., lock_timeout)
+                    "55P03" => Some("lock_not_available"),
+                    // 25P03: idle_in_transaction_session_timeout
+                    "25P03" => Some("idle_in_transaction_timeout"),
+                    _ => None,
+                }
+            } else {
+                // Fallback heuristic (less reliable than SQLSTATE)
+                // Check more specific patterns first
+                let msg = db_error.message().to_lowercase();
+                if msg.contains("canceling") || msg.contains("cancelling") {
+                    Some("query_canceled")
+                } else if msg.contains("timeout") {
+                    Some("database_timeout")
+                } else {
+                    None
+                }
+            }
+        }
+
+        _ => None,
     }
 }
 
@@ -457,5 +580,282 @@ mod tests {
         // Test that memory pressure errors are NOT retried to avoid amplifying load
         let memory_err = db_err("out of memory", None, ErrorKind::Other);
         assert!(!is_transient_error(&memory_err));
+    }
+
+    #[test]
+    fn test_is_timeout_error_pool_timeout() {
+        assert!(is_timeout_error(&SqlxError::PoolTimedOut));
+    }
+
+    #[test]
+    fn test_is_timeout_error_io_timeout() {
+        let io_error = SqlxError::Io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "connection timed out",
+        ));
+        assert!(is_timeout_error(&io_error));
+    }
+
+    #[test]
+    fn test_is_timeout_error_io_non_timeout() {
+        let io_error = SqlxError::Io(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "connection refused",
+        ));
+        assert!(!is_timeout_error(&io_error));
+    }
+
+    #[test]
+    fn test_is_timeout_error_protocol_timeout() {
+        let protocol_error = SqlxError::Protocol("operation timeout".to_string());
+        assert!(is_timeout_error(&protocol_error));
+
+        let protocol_non_timeout = SqlxError::Protocol("invalid protocol".to_string());
+        assert!(!is_timeout_error(&protocol_non_timeout));
+    }
+
+    #[test]
+    fn test_is_timeout_error_database_with_timeout_codes() {
+        // Test various timeout-related SQLSTATE codes
+        assert!(is_timeout_error(&db_err(
+            "canceling statement due to statement timeout",
+            Some("57014"),
+            ErrorKind::Other
+        )));
+        assert!(is_timeout_error(&db_err(
+            "lock not available",
+            Some("55P03"),
+            ErrorKind::Other
+        )));
+        assert!(is_timeout_error(&db_err(
+            "terminating connection due to idle-in-transaction timeout",
+            Some("25P03"),
+            ErrorKind::Other
+        )));
+    }
+
+    #[test]
+    fn test_is_timeout_error_database_non_timeout_codes() {
+        // Test non-timeout SQLSTATE codes
+        assert!(!is_timeout_error(&db_err(
+            "duplicate key value violates unique constraint",
+            Some("23505"),
+            ErrorKind::UniqueViolation
+        )));
+        assert!(!is_timeout_error(&db_err(
+            "syntax error at or near",
+            Some("42601"),
+            ErrorKind::Other
+        )));
+    }
+
+    #[test]
+    fn test_is_timeout_error_database_message_fallback() {
+        // Test message heuristics when no SQLSTATE code is available
+        assert!(is_timeout_error(&db_err(
+            "operation timeout",
+            None,
+            ErrorKind::Other
+        )));
+        assert!(is_timeout_error(&db_err(
+            "canceling statement due to timeout",
+            None,
+            ErrorKind::Other
+        )));
+        assert!(is_timeout_error(&db_err(
+            "cancelling statement due to timeout",
+            None,
+            ErrorKind::Other
+        )));
+
+        // Non-timeout messages
+        assert!(!is_timeout_error(&db_err(
+            "column does not exist",
+            None,
+            ErrorKind::Other
+        )));
+        assert!(!is_timeout_error(&db_err(
+            "relation does not exist",
+            None,
+            ErrorKind::Other
+        )));
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_timeout() {
+        // Test that CustomDatabaseError::Timeout converts to the timeout error type
+        use tokio::time::{timeout, Duration};
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let elapsed_error = rt.block_on(async {
+            timeout(
+                Duration::from_nanos(1),
+                tokio::time::sleep(Duration::from_secs(1)),
+            )
+            .await
+            .unwrap_err()
+        });
+
+        let timeout_error = CustomDatabaseError::Timeout(elapsed_error);
+        // This test just ensures conversion compiles - actual usage depends on consuming crate
+        assert!(matches!(timeout_error, CustomDatabaseError::Timeout(_)));
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_sqlx_timeout() {
+        // Test that sqlx timeout errors are detected by is_timeout_error
+        let sqlx_timeout = SqlxError::PoolTimedOut;
+        assert!(is_timeout_error(&sqlx_timeout));
+
+        let timeout_error = CustomDatabaseError::Other(sqlx_timeout);
+        assert!(matches!(timeout_error, CustomDatabaseError::Other(_)));
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_sqlx_non_timeout() {
+        // Test that non-timeout sqlx errors are not detected as timeouts
+        let sqlx_error = SqlxError::RowNotFound;
+        assert!(!is_timeout_error(&sqlx_error));
+
+        let other_error = CustomDatabaseError::Other(sqlx_error);
+        assert!(matches!(other_error, CustomDatabaseError::Other(_)));
+    }
+
+    #[test]
+    fn test_extract_timeout_type_pool_timeout() {
+        assert_eq!(
+            extract_timeout_type(&SqlxError::PoolTimedOut),
+            Some("pool_timeout")
+        );
+    }
+
+    #[test]
+    fn test_extract_timeout_type_io_timeout() {
+        let io_error = SqlxError::Io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "connection timed out",
+        ));
+        assert_eq!(extract_timeout_type(&io_error), Some("io_timeout"));
+    }
+
+    #[test]
+    fn test_extract_timeout_type_io_non_timeout() {
+        let io_error = SqlxError::Io(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "connection refused",
+        ));
+        assert_eq!(extract_timeout_type(&io_error), None);
+    }
+
+    #[test]
+    fn test_extract_timeout_type_protocol_timeout() {
+        let protocol_error = SqlxError::Protocol("operation timeout".to_string());
+        assert_eq!(
+            extract_timeout_type(&protocol_error),
+            Some("protocol_timeout")
+        );
+
+        let protocol_non_timeout = SqlxError::Protocol("invalid protocol".to_string());
+        assert_eq!(extract_timeout_type(&protocol_non_timeout), None);
+    }
+
+    #[test]
+    fn test_extract_timeout_type_database_with_timeout_codes() {
+        // Test various timeout-related SQLSTATE codes
+        assert_eq!(
+            extract_timeout_type(&db_err(
+                "canceling statement due to statement timeout",
+                Some("57014"),
+                ErrorKind::Other
+            )),
+            Some("query_canceled")
+        );
+
+        assert_eq!(
+            extract_timeout_type(&db_err(
+                "lock not available",
+                Some("55P03"),
+                ErrorKind::Other
+            )),
+            Some("lock_not_available")
+        );
+
+        assert_eq!(
+            extract_timeout_type(&db_err(
+                "terminating connection due to idle-in-transaction timeout",
+                Some("25P03"),
+                ErrorKind::Other
+            )),
+            Some("idle_in_transaction_timeout")
+        );
+    }
+
+    #[test]
+    fn test_extract_timeout_type_database_non_timeout_codes() {
+        // Test non-timeout SQLSTATE codes
+        assert_eq!(
+            extract_timeout_type(&db_err(
+                "duplicate key value violates unique constraint",
+                Some("23505"),
+                ErrorKind::UniqueViolation
+            )),
+            None
+        );
+
+        assert_eq!(
+            extract_timeout_type(&db_err(
+                "syntax error at or near",
+                Some("42601"),
+                ErrorKind::Other
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn test_extract_timeout_type_database_message_fallback() {
+        // Test message heuristics when no SQLSTATE code is available
+        assert_eq!(
+            extract_timeout_type(&db_err("operation timeout", None, ErrorKind::Other)),
+            Some("database_timeout")
+        );
+
+        assert_eq!(
+            extract_timeout_type(&db_err(
+                "canceling statement due to timeout",
+                None,
+                ErrorKind::Other
+            )),
+            Some("query_canceled")
+        );
+
+        assert_eq!(
+            extract_timeout_type(&db_err(
+                "cancelling statement due to timeout",
+                None,
+                ErrorKind::Other
+            )),
+            Some("query_canceled")
+        );
+
+        // Non-timeout messages
+        assert_eq!(
+            extract_timeout_type(&db_err("column does not exist", None, ErrorKind::Other)),
+            None
+        );
+
+        assert_eq!(
+            extract_timeout_type(&db_err("relation does not exist", None, ErrorKind::Other)),
+            None
+        );
+    }
+
+    #[test]
+    fn test_extract_timeout_type_non_timeout_error() {
+        assert_eq!(extract_timeout_type(&SqlxError::RowNotFound), None);
+        assert_eq!(
+            extract_timeout_type(&SqlxError::ColumnNotFound("test".to_string())),
+            None
+        );
     }
 }
