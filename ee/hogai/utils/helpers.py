@@ -284,7 +284,9 @@ def extract_thinking_content_from_ai_message(response: BaseMessage) -> list[dict
 
 
 def insert_messages_before_start(
-    messages: list[AssistantMessageUnion], new_messages: list[AssistantMessageUnion], start_id: str | None = None
+    messages: Sequence[AssistantMessageUnion],
+    new_messages: Sequence[AssistantMessageUnion],
+    start_id: str | None = None,
 ) -> list[AssistantMessageUnion]:
     # Insert context messages right before the start message
     start_idx = find_start_message_idx(messages, start_id)

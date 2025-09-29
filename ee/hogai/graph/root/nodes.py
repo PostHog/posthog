@@ -122,7 +122,7 @@ class RootNode(AssistantNode):
 
         # Calculate the initial window.
         langchain_messages = self._construct_messages(
-            messages_to_replace, state.root_conversation_start_id, state.root_tool_calls_count
+            messages_to_replace or state.messages, state.root_conversation_start_id, state.root_tool_calls_count
         )
         window_id = state.root_conversation_start_id
 
@@ -369,18 +369,6 @@ class RootNode(AssistantNode):
         # Force the agent to stop if the tool call limit is reached.
         if self._is_hard_limit_reached(tool_calls_count):
             history.append(LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT))
-
-        # Append a single cache control to the last human message or last tool message
-        for i in range(len(history) - 1, -1, -1):
-            maybe_content_arr = history[i].content
-            if (
-                isinstance(history[i], LangchainHumanMessage | LangchainAIMessage)
-                and isinstance(maybe_content_arr, list)
-                and len(maybe_content_arr) > 0
-                and isinstance(maybe_content_arr[-1], dict)
-            ):
-                maybe_content_arr[-1]["cache_control"] = {"type": "ephemeral"}
-                break
 
         # Append a single cache control to the last human message or last tool message,
         # so we cache the full prefix of the conversation.
