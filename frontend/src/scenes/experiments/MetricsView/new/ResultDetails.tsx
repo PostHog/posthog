@@ -88,7 +88,7 @@ function convertExperimentResultToFunnelSteps(
                 action_id: `step_${stepIndex}`,
                 name: stepName,
                 custom_name: null,
-                order: stepIndex,
+                order: variantIndex,
                 count: count,
                 type: 'events' as EntityType,
                 average_conversion_time: null,
@@ -105,6 +105,7 @@ function convertExperimentResultToFunnelSteps(
 
         funnelSteps.push({
             ...baseStep,
+            order: stepIndex,
             count: totalCount,
             nested_breakdown: variantSteps,
         })

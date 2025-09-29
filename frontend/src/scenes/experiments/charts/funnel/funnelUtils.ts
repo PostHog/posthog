@@ -93,9 +93,8 @@ function getVisibleStepsWithConversionMetrics(
             ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
             : step?.nested_breakdown
         )
-            ?.map((b, breakdownIndex) => ({
+            ?.map((b) => ({
                 ...b,
-                order: breakdownIndex,
             }))
             ?.filter((b) => isOnlySeries || !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))),
     }))
