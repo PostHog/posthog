@@ -483,11 +483,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     })),
 
     beforeUnmount(() => {
-        // Clean up global API cache timers to prevent memory leaks
-        Object.values(apiCacheTimers).forEach((timerId) => {
-            window.clearTimeout(timerId)
-        })
-        apiCache = {}
-        apiCacheTimers = {}
+        const mountedInstanceCount = infiniteListLogic.findAllMounted().length
+        if (mountedInstanceCount === 1) {
+            // Clean up global API cache timers to prevent memory leaks
+            Object.values(apiCacheTimers).forEach((timerId) => {
+                window.clearTimeout(timerId)
+            })
+            apiCache = {}
+            apiCacheTimers = {}
+        }
     }),
 ])
