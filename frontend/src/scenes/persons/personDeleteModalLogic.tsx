@@ -23,7 +23,12 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
             person,
             callback,
         }),
-        deletePerson: (person: PersonType, deleteEvents: boolean) => ({ person, deleteEvents }),
+        deletePerson: (person: PersonType, deleteEvents: boolean, deleteRecordings: boolean) => ({
+            person,
+            deleteEvents,
+            deleteRecordings,
+        }),
+        setDeleteConfirmationText: (deleteConfirmationText: string) => ({ deleteConfirmationText }),
     }),
     reducers({
         personDeleteModal: [
@@ -38,13 +43,22 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
                 showPersonDeleteModal: (_, { callback }) => callback ?? null,
             },
         ],
+        deleteConfirmationText: [
+            '',
+            {
+                setDeleteConfirmationText: (_, { deleteConfirmationText }) => deleteConfirmationText,
+            },
+        ],
     }),
     loaders(({ actions, values }) => ({
         deletedPerson: [
             null as PersonType | null,
             {
-                deletePerson: async ({ person, deleteEvents }) => {
-                    const params = deleteEvents ? { delete_events: true } : {}
+                deletePerson: async ({ person, deleteEvents, deleteRecordings }) => {
+                    const params = {
+                        delete_events: deleteEvents,
+                        delete_recordings: deleteRecordings,
+                    }
                     await api.delete(`api/person/${person.id}?${toParams(params)}`)
                     lemonToast.success(
                         <>
