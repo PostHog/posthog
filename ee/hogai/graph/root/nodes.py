@@ -771,7 +771,7 @@ class RootNodeTools(AssistantNode):
             raise NodeInterrupt(
                 AssistantToolCallMessage(
                     content=str(result.content) if result.content else "",
-                    ui_payload={tool_call.name: result.artifact},
+                    ui_payload={tool_call.name: getattr(result, "artifact", None)},
                     id=str(uuid4()),
                     tool_call_id=tool_call.id,
                     visible=tool_class.show_tool_call_message,

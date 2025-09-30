@@ -7,15 +7,68 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { routes } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
+import { routes, sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { productConfiguration } from '~/products'
 import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 import { SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
 import { maxLogic } from './maxLogic'
+
+/**
+ * Build available pages context with descriptions for the navigate tool
+ */
+function buildAvailablePagesContext(): string {
+    const pageEntries: string[] = []
+
+    // Get all navigate URL keys from urls object that are functions
+    const navigateUrlKeys = Object.keys(urls).filter((key) => typeof urls[key as keyof typeof urls] === 'function')
+
+    for (const urlKey of navigateUrlKeys) {
+        try {
+            // Call the URL function to get the actual URL path
+            const urlPath = urls[urlKey as keyof typeof urls]()
+
+            // Look up the Scene enum from the routes mapping
+            const routeInfo = routes[urlPath]
+            if (!routeInfo) {
+                continue
+            }
+
+            const [sceneOrString] = routeInfo
+
+            // Get the scene configuration
+            const config = sceneConfigurations[sceneOrString] || productConfiguration[sceneOrString]
+            if (!config?.name) {
+                continue
+            }
+
+            // Find tools available on this scene (only if it's a proper Scene enum value)
+            const scene = typeof sceneOrString === 'string' ? Scene[sceneOrString as keyof typeof Scene] : sceneOrString
+            const availableTools = Object.entries(TOOL_DEFINITIONS)
+                .filter(([_, toolDef]) => toolDef.product === scene)
+                .map(([_, toolDef]) => toolDef.name)
+
+            let entry = `- **${urlKey}** (${config.name})`
+            if (config.description) {
+                entry += `: ${config.description}`
+            }
+            if (availableTools.length > 0) {
+                entry += ` [Tools: ${availableTools.join(', ')}]`
+            }
+            pageEntries.push(entry)
+        } catch {
+            // Skip URLs that require parameters or fail to resolve
+            continue
+        }
+    }
+
+    return pageEntries.join('\n')
+}
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -24,7 +77,7 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         name: TOOL_DEFINITIONS['navigate'].name,
         description: TOOL_DEFINITIONS['navigate'].description,
         icon: <IconCompass />,
-        context: { current_page: location.pathname },
+        context: { current_page: location.pathname, available_pages: buildAvailablePagesContext() },
         callback: async (toolOutput) => {
             const { page_key: pageKey } = toolOutput
             if (!(pageKey in urls)) {
@@ -52,6 +105,12 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         },
     },
     {
+        identifier: 'create_dashboard' as const,
+        name: TOOL_DEFINITIONS['create_dashboard'].name,
+        description: TOOL_DEFINITIONS['create_dashboard'].description,
+        icon: <IconDashboard />,
+    },
+    {
         identifier: 'search_docs' as const,
         name: TOOL_DEFINITIONS['search_docs'].name,
         description: TOOL_DEFINITIONS['search_docs'].description,
@@ -68,12 +127,6 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         name: 'Query data',
         description: 'Query data by creating insights and SQL queries',
         icon: <IconGraph />,
-    },
-    {
-        identifier: 'create_dashboard' as const,
-        name: TOOL_DEFINITIONS['create_dashboard'].name,
-        description: TOOL_DEFINITIONS['create_dashboard'].description,
-        icon: <IconDashboard />,
     },
 ]
 
@@ -121,7 +174,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             // Update navigation tool with the current page
             actions.registerTool({
                 ...values.toolMap.navigate,
-                context: { current_page: pathname },
+                context: { current_page: pathname, available_pages: buildAvailablePagesContext() },
             })
         },
     })),

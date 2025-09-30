@@ -267,18 +267,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.addMessage(message)
             }
 
+            /** Whether generation should be immediately continued due to tool execution. */
+            let shallContinueGeneration = false
+
             try {
                 cache.generationController = new AbortController()
 
                 // Ensure we have valid data for the API call
                 const apiData: any = { ...streamData }
-
-                // For reconnection, we only need conversation ID
-                if (!streamData.content && streamData.conversation) {
-                    // Remove all other fields to ensure clean reconnection call
-                    delete apiData.contextual_tools
-                    delete apiData.ui_context
-                }
 
                 // Generate a new trace ID for this interaction
                 const traceId = uuid()
@@ -330,7 +326,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 })
                             } else if (isAssistantToolCallMessage(parsedResponse)) {
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
-                                    // Empty message in askMax effectively means "just resume generation with current context"
                                     await values.toolMap[toolName]?.callback?.(toolResult)
                                     // The `navigate` tool is the only one doing client-side formatting currently
                                     if (toolName === 'navigate') {
@@ -340,11 +335,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                         )
                                     }
                                 }
-                                actions.askMax(null) // Continue generation after applying tool
                                 actions.addMessage({
                                     ...parsedResponse,
                                     status: 'completed',
                                 })
+                                shallContinueGeneration = true
                             } else {
                                 if (isNotebookUpdateMessage(parsedResponse)) {
                                     actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
@@ -443,9 +438,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
             }
 
-            actions.completeThreadGeneration()
-            actions.setActiveStreamingThreads(-1)
-            cache.generationController = undefined
+            if (shallContinueGeneration) {
+                // Continue generation after applying tool - null message in askMax "just resume generation with current context"
+                actions.askMax(null)
+            } else {
+                // Otherwise wrap things up
+                actions.completeThreadGeneration()
+                actions.setActiveStreamingThreads(-1)
+                cache.generationController = undefined
+            }
         },
 
         stopGeneration: async () => {

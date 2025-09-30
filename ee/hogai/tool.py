@@ -281,7 +281,8 @@ class NavigateTool(MaxTool):
     )
     root_system_prompt_template: str = (
         "You're currently on the {current_page} page. "
-        "You can navigate to one of the available pages using the 'navigate' tool. "
+        "You can navigate to one of the available pages using the 'navigate' tool.\n\n"
+        "Available pages:\n{available_pages}\n\n"
         "Some of these pages have tools that you can use to get more information or perform actions. "
         "After navigating to a new page, you'll have access to that page's specific tools."
     )
