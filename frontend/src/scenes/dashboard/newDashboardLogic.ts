@@ -3,7 +3,6 @@ import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { DashboardRestrictionLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -24,7 +23,6 @@ export interface NewDashboardForm {
     description: ''
     show: boolean
     useTemplate: string
-    restrictionLevel: DashboardRestrictionLevel
     _create_in_folder?: string | null
 }
 
@@ -33,7 +31,6 @@ const defaultFormValues: NewDashboardForm = {
     description: '',
     show: false,
     useTemplate: '',
-    restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
 }
 
 export interface NewDashboardLogicProps {
