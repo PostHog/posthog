@@ -163,7 +163,7 @@ class TaxonomyAgentToolsNode(
     def node_name(self) -> MaxNodeName:
         return TaxonomyNodeName.TOOLS_NODE
 
-    def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
+    async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
         tool_input: TaxonomyTool | None = None
@@ -199,7 +199,7 @@ class TaxonomyAgentToolsNode(
 
         if tool_input and not output:
             # Use the toolkit to handle tool execution
-            _, output = self._toolkit.handle_tools(tool_input.name, tool_input)
+            _, output = await self._toolkit.handle_tools(tool_input.name, tool_input)
 
         if output:
             tool_msg = LangchainToolMessage(

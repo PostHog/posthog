@@ -1,5 +1,6 @@
 from datetime import datetime
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
@@ -63,7 +64,8 @@ class TestTaxonomyToolkit(BaseTest):
     @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_entity_property_values_person(
+    @pytest.mark.asyncio
+    async def test_retrieve_entity_property_values_person(
         self, mock_group_mapping, mock_property_definition, mock_runner_class
     ):
         mock_group_mapping.objects.filter.return_value.order_by.return_value = []
@@ -81,13 +83,14 @@ class TestTaxonomyToolkit(BaseTest):
         mock_runner.run.return_value = mock_response
         mock_runner_class.return_value = mock_runner
 
-        result = self.toolkit.retrieve_entity_property_values({"person": ["email"]})
+        result = await self.toolkit.retrieve_entity_property_values({"person": ["email"]})
         self.assertIn("test@example.com", result["person"][0])
 
     @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_entity_property_values_person_multiple(
+    @pytest.mark.asyncio
+    async def test_retrieve_entity_property_values_person_multiple(
         self, mock_group_mapping, mock_property_definition, mock_runner_class
     ):
         mock_group_mapping.objects.filter.return_value.order_by.return_value = []
@@ -112,7 +115,7 @@ class TestTaxonomyToolkit(BaseTest):
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
 
-        result = self.toolkit.retrieve_entity_property_values({"person": ["email", "name"]})
+        result = await self.toolkit.retrieve_entity_property_values({"person": ["email", "name"]})
         result_str = "\n".join(result["person"]) if isinstance(result, dict) else result
         self.assertIn("property: email", result_str)
         self.assertIn("another@example.com", result_str)
@@ -127,7 +130,8 @@ class TestTaxonomyToolkit(BaseTest):
     @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_entity_property_values_person_no_results(
+    @pytest.mark.asyncio
+    async def test_retrieve_entity_property_values_person_no_results(
         self, mock_group_mapping, mock_property_definition, mock_runner_class
     ):
         mock_group_mapping.objects.filter.return_value.order_by.return_value = []
@@ -147,7 +151,7 @@ class TestTaxonomyToolkit(BaseTest):
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
 
-        result = self.toolkit.retrieve_entity_property_values({"person": ["email", "name"]})
+        result = await self.toolkit.retrieve_entity_property_values({"person": ["email", "name"]})
         result_str = "\n".join(result["person"]) if isinstance(result, dict) else result
         self.assertIn("No values found for property email on entity person", result_str)
         self.assertIn("No values found for property name on entity person", result_str)
@@ -155,7 +159,8 @@ class TestTaxonomyToolkit(BaseTest):
     @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_entity_property_no_values_multiple(
+    @pytest.mark.asyncio
+    async def test_retrieve_entity_property_no_values_multiple(
         self, mock_group_mapping, mock_property_definition, mock_runner_class
     ):
         mock_group_mapping.objects.filter.return_value.order_by.return_value = []
@@ -197,11 +202,11 @@ class TestTaxonomyToolkit(BaseTest):
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
 
-        result = self.toolkit.retrieve_entity_property_values({"person": ["address"]})
+        result = await self.toolkit.retrieve_entity_property_values({"person": ["address"]})
         result_str = "\n".join(result["person"]) if isinstance(result, dict) else result
         self.assertIn("The property does not have any values in the taxonomy.", result_str)
 
-        result = self.toolkit.retrieve_entity_property_values({"person": ["address", "name"]})
+        result = await self.toolkit.retrieve_entity_property_values({"person": ["address", "name"]})
         result_str = "\n".join(result["person"]) if isinstance(result, dict) else result
         self.assertIn("The property does not have any values in the taxonomy.", result_str)
         self.assertIn("property: name", result_str)
@@ -209,14 +214,15 @@ class TestTaxonomyToolkit(BaseTest):
         self.assertIn("Jane Smith", result_str)
         self.assertIn("John Doe", result_str)
 
-        result = self.toolkit.retrieve_entity_property_values({"person": ["address", "name", "city"]})
+        result = await self.toolkit.retrieve_entity_property_values({"person": ["address", "name", "city"]})
         result_str = "\n".join(result["person"]) if isinstance(result, dict) else result
         self.assertIn("and 7 more distinct values", result_str)
 
     @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_entity_property_different_value_types_multiple(
+    @pytest.mark.asyncio
+    async def test_retrieve_entity_property_different_value_types_multiple(
         self, mock_group_mapping, mock_property_definition, mock_runner_class
     ):
         mock_group_mapping.objects.filter.return_value.order_by.return_value = []
@@ -240,7 +246,7 @@ class TestTaxonomyToolkit(BaseTest):
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
 
-        result = self.toolkit.retrieve_entity_property_values({"person": ["name", "age"]})
+        result = await self.toolkit.retrieve_entity_property_values({"person": ["name", "age"]})
         result_str = "\n".join(result["person"]) if isinstance(result, dict) else result
         self.assertIn("property: name", result_str)
         self.assertIn("Bob Johnson", result_str)
@@ -253,16 +259,20 @@ class TestTaxonomyToolkit(BaseTest):
 
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_entity_property_values_invalid_entity(self, mock_group_mapping, mock_property_definition):
+    @pytest.mark.asyncio
+    async def test_retrieve_entity_property_values_invalid_entity(self, mock_group_mapping, mock_property_definition):
         mock_group_mapping.objects.filter.return_value.order_by.return_value = []
 
-        result = self.toolkit.retrieve_entity_property_values({"invalid": ["prop"]})
+        result = await self.toolkit.retrieve_entity_property_values({"invalid": ["prop"]})
         self.assertIn("Entity invalid not found", result["invalid"][0])
 
     @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_group_property_values(self, mock_group_mapping, mock_property_definition, mock_runner_class):
+    @pytest.mark.asyncio
+    async def test_retrieve_group_property_values(
+        self, mock_group_mapping, mock_property_definition, mock_runner_class
+    ):
         # Create a mock group object
         mock_group = Mock()
         mock_group.group_type = "group"
@@ -289,7 +299,7 @@ class TestTaxonomyToolkit(BaseTest):
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
 
-        result = self.toolkit.retrieve_entity_property_values({"group": ["prop"]})
+        result = await self.toolkit.retrieve_entity_property_values({"group": ["prop"]})
         result_str = "\n".join(result["group"]) if isinstance(result, dict) else result
         self.assertIn("value1", result_str)
 
@@ -308,9 +318,10 @@ class TestTaxonomyToolkit(BaseTest):
             self.assertIn(expected_content, result)
 
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_session_properties_values(self, mock_group_mapping):
+    @pytest.mark.asyncio
+    async def test_retrieve_session_properties_values(self, mock_group_mapping):
         mock_group_mapping.objects.filter.return_value.order_by.return_value = []
-        result = self.toolkit.retrieve_entity_property_values({"session": ["$session_duration"]})
+        result = await self.toolkit.retrieve_entity_property_values({"session": ["$session_duration"]})
         result_str = "\n".join(result["session"]) if isinstance(result, dict) else result
 
         self.assertIn("30", result_str)
@@ -318,7 +329,8 @@ class TestTaxonomyToolkit(BaseTest):
         self.assertIn("2", result_str)
         self.assertIn("and many more distinct values", result_str)
 
-    def test_retrieve_entity_property_values_batching(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_entity_property_values_batching(self):
         """Test that when more than 6 entities are processed, they are sent in batches of 6"""
         # Create 8 entities (more than 6) to test batching
         entities = [f"entity_{i}" for i in range(8)]
@@ -329,10 +341,7 @@ class TestTaxonomyToolkit(BaseTest):
             # Mock the method to return a simple result
             mock_handle_batch.return_value = {entity: ["test@example.com"] for entity in entities}
 
-            # Call the async method directly
-            import asyncio
-
-            result = asyncio.run(self.toolkit._parallel_entity_processing(entity_properties, entities, []))
+            result = await self.toolkit._parallel_entity_processing(entity_properties, entities, [])
 
             # Verify that we got results for all entities
             self.assertEqual(len(result), 8)
@@ -358,7 +367,10 @@ class TestTaxonomyToolkit(BaseTest):
     @patch("ee.hogai.graph.taxonomy.toolkit.EventTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_event_or_action_properties(self, mock_group_mapping, mock_property_definition, mock_runner_class):
+    @pytest.mark.asyncio
+    async def test_retrieve_event_or_action_properties(
+        self, mock_group_mapping, mock_property_definition, mock_runner_class
+    ):
         mock_group_mapping.objects.filter.return_value.order_by.return_value = []
 
         mock_prop = Mock()
@@ -372,7 +384,7 @@ class TestTaxonomyToolkit(BaseTest):
         mock_runner.run.return_value = mock_response
         mock_runner_class.return_value = mock_runner
 
-        result = self.toolkit.retrieve_event_or_action_properties("test_event")
+        result = await self.toolkit.retrieve_event_or_action_properties("test_event")
         self.assertIn("$browser", result)
 
     def _get_mock_property_definition(self):
@@ -386,7 +398,8 @@ class TestTaxonomyToolkit(BaseTest):
 
     @patch("ee.hogai.graph.taxonomy.toolkit.EventTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
-    def test_retrieve_event_or_action_property_values(self, mock_property_definition, mock_runner_class):
+    @pytest.mark.asyncio
+    async def test_retrieve_event_or_action_property_values(self, mock_property_definition, mock_runner_class):
         mock_property_definition.objects.filter.return_value = self._get_mock_property_definition()
 
         mock_response = self._create_mock_taxonomy_response(
@@ -397,7 +410,9 @@ class TestTaxonomyToolkit(BaseTest):
         mock_runner.run.return_value = mock_response
         mock_runner_class.return_value = mock_runner
 
-        result = self.toolkit.retrieve_event_or_action_property_values({"test_event": ["$browser"]})["test_event"][0]
+        result = (await self.toolkit.retrieve_event_or_action_property_values({"test_event": ["$browser"]}))[
+            "test_event"
+        ][0]
         self.assertIn("Chrome", result)
         self.assertIn("Firefox", result)
         self.assertIn("property: $browser", result)
@@ -406,7 +421,8 @@ class TestTaxonomyToolkit(BaseTest):
     @patch("ee.hogai.graph.taxonomy.toolkit.EventTaxonomyQueryRunner")
     @patch("ee.hogai.graph.taxonomy.toolkit.PropertyDefinition")
     @patch("ee.hogai.graph.taxonomy.toolkit.GroupTypeMapping")
-    def test_retrieve_event_or_action_property_values_multiple(
+    @pytest.mark.asyncio
+    async def test_retrieve_event_or_action_property_values_multiple(
         self, mock_group_mapping, mock_property_definition, mock_runner_class
     ):
         mock_group_mapping.objects.filter.return_value.order_by.return_value = []
@@ -421,7 +437,7 @@ class TestTaxonomyToolkit(BaseTest):
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
 
-        result = self.toolkit.retrieve_event_or_action_property_values(
+        result = await self.toolkit.retrieve_event_or_action_property_values(
             {"test_event": ["$browser", "$device_type", "does_not_exist"]}
         )
         result_str = "\n".join(result["test_event"]) if isinstance(result, dict) else result

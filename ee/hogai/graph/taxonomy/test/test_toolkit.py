@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -21,10 +22,11 @@ class TestTaxonomyAgentToolkit(BaseTest):
         super().setUp()
         self.toolkit = DummyToolkit(self.team)
 
-    def test_toolkit_initialization(self):
+    @pytest.mark.asyncio
+    async def test_toolkit_initialization(self):
         self.assertEqual(self.toolkit._team, self.team)
-        self.assertIsInstance(self.toolkit._team_group_types, list)
-        self.assertIsInstance(self.toolkit._entity_names, list)
+        self.assertIsInstance(await self.toolkit._team_group_types(), list)
+        self.assertIsInstance(await self.toolkit._entity_names(), list)
 
     @parameterized.expand(
         [
@@ -32,12 +34,14 @@ class TestTaxonomyAgentToolkit(BaseTest):
             ("session", ["person", "session"]),
         ]
     )
-    def test_entity_names_basic(self, entity, expected_base):
-        self.assertIn(entity, self.toolkit._entity_names)
+    @pytest.mark.asyncio
+    async def test_entity_names_basic(self, entity, expected_base):
+        self.assertIn(entity, await self.toolkit._entity_names())
         for expected in expected_base:
-            self.assertIn(expected, self.toolkit._entity_names)
+            self.assertIn(expected, await self.toolkit._entity_names())
 
-    def test_entity_names_with_groups(self):
+    @pytest.mark.asyncio
+    async def test_entity_names_with_groups(self):
         # Create group type mappings
         for i, group_type in enumerate(["organization", "project"]):
             create_group_type_mapping_without_created_at(
@@ -46,7 +50,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
         toolkit = DummyToolkit(self.team)
         expected = ["person", "session", "organization", "project"]
-        self.assertEqual(toolkit._entity_names, expected)
+        self.assertEqual(await toolkit._entity_names(), expected)
 
     def test_enrich_props_with_descriptions(self):
         props = [("$browser", "String"), ("custom_prop", "Numeric")]
@@ -70,9 +74,10 @@ class TestTaxonomyAgentToolkit(BaseTest):
         result = self.toolkit._format_property_values("test_property", sample_values, sample_count, format_as_string)
         self.assertIn(expected_substring, result)
 
-    def test_retrieve_event_or_action_properties_action_not_found(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_event_or_action_properties_action_not_found(self):
         Action.objects.all().delete()
-        result = self.toolkit.retrieve_event_or_action_properties(999)
+        result = await self.toolkit.retrieve_event_or_action_properties(999)
         self.assertEqual(result, "No actions exist in the project.")
 
     def test_handle_incorrect_response(self):
@@ -96,7 +101,8 @@ class TestTaxonomyAgentToolkit(BaseTest):
     @patch.object(DummyToolkit, "retrieve_entity_property_values", return_value={"person": ["mocked"]})
     @patch.object(DummyToolkit, "retrieve_event_or_action_properties", return_value="mocked")
     @patch.object(DummyToolkit, "retrieve_event_or_action_property_values", return_value={"test_event": ["mocked"]})
-    def test_handle_tools(self, tool_name, tool_args, expected_result, *mocks):
+    @pytest.mark.asyncio
+    async def test_handle_tools(self, tool_name, tool_args, expected_result, *mocks):
         class Arguments(BaseModel):
             pass
 
@@ -108,12 +114,13 @@ class TestTaxonomyAgentToolkit(BaseTest):
             arguments: Arguments
 
         tool_input = ToolInput(name=tool_name, arguments=Arguments(**tool_args))
-        tool_name_result, result = self.toolkit.handle_tools(tool_name, tool_input)
+        tool_name_result, result = await self.toolkit.handle_tools(tool_name, tool_input)
 
         self.assertEqual(result, expected_result)
         self.assertEqual(tool_name_result, tool_name)
 
-    def test_handle_tools_invalid_tool(self):
+    @pytest.mark.asyncio
+    async def test_handle_tools_invalid_tool(self):
         class ToolInput(BaseModel):
             name: str = "invalid_tool"
             arguments: dict = {}
@@ -121,7 +128,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
         tool_input = ToolInput()
 
         with self.assertRaises(TaxonomyToolNotFoundError):
-            self.toolkit.handle_tools("invalid_tool", tool_input)
+            await self.toolkit.handle_tools("invalid_tool", tool_input)
 
     def test_format_properties_formats(self):
         props = [("prop1", "String", "Test description"), ("prop2", "Numeric", None)]
