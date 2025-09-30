@@ -34,7 +34,6 @@ Properties are always associated with an event or entity. When looking for prope
     Use `retrieve_entity_properties` with entity="[group_name]" to get the list of all available group properties.
 </group>
 </entity>
-
 <events>
 **EVENT PROPERTIES** (use `retrieve_event_properties` and `retrieve_event_property_values`):
 - Event Properties:
