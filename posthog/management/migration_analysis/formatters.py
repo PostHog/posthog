@@ -73,8 +73,8 @@ class ConsoleTreeFormatter(RiskFormatter):
 
     def format_migration(self, risk: MigrationRisk) -> str:
         """Format single migration with tree structure."""
-        lines = [f"**{risk.path}**\n"]
-        lines.append("```")
+        lines = ["```"]
+        lines.append(risk.path)
 
         # Format operations with tree structure
         for idx, op_risk in enumerate(risk.operations):
