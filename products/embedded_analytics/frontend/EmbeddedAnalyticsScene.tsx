@@ -53,7 +53,6 @@ export function EmbeddedAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                 <SceneContent>
                     <SceneTitleSection
                         name="Embedded analytics"
-                        description="Define queries your application will use via the API and monitor their cost and usage."
                         resourceType={{
                             type: 'embedded_analytics',
                         }}

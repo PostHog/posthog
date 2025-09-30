@@ -203,7 +203,6 @@ export function DataPipelinesScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Data pipelines"
-                description="Ingest, transform, and send data between hundreds of tools."
                 resourceType={{
                     type: 'data_pipeline',
                 }}
