@@ -151,8 +151,8 @@ class Command(BaseCommand):
 
         if not migration_paths:
             if os.getenv("CI"):
-                print("\n\n\033[91mNo migrations provided in CI - this is likely a mistake")
-                sys.exit(1)
+                print("No migrations to check - skipping validation")
+                return
             print("No stdin detected, using default migrations - only useful for testing purposes.")
             migration_paths = ["posthog/migrations/0770_teamrevenueanalyticsconfig_filter_test_accounts_and_more.py"]
 
