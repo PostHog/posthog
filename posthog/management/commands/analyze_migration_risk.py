@@ -51,10 +51,19 @@ class MigrationRisk:
     app: str
     name: str
     operations: list[OperationRisk]
+    combination_risks: list[str] = None  # List of combination warning messages
+
+    def __post_init__(self):
+        if self.combination_risks is None:
+            self.combination_risks = []
 
     @property
     def max_score(self) -> int:
-        return max((op.score for op in self.operations), default=0)
+        # If there are combination risks, boost score to at least 4 (Blocked)
+        base_score = max((op.score for op in self.operations), default=0)
+        if self.combination_risks:
+            return max(base_score, 4)
+        return base_score
 
     @property
     def level(self) -> RiskLevel:
@@ -236,28 +245,28 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 type=self.operation_type,
                 score=5,
                 reason="RunSQL with DROP is dangerous",
-                details={},
+                details={"sql": sql},
             )
         elif "UPDATE" in sql or "DELETE" in sql:
             return OperationRisk(
                 type=self.operation_type,
                 score=4,
                 reason="RunSQL with UPDATE/DELETE needs careful review for locking",
-                details={},
+                details={"sql": sql},
             )
         elif "ALTER" in sql:
             return OperationRisk(
                 type=self.operation_type,
                 score=3,
                 reason="RunSQL with ALTER may cause locks",
-                details={},
+                details={"sql": sql},
             )
         else:
             return OperationRisk(
                 type=self.operation_type,
                 score=2,
                 reason="RunSQL operation needs review",
-                details={},
+                details={"sql": sql},
             )
 
 
@@ -348,11 +357,15 @@ class RiskAnalyzer:
             risk = self.analyze_operation(op)
             operation_risks.append(risk)
 
+        # Check for dangerous operation combinations
+        combination_risks = self.check_operation_combinations(migration, operation_risks)
+
         return MigrationRisk(
             path=path,
             app=migration.app_label,
             name=migration.name,
             operations=operation_risks,
+            combination_risks=combination_risks,
         )
 
     def analyze_operation(self, op) -> OperationRisk:
@@ -371,6 +384,67 @@ class RiskAnalyzer:
             reason=f"Unknown operation type: {op_type}",
             details={},
         )
+
+    def check_operation_combinations(self, migration, operation_risks: list[OperationRisk]) -> list[str]:
+        """
+        Check for dangerous combinations of operations in a single migration.
+
+        Dangerous patterns:
+        1. RunSQL with DML (UPDATE/DELETE) + schema changes = long transaction with locks
+        2. RunSQL + DDL should be isolated
+        3. Multiple schema changes in non-atomic migration
+        """
+        warnings = []
+
+        # Categorize operations
+        has_runsql_dml = False
+        has_runsql_ddl = False
+        has_schema_changes = False
+        runsql_ops = []
+
+        for op_risk in operation_risks:
+            if op_risk.type == "RunSQL":
+                runsql_ops.append(op_risk)
+                # Check SQL content
+                sql_upper = str(op_risk.details.get("sql", "")).upper() if op_risk.details else ""
+                if any(kw in sql_upper for kw in ["UPDATE", "DELETE", "INSERT"]):
+                    has_runsql_dml = True
+                if any(kw in sql_upper for kw in ["CREATE INDEX", "ALTER TABLE", "ADD COLUMN"]):
+                    has_runsql_ddl = True
+
+            # Schema-changing operations
+            if op_risk.type in [
+                "AddField",
+                "RemoveField",
+                "AlterField",
+                "RenameField",
+                "AddIndex",
+                "AddConstraint",
+                "CreateModel",
+                "DeleteModel",
+            ]:
+                has_schema_changes = True
+
+        # Check for dangerous combinations
+        if has_runsql_dml and has_schema_changes:
+            warnings.append(
+                "❌ CRITICAL: RunSQL with DML (UPDATE/DELETE/INSERT) combined with schema changes. "
+                "This creates a long-running transaction that holds locks for the entire duration. "
+                "Split into separate migrations: 1) schema changes, 2) data migration."
+            )
+
+        if has_runsql_ddl and len(operation_risks) > 1:
+            warnings.append(
+                "⚠️  WARNING: RunSQL with DDL (CREATE INDEX/ALTER TABLE) mixed with other operations. "
+                "Consider isolating DDL operations in their own migration to avoid lock conflicts."
+            )
+
+        if len(runsql_ops) > 0 and not getattr(migration, "atomic", True):
+            warnings.append(
+                "⚠️  INFO: Migration is marked atomic=False. Ensure data migrations handle failures correctly."
+            )
+
+        return warnings
 
 
 class Command(BaseCommand):
@@ -461,8 +535,25 @@ class Command(BaseCommand):
 
     def print_migration_detail(self, risk: MigrationRisk):
         print(f"{risk.path}")
+
+        # Print combination warnings first (most important)
+        if risk.combination_risks:
+            print("\n  \033[91m⚠️  COMBINATION RISKS:\033[0m")
+            for warning in risk.combination_risks:
+                # Word wrap long warnings
+                import textwrap
+
+                wrapped = textwrap.fill(warning, width=76, initial_indent="  ", subsequent_indent="  ")
+                print(wrapped)
+            print()
+
+        # Print individual operations
         for op_risk in risk.operations:
-            details_str = ", ".join(f"{k}: {v}" for k, v in op_risk.details.items())
+            details_str = ", ".join(
+                f"{k}: {v}"
+                for k, v in op_risk.details.items()
+                if k != "sql"  # Don't print full SQL
+            )
             if details_str:
                 print(f"  └─ {op_risk.type} (score: {op_risk.score})")
                 print(f"     {op_risk.reason}")

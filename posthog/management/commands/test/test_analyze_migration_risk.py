@@ -302,3 +302,108 @@ class TestCreateModelOperations:
         # CreateModel defaults to score 2 (unknown operation default)
         # unless we explicitly handle it
         assert risk.score >= 0
+
+
+class TestCombinationRisks:
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def test_runsql_with_dml_and_schema_changes(self):
+        """Critical: RunSQL with UPDATE combined with AddField"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="test", name="new_field", field=models.CharField(null=True)
+            ),
+            create_mock_operation(migrations.RunSQL, sql="UPDATE test_table SET foo = 'bar';"),
+        ]
+
+        # Analyze operations
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert len(combination_risks) > 0
+        assert any("CRITICAL" in warning for warning in combination_risks)
+        assert any("DML" in warning for warning in combination_risks)
+
+    def test_runsql_with_ddl_and_other_operations(self):
+        """Warning: RunSQL with DDL mixed with other operations"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="test", name="new_field", field=models.CharField(null=True)
+            ),
+            create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_foo ON test_table(foo);"),
+        ]
+
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert len(combination_risks) > 0
+        assert any("WARNING" in warning or "DDL" in warning for warning in combination_risks)
+
+    def test_runsql_alone_no_combination_risk(self):
+        """RunSQL alone should not trigger combination warnings"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="UPDATE test_table SET foo = 'bar';"),
+        ]
+
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert len(combination_risks) == 0
+
+    def test_schema_changes_without_runsql_no_combination_risk(self):
+        """Schema changes without RunSQL should not trigger combination warnings"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="test", name="field1", field=models.CharField(null=True)
+            ),
+            create_mock_operation(
+                migrations.AddField, model_name="test", name="field2", field=models.CharField(null=True)
+            ),
+        ]
+
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert len(combination_risks) == 0
+
+    def test_non_atomic_migration_with_runsql_info(self):
+        """Non-atomic migration with RunSQL should get info warning"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="UPDATE test_table SET foo = 'bar';"),
+        ]
+
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert len(combination_risks) > 0
+        assert any("INFO" in warning or "atomic=False" in warning for warning in combination_risks)
+
+    def test_combination_risk_boosts_migration_to_blocked(self):
+        """Migration with combination risk should be classified as BLOCKED"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_test"
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="test", name="new_field", field=models.CharField(null=True)
+            ),
+            create_mock_operation(migrations.RunSQL, sql="UPDATE test_table SET foo = 'bar';"),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_test.py")
+
+        assert len(migration_risk.combination_risks) > 0
+        assert migration_risk.max_score >= 4  # Should be blocked
+        assert migration_risk.level == RiskLevel.BLOCKED
