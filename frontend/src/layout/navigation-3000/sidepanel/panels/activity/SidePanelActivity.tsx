@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconList, IconNotification } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOption, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
@@ -22,7 +22,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { ActivityScope, AvailableFeature } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelActivityMetalytics } from './SidePanelActivityMetalytics'
@@ -41,15 +41,8 @@ export const SidePanelActivityIcon = (props: { className?: string }): JSX.Elemen
 }
 
 export const SidePanelActivity = (): JSX.Element => {
-    const {
-        activeTab,
-        allActivity,
-        allActivityResponseLoading,
-        allActivityHasNext,
-        activeFilters,
-        contextFromPage,
-        visibleActivityScopes,
-    } = useValues(sidePanelActivityLogic)
+    const { activeTab, allActivity, allActivityResponseLoading, allActivityHasNext, activeFilters, contextFromPage } =
+        useValues(sidePanelActivityLogic)
     const { setActiveTab, maybeLoadOlderActivity, setActiveFilters } = useActions(sidePanelActivityLogic)
 
     const { hasNotifications, notifications, importantChangesLoading, hasUnread } =
@@ -87,28 +80,6 @@ export const SidePanelActivity = (): JSX.Element => {
     const hasItemContext = Boolean(contextFromPage?.scope && contextFromPage?.item_id)
     const hasListContext = Boolean(contextFromPage?.scope && !contextFromPage?.item_id)
     const hasAnyContext = hasItemContext || hasListContext
-
-    const scopeMenuOptions: LemonSelectOption<ActivityScope | null>[] = hasAnyContext
-        ? []
-        : visibleActivityScopes.map((x) => ({
-              value: x,
-              label: humanizeScope(x),
-          }))
-
-    const activeScopeMenuOption = activeFilters?.scope ? activeFilters.scope + `${activeFilters.item_id ?? ''}` : null
-
-    // Add the current page context option
-    if (hasItemContext && contextFromPage?.scope) {
-        scopeMenuOptions.unshift({
-            value: `${contextFromPage.scope}${contextFromPage.item_id ?? ''}` as any,
-            label: `This ${humanizeScope(contextFromPage.scope, true)}`,
-        })
-    } else if (hasListContext && contextFromPage?.scope) {
-        scopeMenuOptions.unshift({
-            value: `${contextFromPage.scope}` as any,
-            label: `All ${humanizeScope(contextFromPage.scope)}`,
-        })
-    }
 
     return (
         <>
@@ -170,23 +141,13 @@ export const SidePanelActivity = (): JSX.Element => {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <span>Activity on:</span>
-                                <LemonSelect
-                                    size="small"
-                                    options={scopeMenuOptions}
-                                    value={(activeScopeMenuOption as ActivityScope) ?? undefined}
-                                    onChange={(value) =>
-                                        setActiveFilters({
-                                            ...activeFilters,
-                                            scope: value ?? undefined,
-                                            item_id: undefined,
-                                        })
-                                    }
-                                    disabledReason=""
-                                    dropdownMatchSelectWidth={false}
-                                />
-
-                                <span>by</span>
+                                <span>
+                                    Activity on{' '}
+                                    {hasItemContext
+                                        ? `this ${humanizeScope(contextFromPage!.scope!, true).toLowerCase()}`
+                                        : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}{' '}
+                                    by
+                                </span>
                                 <MemberSelect
                                     value={activeFilters?.user ?? null}
                                     onChange={(user) =>
