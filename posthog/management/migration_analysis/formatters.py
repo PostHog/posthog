@@ -161,11 +161,9 @@ class ConsoleTreeFormatter(RiskFormatter):
         lines.append("\n## 📚 How to Deploy These Changes Safely\n")
 
         for op_type, guidance in sorted(guidance_map.items()):
-            lines.append(f"### {op_type}")
+            lines.append(f"**{op_type}:**")
             lines.append("")
             lines.append(guidance)
-            lines.append("")
-            lines.append("---")
             lines.append("")
 
         return "\n".join(lines)
