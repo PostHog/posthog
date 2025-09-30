@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardBasicType } from '~/types'
 
 import type { sceneDashboardChoiceModalLogicType } from './sceneDashboardChoiceModalLogicType'
 
@@ -46,12 +47,11 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
         currentDashboardId: [
             (s) => [s.currentTeam, s.user],
             (currentTeam, user) => {
-                let currentDashboard = user?.scene_personalisation?.find(
-                    (choice) => choice.scene === props.scene
-                )?.dashboard
+                let currentDashboard: number | DashboardBasicType | null =
+                    user?.scene_personalisation?.find((choice) => choice.scene === props.scene)?.dashboard ?? null
 
                 if (!currentDashboard && props.scene === Scene.ProjectHomepage) {
-                    currentDashboard = currentTeam?.primary_dashboard
+                    currentDashboard = currentTeam?.primary_dashboard ?? null
                 }
 
                 return (typeof currentDashboard === 'number' ? currentDashboard : currentDashboard?.id) ?? null
