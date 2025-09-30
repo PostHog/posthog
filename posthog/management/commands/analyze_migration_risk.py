@@ -25,7 +25,7 @@ class Command(BaseCommand):
         migration_paths = self.get_migration_paths()
 
         if not migration_paths:
-            self.stdout.write("No migrations to analyze")
+            # Return silently when no migrations to analyze (for CI)
             return
 
         # Check batch-level policies (e.g., multiple migrations)
@@ -41,7 +41,7 @@ class Command(BaseCommand):
         results = self.analyze_migrations(migration_paths)
 
         if not results:
-            self.stdout.write("No migrations analyzed")
+            # Return silently when no results (for CI)
             return
 
         self.print_report(results)
