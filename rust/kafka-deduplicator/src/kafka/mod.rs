@@ -10,7 +10,8 @@ pub mod stateful_context;
 pub mod tracker;
 pub mod types;
 
-#[cfg(test)]
+// used in "mod tests" and tests/ directory (integration tests)
+// so not exported as `#[cfg(test)]`
 pub mod test_utils;
 
 // Public API - what users of the kafka library should use

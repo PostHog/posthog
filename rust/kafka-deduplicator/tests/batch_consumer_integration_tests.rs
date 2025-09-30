@@ -1,6 +1,9 @@
+use std::sync::Arc;
 use std::time::Duration;
 
-use kafka_deduplicator::kafka::{batch_consumer::*, batch_message::*};
+use kafka_deduplicator::kafka::{
+    batch_consumer::*, batch_message::*, test_utils::TestRebalanceHandler,
+};
 
 use common_types::CapturedEvent;
 
@@ -46,6 +49,7 @@ fn create_batch_kafka_consumer(
 
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
+        Arc::new(TestRebalanceHandler::default()),
         chan_tx,
         shutdown_token.clone(),
         topic,
