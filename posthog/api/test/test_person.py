@@ -29,7 +29,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import create_person, create_person_distinct_id
-from posthog.temporal.delete_recordings.types import DeleteRecordingsWithPersonInput
+from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
@@ -401,7 +401,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             mock_client.start_workflow.assert_called_once()
             mock_client.start_workflow.assert_called_with(
                 "delete-recordings-with-person",
-                DeleteRecordingsWithPersonInput(
+                RecordingsWithPersonInput(
                     distinct_ids=["person_1", "anonymous_id"],
                     team_id=self.team.id,
                 ),
@@ -433,7 +433,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             mock_client.start_workflow.assert_called_once()
             mock_client.start_workflow.assert_called_with(
                 "delete-recordings-with-person",
-                DeleteRecordingsWithPersonInput(
+                RecordingsWithPersonInput(
                     distinct_ids=["person_1", "anonymous_id"],
                     team_id=self.team.id,
                 ),

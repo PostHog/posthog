@@ -13,26 +13,26 @@ from posthog.temporal.delete_recordings.activities import (
 )
 from posthog.temporal.delete_recordings.types import (
     DeleteRecordingBlocksInput,
-    DeleteRecordingInput,
-    DeleteRecordingsWithPersonInput,
-    LoadRecordingBlocksInput,
-    LoadRecordingsWithPersonInput,
+    RecordingInput,
+    RecordingsWithPersonInput,
 )
 
 
 @workflow.defn(name="delete-recording")
 class DeleteRecordingWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(input: list[str]) -> DeleteRecordingInput:
+    def parse_inputs(input: list[str]) -> RecordingInput:
         """Parse input from the management command CLI."""
         loaded = json.loads(input[0])
-        return DeleteRecordingInput(**loaded)
+        return RecordingInput(**loaded)
 
     @workflow.run
-    async def run(self, input: DeleteRecordingInput) -> None:
+    async def run(self, input: RecordingInput) -> None:
+        recording_input = RecordingInput(session_id=input.session_id, team_id=input.team_id)
+
         recording_blocks = await workflow.execute_activity(
             load_recording_blocks,
-            LoadRecordingBlocksInput(session_id=input.session_id, team_id=input.team_id),
+            recording_input,
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
@@ -43,7 +43,7 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
 
         await workflow.execute_activity(
             delete_recording_blocks,
-            DeleteRecordingBlocksInput(session_id=input.session_id, team_id=input.team_id, blocks=recording_blocks),
+            DeleteRecordingBlocksInput(recording=recording_input, blocks=recording_blocks),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
@@ -56,16 +56,16 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
 @workflow.defn(name="delete-recordings-with-person")
 class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(input: list[str]) -> DeleteRecordingsWithPersonInput:
+    def parse_inputs(input: list[str]) -> RecordingsWithPersonInput:
         """Parse input from the management command CLI."""
         loaded = json.loads(input[0])
-        return DeleteRecordingsWithPersonInput(**loaded)
+        return RecordingsWithPersonInput(**loaded)
 
     @workflow.run
-    async def run(self, input: DeleteRecordingsWithPersonInput) -> None:
+    async def run(self, input: RecordingsWithPersonInput) -> None:
         session_ids = await workflow.execute_activity(
             load_recordings_with_person,
-            LoadRecordingsWithPersonInput(distinct_ids=input.distinct_ids, team_id=input.team_id),
+            RecordingsWithPersonInput(distinct_ids=input.distinct_ids, team_id=input.team_id),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
@@ -79,7 +79,7 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
                 delete_recordings.create_task(
                     workflow.execute_child_workflow(
                         DeleteRecordingWorkflow.run,
-                        DeleteRecordingInput(session_id=session_id, team_id=input.team_id),
+                        RecordingInput(session_id=session_id, team_id=input.team_id),
                         parent_close_policy=ParentClosePolicy.ABANDON,
                         execution_timeout=timedelta(minutes=1),
                     )

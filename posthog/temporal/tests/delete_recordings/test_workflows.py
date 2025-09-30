@@ -9,17 +9,12 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
-from posthog.temporal.delete_recordings.activities import (
+from posthog.temporal.delete_recordings.types import (
     DeleteRecordingBlocksInput,
-    LoadRecordingBlocksInput,
-    LoadRecordingsWithPersonInput,
+    RecordingInput,
+    RecordingsWithPersonInput,
 )
-from posthog.temporal.delete_recordings.workflows import (
-    DeleteRecordingInput,
-    DeleteRecordingsWithPersonInput,
-    DeleteRecordingsWithPersonWorkflow,
-    DeleteRecordingWorkflow,
-)
+from posthog.temporal.delete_recordings.workflows import DeleteRecordingsWithPersonWorkflow, DeleteRecordingWorkflow
 
 
 @pytest.mark.asyncio
@@ -42,17 +37,17 @@ async def test_delete_recording_workflow():
     }
 
     @activity.defn(name="load-recording-blocks")
-    async def load_recording_blocks_mocked(input: LoadRecordingBlocksInput) -> list[RecordingBlock]:
+    async def load_recording_blocks_mocked(input: RecordingInput) -> list[RecordingBlock]:
         assert input.session_id == TEST_SESSION_ID
         assert input.team_id == TEST_TEAM_ID
         return TEST_SESSIONS[TEST_SESSION_ID]
 
     @activity.defn(name="delete-recording-blocks")
     async def delete_recording_blocks_mocked(input: DeleteRecordingBlocksInput) -> None:
-        assert input.session_id == TEST_SESSION_ID
-        assert input.team_id == TEST_TEAM_ID
+        assert input.recording.session_id == TEST_SESSION_ID
+        assert input.recording.team_id == TEST_TEAM_ID
         assert input.blocks == TEST_SESSIONS[TEST_SESSION_ID]
-        TEST_SESSIONS[input.session_id] = []  # Delete recording blocks
+        TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
 
     task_queue_name = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -65,7 +60,7 @@ async def test_delete_recording_workflow():
         ):
             await env.client.execute_workflow(
                 DeleteRecordingWorkflow.run,
-                DeleteRecordingInput(session_id=TEST_SESSION_ID, team_id=TEST_TEAM_ID),
+                RecordingInput(session_id=TEST_SESSION_ID, team_id=TEST_TEAM_ID),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue_name,
             )
@@ -118,23 +113,23 @@ async def test_delete_recording_with_person_workflow():
     }
 
     @activity.defn(name="load-recordings-with-person")
-    async def load_recordings_with_person_mocked(input: LoadRecordingsWithPersonInput) -> list[str]:
+    async def load_recordings_with_person_mocked(input: RecordingsWithPersonInput) -> list[str]:
         assert input.distinct_ids == TEST_DISTINCT_IDS
         assert input.team_id == TEST_TEAM_ID
         return list(TEST_SESSIONS.keys())
 
     @activity.defn(name="load-recording-blocks")
-    async def load_recording_blocks_mocked(input: LoadRecordingBlocksInput) -> list[RecordingBlock]:
+    async def load_recording_blocks_mocked(input: RecordingInput) -> list[RecordingBlock]:
         assert input.session_id in TEST_SESSIONS
         assert input.team_id == TEST_TEAM_ID
         return TEST_SESSIONS[input.session_id]
 
     @activity.defn(name="delete-recording-blocks")
     async def delete_recording_blocks_mocked(input: DeleteRecordingBlocksInput) -> None:
-        assert input.session_id in TEST_SESSIONS
-        assert input.team_id == TEST_TEAM_ID
-        assert input.blocks == TEST_SESSIONS[input.session_id]
-        TEST_SESSIONS[input.session_id] = []  # Delete recording blocks
+        assert input.recording.session_id in TEST_SESSIONS
+        assert input.recording.team_id == TEST_TEAM_ID
+        assert input.blocks == TEST_SESSIONS[input.recording.session_id]
+        TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
 
     task_queue_name = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -151,7 +146,7 @@ async def test_delete_recording_with_person_workflow():
         ):
             await env.client.execute_workflow(
                 DeleteRecordingsWithPersonWorkflow.run,
-                DeleteRecordingsWithPersonInput(distinct_ids=TEST_DISTINCT_IDS, team_id=TEST_TEAM_ID),
+                RecordingsWithPersonInput(distinct_ids=TEST_DISTINCT_IDS, team_id=TEST_TEAM_ID),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue_name,
             )

@@ -27,8 +27,8 @@ from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.delete_recordings.types import (
     DeleteRecordingBlocksInput,
     DeleteRecordingError,
-    LoadRecordingBlocksInput,
-    LoadRecordingsWithPersonInput,
+    RecordingInput,
+    RecordingsWithPersonInput,
 )
 
 LOGGER = get_write_only_logger()
@@ -58,7 +58,7 @@ def _parse_block_listing_response(raw_response: bytes) -> list[tuple]:
 
 
 @activity.defn(name="load-recording-blocks")
-async def load_recording_blocks(input: LoadRecordingBlocksInput) -> list[RecordingBlock]:
+async def load_recording_blocks(input: RecordingInput) -> list[RecordingBlock]:
     async with Heartbeater():
         bind_contextvars(session_id=input.session_id, team_id=input.team_id)
         logger = LOGGER.bind()
@@ -93,7 +93,9 @@ async def load_recording_blocks(input: LoadRecordingBlocksInput) -> list[Recordi
 @activity.defn(name="delete-recording-blocks")
 async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
     async with Heartbeater():
-        bind_contextvars(session_id=input.session_id, team_id=input.team_id, block_count=len(input.blocks))
+        bind_contextvars(
+            session_id=input.recording.session_id, team_id=input.recording.team_id, block_count=len(input.blocks)
+        )
         logger = LOGGER.bind()
         logger.info("Deleting recording blocks")
         async with session_recording_v2_object_storage.async_client() as storage:
@@ -109,7 +111,7 @@ def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
 
 
 @activity.defn(name="load-recordings-with-person")
-async def load_recordings_with_person(input: LoadRecordingsWithPersonInput) -> list[str]:
+async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[str]:
     team = await Team.objects.aget(id=input.team_id)
 
     query = SessionRecordingListFromQuery(

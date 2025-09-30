@@ -63,7 +63,7 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.delete_recordings.types import DeleteRecordingsWithPersonInput
+from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
 
 DEFAULT_PAGE_LIMIT = 100
@@ -866,7 +866,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _queue_delete_recordings(self, person: Person) -> None:
         temporal = sync_connect()
-        input = DeleteRecordingsWithPersonInput(
+        input = RecordingsWithPersonInput(
             distinct_ids=person.distinct_ids,
             team_id=person.team.id,
         )
