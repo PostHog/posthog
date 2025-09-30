@@ -29,9 +29,9 @@ function buildSceneDescriptionsContext(): string {
     for (const urlKey of navigateUrlKeys) {
         try {
             // Call the URL function with nothing to get the base URL route
-            const urlPath = urls[urlKey as keyof typeof urls]()
+            const url = urls[pageKey as AssistantNavigateUrls]()
             // Look up the Scene enum from the routes mapping
-            const routeInfo = routes[urlPath]
+            const routeInfo = routes[url]
             if (!routeInfo) {
                 continue
             }
