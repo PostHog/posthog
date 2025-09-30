@@ -50,6 +50,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
+        logic: [cohortsModel],
     })),
 
     actions({
@@ -293,7 +294,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     try {
                         const cohort = await api.cohorts.get(id)
                         breakpoint()
-                        cohortsModel.findMounted()?.actions.updateCohort(cohort)
+                        cohortsModel.actions.updateCohort(cohort)
                         actions.setCohort(cohort)
                         actions.checkIfFinishedCalculating(cohort)
                         return processCohort(cohort)
@@ -312,7 +313,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     try {
                         if (cohort.id !== 'new') {
                             cohort = await api.cohorts.update(cohort.id, cohortFormData as Partial<CohortType>)
-                            cohortsModel.findMounted()?.actions.updateCohort(cohort)
+                            cohortsModel.actions.updateCohort(cohort)
 
                             if (cohort.experiment_set && cohort.experiment_set.length > 0) {
                                 // someone edited an exposure cohort. Track what kind of updates were made
@@ -320,7 +321,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             }
                         } else {
                             cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
-                            cohortsModel.findMounted()?.actions.cohortCreated(cohort)
+                            cohortsModel.actions.cohortCreated(cohort)
                         }
                     } catch (error: any) {
                         breakpoint()
@@ -473,7 +474,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     })),
     listeners(({ actions, values }) => ({
         deleteCohort: () => {
-            cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
+            cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
         },
         submitCohortFailure: () => {
@@ -501,7 +502,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     count: cohort.count,
                 }
                 actions.setCohort({ ...values.cohort, ...calculationFields })
-                cohortsModel.findMounted()?.actions.updateCohort(cohort)
+                cohortsModel.actions.updateCohort(cohort)
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
                 if (values.pollTimeout) {
                     clearTimeout(values.pollTimeout)
