@@ -1,5 +1,6 @@
 # ruff: noqa: T201 allow print statements
 
+import os
 import logging
 import secrets
 import datetime as dt
@@ -95,6 +96,12 @@ class Command(BaseCommand):
             default=False,
             help="Skip running dagster materializations after data generation",
         )
+        parser.add_argument(
+            "--say-on-complete",
+            action="store_true",
+            default=False,
+            help="Use text-to-speech to say when the process is complete",
+        )
 
     def handle(self, *args, **options):
         timer = monotonic()
@@ -186,8 +193,12 @@ class Command(BaseCommand):
                 self.initialize_dagster_materialization(options["days_past"])
             else:
                 print("Skipping dagster materializations.")
+            if options["say_on_complete"]:
+                os.system('say "done"')
         else:
             print("Dry run - not saving results.")
+            if options["say_on_complete"]:
+                os.system('say "done (dry run)"')
 
     @staticmethod
     def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):
