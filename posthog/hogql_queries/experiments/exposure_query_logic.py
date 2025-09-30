@@ -42,13 +42,15 @@ def normalize_to_exposure_criteria(
 
     # Convert dict to typed object
     if isinstance(exposure_criteria, dict):
+        # Create a copy to avoid mutating the input
+        criteria_copy = exposure_criteria.copy()
         # Also normalize nested exposure_config if present
-        if exposure_criteria.get("exposure_config"):
-            exposure_config = exposure_criteria["exposure_config"]
+        if criteria_copy.get("exposure_config"):
+            exposure_config = criteria_copy["exposure_config"]
             if isinstance(exposure_config, dict):
-                exposure_criteria["exposure_config"] = ExperimentEventExposureConfig.model_validate(exposure_config)
+                criteria_copy["exposure_config"] = ExperimentEventExposureConfig.model_validate(exposure_config)
 
-        return ExperimentExposureCriteria.model_validate(exposure_criteria)
+        return ExperimentExposureCriteria.model_validate(criteria_copy)
 
 
 def get_multiple_variant_handling_from_experiment(
