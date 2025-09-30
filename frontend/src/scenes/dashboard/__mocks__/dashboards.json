@@ -20,7 +20,6 @@
             },
             "tags": [],
             "restriction_level": 21,
-            "effective_restriction_level": 21,
             "effective_privilege_level": 37
         },
         {
@@ -43,7 +42,6 @@
             "filters": {},
             "tags": [],
             "restriction_level": 37,
-            "effective_restriction_level": 37,
             "effective_privilege_level": 21
         }
     ]

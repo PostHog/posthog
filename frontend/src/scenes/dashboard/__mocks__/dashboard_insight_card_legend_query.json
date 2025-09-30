@@ -290,7 +290,6 @@
                     "hedgehog_config": null
                 },
                 "is_sample": false,
-                "effective_restriction_level": 21,
                 "effective_privilege_level": 37,
                 "timezone": "America/Aruba",
                 "is_cached": true,
@@ -576,7 +575,6 @@
                     "hedgehog_config": null
                 },
                 "is_sample": false,
-                "effective_restriction_level": 21,
                 "effective_privilege_level": 37,
                 "timezone": "America/Aruba",
                 "is_cached": true,
@@ -862,7 +860,6 @@
                     "hedgehog_config": null
                 },
                 "is_sample": false,
-                "effective_restriction_level": 21,
                 "effective_privilege_level": 37,
                 "timezone": "America/Aruba",
                 "is_cached": true,
@@ -1148,7 +1145,6 @@
                     "hedgehog_config": null
                 },
                 "is_sample": false,
-                "effective_restriction_level": 21,
                 "effective_privilege_level": 37,
                 "timezone": "America/Aruba",
                 "is_cached": true,
@@ -1380,7 +1376,6 @@
                     "hedgehog_config": null
                 },
                 "is_sample": false,
-                "effective_restriction_level": 21,
                 "effective_privilege_level": 37,
                 "timezone": "America/Aruba",
                 "is_cached": true,
@@ -1501,7 +1496,6 @@
                     "hedgehog_config": null
                 },
                 "is_sample": false,
-                "effective_restriction_level": 21,
                 "effective_privilege_level": 37,
                 "timezone": "America/Aruba",
                 "is_cached": true,
@@ -1518,7 +1512,6 @@
         }
     ],
     "restriction_level": 21,
-    "effective_restriction_level": 21,
     "effective_privilege_level": 37,
     "tags": []
 }
