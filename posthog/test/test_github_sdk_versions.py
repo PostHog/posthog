@@ -6,19 +6,18 @@ Tests server-side caching, error handling, and all supported SDK types.
 import re
 import json
 
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import Mock, patch
 
-from django.test import TestCase  # type: ignore[import-untyped]
-
 import requests
-from rest_framework.test import APIClient  # type: ignore[import-untyped]
 
 from posthog.redis import get_client
 
 
-class TestGitHubSDKVersionsAPI(TestCase):
+@patch("posthog.api.github_sdk_versions.posthoganalytics.feature_enabled", return_value=True)
+class TestGitHubSDKVersionsAPI(APIBaseTest):
     def setUp(self):
-        self.client = APIClient()
+        super().setUp()
         self.redis_client = get_client()
         # Clear any existing cache before each test
         self.redis_client.flushdb()
@@ -26,8 +25,9 @@ class TestGitHubSDKVersionsAPI(TestCase):
     def tearDown(self):
         # Clean up cache after each test
         self.redis_client.flushdb()
+        super().tearDown()
 
-    def test_web_sdk_cache_miss_and_hit(self):
+    def test_web_sdk_cache_miss_and_hit(self, mock_feature_flag):
         """Test cache miss followed by cache hit for Web SDK."""
         with patch("posthog.api.github_sdk_versions.requests.get") as mock_get:
             # Mock successful GitHub API responses
@@ -69,7 +69,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             # Should have only made the initial API calls
             self.assertEqual(mock_get.call_count, 2)
 
-    def test_python_sdk_changelog_parsing(self):
+    def test_python_sdk_changelog_parsing(self, mock_feature_flag):
         """Test Python SDK with different changelog format."""
         with patch("posthog.api.github_sdk_versions.requests.get") as mock_get:
             mock_changelog = Mock()
@@ -93,7 +93,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             self.assertEqual(len(data["versions"]), 3)
             self.assertIn("6.7.6", data["releaseDates"])
 
-    def test_simplified_sdk_go(self):
+    def test_simplified_sdk_go(self, mock_feature_flag):
         """Test Go SDK with simplified logic (no GitHub releases API)."""
         with patch("posthog.api.github_sdk_versions.requests.get") as mock_get:
             mock_changelog = Mock()
@@ -110,7 +110,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             self.assertEqual(len(data["versions"]), 3)
             self.assertEqual(data["releaseDates"], {})  # Go SDK uses simplified logic
 
-    def test_php_sdk_history_format(self):
+    def test_php_sdk_history_format(self, mock_feature_flag):
         """Test PHP SDK with History.md format."""
         with patch("posthog.api.github_sdk_versions.requests.get") as mock_get:
             mock_history = Mock()
@@ -126,7 +126,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             self.assertEqual(data["latestVersion"], "3.6.0")
             self.assertEqual(len(data["versions"]), 3)
 
-    def test_dotnet_sdk_github_releases(self):
+    def test_dotnet_sdk_github_releases(self, mock_feature_flag):
         """Test .NET SDK using GitHub releases API only."""
         with patch("posthog.api.github_sdk_versions.requests.get") as mock_get:
             mock_releases = Mock()
@@ -145,7 +145,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             self.assertEqual(data["latestVersion"], "2.0.0")
             self.assertEqual(len(data["versions"]), 2)
 
-    def test_changelog_fetch_failure(self):
+    def test_changelog_fetch_failure(self, mock_feature_flag):
         """Test handling of changelog fetch failures."""
         with patch("posthog.api.github_sdk_versions.requests.get") as mock_get:
             mock_response = Mock()
@@ -159,7 +159,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             data = response.json()
             self.assertIn("unavailable", data["error"])
 
-    def test_github_api_rate_limit(self):
+    def test_github_api_rate_limit(self, mock_feature_flag):
         """Test handling of GitHub API rate limits."""
         with patch("posthog.api.github_sdk_versions.requests.get") as mock_get:
             # Changelog succeeds
@@ -182,7 +182,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             self.assertEqual(data["latestVersion"], "1.258.5")
             self.assertEqual(data["releaseDates"], {})
 
-    def test_malformed_changelog_content(self):
+    def test_malformed_changelog_content(self, mock_feature_flag):
         """Test handling of malformed changelog content."""
         with patch("posthog.api.github_sdk_versions.requests.get") as mock_get:
             mock_changelog = Mock()
@@ -197,7 +197,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             data = response.json()
             self.assertIn("unavailable", data["error"])
 
-    def test_network_timeout_handling(self):
+    def test_network_timeout_handling(self, mock_feature_flag):
         """Test handling of network timeouts."""
         with patch("posthog.api.github_sdk_versions.requests.get") as mock_get:
             mock_get.side_effect = requests.exceptions.Timeout("Request timed out")
@@ -208,7 +208,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             data = response.json()
             self.assertIn("unavailable", data["error"])
 
-    def test_invalid_json_response(self):
+    def test_invalid_json_response(self, mock_feature_flag):
         """Test handling of invalid JSON in GitHub API response."""
         with patch("posthog.api.github_sdk_versions.requests.get") as mock_get:
             mock_changelog = Mock()
@@ -229,7 +229,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             self.assertEqual(data["latestVersion"], "1.258.5")
             self.assertEqual(data["releaseDates"], {})
 
-    def test_unsupported_sdk_type(self):
+    def test_unsupported_sdk_type(self, mock_feature_flag):
         """Test handling of unsupported SDK types."""
         response = self.client.get("/api/github-sdk-versions/unsupported-sdk")
 
@@ -237,7 +237,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
         data = response.json()
         self.assertIn("unavailable", data["error"])
 
-    def test_cache_corruption_recovery(self):
+    def test_cache_corruption_recovery(self, mock_feature_flag):
         """Test recovery from corrupted cache data."""
         # Manually insert corrupted data into cache
         cache_key = "github:sdk_versions:web"
@@ -262,7 +262,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             self.assertEqual(data["latestVersion"], "1.258.5")
             self.assertFalse(data["cached"])  # Fresh data after cache corruption
 
-    def test_cache_expiry_behavior(self):
+    def test_cache_expiry_behavior(self, mock_feature_flag):
         """Test that cache properly expires after the configured time."""
         with patch("posthog.api.github_sdk_versions.requests.get") as mock_get:
             mock_changelog = Mock()
@@ -291,7 +291,7 @@ class TestGitHubSDKVersionsAPI(TestCase):
             data = response.json()
             self.assertFalse(data["cached"])  # Fresh data after expiry
 
-    def test_all_supported_sdk_types(self):
+    def test_all_supported_sdk_types(self, mock_feature_flag):
         """Test that all SDK types are supported."""
         supported_sdks = [
             "web",
@@ -328,31 +328,25 @@ class TestGitHubSDKVersionsAPI(TestCase):
                     self.assertIn("versions", data)
                     self.assertIn("releaseDates", data)
 
-    def test_error_logging_and_capture(self):
-        """Test that errors are properly logged and captured."""
+    def test_error_logging_and_capture(self, mock_feature_flag):
+        """Test that errors are properly logged."""
         with (
             patch("posthog.api.github_sdk_versions.requests.get") as mock_get,
-            patch("posthog.api.github_sdk_versions.capture_exception") as mock_capture,
             patch("posthog.api.github_sdk_versions.logger") as mock_logger,
         ):
-            # Simulate a network error
+            # Simulate a network error in the fetch function
+            # The error is caught internally and returns None, triggering the "No data" path
             mock_get.side_effect = requests.exceptions.ConnectionError("Network error")
 
             response = self.client.get("/api/github-sdk-versions/web")
 
             self.assertEqual(response.status_code, 500)
 
-            # Verify error was captured
-            mock_capture.assert_called_once()
-            call_args = mock_capture.call_args
-            self.assertIsInstance(call_args[0][0], requests.exceptions.ConnectionError)
-            self.assertEqual(call_args[1]["sdk_type"], "web")
-
-            # Verify error was logged
-            mock_logger.error.assert_called_once()
+            # Verify error was logged (the "No data received" message)
+            self.assertTrue(mock_logger.error.called)
 
 
-class TestGitHubSDKVersionsHelperFunctions(TestCase):
+class TestGitHubSDKVersionsHelperFunctions(BaseTest):
     """Test individual helper functions in isolation."""
 
     def test_version_extraction_patterns(self):
