@@ -7,6 +7,8 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE
 from products.tasks.backend.models import Task, TaskProgress, TaskWorkflow, WorkflowStage
@@ -740,25 +742,26 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:write", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
             ("other_scope:read", "GET", "/api/projects/@current/tasks/", False),
             ("other_scope:write", "POST", "/api/projects/@current/tasks/", False),
+            ("*", "GET", "/api/projects/@current/tasks/", True),
+            ("*", "POST", "/api/projects/@current/tasks/", True),
         ]
     )
     def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
         task = self.create_task()
         workflow = task.workflow
 
-        api_key = PersonalAPIKey.objects.create(
+        api_key_value = generate_random_token_personal()
+
+        PersonalAPIKey.objects.create(
             user=self.user,
             label=f"Test API Key - {scope}",
-            scoped_organizations=[str(self.organization.id)],
-            scoped_teams=[self.team.id],
+            secure_value=hash_key_value(api_key_value),
             scopes=[scope],
         )
 
         url = url_template.format(task_id=task.id, workflow_id=workflow.id)
 
-        # Use API key for authentication
         self.client.force_authenticate(None)
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key.value}")
 
         data = {}
         if method == "POST" and "tasks" in url:
@@ -778,13 +781,13 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             data = {"name": "Updated Workflow"}
 
         if method == "GET":
-            response = self.client.get(url)
+            response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
         elif method == "POST":
-            response = self.client.post(url, data, format="json")
+            response = self.client.post(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
         elif method == "PATCH":
-            response = self.client.patch(url, data, format="json")
+            response = self.client.patch(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
         elif method == "DELETE":
-            response = self.client.delete(url)
+            response = self.client.delete(url, HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
         else:
             self.fail(f"Unsupported method: {method}")
 
@@ -800,46 +803,3 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
                 status.HTTP_403_FORBIDDEN,
                 f"Expected 403 but got {response.status_code} for {scope} on {method} {url}",
             )
-
-    def test_no_scope_denies_access(self):
-        task = self.create_task()
-
-        api_key = PersonalAPIKey.objects.create(
-            user=self.user,
-            label="Test API Key - No Scope",
-            scoped_organizations=[str(self.organization.id)],
-            scoped_teams=[self.team.id],
-        )
-        api_key.scopes = ["other_scope:read"]
-        api_key.save()
-
-        # Use API key for authentication
-        self.client.force_authenticate(None)
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key.value}")
-
-        test_endpoints = [
-            ("GET", "/api/projects/@current/tasks/"),
-            ("GET", f"/api/projects/@current/tasks/{task.id}/"),
-            ("GET", "/api/projects/@current/workflows/"),
-            ("GET", "/api/projects/@current/agents/"),
-        ]
-
-        for method, url in test_endpoints:
-            response = self.client.get(url) if method == "GET" else self.client.post(url)
-            self.assertEqual(
-                response.status_code, status.HTTP_403_FORBIDDEN, f"Expected 403 for endpoint {url} without tasks scope"
-            )
-
-    def test_unlimited_api_key_has_full_access(self):
-        api_key = PersonalAPIKey.objects.create(
-            user=self.user,
-            label="Unlimited API Key",
-        )
-
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key.value}")
-
-        response = self.client.get("/api/projects/@current/tasks/")
-        self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-        response = self.client.get("/api/projects/@current/workflows/")
-        self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
