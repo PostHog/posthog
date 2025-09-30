@@ -27,23 +27,6 @@ export function SampledSessionsModal(): JSX.Element {
 
     const { sessionData, stepName, variant } = modalData
 
-    // Helper function to get events URL for a session ID
-    const getEventsUrlForSession = (sessionId: string): string => {
-        const eventsQuery = getDefaultEventsSceneQuery([
-            {
-                type: PropertyFilterType.EventMetadata,
-                key: '$session_id',
-                value: [sessionId],
-                operator: PropertyOperator.Exact,
-            },
-        ])
-        // Override the default time range to 90 days
-        if ('after' in eventsQuery.source) {
-            eventsQuery.source.after = '-90d'
-        }
-        return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
-    }
-
     const openSessionRecording = (sessionId: string, eventUuid: string): void => {
         sessionPlayerModalLogic.actions.openSessionPlayer({
             id: sessionId,
@@ -56,12 +39,46 @@ export function SampledSessionsModal(): JSX.Element {
         })
     }
 
+    const getEventsUrl = (key: string, value: string): string => {
+        const eventsQuery = getDefaultEventsSceneQuery([
+            {
+                type: PropertyFilterType.EventMetadata,
+                key: key,
+                value: [value],
+                operator: PropertyOperator.Exact,
+            },
+        ])
+        // Override the default time range to 90 days
+        if ('after' in eventsQuery.source) {
+            eventsQuery.source.after = '-90d'
+        }
+        return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
+    }
+
+    const getLinkTextAndUrl = (session: SessionData): [string, string] => {
+        let key: string
+        let value: string
+
+        if (session.session_id) {
+            key = '$session_id'
+            value = session.session_id
+        } else if (session.person_id) {
+            key = 'person_id'
+            value = session.person_id
+        } else {
+            key = 'uuid'
+            value = session.event_uuid
+        }
+
+        return [value, getEventsUrl(key, value)]
+    }
+
     const columns: LemonTableColumns<SessionData> = [
         {
             title: 'Session',
             key: 'sessionId',
             render: (_, session) => {
-                const eventsUrl = getEventsUrlForSession(session.session_id)
+                const [linkText, eventsUrl] = getLinkTextAndUrl(session)
                 return (
                     <div className="flex items-center gap-1">
                         <Link
@@ -73,7 +90,7 @@ export function SampledSessionsModal(): JSX.Element {
                             className="font-mono text-xs whitespace-nowrap"
                             title={`View events for session ${session.session_id}`}
                         >
-                            {session.session_id}
+                            {linkText}
                             <IconOpenInNew style={{ fontSize: 14 }} />
                         </Link>
                     </div>
