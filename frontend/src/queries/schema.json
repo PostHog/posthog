@@ -12345,7 +12345,8 @@
                 "TemporalIO",
                 "DoIt",
                 "LinkedinAds",
-                "RedditAds"
+                "RedditAds",
+                "TikTokAds"
             ],
             "type": "string"
         },
@@ -15130,7 +15131,8 @@
                 "github",
                 "meta-ads",
                 "clickup",
-                "reddit-ads"
+                "reddit-ads",
+                "tiktok-ads"
             ],
             "type": "string"
         },

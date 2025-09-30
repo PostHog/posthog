@@ -1256,6 +1256,7 @@ class ExternalDataSourceType(StrEnum):
     DO_IT = "DoIt"
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
+    TIK_TOK_ADS = "TikTokAds"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1657,6 +1658,7 @@ class IntegrationKind(StrEnum):
     META_ADS = "meta-ads"
     CLICKUP = "clickup"
     REDDIT_ADS = "reddit-ads"
+    TIK_TOK_ADS = "tik-tok-ads"
 
 
 class IntervalType(StrEnum):
