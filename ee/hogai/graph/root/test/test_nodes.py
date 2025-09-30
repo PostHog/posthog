@@ -527,7 +527,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         else:
             config = RunnableConfig(configurable={})
 
-        self.assertEqual(await node._get_billing_info(config), (should_add_billing_tool, expected_prompt))
+        self.assertEqual(await node._get_billing_prompt(config), (should_add_billing_tool, expected_prompt))
 
     def test_is_first_turn_true(self):
         """Test _is_first_turn returns True when last message is the start message"""
