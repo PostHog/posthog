@@ -395,6 +395,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             } catch (e) {
+                shallContinueGeneration = false
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
 
@@ -445,8 +446,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // Otherwise wrap things up
                 actions.completeThreadGeneration()
                 actions.setActiveStreamingThreads(-1)
-                cache.generationController = undefined
             }
+            cache.generationController = undefined
         },
 
         stopGeneration: async () => {
