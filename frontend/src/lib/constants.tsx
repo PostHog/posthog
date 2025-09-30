@@ -229,7 +229,6 @@ export const FEATURE_FLAGS = {
     PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: @joshsny
     DELAYED_LOADING_ANIMATION: 'delayed-loading-animation', // owner: @raquelmsmith
-    SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN: 'session-recordings-playlist-count-column', // owner: @pauldambra #team-replay
     WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
     EMBEDDED_ANALYTICS: 'embedded-analytics', // owner: @sakce #team-clickhouse
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny

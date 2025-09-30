@@ -9,6 +9,7 @@ import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
 
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
+import { PaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -1600,6 +1601,23 @@ export interface SessionRecordingPlaylistType {
     recordings_counts?: PlaylistRecordingsCounts
     type: 'filters' | 'collection'
     _create_in_folder?: string | null
+}
+
+export interface SavedSessionRecordingPlaylistsFilters {
+    order: string
+    search: string
+    createdBy: number | 'All users'
+    dateFrom: string | dayjs.Dayjs | undefined | null
+    dateTo: string | dayjs.Dayjs | undefined | null
+    page: number
+    pinned: boolean
+    type?: 'collection' | 'saved_filters'
+}
+
+export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
+    count: number
+    /** not in the API response */
+    filters?: SavedSessionRecordingPlaylistsFilters | null
 }
 
 export interface SessionRecordingSegmentType {
