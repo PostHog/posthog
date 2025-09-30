@@ -42,7 +42,7 @@ export enum AssistantMessageType {
     Failure = 'ai/failure',
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
-    TaskExecution = 'ai/task_execution',
+    ToolExecution = 'ai/tool_execution',
 }
 
 export interface BaseAssistantMessage {
@@ -88,10 +88,13 @@ export interface AssistantMessage extends BaseAssistantMessage {
     tool_calls?: AssistantToolCall[]
 }
 
-export interface ReasoningMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.Reasoning
+export interface ReasoningState {
     content: string
     substeps?: string[]
+}
+
+export interface ReasoningMessage extends BaseAssistantMessage, ReasoningState {
+    type: AssistantMessageType.Reasoning
 }
 
 export interface ContextMessage extends BaseAssistantMessage {
@@ -157,26 +160,25 @@ export interface PlanningMessage extends BaseAssistantMessage {
     steps: PlanningStep[]
 }
 
-export enum TaskExecutionStatus {
+export enum ToolExecutionStatus {
     Pending = 'pending',
     InProgress = 'in_progress',
     Completed = 'completed',
     Failed = 'failed',
 }
 
-export interface TaskExecutionItem {
+export interface ToolExecution {
     id: string
     description: string
-    prompt: string
-    status: TaskExecutionStatus
-    artifact_ids?: string[]
-    progress_text?: string
-    task_type: string
+    status: ToolExecutionStatus
+    progress?: ReasoningState
+    tool_name: string
+    args: Record<string, unknown>
 }
 
-export interface TaskExecutionMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.TaskExecution
-    tasks: TaskExecutionItem[]
+export interface ToolExecutionMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.ToolExecution
+    tool_executions: ToolExecution[]
 }
 
 export interface MultiVisualizationMessage extends BaseAssistantMessage {
@@ -194,7 +196,7 @@ export type RootAssistantMessage =
     | FailureMessage
     | NotebookUpdateMessage
     | PlanningMessage
-    | TaskExecutionMessage
+    | ToolExecutionMessage
     | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {
@@ -224,12 +226,13 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     tool_call_id: string
 }
 
-export type AssistantContextualTool =
+export type AssistantTool =
     | 'search_session_recordings'
     | 'generate_hogql_query'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
     | 'create_and_query_insight'
+    | 'edit_current_insight'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
@@ -244,6 +247,7 @@ export type AssistantContextualTool =
     | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
+    | 'get_billing_info'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

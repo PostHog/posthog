@@ -8,6 +8,7 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
+from posthoganalytics import capture_exception
 from pydantic import Field
 
 from posthog.schema import (
@@ -27,13 +28,13 @@ from posthog.models.notebook import Notebook
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.planner.prompts import (
-    ARTIFACTS_READ_FAILED_TOOL_RESULT,
-    ARTIFACTS_READ_TOOL_RESULT,
+    ARTIFACTS_READ,
+    ARTIFACTS_READ_FAILED,
     DEEP_RESEARCH_PLANNER_PROMPT,
     FINALIZE_RESEARCH_TOOL_RESULT,
     INVALID_ARTIFACT_IDS_TOOL_RESULT,
-    NO_TASKS_RESULTS_TOOL_RESULT,
-    TODO_READ_FAILED_TOOL_RESULT,
+    NO_TOOL_RESULTS,
+    TODO_READ_FAILED,
     TODO_READ_TOOL_RESULT,
     TODO_WRITE_TOOL_RESULT,
     WRITE_RESULT_FAILED_TOOL_RESULT,
@@ -43,25 +44,25 @@ from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchNodeName,
     DeepResearchState,
-    DeepResearchTask,
     DeepResearchTodo,
     PartialDeepResearchState,
 )
+from ee.hogai.graph.query_planner.tool import CreateInsightTool
 from ee.hogai.notebook.notebook_serializer import NotebookSerializer
+from ee.hogai.tool import ParallelToolExecution
 from ee.hogai.utils.helpers import extract_content_from_ai_message
 from ee.hogai.utils.types import WithCommentary
-from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages, InsightArtifact, TaskArtifact
+from ee.hogai.utils.types.base import (
+    AssistantMessageUnion,
+    BaseState,
+    BaseStateWithMessages,
+    InsightArtifact,
+    ToolArtifact,
+    ToolResult,
+)
 from ee.hogai.utils.types.composed import MaxNodeName
 
 logger = logging.getLogger(__name__)
-
-
-class execute_tasks(WithCommentary):
-    """
-    Execute a batch of work, assigning tasks to assistants. Returns the aggregated results of the tasks.
-    """
-
-    tasks: list[DeepResearchTask] = Field(description="The tasks to execute")
 
 
 class todo_write(WithCommentary):
@@ -156,9 +157,12 @@ class DeepResearchPlannerNode(DeepResearchNode):
             messages = [("human", markdown)]
 
         prompt = ChatPromptTemplate.from_messages(messages)
+        core_tools = [todo_write, todo_read, result_write, finalize_research, artifacts_read]
+        available_tools = [CreateInsightTool]
         model = self._get_model(instructions, state.previous_response_id).bind_tools(
-            [todo_write, todo_read, result_write, finalize_research, artifacts_read, execute_tasks],
+            core_tools + available_tools,
             tool_choice="required",
+            parallel_tool_calls=True,
         )
 
         chain = prompt | model
@@ -206,22 +210,32 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             return None
         assert isinstance(input.messages[-1], AssistantMessage)
         tool_calls = input.messages[-1].tool_calls or []
-        assert len(tool_calls) <= 1
         if len(tool_calls) == 0:
             return None
-        tool_call = tool_calls[0]
-        if tool_call.name == "todo_write":
-            return ReasoningMessage(content="Writing todos")
-        elif tool_call.name == "todo_read":
-            return ReasoningMessage(content="Reading todos")
-        elif tool_call.name == "artifacts_read":
-            return ReasoningMessage(content="Reading artifacts")
-        elif tool_call.name == "execute_tasks":
-            return ReasoningMessage(content="Executing tasks")
-        elif tool_call.name == "result_write":
-            return ReasoningMessage(content="Writing intermediate results")
-        elif tool_call.name == "finalize_research":
-            return ReasoningMessage(content="Finalizing research")
+
+        # For multiple tool calls, create a combined reasoning message
+        reasoning_parts = []
+        for tool_call in tool_calls:
+            if tool_call.name == "todo_write":
+                reasoning_parts.append("Writing todos")
+            elif tool_call.name == "todo_read":
+                reasoning_parts.append("Reading todos")
+            elif tool_call.name == "artifacts_read":
+                reasoning_parts.append("Analyzing results")
+            elif tool_call.name == "result_write":
+                reasoning_parts.append("Writing intermediate results")
+            elif tool_call.name == "finalize_research":
+                reasoning_parts.append("Finalizing research")
+
+        if reasoning_parts:
+            # Join multiple actions with commas and "and" for the last item
+            if len(reasoning_parts) == 1:
+                return ReasoningMessage(content=reasoning_parts[0])
+            elif len(reasoning_parts) == 2:
+                return ReasoningMessage(content=f"{reasoning_parts[0]} and {reasoning_parts[1]}")
+            else:
+                return ReasoningMessage(content=f"{', '.join(reasoning_parts[:-1])}, and {reasoning_parts[-1]}")
+
         return None
 
     async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState:
@@ -239,52 +253,99 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
                 ],
             )
 
-        if len(last_message.tool_calls) != 1:
-            raise ValueError("Expected exactly one tool call.")
+        tool_calls = last_message.tool_calls
 
-        tool_call = last_message.tool_calls[0]
-        tool_call_name = tool_call.name
+        # Separate tool calls by category for proper ordering
+        todo_write_calls = []
+        todo_read_calls = []
+        artifacts_read_calls = []
+        result_write_calls = []
+        finalize_research_calls = []
+        execute_tool_calls = []
 
-        if tool_call_name == "todo_write":
-            return await self._handle_todo_write(tool_call, state)
-        elif tool_call_name == "todo_read":
-            return await self._handle_todo_read(tool_call, state)
+        for tool_call in tool_calls:
+            if tool_call.name == "todo_write":
+                todo_write_calls.append(tool_call)
+            elif tool_call.name == "todo_read":
+                todo_read_calls.append(tool_call)
+            elif tool_call.name == "artifacts_read":
+                artifacts_read_calls.append(tool_call)
+            elif tool_call.name == "result_write":
+                result_write_calls.append(tool_call)
+            elif tool_call.name == "finalize_research":
+                finalize_research_calls.append(tool_call)
+            else:
+                execute_tool_calls.append(tool_call)
 
-        # Toold below this point require a TODOs list
-        if not state.todos or len(state.todos) == 0:
-            return PartialDeepResearchState(
-                messages=[
+        # Process tool calls in the correct order, respecting dependencies
+        messages: list[AssistantMessageUnion] = []
+
+        # 1. Process todo_write and todo_read first (no dependencies)
+        for tool_call in todo_write_calls:
+            result = await self._handle_todo_write(tool_call, state)
+            messages.extend(result.messages or [])
+            if result.todos:
+                state = DeepResearchState(**{**state.model_dump(), "todos": result.todos})
+
+        for tool_call in todo_read_calls:
+            result = await self._handle_todo_read(tool_call, state)
+            messages.extend(result.messages or [])
+
+        # 2. Check if tools below require TODOs list
+        tools_requiring_todos = artifacts_read_calls + execute_tool_calls + result_write_calls + finalize_research_calls
+        if tools_requiring_todos and (not state.todos or len(state.todos) == 0):
+            # Return error messages for all tool calls that require TODOs
+            for tool_call in tools_requiring_todos:
+                messages.append(
                     AssistantToolCallMessage(
-                        content=TODO_READ_FAILED_TOOL_RESULT,
+                        content=TODO_READ_FAILED,
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
-                    ),
-                ],
-            )
+                    )
+                )
+            return PartialDeepResearchState(messages=messages)
 
-        if tool_call_name == "artifacts_read":
-            return await self._handle_artifacts_read(tool_call, state)
-        elif tool_call_name == "execute_tasks":
-            return await self._handle_execute_tasks(tool_call, state)
+        # 3. Process artifacts_read (requires TODOs)
+        for tool_call in artifacts_read_calls:
+            result = await self._handle_artifacts_read(tool_call, state)
+            messages.extend(result.messages or [])
 
-        # Tools below this point require task results
-        if len(state.task_results) == 0:
-            return PartialDeepResearchState(
-                messages=[
+        # 4. Process execute tools in parallel (requires TODOs)
+        if execute_tool_calls:
+            result = await self._handle_execute_tools(execute_tool_calls, state, config)
+            messages.extend(result.messages or [])
+            if result.tool_results:
+                state = DeepResearchState(**{**state.model_dump(), "tool_results": result.tool_results})
+
+        # 5. Check if tools below require tool results
+        tools_requiring_results = result_write_calls + finalize_research_calls
+        if tools_requiring_results and len(state.tool_results) == 0:
+            # Return error messages for all tool calls that require tool results
+            for tool_call in tools_requiring_results:
+                messages.append(
                     AssistantToolCallMessage(
-                        content=NO_TASKS_RESULTS_TOOL_RESULT,
+                        content=NO_TOOL_RESULTS,
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
-                    ),
-                ],
-            )
+                    )
+                )
+            return PartialDeepResearchState(messages=messages)
 
-        if tool_call_name == "result_write":
-            return await self._handle_result_write(tool_call, state)
-        elif tool_call_name == "finalize_research":
-            return await self._handle_finalize_research(tool_call, state)
+        # 6. Process result_write and finalize_research (require tool results)
+        for tool_call in result_write_calls:
+            result = await self._handle_result_write(tool_call, state)
+            messages.extend(result.messages or [])
 
-        raise ValueError(f"Unknown tool call: {tool_call.name}")
+        for tool_call in finalize_research_calls:
+            result = await self._handle_finalize_research(tool_call, state)
+            messages.extend(result.messages or [])
+
+        # Return all collected messages
+        if messages:
+            return PartialDeepResearchState(messages=messages)
+
+        # This shouldn't happen if tool_calls is not empty, but handle it gracefully
+        raise ValueError("No valid tool calls were processed")
 
     async def _handle_todo_write(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
         """Create or update the TODOs list for research tasks."""
@@ -336,7 +397,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
                 [f"- {todo.description}: {todo.status} (priority: {todo.priority})" for todo in state.todos]
             )
         else:
-            formatted_todos = TODO_READ_FAILED_TOOL_RESULT
+            formatted_todos = TODO_READ_FAILED
 
         return PartialDeepResearchState(
             messages=[
@@ -349,34 +410,80 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
         )
 
     async def _handle_artifacts_read(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
-        """Read artifacts generated from completed tasks."""
-        # Collect all artifacts from task results
-        artifacts: list[TaskArtifact] = []
-        for single_task_result in state.task_results:
-            artifacts.extend(single_task_result.artifacts)
+        """Read artifacts generated from completed tool calls."""
+        # Collect all artifacts from tool results
+        artifacts: list[ToolArtifact] = []
+        for single_tool_result in state.tool_results:
+            artifacts.extend(single_tool_result.artifacts)
 
         # Format artifacts for display
         if artifacts:
-            formatted_artifacts = "\n".join([f"- {artifact.task_id}: {artifact.content}" for artifact in artifacts])
+            formatted_artifacts = "\n".join([f"- {artifact.id}: {artifact.content}" for artifact in artifacts])
         else:
-            formatted_artifacts = ARTIFACTS_READ_FAILED_TOOL_RESULT
+            formatted_artifacts = ARTIFACTS_READ_FAILED
 
         return PartialDeepResearchState(
             messages=[
                 AssistantToolCallMessage(
-                    content=ARTIFACTS_READ_TOOL_RESULT.format(artifacts=formatted_artifacts),
+                    content=ARTIFACTS_READ.format(artifacts=formatted_artifacts),
                     id=str(uuid4()),
                     tool_call_id=tool_call.id,
                 ),
             ],
         )
 
-    async def _handle_execute_tasks(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
-        """Execute tasks from the TODOs list."""
-        # Simply pass the tasks to be executed
-        return PartialDeepResearchState(
-            tasks=tool_call.args["tasks"],
+    async def _handle_execute_tools(
+        self, tool_calls: list[AssistantToolCall], state: DeepResearchState, config: RunnableConfig
+    ) -> PartialDeepResearchState:
+        result_messages: list[AssistantMessageUnion] = []
+
+        ToolExecutionClass = ParallelToolExecution(
+            team=self._team, user=self._user, write_message_afunc=self._write_message
         )
+        try:
+            tool_results, tool_execution_message = await ToolExecutionClass.arun(tool_calls, state, config)
+        except Exception as e:
+            capture_exception(
+                e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
+            )
+            result_messages.extend(
+                [
+                    AssistantToolCallMessage(
+                        content="The tool raised an internal error.",
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                        visible=False,
+                    )
+                    for tool_call in tool_calls
+                ]
+            )
+
+        if tool_execution_message:
+            result_messages.append(tool_execution_message)
+
+        for result in tool_results:
+            # NOTE: this accounts for the failed tool results too, content and result.metadata contain information about the failure
+            result_messages.append(
+                AssistantToolCallMessage(
+                    content=self._format_tool_result(result),
+                    id=str(uuid4()),
+                    tool_call_id=result.id,
+                    visible=False,
+                )
+            )
+
+        return PartialDeepResearchState(
+            messages=result_messages,
+            tool_results=tool_results,
+        )
+
+    def _format_tool_result(self, result: ToolResult) -> str:
+        artifact_lines = []
+        for artifact in result.artifacts:
+            artifact_lines.append(f"- {artifact.tool_call_id}: {artifact.content}")
+        artifacts_str = "\n".join(artifact_lines)
+        formatted_results = f"{result.content}\nArtifacts:\n{artifacts_str}\n"
+        return formatted_results
 
     async def _handle_result_write(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
         """Write intermediate results with selected artifacts."""
@@ -395,12 +502,12 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Collect all available artifacts
-        artifacts: list[TaskArtifact] = []
-        for single_task_result in state.task_results:
-            artifacts.extend(single_task_result.artifacts)
+        artifacts: list[ToolArtifact] = []
+        for single_tool_result in state.tool_results:
+            artifacts.extend(single_tool_result.artifacts)
 
         # Validate artifact IDs referenced in the result
-        existing_ids = {artifact.task_id for artifact in artifacts}
+        existing_ids = {str(artifact.id) for artifact in artifacts}
         invalid_ids = set(intermediate_result.artifact_ids) - existing_ids
 
         if invalid_ids:
@@ -415,21 +522,19 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Create visualization messages from selected artifacts
-        selected_artifacts = [
-            artifact for artifact in artifacts if artifact.task_id in intermediate_result.artifact_ids
-        ]
+        selected_artifacts = [artifact for artifact in artifacts if artifact.id in intermediate_result.artifact_ids]
 
-        visualization_messages = [
+        visualizations = [
             VisualizationItem(query=artifact.content, answer=artifact.query)
             for artifact in selected_artifacts
-            if isinstance(artifact, InsightArtifact)
+            if isinstance(artifact, InsightArtifact) and artifact.query
         ]
 
         return PartialDeepResearchState(
             messages=[
                 MultiVisualizationMessage(
                     id=str(uuid4()),
-                    visualizations=visualization_messages,
+                    visualizations=visualizations,
                     commentary=intermediate_result.content,
                 ),
                 AssistantToolCallMessage(
@@ -453,9 +558,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             ],
         )
 
-    def router(self, state: DeepResearchState) -> Literal["continue", "end", "task_executor"]:
-        if state.tasks and len(state.tasks) > 0:
-            return "task_executor"
+    def router(self, state: DeepResearchState) -> Literal["continue", "end"]:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantToolCallMessage):
             raise ValueError("Last message is not an assistant tool message.")

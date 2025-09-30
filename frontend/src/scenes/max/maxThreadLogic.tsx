@@ -40,7 +40,7 @@ import {
     HumanMessage,
     ReasoningMessage,
     RootAssistantMessage,
-    TaskExecutionStatus,
+    ToolExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
@@ -55,7 +55,7 @@ import {
     isHumanMessage,
     isNotebookUpdateMessage,
     isReasoningMessage,
-    isTaskExecutionMessage,
+    isToolExecutionMessage,
 } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
@@ -602,17 +602,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
 
-                    // Check if there's an active TaskExecutionMessage
-                    const hasActiveTaskExecution =
-                        isTaskExecutionMessage(finalMessageSoFar) &&
-                        finalMessageSoFar.tasks.some(
-                            (task) =>
-                                task.status === TaskExecutionStatus.Pending ||
-                                task.status === TaskExecutionStatus.InProgress
+                    // Check if there's an active ToolExecutionMessage
+                    const hasActiveToolExecution =
+                        finalMessageSoFar &&
+                        isToolExecutionMessage(finalMessageSoFar) &&
+                        finalMessageSoFar.tool_executions.some(
+                            (toolExecution) =>
+                                toolExecution.status === ToolExecutionStatus.Pending ||
+                                toolExecution.status === ToolExecutionStatus.InProgress
                         )
 
-                    // Don't show thinking message if there's an active TaskExecutionMessage
-                    if (!hasActiveTaskExecution) {
+                    // Don't show thinking message if there's an active ToolExecutionMessage
+                    if (!hasActiveToolExecution) {
                         const thinkingMessage: ReasoningMessage & ThreadMessage = {
                             type: AssistantMessageType.Reasoning,
                             content: getRandomThinkingMessage(),

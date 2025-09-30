@@ -768,30 +768,6 @@
             },
             "type": "object"
         },
-        "AssistantContextualTool": {
-            "enum": [
-                "search_session_recordings",
-                "generate_hogql_query",
-                "fix_hogql_query",
-                "analyze_user_interviews",
-                "create_and_query_insight",
-                "create_hog_transformation_function",
-                "create_hog_function_filters",
-                "create_hog_function_inputs",
-                "create_message_template",
-                "navigate",
-                "filter_error_tracking_issues",
-                "find_error_tracking_impactful_issue_event_list",
-                "experiment_results_summary",
-                "create_survey",
-                "analyze_survey_responses",
-                "search_docs",
-                "search_insights",
-                "session_summarization",
-                "create_dashboard"
-            ],
-            "type": "string"
-        },
         "AssistantDateRange": {
             "additionalProperties": false,
             "description": "This filter only works with absolute dates.",
@@ -1546,7 +1522,7 @@
                 "ai/failure",
                 "ai/notebook",
                 "ai/planning",
-                "ai/task_execution"
+                "ai/tool_execution"
             ],
             "type": "string"
         },
@@ -1814,6 +1790,32 @@
         },
         "AssistantStringOrBooleanValuePropertyFilterOperator": {
             "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+            "type": "string"
+        },
+        "AssistantTool": {
+            "enum": [
+                "search_session_recordings",
+                "generate_hogql_query",
+                "fix_hogql_query",
+                "analyze_user_interviews",
+                "create_and_query_insight",
+                "edit_current_insight",
+                "create_hog_transformation_function",
+                "create_hog_function_filters",
+                "create_hog_function_inputs",
+                "create_message_template",
+                "navigate",
+                "filter_error_tracking_issues",
+                "find_error_tracking_impactful_issue_event_list",
+                "experiment_results_summary",
+                "create_survey",
+                "analyze_survey_responses",
+                "search_docs",
+                "search_insights",
+                "session_summarization",
+                "create_dashboard",
+                "get_billing_info"
+            ],
             "type": "string"
         },
         "AssistantToolCall": {
@@ -21461,7 +21463,23 @@
                     "type": "boolean"
                 }
             },
-            "required": ["type", "content"],
+            "required": ["content", "type"],
+            "type": "object"
+        },
+        "ReasoningState": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "substeps": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["content"],
             "type": "object"
         },
         "RecordingDurationFilter": {
@@ -22970,7 +22988,7 @@
                     "$ref": "#/definitions/PlanningMessage"
                 },
                 {
-                    "$ref": "#/definitions/TaskExecutionMessage"
+                    "$ref": "#/definitions/ToolExecutionMessage"
                 },
                 {
                     "additionalProperties": false,
@@ -24727,64 +24745,6 @@
             },
             "type": "object"
         },
-        "TaskExecutionItem": {
-            "additionalProperties": false,
-            "properties": {
-                "artifact_ids": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "progress_text": {
-                    "type": "string"
-                },
-                "prompt": {
-                    "type": "string"
-                },
-                "status": {
-                    "$ref": "#/definitions/TaskExecutionStatus"
-                },
-                "task_type": {
-                    "type": "string"
-                }
-            },
-            "required": ["id", "description", "prompt", "status", "task_type"],
-            "type": "object"
-        },
-        "TaskExecutionMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "tasks": {
-                    "items": {
-                        "$ref": "#/definitions/TaskExecutionItem"
-                    },
-                    "type": "array"
-                },
-                "type": {
-                    "const": "ai/task_execution",
-                    "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["type", "tasks"],
-            "type": "object"
-        },
-        "TaskExecutionStatus": {
-            "enum": ["pending", "in_progress", "completed", "failed"],
-            "type": "string"
-        },
         "TaxonomicFilterGroupType": {
             "enum": [
                 "metadata",
@@ -25076,6 +25036,59 @@
             },
             "required": ["events"],
             "type": "object"
+        },
+        "ToolExecution": {
+            "additionalProperties": false,
+            "properties": {
+                "args": {
+                    "additionalProperties": {},
+                    "type": "object"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "progress": {
+                    "$ref": "#/definitions/ReasoningState"
+                },
+                "status": {
+                    "$ref": "#/definitions/ToolExecutionStatus"
+                },
+                "tool_name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "description", "status", "tool_name", "args"],
+            "type": "object"
+        },
+        "ToolExecutionMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "tool_executions": {
+                    "items": {
+                        "$ref": "#/definitions/ToolExecution"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "ai/tool_execution",
+                    "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["type", "tool_executions"],
+            "type": "object"
+        },
+        "ToolExecutionStatus": {
+            "enum": ["pending", "in_progress", "completed", "failed"],
+            "type": "string"
         },
         "TraceQuery": {
             "additionalProperties": false,

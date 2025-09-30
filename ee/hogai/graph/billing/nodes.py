@@ -7,6 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantToolCallMessage, MaxBillingContext, SpendHistoryItem, UsageHistoryItem
 
 from posthog.clickhouse.client import sync_execute
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.billing.prompts import BILLING_CONTEXT_PROMPT
@@ -39,7 +40,7 @@ class BillingNode(AssistantNode):
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.BILLING
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         billing_context = self._get_billing_context(config)
         if not billing_context:
             return PartialAssistantState(
@@ -49,7 +50,7 @@ class BillingNode(AssistantNode):
                     )
                 ]
             )
-        formatted_billing_context = self._format_billing_context(billing_context)
+        formatted_billing_context = await self._format_billing_context(billing_context)
         tool_call_id = cast(str, state.root_tool_call_id)
         return PartialAssistantState(
             messages=[
@@ -57,7 +58,7 @@ class BillingNode(AssistantNode):
             ]
         )
 
-    def _format_billing_context(self, billing_context: MaxBillingContext) -> str:
+    async def _format_billing_context(self, billing_context: MaxBillingContext) -> str:
         """Format billing context into a readable prompt section."""
         # Convert billing context to a format suitable for the mustache template
         template_data: dict[str, Any] = {
@@ -167,7 +168,7 @@ class BillingNode(AssistantNode):
         }
 
         # Add top events by usage
-        top_events = self._get_top_events_by_usage()
+        top_events = await database_sync_to_async(self._get_top_events_by_usage)()
         if top_events:
             template_data["top_events"] = top_events
 

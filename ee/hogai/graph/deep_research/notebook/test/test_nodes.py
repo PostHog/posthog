@@ -162,7 +162,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
             messages=[HumanMessage(content="Create research plan")],
             todos=None,
             tasks=None,
-            task_results=[],
+            tool_results=[],
             intermediate_results=[],
             previous_response_id="old-id",
             conversation_notebooks=[],

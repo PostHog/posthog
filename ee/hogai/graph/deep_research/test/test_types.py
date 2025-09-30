@@ -13,7 +13,7 @@ from posthog.schema import (
     DeepResearchType,
     HumanMessage,
     PlanningStepStatus,
-    TaskExecutionStatus,
+    ToolExecutionStatus,
 )
 
 from ee.hogai.graph.deep_research.types import (
@@ -24,7 +24,7 @@ from ee.hogai.graph.deep_research.types import (
     PartialDeepResearchState,
     _SharedDeepResearchState,
 )
-from ee.hogai.utils.types.base import InsightArtifact, TaskResult
+from ee.hogai.utils.types.base import InsightArtifact, ToolResult
 
 """
 Test suite for type system consistency across multi-node deep research workflow.
@@ -97,31 +97,31 @@ class TestTaskResult(BaseTest):
 
     def test_task_result_with_default_artifacts(self):
         """Should create task result with empty artifacts list by default."""
-        result = TaskResult(
-            id="task-1", description="Test task", result="Task completed successfully", status="completed"
+        result = ToolResult(
+            id="task-1", description="Test task", content="Task completed successfully", status="completed"
         )
 
         self.assertEqual(result.id, "task-1")
         self.assertEqual(result.description, "Test task")
-        self.assertEqual(result.result, "Task completed successfully")
+        self.assertEqual(result.content, "Task completed successfully")
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.artifacts, [])
 
     def test_task_result_with_artifacts(self):
         """Should create task result with artifacts."""
         mock_query = Mock(spec=AssistantTrendsQuery)
-        artifact = InsightArtifact(id=None, task_id="artifact-1", query=mock_query, content="Test artifact")
+        artifact = InsightArtifact(id=None, tool_call_id="artifact-1", query=mock_query, content="Test artifact")
 
-        result = TaskResult(
+        result = ToolResult(
             id="task-1",
             description="Test task",
-            result="Task completed",
-            status=TaskExecutionStatus.COMPLETED,
+            content="Task completed",
+            status=ToolExecutionStatus.COMPLETED,
             artifacts=[artifact],
         )
 
         self.assertEqual(len(result.artifacts), 1)
-        self.assertEqual(result.artifacts[0].task_id, "artifact-1")
+        self.assertEqual(result.artifacts[0].tool_call_id, "artifact-1")
 
     @parameterized.expand(
         [
@@ -133,30 +133,30 @@ class TestTaskResult(BaseTest):
     )
     def test_task_result_valid_statuses(self, status):
         """Should accept all valid TaskExecutionStatus values."""
-        result = TaskResult(id="task-1", description="Test", result="Result", status=status)
+        result = ToolResult(id="task-1", description="Test", content="Result", status=status)
         self.assertEqual(result.status, status)
 
     def test_task_result_invalid_status(self):
         """Should raise ValidationError for invalid status."""
         with self.assertRaises(ValidationError):
-            TaskResult(id="task-1", description="Test", result="Result", status="invalid_status")
+            ToolResult(id="task-1", description="Test", content="Result", status="invalid_status")
 
     def test_task_result_serialization(self):
         """Should serialize and deserialize correctly."""
-        original = TaskResult(
+        original = ToolResult(
             id="task-complex-123",
             description="Complex task description",
-            result="Multi-line\nresult with\nspecial chars: !@#$%",
+            content="Multi-line\nresult with\nspecial chars: !@#$%",
             status="failed",
             artifacts=[],
         )
 
         serialized = original.model_dump()
-        deserialized = TaskResult.model_validate(serialized)
+        deserialized = ToolResult.model_validate(serialized)
 
         self.assertEqual(original.id, deserialized.id)
         self.assertEqual(original.description, deserialized.description)
-        self.assertEqual(original.result, deserialized.result)
+        self.assertEqual(original.content, deserialized.content)
         self.assertEqual(original.status, deserialized.status)
         self.assertEqual(original.artifacts, deserialized.artifacts)
 
@@ -206,7 +206,7 @@ class TestDeepResearchStates(BaseTest):
 
         self.assertIsNone(state.todos)
         self.assertIsNone(state.tasks)
-        self.assertEqual(state.task_results, [])
+        self.assertEqual(state.tool_results, [])
         self.assertEqual(state.intermediate_results, [])
         self.assertIsNone(state.previous_response_id)
         self.assertIsNone(state.start_id)
@@ -247,7 +247,7 @@ class TestDeepResearchStates(BaseTest):
         ]
 
         task_results = [
-            TaskResult(id="result-1", description="Analysis result", result="Analysis completed", status="completed")
+            ToolResult(id="result-1", description="Analysis result", content="Analysis completed", status="completed")
         ]
 
         intermediate_results = [DeepResearchIntermediateResult(content="Intermediate findings", artifact_ids=["art-1"])]
@@ -260,7 +260,7 @@ class TestDeepResearchStates(BaseTest):
         state = DeepResearchState(
             todos=todos,
             tasks=tasks,
-            task_results=task_results,
+            tool_results=task_results,
             intermediate_results=intermediate_results,
             messages=messages,
             previous_response_id="resp-123",
@@ -272,7 +272,7 @@ class TestDeepResearchStates(BaseTest):
 
         self.assertEqual(len(cast(list[DeepResearchTodo], state.todos)), 2)
         self.assertEqual(len(cast(list[DeepResearchTask], state.tasks)), 1)
-        self.assertEqual(len(state.task_results), 1)
+        self.assertEqual(len(state.tool_results), 1)
         self.assertEqual(len(state.intermediate_results), 1)
         self.assertEqual(len(state.messages), 2)
         self.assertEqual(state.previous_response_id, "resp-123")
@@ -303,7 +303,7 @@ class TestDeepResearchStates(BaseTest):
         reset_state = DeepResearchState.get_reset_state()
 
         self.assertIsNone(reset_state.todos)
-        self.assertEqual(reset_state.task_results, [])
+        self.assertEqual(reset_state.tool_results, [])
         self.assertEqual(reset_state.messages, [])
         self.assertIsNone(reset_state.previous_response_id)
 
@@ -314,7 +314,7 @@ class TestDeepResearchStates(BaseTest):
         )
         original_state = DeepResearchState(
             todos=[DeepResearchTodo(id=1, description="Test todo", status="pending", priority="high")],
-            task_results=[TaskResult(id="task-1", description="Test result", result="Success", status="completed")],
+            tool_results=[ToolResult(id="task-1", description="Test result", content="Success", status="completed")],
             intermediate_results=[
                 DeepResearchIntermediateResult(content="Test content", artifact_ids=["art-1", "art-2"])
             ],
@@ -329,8 +329,8 @@ class TestDeepResearchStates(BaseTest):
         todos = cast(list[DeepResearchTodo], deserialized.todos)
         self.assertEqual(len(todos), 1)
         self.assertEqual(todos[0].description, "Test todo")
-        self.assertEqual(len(deserialized.task_results), 1)
-        self.assertEqual(deserialized.task_results[0].id, "task-1")
+        self.assertEqual(len(deserialized.tool_results), 1)
+        self.assertEqual(deserialized.tool_results[0].id, "task-1")
         self.assertEqual(len(deserialized.intermediate_results), 1)
         self.assertEqual(deserialized.intermediate_results[0].content, "Test content")
         self.assertEqual(len(deserialized.messages), 1)

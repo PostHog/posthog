@@ -28,9 +28,8 @@ from posthog.schema import (
     PlanningMessage,
     ReasoningMessage,
     RetentionQuery,
-    TaskExecutionItem,
-    TaskExecutionMessage,
-    TaskExecutionStatus,
+    ToolExecutionMessage,
+    ToolExecutionStatus,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -44,7 +43,7 @@ AIMessageUnion = Union[
     ReasoningMessage,
     AssistantToolCallMessage,
     PlanningMessage,
-    TaskExecutionMessage,
+    ToolExecutionMessage,
     MultiVisualizationMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
@@ -70,7 +69,7 @@ ASSISTANT_MESSAGE_TYPES = (
     ReasoningMessage,
     AssistantToolCallMessage,
     PlanningMessage,
-    TaskExecutionMessage,
+    ToolExecutionMessage,
     MultiVisualizationMessage,
     ContextMessage,
 )
@@ -158,34 +157,38 @@ StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
 
-class TaskArtifact(BaseModel):
+class ToolArtifact(BaseModel):
     """
     Base artifact created by a task.
     """
 
-    id: str | int | None = None  # The id of the object referenced by the artifact
-    task_id: str  # The id of the task that created the artifact
-    content: str  # A string content attached to the artifact
+    id: str | int | None = None  # The id of the object referenced by the artifact, if any
+    tool_call_id: str  # The id of the tool call that created the artifact
+    content: str | None = None  # A string content attached to the artifact
 
 
-class InsightArtifact(TaskArtifact):
+class InsightArtifact(ToolArtifact):
     """
     An insight artifact created by a task.
     """
 
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+    type: Literal["insight"] = "insight"
+    plan: str | None = None
+    query: AnyAssistantGeneratedQuery | None = None
 
 
-class TaskResult(BaseModel):
+class ToolResult(BaseModel):
     """
     The result of an individual task.
     """
 
     id: str
-    description: str
-    result: str
-    artifacts: Sequence[TaskArtifact] = Field(default=[])
-    status: TaskExecutionStatus
+    content: str
+    tool_name: str
+    send_result_to_frontend: bool
+    artifacts: Sequence[ToolArtifact] = Field(default=[])
+    metadata: dict[str, Any] | None = None
+    status: ToolExecutionStatus
 
 
 class InsightQuery(BaseModel):
@@ -230,14 +233,10 @@ class BaseStateWithMessages(BaseState):
     """
 
 
-class BaseStateWithTasks(BaseState):
-    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
+class BaseStateWithToolResults(BaseState):
+    tool_results: Annotated[list[ToolResult], append] = Field(default=[])  # pyright: ignore[reportUndefinedVariable]
     """
-    The current tasks.
-    """
-    task_results: Annotated[list[TaskResult], append] = Field(default=[])  # pyright: ignore[reportUndefinedVariable]
-    """
-    Results of tasks executed by assistants.
+    Results of tools executed by assistants.
     """
 
 
@@ -381,7 +380,6 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
     DASHBOARD_CREATION = "dashboard_creation"
-    DASHBOARD_CREATION_EXECUTOR = "dashboard_creation_executor"
     HOGQL_GENERATOR = "hogql_generator"
     HOGQL_GENERATOR_TOOLS = "hogql_generator_tools"
     SESSION_REPLAY_FILTER = "session_replay_filter"

@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, TaskExecutionItem, TaskExecutionStatus
+from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, ToolExecution, ToolExecutionStatus
 
 from posthog.models import Dashboard, Insight, Team, User
 
 from ee.hogai.graph.dashboards.nodes import DashboardCreationExecutorNode, DashboardCreationNode, QueryMetadata
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import BaseStateWithTasks, InsightArtifact, InsightQuery, TaskResult
+from ee.hogai.utils.types.base import BaseStateWithToolResults, InsightArtifact, InsightQuery, ToolResult
 
 
 class TestQueryMetadata(TestCase):
@@ -50,13 +50,13 @@ class TestDashboardCreationExecutorNode:
     @pytest.mark.asyncio
     async def test_aget_input_tuples_search_insights(self):
         """Test _aget_input_tuples for search_insights tasks."""
-        state = BaseStateWithTasks(
+        state = BaseStateWithToolResults(
             tasks=[
-                TaskExecutionItem(
+                ToolExecution(
                     id="task_1",
                     description="Test search",
                     prompt="Test prompt",
-                    status=TaskExecutionStatus.PENDING,
+                    status=ToolExecutionStatus.PENDING,
                     task_type="search_insights",
                 )
             ]
@@ -73,13 +73,13 @@ class TestDashboardCreationExecutorNode:
     @pytest.mark.asyncio
     async def test_aget_input_tuples_create_insight(self):
         """Test _aget_input_tuples for create_insight tasks."""
-        state = BaseStateWithTasks(
+        state = BaseStateWithToolResults(
             tasks=[
-                TaskExecutionItem(
+                ToolExecution(
                     id="task_1",
                     description="Test create",
                     prompt="Test prompt",
-                    status=TaskExecutionStatus.PENDING,
+                    status=ToolExecutionStatus.PENDING,
                     task_type="create_insight",
                 )
             ]
@@ -96,13 +96,13 @@ class TestDashboardCreationExecutorNode:
     @pytest.mark.asyncio
     async def test_aget_input_tuples_unsupported_task(self):
         """Test _aget_input_tuples raises error for unsupported task type."""
-        state = BaseStateWithTasks(
+        state = BaseStateWithToolResults(
             tasks=[
-                TaskExecutionItem(
+                ToolExecution(
                     id="task_1",
                     description="Test task",
                     prompt="Test prompt",
-                    status=TaskExecutionStatus.PENDING,
+                    status=ToolExecutionStatus.PENDING,
                     task_type="unsupported_type",
                 )
             ]
@@ -116,7 +116,7 @@ class TestDashboardCreationExecutorNode:
     @pytest.mark.asyncio
     async def test_aget_input_tuples_no_tasks(self):
         """Test _aget_input_tuples raises error when no tasks."""
-        state = BaseStateWithTasks(tasks=None)
+        state = BaseStateWithToolResults(tasks=None)
 
         with pytest.raises(ValueError) as exc_info:
             await self.node._aget_input_tuples(state)
@@ -377,18 +377,18 @@ class TestDashboardCreationNodeAsyncMethods:
         mock_executor_node = MagicMock()
         mock_executor_node_class.return_value = mock_executor_node
 
-        mock_task_result = TaskResult(
+        mock_task_result = ToolResult(
             id="task_1",
             description="Test task",
-            result="Task completed successfully",
+            content="Task completed successfully",
             artifacts=[
                 InsightArtifact(
-                    task_id="task_1", id=None, content="Test content", query=AssistantHogQLQuery(query="SELECT 1")
+                    tool_call_id="task_1", id=None, content="Test content", query=AssistantHogQLQuery(query="SELECT 1")
                 )
             ],
-            status=TaskExecutionStatus.COMPLETED,
+            status=ToolExecutionStatus.COMPLETED,
         )
-        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithTasks(task_results=[mock_task_result]))
+        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithToolResults(tool_results=[mock_task_result]))
 
         # Mock _process_insight_creation_results to return the modified query_metadata
         async def mock_process_insight_creation_results(task_results, query_metadata):
@@ -427,21 +427,21 @@ class TestDashboardCreationNodeAsyncMethods:
         mock_executor_node = MagicMock()
         mock_executor_node_class.return_value = mock_executor_node
 
-        mock_task_result = TaskResult(
+        mock_task_result = ToolResult(
             id="task_1",
             description="Test task",
-            result="Task completed successfully",
+            content="Task completed successfully",
             artifacts=[
                 InsightArtifact(
-                    task_id="task_1", id=1, content="Test reason", query=AssistantHogQLQuery(query="SELECT 1")
+                    tool_call_id="task_1", id=1, content="Test reason", query=AssistantHogQLQuery(query="SELECT 1")
                 ),
                 InsightArtifact(
-                    task_id="task_1", id=2, content="Test reason", query=AssistantHogQLQuery(query="SELECT 1")
+                    tool_call_id="task_1", id=2, content="Test reason", query=AssistantHogQLQuery(query="SELECT 1")
                 ),
             ],
-            status=TaskExecutionStatus.COMPLETED,
+            status=ToolExecutionStatus.COMPLETED,
         )
-        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithTasks(task_results=[mock_task_result]))
+        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithToolResults(tool_results=[mock_task_result]))
 
         queries_metadata = {
             "task_1": QueryMetadata(
@@ -501,27 +501,33 @@ class TestDashboardCreationNodeAsyncMethods:
         node = DashboardCreationNode(team, user)
 
         task_results = [
-            TaskResult(
+            ToolResult(
                 id="task_1",
                 description="Test task",
-                result="Task completed successfully",
+                content="Task completed successfully",
                 artifacts=[
                     InsightArtifact(
-                        task_id="task_1", id=None, content="Test content", query=AssistantHogQLQuery(query="SELECT 1")
+                        tool_call_id="task_1",
+                        id=None,
+                        content="Test content",
+                        query=AssistantHogQLQuery(query="SELECT 1"),
                     )
                 ],
-                status=TaskExecutionStatus.COMPLETED,
+                status=ToolExecutionStatus.COMPLETED,
             ),
-            TaskResult(
+            ToolResult(
                 id="task_2",
                 description="Test task failed",
-                result="Task failed",
+                content="Task failed",
                 artifacts=[
                     InsightArtifact(
-                        task_id="task_2", id=None, content="Test content", query=AssistantHogQLQuery(query="SELECT 1")
+                        tool_call_id="task_2",
+                        id=None,
+                        content="Test content",
+                        query=AssistantHogQLQuery(query="SELECT 1"),
                     )
                 ],
-                status=TaskExecutionStatus.FAILED,
+                status=ToolExecutionStatus.FAILED,
             ),
         ]
         query_metadata = {

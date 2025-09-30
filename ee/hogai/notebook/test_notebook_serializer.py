@@ -942,7 +942,7 @@ code here
 
         # Create an InsightArtifact with the AssistantQuery
         artifact = InsightArtifact(
-            id=None, task_id="test-insight-1", query=assistant_query, content="Test trends query"
+            id=None, tool_call_id="test-insight-1", query=assistant_query, content="Test trends query"
         )
 
         # Create context and serializer
@@ -970,7 +970,10 @@ code here
 
         # Create artifact and context
         artifact = InsightArtifact(
-            id=None, task_id="test-insight-123", query=assistant_query, content="Test insight for markdown conversion"
+            id=None,
+            tool_call_id="test-insight-123",
+            query=assistant_query,
+            content="Test insight for markdown conversion",
         )
         context = NotebookContext(insights={"test-insight-123": artifact})
         serializer = NotebookSerializer(context=context)
@@ -1021,7 +1024,7 @@ code here
         # 2. Create InsightArtifact like DeepResearchReportNode._create_context() does
         insight_artifact = InsightArtifact(
             id=None,
-            task_id="crash-test-insight",
+            tool_call_id="crash-test-insight",
             query=assistant_trends_query,  # This was causing the crash
             content="Test query that was crashing frontend visualization",
         )

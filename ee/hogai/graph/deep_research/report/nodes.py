@@ -28,7 +28,7 @@ from ee.hogai.graph.deep_research.types import (
 )
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.notebook.notebook_serializer import NotebookContext
-from ee.hogai.utils.types.base import InsightArtifact, TaskArtifact
+from ee.hogai.utils.types.base import InsightArtifact, ToolArtifact
 from ee.hogai.utils.types.composed import MaxNodeName
 
 
@@ -131,20 +131,20 @@ class DeepResearchReportNode(DeepResearchNode):
             current_run_notebooks=current_run_notebooks,
         )
 
-    def _collect_all_artifacts(self, state: DeepResearchState) -> list[TaskArtifact]:
+    def _collect_all_artifacts(self, state: DeepResearchState) -> list[ToolArtifact]:
         """Collect all artifacts from task results."""
-        artifacts: list[TaskArtifact] = []
-        for result in state.task_results:
+        artifacts: list[ToolArtifact] = []
+        for result in state.tool_results:
             artifacts.extend(result.artifacts)
 
         valid_ids = set()
         for intermediate_result in state.intermediate_results:
             valid_ids.update(intermediate_result.artifact_ids)
 
-        artifacts = [artifact for artifact in artifacts if artifact.task_id in valid_ids]
+        artifacts = [artifact for artifact in artifacts if artifact.id in valid_ids]
         return artifacts
 
-    def _format_insights(self, artifacts: list[TaskArtifact]) -> list[FormattedInsight]:
+    def _format_insights(self, artifacts: list[ToolArtifact]) -> list[FormattedInsight]:
         """Format insight artifacts using the query executor."""
         formatted_insights = []
 
@@ -163,8 +163,8 @@ class DeepResearchReportNode(DeepResearchNode):
 
                 formatted_insights.append(
                     FormattedInsight(
-                        id=artifact.task_id,
-                        description=artifact.content,
+                        id=artifact.tool_call_id,
+                        description=artifact.content or "",
                         formatted_results=formatted_results,
                         query_type=query_type,
                     )
@@ -174,8 +174,8 @@ class DeepResearchReportNode(DeepResearchNode):
                 capture_exception(e)
                 formatted_insights.append(  # TODO: remove me
                     FormattedInsight(
-                        id=artifact.task_id,
-                        description=artifact.content,
+                        id=artifact.tool_call_id,
+                        description=artifact.content or "",
                         formatted_results="",
                         query_type=self._get_query_type_name(artifact.query),
                     )
@@ -228,11 +228,13 @@ class DeepResearchReportNode(DeepResearchNode):
 
         return "\n".join(formatted_parts)
 
-    def _create_context(self, artifacts: list[TaskArtifact]) -> NotebookContext:
+    def _create_context(self, artifacts: list[ToolArtifact]) -> NotebookContext:
         """
         Create a context for the notebook serializer.
         """
         context = NotebookContext(
-            insights={artifact.task_id: artifact for artifact in artifacts if isinstance(artifact, InsightArtifact)}
+            insights={
+                artifact.tool_call_id: artifact for artifact in artifacts if isinstance(artifact, InsightArtifact)
+            }
         )
         return context

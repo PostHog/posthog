@@ -24,8 +24,8 @@ import {
     NotebookUpdateMessage,
     PlanningMessage,
     PlanningStepStatus,
-    TaskExecutionMessage,
-    TaskExecutionStatus,
+    ToolExecutionMessage,
+    ToolExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
@@ -831,45 +831,52 @@ export const PlanningComponent: StoryFn = () => {
     return <Template />
 }
 
-export const TaskExecutionComponent: StoryFn = () => {
-    const taskExecutionMessage: TaskExecutionMessage = {
-        type: AssistantMessageType.TaskExecution,
-        tasks: [
+export const ToolExecutionComponent: StoryFn = () => {
+    const toolExecutionMessage: ToolExecutionMessage = {
+        type: AssistantMessageType.ToolExecution,
+        tool_executions: [
             {
                 id: 'task_1',
-                description: 'Loading user data',
-                prompt: 'Fetching last 30 days of user activity',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
+                name: 'Loading user data',
+                description: 'Fetching last 30 days of user activity',
+                args: {},
+                status: ToolExecutionStatus.Completed,
+                tool_name: 'create_insight',
             },
             {
                 id: 'task_2',
-                description: 'Analyzing engagement patterns',
-                prompt: 'Identifying peak usage times and user segments',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
+                name: 'Analyzing engagement patterns',
+                description: 'Identifying peak usage times and user segments',
+                args: {},
+                status: ToolExecutionStatus.Completed,
+                tool_name: 'create_insight',
             },
             {
                 id: 'task_3',
-                description: 'Calculating conversion rates',
-                prompt: 'Processing funnel metrics across key paths',
-                status: TaskExecutionStatus.InProgress,
-                progress_text: 'Exploring data',
-                task_type: 'create_insight',
+                name: 'Calculating conversion rates',
+                description: 'Processing funnel metrics across key paths',
+                args: {},
+                status: ToolExecutionStatus.InProgress,
+                progress: {
+                    content: 'Exploring data',
+                },
+                tool_name: 'create_insight',
             },
             {
                 id: 'task_4',
-                description: 'Building visualizations',
-                prompt: 'Creating charts and graphs for insights',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
+                name: 'Building visualizations',
+                description: 'Creating charts and graphs for insights',
+                args: {},
+                status: ToolExecutionStatus.Pending,
+                tool_name: 'create_insight',
             },
             {
                 id: 'task_5',
-                description: 'Generating report',
-                prompt: 'Compiling findings into readable format',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
+                name: 'Generating report',
+                description: 'Compiling findings into readable format',
+                args: {},
+                status: ToolExecutionStatus.Pending,
+                tool_name: 'create_insight',
             },
         ],
     }
@@ -885,7 +892,7 @@ export const TaskExecutionComponent: StoryFn = () => {
                             'event: message',
                             `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
                             'event: message',
-                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            `data: ${JSON.stringify(toolExecutionMessage)}`,
                         ])
                     )
                 ),
@@ -913,44 +920,49 @@ export const TaskExecutionComponent: StoryFn = () => {
     return <Template />
 }
 
-export const TaskExecutionWithFailure: StoryFn = () => {
-    const taskExecutionMessage: TaskExecutionMessage = {
-        type: AssistantMessageType.TaskExecution,
-        tasks: [
+export const ToolExecutionWithFailure: StoryFn = () => {
+    const toolExecutionMessage: ToolExecutionMessage = {
+        type: AssistantMessageType.ToolExecution,
+        tool_executions: [
             {
                 id: 'task_1',
-                description: 'Loading user data',
-                prompt: 'Fetching last 30 days of user activity',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
+                name: 'Loading user data',
+                description: 'Fetching last 30 days of user activity',
+                args: {},
+                status: ToolExecutionStatus.Completed,
+                tool_name: 'create_insight',
             },
             {
                 id: 'task_2',
-                description: 'Analyzing engagement patterns',
-                prompt: 'Identifying peak usage times and user segments',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
+                name: 'Analyzing engagement patterns',
+                description: 'Identifying peak usage times and user segments',
+                args: {},
+                status: ToolExecutionStatus.Completed,
+                tool_name: 'create_insight',
             },
             {
                 id: 'task_3',
-                description: 'Calculating conversion rates',
-                prompt: 'Processing funnel metrics across key paths',
-                status: TaskExecutionStatus.Failed,
-                task_type: 'create_insight',
+                name: 'Calculating conversion rates',
+                description: 'Processing funnel metrics across key paths',
+                args: {},
+                status: ToolExecutionStatus.Failed,
+                tool_name: 'create_insight',
             },
             {
                 id: 'task_4',
-                description: 'Building visualizations',
-                prompt: 'Creating charts and graphs for insights',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
+                name: 'Building visualizations',
+                description: 'Creating charts and graphs for insights',
+                args: {},
+                status: ToolExecutionStatus.Pending,
+                tool_name: 'create_insight',
             },
             {
                 id: 'task_5',
-                description: 'Generating report',
-                prompt: 'Compiling findings into readable format',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
+                name: 'Generating report',
+                description: 'Compiling findings into readable format',
+                args: {},
+                status: ToolExecutionStatus.Pending,
+                tool_name: 'create_insight',
             },
         ],
     }
@@ -966,7 +978,7 @@ export const TaskExecutionWithFailure: StoryFn = () => {
                             'event: message',
                             `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis with some failures' })}`,
                             'event: message',
-                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            `data: ${JSON.stringify(toolExecutionMessage)}`,
                         ])
                     )
                 ),

@@ -5,10 +5,10 @@ from typing import Annotated, Literal, Optional
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from posthog.schema import DeepResearchNotebook, PlanningStepStatus, TaskExecutionItem
+from posthog.schema import DeepResearchNotebook, PlanningStepStatus
 
 from ee.hogai.utils.types import AssistantMessageUnion, add_and_merge_messages
-from ee.hogai.utils.types.base import BaseStateWithMessages, BaseStateWithTasks, append, replace
+from ee.hogai.utils.types.base import BaseStateWithMessages, BaseStateWithToolResults, append, replace
 
 NotebookInfo = DeepResearchNotebook
 
@@ -24,14 +24,6 @@ class DeepResearchTodo(BaseModel):
     priority: Literal["low", "medium", "high"]
 
 
-class DeepResearchTask(TaskExecutionItem):
-    """
-    A task in the research plan.
-    """
-
-    task_type: Literal["create_insight"]
-
-
 class DeepResearchIntermediateResult(BaseModel):
     """
     An intermediate result of a batch of work, that will be used to write the final report.
@@ -41,8 +33,7 @@ class DeepResearchIntermediateResult(BaseModel):
     artifact_ids: list[str] = Field(default=[])
 
 
-class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
-    tasks: Annotated[Optional[list[DeepResearchTask]], replace] = Field(default=None)  # type: ignore[assignment]
+class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithToolResults):
     todos: Annotated[Optional[list[DeepResearchTodo]], replace] = Field(default=None)
     """
     The current TO-DO list.
@@ -86,5 +77,4 @@ class DeepResearchNodeName(StrEnum):
     NOTEBOOK_PLANNING = "notebook_planning"
     PLANNER = "planner"
     PLANNER_TOOLS = "planner_tools"
-    TASK_EXECUTOR = "task_executor"
     REPORT = "report"

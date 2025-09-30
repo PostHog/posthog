@@ -214,7 +214,7 @@ Current todos:
 {todos}
 """
 
-TODO_READ_FAILED_TOOL_RESULT = """
+TODO_READ_FAILED = """
 No todos yet. Use `todo_write` to create.
 """
 
@@ -222,16 +222,16 @@ INVALID_ARTIFACT_IDS_TOOL_RESULT = """
 Invalid artifact IDs: [{invalid_artifact_ids}]. Check with `artifacts_read`.
 """
 
-ARTIFACTS_READ_TOOL_RESULT = """
+ARTIFACTS_READ = """
 Current artifacts:
 {artifacts}
 """
 
-NO_TASKS_RESULTS_TOOL_RESULT = """
+NO_TOOL_RESULTS = """
 No task results yet. Use `execute_tasks`.
 """
 
-ARTIFACTS_READ_FAILED_TOOL_RESULT = """
+ARTIFACTS_READ_FAILED = """
 No artifacts yet. Tasks will create them.
 """
 

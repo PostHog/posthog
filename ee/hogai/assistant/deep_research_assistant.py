@@ -9,7 +9,7 @@ from posthog.schema import (
     HumanMessage,
     MaxBillingContext,
     ReasoningMessage,
-    TaskExecutionMessage,
+    ToolExecutionMessage,
     VisualizationMessage,
 )
 
@@ -96,7 +96,7 @@ class DeepResearchAssistant(BaseAssistant):
         if isinstance(node_name, DeepResearchNodeName):
             if isinstance(message, ReasoningMessage):
                 return True
-            if isinstance(message, TaskExecutionMessage):
+            if isinstance(message, ToolExecutionMessage):
                 return True
         return False
 

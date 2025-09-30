@@ -10,7 +10,7 @@ from asgiref.sync import async_to_sync
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from posthog.schema import SurveyAnalysisQuestionGroup, SurveyCreationSchema
+from posthog.schema import AssistantTool, SurveyAnalysisQuestionGroup, SurveyCreationSchema
 
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
@@ -23,6 +23,7 @@ from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
+from ee.hogai.utils.types.base import ToolResult
 
 from .prompts import SURVEY_ANALYSIS_SYSTEM_PROMPT, SURVEY_CREATION_SYSTEM_PROMPT
 
@@ -41,9 +42,10 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
 
 
 class CreateSurveyTool(MaxTool):
-    name: str = "create_survey"
+    name: str = AssistantTool.CREATE_SURVEY.value
     description: str = "Create and optionally launch a survey based on natural language instructions"
     thinking_message: str = "Creating your survey"
+    send_result_to_frontend: bool = True
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
@@ -75,7 +77,7 @@ class CreateSurveyTool(MaxTool):
             )
             return survey_creation_schema
 
-    async def _arun_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
+    async def _arun_impl(self, instructions: str) -> ToolResult:
         """
         Generate survey configuration from natural language instructions.
         """
@@ -87,10 +89,13 @@ class CreateSurveyTool(MaxTool):
 
             try:
                 if not result.questions:
-                    return "❌ Survey must have at least one question", {
-                        "error": "validation_failed",
-                        "error_message": "No questions were created from the survey instructions.",
-                    }
+                    return await self._failed_execution(
+                        "❌ Survey must have at least one question",
+                        metadata={
+                            "error": "validation_failed",
+                            "error_message": "No questions were created from the survey instructions.",
+                        },
+                    )
 
                 # Apply appearance defaults and prepare survey data
                 survey_data = self._prepare_survey_data(result, team)
@@ -103,20 +108,32 @@ class CreateSurveyTool(MaxTool):
                 survey = await Survey.objects.acreate(team=team, created_by=user, **survey_data)
 
                 launch_msg = " and launched" if result.should_launch else ""
-                return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", {
-                    "survey_id": survey.id,
-                    "survey_name": survey.name,
-                }
+                return await self._successful_execution(
+                    f"✅ Survey '{survey.name}' created{launch_msg} successfully!",
+                    metadata={
+                        "survey_id": survey.id,
+                        "survey_name": survey.name,
+                    },
+                )
 
             except Exception as validation_error:
-                return f"❌ Survey validation failed: {str(validation_error)}", {
-                    "error": "validation_failed",
-                    "error_message": str(validation_error),
-                }
+                return await self._failed_execution(
+                    f"❌ Survey validation failed: {str(validation_error)}",
+                    metadata={
+                        "error": "validation_failed",
+                        "error_message": str(validation_error),
+                    },
+                )
 
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return "❌ Failed to create survey", {"error": "creation_failed", "details": str(e)}
+            return await self._failed_execution(
+                f"❌ Failed to create survey",
+                metadata={
+                    "error": "creation_failed",
+                    "details": str(e),
+                },
+            )
 
     def _prepare_survey_data(self, survey_schema: SurveyCreationSchema, team: Team) -> dict[str, Any]:
         """Prepare survey data with appearance defaults applied."""
@@ -324,16 +341,17 @@ class SurveyAnalysisOutput(BaseModel):
 
 
 class SurveyAnalysisTool(MaxTool):
-    name: str = "analyze_survey_responses"
+    name: str = AssistantTool.ANALYZE_SURVEY_RESPONSES.value
     description: str = (
         "Analyze survey responses to extract themes, sentiment, and actionable insights from open-ended questions"
     )
     thinking_message: str = "Analyzing your survey responses"
-    root_system_prompt_template: str = (
+    system_prompt_template: str = (
         "You have access to a survey analysis tool that can analyze open-ended responses to identify themes, sentiment, and actionable insights. "
         "When users ask about analyzing survey responses, summarizing feedback, finding patterns in responses, or extracting insights from survey data, "
         "use the analyze_survey_responses tool. Survey data includes: {formatted_responses}"
     )
+    send_result_to_frontend: bool = True
 
     args_schema: type[BaseModel] = SurveyAnalysisArgs
 
@@ -525,7 +543,7 @@ class SurveyAnalysisTool(MaxTool):
 
         return "\n".join(lines)
 
-    async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
+    async def _arun_impl(self) -> ToolResult:
         """
         Analyze survey responses to extract actionable insights from open-ended questions.
         All survey data and responses come from the context provided by the frontend.
@@ -551,31 +569,46 @@ class SurveyAnalysisTool(MaxTool):
                 ]
 
             if not survey_id or not responses:
-                return "❌ No survey data provided", {
-                    "error": "no_survey_data",
-                    "details": "Survey information not found in context",
-                }
+                return await self._failed_execution(
+                    "❌ No survey data provided",
+                    metadata={
+                        "error": "no_survey_data",
+                        "details": "Survey information not found in context",
+                    },
+                )
 
             # Analyze the responses
             analysis_result = await self._analyze_responses(responses)
 
             if analysis_result.response_count == 0:
                 success_message = f"ℹ️ No open-ended responses found in survey '{survey_name}' to analyze"
-                return success_message, {
-                    "survey_id": survey_id,
-                    "survey_name": survey_name,
-                    "analysis": analysis_result.model_dump(),
-                }
+                return await self._successful_execution(
+                    success_message,
+                    metadata={
+                        "survey_id": survey_id,
+                        "survey_name": survey_name,
+                        "analysis": analysis_result.model_dump(),
+                    },
+                )
 
             # Format the analysis as a user-friendly message
             user_message = self._format_analysis_for_user(analysis_result, survey_name)
 
-            return user_message, {
-                "survey_id": survey_id,
-                "survey_name": survey_name,
-                "analysis": analysis_result.model_dump(),
-            }
+            return await self._successful_execution(
+                user_message,
+                metadata={
+                    "survey_id": survey_id,
+                    "survey_name": survey_name,
+                    "analysis": analysis_result.model_dump(),
+                },
+            )
 
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"❌ Failed to analyze survey responses: {str(e)}", {"error": "analysis_failed", "details": str(e)}
+            return await self._failed_execution(
+                f"❌ Failed to analyze survey responses: {str(e)}",
+                metadata={
+                    "error": "analysis_failed",
+                    "details": str(e),
+                },
+            )

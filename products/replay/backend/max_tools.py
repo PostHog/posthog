@@ -5,7 +5,7 @@ from typing import Any
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from posthog.schema import MaxRecordingUniversalFilters
+from posthog.schema import AssistantTool, MaxRecordingUniversalFilters
 
 from posthog.models import Team, User
 
@@ -15,7 +15,7 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.base import AssistantNodeName, ToolResult
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
@@ -110,7 +110,7 @@ class SearchSessionRecordingsArgs(BaseModel):
 
 
 class SearchSessionRecordingsTool(MaxTool):
-    name: str = "search_session_recordings"
+    name: str = AssistantTool.SEARCH_SESSION_RECORDINGS.value
     description: str = """
     - Update session recordings filters on this page, in order to search for session recordings.
     - When to use the tool:
@@ -123,9 +123,9 @@ class SearchSessionRecordingsTool(MaxTool):
       * When the user asks to summarize session recordings
     """
     thinking_message: str = "Coming up with session recordings filters"
-    root_system_prompt_template: str = "Current recordings filters are: {current_filters}"
+    system_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
-    show_tool_call_message: bool = False
+    send_result_to_frontend: bool = True
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """
@@ -144,7 +144,7 @@ class SearchSessionRecordingsTool(MaxTool):
         result = await graph.compile_full_graph().ainvoke(graph_context)
         return result
 
-    async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
+    async def _arun_impl(self, change: str) -> ToolResult:
         result = await self._invoke_graph(change)
         if type(result["output"]) is not MaxRecordingUniversalFilters:
             content = result["intermediate_steps"][-1][0].tool_input
@@ -155,4 +155,4 @@ class SearchSessionRecordingsTool(MaxTool):
                 filters = MaxRecordingUniversalFilters.model_validate(result["output"])
             except Exception as e:
                 raise ValueError(f"Failed to generate MaxRecordingUniversalFilters: {e}")
-        return content, filters
+        return await self._successful_execution(content, metadata={"filters": filters})

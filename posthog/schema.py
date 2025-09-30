@@ -71,28 +71,6 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
-class AssistantContextualTool(StrEnum):
-    SEARCH_SESSION_RECORDINGS = "search_session_recordings"
-    GENERATE_HOGQL_QUERY = "generate_hogql_query"
-    FIX_HOGQL_QUERY = "fix_hogql_query"
-    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
-    CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
-    CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
-    CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
-    CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
-    CREATE_MESSAGE_TEMPLATE = "create_message_template"
-    NAVIGATE = "navigate"
-    FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
-    FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
-    EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
-    CREATE_SURVEY = "create_survey"
-    ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
-    SEARCH_DOCS = "search_docs"
-    SEARCH_INSIGHTS = "search_insights"
-    SESSION_SUMMARIZATION = "session_summarization"
-    CREATE_DASHBOARD = "create_dashboard"
-
-
 class AssistantDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -205,7 +183,7 @@ class AssistantMessageType(StrEnum):
     AI_FAILURE = "ai/failure"
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
-    AI_TASK_EXECUTION = "ai/task_execution"
+    AI_TOOL_EXECUTION = "ai/tool_execution"
 
 
 class AssistantNavigateUrls(StrEnum):
@@ -275,6 +253,30 @@ class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     NOT_ICONTAINS = "not_icontains"
     REGEX = "regex"
     NOT_REGEX = "not_regex"
+
+
+class AssistantTool(StrEnum):
+    SEARCH_SESSION_RECORDINGS = "search_session_recordings"
+    GENERATE_HOGQL_QUERY = "generate_hogql_query"
+    FIX_HOGQL_QUERY = "fix_hogql_query"
+    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
+    CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
+    EDIT_CURRENT_INSIGHT = "edit_current_insight"
+    CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
+    CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
+    CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
+    CREATE_MESSAGE_TEMPLATE = "create_message_template"
+    NAVIGATE = "navigate"
+    FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
+    FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
+    EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
+    CREATE_SURVEY = "create_survey"
+    ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
+    SEARCH_DOCS = "search_docs"
+    SEARCH_INSIGHTS = "search_insights"
+    SESSION_SUMMARIZATION = "session_summarization"
+    CREATE_DASHBOARD = "create_dashboard"
+    GET_BILLING_INFO = "get_billing_info"
 
 
 class AssistantToolCall(BaseModel):
@@ -2204,6 +2206,14 @@ class ReasoningMessage(BaseModel):
     visible: Optional[bool] = None
 
 
+class ReasoningState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    substeps: Optional[list[str]] = None
+
+
 class RecordingDurationFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2671,13 +2681,6 @@ class SurveyWidgetType(StrEnum):
     SELECTOR = "selector"
 
 
-class TaskExecutionStatus(StrEnum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
 class TaxonomicFilterGroupType(StrEnum):
     METADATA = "metadata"
     ACTIONS = "actions"
@@ -2725,6 +2728,13 @@ class TimelineEntry(BaseModel):
     events: list[EventType]
     recording_duration_s: Optional[float] = Field(default=None, description="Duration of the recording in seconds.")
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
+
+
+class ToolExecutionStatus(StrEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class DetailedResultsAggregationType(StrEnum):
@@ -4962,29 +4972,6 @@ class TableSettings(BaseModel):
     conditionalFormatting: Optional[list[ConditionalFormattingRule]] = None
 
 
-class TaskExecutionItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    artifact_ids: Optional[list[str]] = None
-    description: str
-    id: str
-    progress_text: Optional[str] = None
-    prompt: str
-    status: TaskExecutionStatus
-    task_type: str
-
-
-class TaskExecutionMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: Optional[str] = None
-    tasks: list[TaskExecutionItem]
-    type: Literal["ai/task_execution"] = "ai/task_execution"
-    visible: Optional[bool] = None
-
-
 class TeamTaxonomyItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5049,6 +5036,28 @@ class TestCachedBasicQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class ToolExecution(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    args: dict[str, Any]
+    description: str
+    id: str
+    progress: Optional[ReasoningState] = None
+    status: ToolExecutionStatus
+    tool_name: str
+
+
+class ToolExecutionMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Optional[str] = None
+    tool_executions: list[ToolExecution]
+    type: Literal["ai/tool_execution"] = "ai/tool_execution"
+    visible: Optional[bool] = None
 
 
 class TraceQueryResponse(BaseModel):
@@ -14969,7 +14978,7 @@ class RootAssistantMessage(
             FailureMessage,
             NotebookUpdateMessage,
             PlanningMessage,
-            TaskExecutionMessage,
+            ToolExecutionMessage,
             RootAssistantMessage1,
         ]
     ]
@@ -14983,7 +14992,7 @@ class RootAssistantMessage(
         FailureMessage,
         NotebookUpdateMessage,
         PlanningMessage,
-        TaskExecutionMessage,
+        ToolExecutionMessage,
         RootAssistantMessage1,
     ]
 

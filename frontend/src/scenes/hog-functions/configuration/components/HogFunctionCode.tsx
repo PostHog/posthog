@@ -160,11 +160,11 @@ export function HogFunctionCode(): JSX.Element {
             context={{
                 current_hog_code: configuration.hog ?? '',
             }}
-            callback={(toolOutput: string) => {
+            callback={(toolOutput: { hog_code: string }) => {
                 // Store the old value before changing
                 setOldHogCode(configuration.hog ?? '')
                 // Store the new value from Max Tool
-                setNewHogCode(toolOutput)
+                setNewHogCode(toolOutput.hog_code)
                 // Report that AI was prompted
                 reportAIHogFunctionPrompted()
                 // Don't immediately update the form - let user accept/reject

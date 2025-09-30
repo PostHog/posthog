@@ -427,8 +427,8 @@ export function HogFunctionFilters({
                 current_filters: JSON.stringify(configuration?.filters ?? {}),
                 function_type: type,
             }}
-            callback={(toolOutput: string) => {
-                const parsedFilters = JSON.parse(toolOutput)
+            callback={(toolOutput: { filters: string }) => {
+                const parsedFilters = JSON.parse(toolOutput.filters)
                 setOldFilters(configuration?.filters ?? {})
                 setNewFilters(parsedFilters)
                 reportAIFiltersPrompted()

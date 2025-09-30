@@ -21,7 +21,7 @@ from posthog.schema import (
     DeepResearchNotebook,
     DeepResearchType,
     ProsemirrorJSONContent,
-    TaskExecutionStatus,
+    ToolExecutionStatus,
 )
 
 from posthog.models import Team, User
@@ -34,7 +34,7 @@ from ee.hogai.graph.deep_research.types import (
 )
 from ee.hogai.notebook.notebook_serializer import NotebookContext
 from ee.hogai.utils.types import InsightArtifact
-from ee.hogai.utils.types.base import TaskArtifact, TaskResult
+from ee.hogai.utils.types.base import TaskArtifact, ToolResult
 
 
 class TestDeepResearchReportNode:
@@ -67,7 +67,7 @@ class TestDeepResearchReportNode:
         else:
             query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode()])
 
-        return InsightArtifact(id=None, task_id=task_id, query=query, content=f"Sample {query_type} insight")
+        return InsightArtifact(id=None, tool_call_id=task_id, query=query, content=f"Sample {query_type} insight")
 
     def create_sample_state(
         self,
@@ -83,24 +83,24 @@ class TestDeepResearchReportNode:
             intermediate_results = [
                 DeepResearchIntermediateResult(
                     content="Analysis shows user engagement trends",
-                    artifact_ids=[artifacts[0].task_id] if artifacts else [],
+                    artifact_ids=[artifacts[0].tool_call_id] if artifacts else [],
                 )
             ]
 
         task_results = [
-            TaskResult(
+            ToolResult(
                 id="task_1",
                 description="Analyze user behavior",
-                result="Users show high engagement",
+                content="Users show high engagement",
                 artifacts=artifacts,
-                status=TaskExecutionStatus.COMPLETED,
+                status=ToolExecutionStatus.COMPLETED,
             )
         ]
 
         last_message = AssistantToolCallMessage(content=last_message_content, tool_call_id="tool_call_1")
 
         return DeepResearchState(
-            messages=[last_message], task_results=task_results, intermediate_results=intermediate_results
+            messages=[last_message], tool_results=task_results, intermediate_results=intermediate_results
         )
 
     def test_collect_all_artifacts_success(self):
@@ -109,13 +109,13 @@ class TestDeepResearchReportNode:
         artifact2 = self.create_sample_artifact("artifact_2", "funnels")
 
         state = DeepResearchState(
-            task_results=[
-                TaskResult(
+            tool_results=[
+                ToolResult(
                     id="task_1",
                     description="Task 1",
-                    result="Result 1",
+                    content="Result 1",
                     artifacts=[artifact1, artifact2],
-                    status=TaskExecutionStatus.COMPLETED,
+                    status=ToolExecutionStatus.COMPLETED,
                 )
             ],
             intermediate_results=[
@@ -126,8 +126,8 @@ class TestDeepResearchReportNode:
         artifacts = self.node._collect_all_artifacts(state)
 
         assert len(artifacts) == 2
-        assert artifacts[0].task_id == "artifact_1"
-        assert artifacts[1].task_id == "artifact_2"
+        assert artifacts[0].tool_id == "artifact_1"
+        assert artifacts[1].tool_id == "artifact_2"
 
     def test_collect_all_artifacts_filters_invalid_ids(self):
         """Test that artifacts with invalid IDs are filtered out."""
@@ -135,13 +135,13 @@ class TestDeepResearchReportNode:
         artifact2 = self.create_sample_artifact("artifact_2", "funnels")
 
         state = DeepResearchState(
-            task_results=[
-                TaskResult(
+            tool_results=[
+                ToolResult(
                     id="task_1",
                     description="Task 1",
-                    result="Result 1",
+                    content="Result 1",
                     artifacts=[artifact1, artifact2],
-                    status=TaskExecutionStatus.COMPLETED,
+                    status=ToolExecutionStatus.COMPLETED,
                 )
             ],
             intermediate_results=[
@@ -155,11 +155,11 @@ class TestDeepResearchReportNode:
         artifacts = self.node._collect_all_artifacts(state)
 
         assert len(artifacts) == 1
-        assert artifacts[0].task_id == "artifact_1"
+        assert artifacts[0].tool_id == "artifact_1"
 
     def test_collect_all_artifacts_empty_results(self):
         """Test that empty task results return empty artifact list."""
-        state = DeepResearchState(task_results=[], intermediate_results=[])
+        state = DeepResearchState(tool_results=[], intermediate_results=[])
 
         artifacts = self.node._collect_all_artifacts(state)
 
@@ -350,7 +350,7 @@ class TestDeepResearchReportNode:
         mock_get_model.return_value = mock_model
 
         state = DeepResearchState(
-            messages=[AssistantMessage(content="Not a tool call message")], task_results=[], intermediate_results=[]
+            messages=[AssistantMessage(content="Not a tool call message")], tool_results=[], intermediate_results=[]
         )
 
         with pytest.raises(ValueError, match="Last message is not a tool call message"):
@@ -379,7 +379,7 @@ class TestDeepResearchReportNode:
 
         state = DeepResearchState(
             messages=[AssistantToolCallMessage(content="Complete", tool_call_id="tool_1")],
-            task_results=[],
+            tool_results=[],
             intermediate_results=[],
         )
 
@@ -417,13 +417,13 @@ class TestDeepResearchReportNode:
         artifacts: list[TaskArtifact] = [self.create_sample_artifact("artifact_1", "trends")]
         state = DeepResearchState(
             messages=[AssistantToolCallMessage(content="Complete", tool_call_id="tool_1")],
-            task_results=[
-                TaskResult(
+            tool_results=[
+                ToolResult(
                     id="task_1",
                     description="Task 1",
-                    result="Result",
+                    content="Result",
                     artifacts=artifacts,
-                    status=TaskExecutionStatus.COMPLETED,
+                    status=ToolExecutionStatus.COMPLETED,
                 )
             ],
             intermediate_results=[],
@@ -498,20 +498,20 @@ class TestDeepResearchReportNode:
         artifact3 = self.create_sample_artifact("artifact_3", "retention")
 
         state = DeepResearchState(
-            task_results=[
-                TaskResult(
+            tool_results=[
+                ToolResult(
                     id="task_1",
                     description="Task 1",
-                    result="Result 1",
+                    content="Result 1",
                     artifacts=[artifact1, artifact2],
-                    status=TaskExecutionStatus.COMPLETED,
+                    status=ToolExecutionStatus.COMPLETED,
                 ),
-                TaskResult(
+                ToolResult(
                     id="task_2",
                     description="Task 2",
-                    result="Result 2",
+                    content="Result 2",
                     artifacts=[artifact3],
-                    status=TaskExecutionStatus.COMPLETED,
+                    status=ToolExecutionStatus.COMPLETED,
                 ),
             ],
             intermediate_results=[
@@ -524,7 +524,7 @@ class TestDeepResearchReportNode:
         artifacts = self.node._collect_all_artifacts(state)
 
         assert len(artifacts) == 3
-        artifact_ids = [artifact.task_id for artifact in artifacts]
+        artifact_ids = [artifact.tool_id for artifact in artifacts]
         assert "artifact_1" in artifact_ids
         assert "artifact_2" in artifact_ids
         assert "artifact_3" in artifact_ids
@@ -581,13 +581,13 @@ class TestDeepResearchReportNode:
         tool_call_message = AssistantToolCallMessage(content="Task execution complete", tool_call_id="tool_call_123")
         state = DeepResearchState(
             messages=[tool_call_message],
-            task_results=[
-                TaskResult(
+            tool_results=[
+                ToolResult(
                     id="task_1",
                     description="Test task",
-                    result="Test result",
+                    content="Test result",
                     artifacts=[self.create_sample_artifact()],
-                    status=TaskExecutionStatus.COMPLETED,
+                    status=ToolExecutionStatus.COMPLETED,
                 )
             ],
             intermediate_results=[DeepResearchIntermediateResult(content="Test analysis", artifact_ids=["artifact_1"])],
@@ -668,7 +668,7 @@ class TestDeepResearchReportNode:
             messages=[tool_call_message],
             conversation_notebooks=existing_notebooks,
             current_run_notebooks=existing_notebooks,
-            task_results=[],
+            tool_results=[],
             intermediate_results=[],
         )
 

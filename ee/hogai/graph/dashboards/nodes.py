@@ -8,21 +8,17 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, TaskExecutionItem, TaskExecutionStatus
+from posthog.schema import AssistantHogQLQuery, AssistantToolCall, AssistantToolCallMessage, ToolExecutionStatus
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.parallel_task_execution.mixins import (
-    WithInsightCreationTaskExecution,
-    WithInsightSearchTaskExecution,
-)
-from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
+from ee.hogai.tool import ParallelToolExecution
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url, cast_assistant_query
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import BaseStateWithTasks, InsightArtifact, InsightQuery, TaskResult
+from ee.hogai.utils.types.base import InsightArtifact, InsightQuery, ToolResult
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
@@ -42,36 +38,6 @@ class QueryMetadata(BaseModel):
     found_insight_messages: list[str]
     created_insight_messages: list[str]
     query: InsightQuery
-
-
-class DashboardCreationExecutorNode(
-    BaseTaskExecutorNode[
-        BaseStateWithTasks,
-        BaseStateWithTasks,
-    ],
-    WithInsightSearchTaskExecution,
-    WithInsightCreationTaskExecution,
-):
-    """
-    Task executor node specifically for insight search operations.
-    """
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.DASHBOARD_CREATION_EXECUTOR
-
-    async def _aget_input_tuples(self, state: BaseStateWithTasks) -> list[TaskExecutionInputTuple]:
-        if not state.tasks:
-            raise ValueError("No tasks to execute")
-        input_tuples: list[TaskExecutionInputTuple] = []
-        for task in state.tasks:
-            if task.task_type == "search_insights":
-                input_tuples.append((task, [], self._execute_search_insights))
-            elif task.task_type == "create_insight":
-                input_tuples.append((task, [], self._execute_create_insight))
-            else:
-                raise ValueError(f"Unsupported task type: {task.task_type}")
-        return input_tuples
 
 
 class DashboardCreationNode(AssistantNode):
@@ -157,63 +123,59 @@ class DashboardCreationNode(AssistantNode):
         query_metadata: dict[str, QueryMetadata],
         config: RunnableConfig,
     ) -> dict[str, QueryMetadata]:
-        task_executor_state = BaseStateWithTasks(
-            tasks=[
-                TaskExecutionItem(
+        tool_calls: list[AssistantToolCall] = []
+        for query_id in left_to_create.keys():
+            tool_calls.append(
+                AssistantToolCall(
                     id=query_id,
-                    prompt=query_metadata[query_id].query.description,
-                    status=TaskExecutionStatus.PENDING,
-                    description=f"Creating insight `{query_metadata[query_id].query.name}`",
-                    progress_text="Creating insight...",
-                    task_type="create_insight",
+                    name="create_insights",
+                    args={
+                        "query_id": query_id,
+                    },
                 )
-                for query_id in left_to_create.keys()
-            ],
+            )
+        ToolExecutionClass = ParallelToolExecution(
+            team=self._team, user=self._user, write_message_afunc=self._write_message
         )
+        tool_results, _ = await ToolExecutionClass.arun(tool_calls, AssistantState(), config)
 
-        executor = DashboardCreationExecutorNode(self._team, self._user)
-        result = await executor.arun(task_executor_state, config)
-
-        query_metadata = await self._process_insight_creation_results(result.task_results, query_metadata)
-
-        return query_metadata
+        return await self._process_insight_creation_results(tool_results, query_metadata)
 
     async def _search_insights(
         self,
         queries_metadata: dict[str, QueryMetadata],
         config: RunnableConfig,
     ) -> dict[str, QueryMetadata]:
-        tasks = [
-            TaskExecutionItem(
-                id=query_id,
-                prompt=query_metadata.query.description,
-                status=TaskExecutionStatus.PENDING,
-                description=f"Searching for insight `{query_metadata.query.name}`",
-                progress_text="Searching for existing insights...",
-                task_type="search_insights",
+        tool_calls: list[AssistantToolCall] = []
+        tool_call_id_to_description: dict[str, str] = {}
+        for query_id, query_metadata in queries_metadata.items():
+            tool_calls.append(
+                AssistantToolCall(
+                    id=query_id,
+                    name="search_insights",
+                    args={
+                        "search_query": query_metadata.query.description,
+                    },
+                )
             )
-            for query_id, query_metadata in queries_metadata.items()
-        ]
-
-        task_executor_state = BaseStateWithTasks(
-            tasks=tasks,
+            tool_call_id_to_description[query_id] = query_metadata.query.description
+        ToolExecutionClass = ParallelToolExecution(
+            team=self._team, user=self._user, write_message_afunc=self._write_message
         )
+        tool_results, _ = await ToolExecutionClass.arun(tool_calls, AssistantState(), config)
 
-        executor = DashboardCreationExecutorNode(self._team, self._user)
-        result = await executor.arun(task_executor_state, config)
-        final_task_executor_state = BaseStateWithTasks.model_validate(result)
-
-        for task_result in final_task_executor_state.task_results:
-            if task_result.status == TaskExecutionStatus.COMPLETED:
-                for artifact in task_result.artifacts:
+        for tool_result in tool_results:
+            if tool_result.status == ToolExecutionStatus.COMPLETED:
+                for artifact in tool_result.artifacts:
                     if artifact.id:
-                        queries_metadata[task_result.id].found_insight_ids.add(cast(int, artifact.id))
-                        queries_metadata[task_result.id].found_insight_messages.append(
-                            f"\n -{queries_metadata[task_result.id].query.name}: Found insights for the query and the reason for selection is **{artifact.content}**"
+                        queries_metadata[tool_result.id].found_insight_ids.add(cast(int, artifact.id))
+                        queries_metadata[tool_result.id].found_insight_messages.append(
+                            f"\n -{queries_metadata[tool_result.id].query.name}: Found insights for the query and the reason for selection is **{artifact.content}**"
                         )
                     else:
-                        queries_metadata[task_result.id].found_insight_messages.append(
-                            f"\n -{queries_metadata[task_result.id].query.name}: Could not find insights for the query with the description **{task_result.description}**"
+                        description = tool_call_id_to_description[tool_result.id]
+                        queries_metadata[tool_result.id].found_insight_messages.append(
+                            f"\n -{queries_metadata[tool_result.id].query.name}: Could not find insights for the query with the description **{description}**"
                         )
         return queries_metadata
 
@@ -223,20 +185,20 @@ class DashboardCreationNode(AssistantNode):
 
     @database_sync_to_async
     def _process_insight_creation_results(
-        self, task_results: list[TaskResult], query_metadata: dict[str, QueryMetadata]
+        self, task_results: list[ToolResult], query_metadata: dict[str, QueryMetadata]
     ) -> dict[str, QueryMetadata]:
         insights_to_create = []
         insight_metadata = []
 
         for task_result in task_results:
-            if task_result.status != TaskExecutionStatus.COMPLETED:
+            if task_result.status != ToolExecutionStatus.COMPLETED:
                 query_metadata[task_result.id].created_insight_messages.append(
-                    f"\n -{query_metadata[task_result.id].query.name}: Could not create insights for the query with the description **{task_result.result}**"
+                    f"\n -{query_metadata[task_result.id].query.name}: Could not create insights for the query with the description **{task_result.content}**"
                 )
                 continue
 
             for artifact in task_result.artifacts:
-                if not isinstance(artifact, InsightArtifact):
+                if not isinstance(artifact, InsightArtifact) or not artifact.query:
                     continue
                 insight_name = query_metadata[task_result.id].query.name[:400]  # Max 400 chars
                 insight_description = query_metadata[task_result.id].query.description[:400]  # Max 400 chars

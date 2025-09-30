@@ -47,9 +47,9 @@ from posthog.schema import (
     MaxProductInfo,
     MaxUIContext,
     ReasoningMessage,
-    TaskExecutionItem,
-    TaskExecutionMessage,
-    TaskExecutionStatus,
+    ToolExecution,
+    ToolExecutionMessage,
+    ToolExecutionStatus,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -2020,13 +2020,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             mode=AssistantMode.DEEP_RESEARCH,
         )
 
-        task_message = TaskExecutionMessage(
+        task_message = ToolExecutionMessage(
             tasks=[
-                TaskExecutionItem(
+                ToolExecution(
                     description="Write summary",
                     id="t1",
                     prompt="Write a summary",
-                    status=TaskExecutionStatus.IN_PROGRESS,
+                    status=ToolExecutionStatus.IN_PROGRESS,
                     task_type="summary",
                 )
             ]

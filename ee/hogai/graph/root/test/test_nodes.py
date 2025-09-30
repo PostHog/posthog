@@ -349,7 +349,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             # Clear any cached context manager to force recreation with new config
             node._context_manager = None
 
-            # Mock get_contextual_tool_class to return a real tool-like class
+            # Mock get_assistant_tool_class to return a real tool-like class
             with (
                 patch.object(node, "_has_insight_search_feature_flag", return_value=False),
                 patch.object(node, "_has_session_summarization_feature_flag", return_value=False),
@@ -361,7 +361,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 mock_tool_class.return_value = mock_tool_instance
 
                 # We need to patch at the point where it's imported
-                with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool:
+                with patch("ee.hogai.tool.get_assistant_tool_class") as mock_get_tool:
                     mock_get_tool.return_value = mock_tool_class
 
                     # Verify that context_manager has the right tools
@@ -375,7 +375,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                         config,
                     )
 
-                    # Verify get_contextual_tool_class was called
+                    # Verify get_assistant_tool_class was called
                     mock_get_tool.assert_called_once_with("search_session_recordings")
 
                     # Verify bind_tools was called
@@ -736,7 +736,7 @@ class TestRootNodeTools(BaseTest):
             ]
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
+        with patch("ee.hogai.tool.get_assistant_tool_class") as mock_tools:
             # Mock the navigate tool
             mock_navigate_tool = AsyncMock()
             mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
@@ -774,11 +774,11 @@ class TestRootNodeTools(BaseTest):
             ]
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
+        with patch("ee.hogai.tool.get_assistant_tool_class") as mock_tools:
             # Mock the navigate tool to raise an exception
             mock_navigate_tool = AsyncMock()
             mock_navigate_tool.ainvoke = AsyncMock(side_effect=Exception("Navigation failed"))
-            mock_navigate_tool.show_tool_call_message = True
+            mock_navigate_tool.send_result_to_frontend = True
             mock_navigate_tool._state = state
             mock_tools.return_value = lambda *args, **kwargs: mock_navigate_tool
 
@@ -818,7 +818,7 @@ class TestRootNodeTools(BaseTest):
             ]
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
+        with patch("ee.hogai.tool.get_assistant_tool_class") as mock_tools:
             # Mock the search_session_recordings tool
             mock_search_session_recordings = AsyncMock()
             mock_search_session_recordings.ainvoke.return_value = LangchainToolMessage(

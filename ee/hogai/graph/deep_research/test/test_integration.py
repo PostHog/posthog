@@ -19,7 +19,7 @@ from posthog.schema import (
     PlanningMessage,
     PlanningStep,
     PlanningStepStatus,
-    TaskExecutionStatus,
+    ToolExecutionStatus,
     VisualizationItem,
 )
 
@@ -37,7 +37,7 @@ from ee.hogai.graph.deep_research.types import (
     DeepResearchTask,
     DeepResearchTodo,
 )
-from ee.hogai.utils.types.base import TaskResult
+from ee.hogai.utils.types.base import ToolResult
 from ee.models.assistant import Conversation
 
 
@@ -61,7 +61,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         messages: list[Any] | None = None,
         todos: list[DeepResearchTodo] | None = None,
         tasks: list[DeepResearchTask] | None = None,
-        task_results: list[TaskResult] | None = None,
+        task_results: list[ToolResult] | None = None,
         intermediate_results: list[DeepResearchIntermediateResult] | None = None,
         current_run_notebooks: list[DeepResearchNotebook] | None = None,
     ) -> DeepResearchState:
@@ -69,7 +69,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
             messages=messages or [],
             todos=todos,
             tasks=tasks,
-            task_results=task_results or [],
+            tool_results=task_results or [],
             intermediate_results=intermediate_results or [],
             conversation_notebooks=[],
             current_run_notebooks=current_run_notebooks
@@ -125,8 +125,8 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         ]
 
         task_results = [
-            TaskResult(
-                id=f"result_{i}", description=f"Result {i}", result="Success", status=TaskExecutionStatus.COMPLETED
+            ToolResult(
+                id=f"result_{i}", description=f"Result {i}", content="Success", status=ToolExecutionStatus.COMPLETED
             )
             for i in range(num_results)
         ]
@@ -141,7 +141,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         deserialized = DeepResearchState.model_validate(serialized)
 
         self.assertEqual(len(cast(list[DeepResearchTodo], deserialized.todos)), num_todos)
-        self.assertEqual(len(deserialized.task_results), num_results)
+        self.assertEqual(len(deserialized.tool_results), num_results)
         self.assertEqual(cast(HumanMessage, deserialized.messages[0]).content, query)
 
     def test_invalid_notebook_reference_handling(self, mock_llm_class, mock_get_model):
@@ -267,9 +267,9 @@ class TestDeepResearchE2E(APIBaseTest):
         test_state = DeepResearchState(
             messages=[HumanMessage(content="Test message")],
             todos=[DeepResearchTodo(id=1, description="Test todo", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
-                TaskResult(
-                    id="task_1", description="Test task", result="Test result", status=TaskExecutionStatus.COMPLETED
+            tool_results=[
+                ToolResult(
+                    id="task_1", description="Test task", content="Test result", status=ToolExecutionStatus.COMPLETED
                 )
             ],
         )
@@ -281,9 +281,9 @@ class TestDeepResearchE2E(APIBaseTest):
         self.assertEqual(len(deserialized.messages), 1)
         todos = cast(list[DeepResearchTodo], deserialized.todos)
         self.assertEqual(len(cast(list[DeepResearchTodo], deserialized.todos)), 1)
-        self.assertEqual(len(deserialized.task_results), 1)
+        self.assertEqual(len(deserialized.tool_results), 1)
         self.assertEqual(todos[0].description, "Test todo")
-        self.assertEqual(deserialized.task_results[0].result, "Test result")
+        self.assertEqual(deserialized.tool_results[0].content, "Test result")
 
         # Test database integration
         retrieved_notebook = Notebook.objects.get(short_id=notebook.short_id)

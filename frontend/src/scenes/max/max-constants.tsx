@@ -3,7 +3,7 @@ import { IconAtSign, IconMemory } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
 
-import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
+import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
@@ -53,8 +53,8 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
 }
 
 export const TOOL_DEFINITIONS: Omit<
-    Record<AssistantContextualTool, ToolDefinition>,
-    'fix_hogql_query' | 'search_insights'
+    Record<AssistantTool, ToolDefinition>,
+    'fix_hogql_query' | 'search_insights' | 'edit_current_insight' | 'get_billing_info'
 > = {
     session_summarization: {
         name: 'Summarize sessions',

@@ -22,25 +22,25 @@ from posthog.schema import (
     MultiVisualizationMessage,
     PlanningMessage,
     PlanningStepStatus,
-    TaskExecutionStatus,
+    ToolExecutionStatus,
 )
 
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.planner.prompts import (
     FINALIZE_RESEARCH_TOOL_RESULT,
-    NO_TASKS_RESULTS_TOOL_RESULT,
+    NO_TOOL_RESULTS,
     WRITE_RESULT_FAILED_TOOL_RESULT,
     WRITE_RESULT_TOOL_RESULT,
 )
 from ee.hogai.graph.deep_research.types import DeepResearchState, DeepResearchTask, DeepResearchTodo
 from ee.hogai.utils.types import InsightArtifact
-from ee.hogai.utils.types.base import TaskResult
+from ee.hogai.utils.types.base import ToolResult
 
 
 def _create_test_artifact(task_id: str, description: str, sql_query: str = "SELECT 1"):
     """Helper to create InsightArtifact for testing"""
     hogql_query = AssistantHogQLQuery(query=sql_query)
-    return InsightArtifact(id=None, task_id=task_id, content=description, query=hogql_query)
+    return InsightArtifact(id=None, tool_call_id=task_id, content=description, query=hogql_query)
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -466,11 +466,11 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             (
                 "with_artifacts",
                 [
-                    TaskResult(
+                    ToolResult(
                         id="1",
                         description="Task 1",
-                        result="Result",
-                        status=TaskExecutionStatus.COMPLETED,
+                        content="Result",
+                        status=ToolExecutionStatus.COMPLETED,
                         artifacts=[_create_test_artifact("art1", "Artifact 1")],
                     )
                 ],
@@ -478,11 +478,11 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             (
                 "no_artifacts",
                 [
-                    TaskResult(
+                    ToolResult(
                         id="1",
                         description="Task 1",
-                        result="Result",
-                        status=TaskExecutionStatus.COMPLETED,
+                        content="Result",
+                        status=ToolExecutionStatus.COMPLETED,
                         artifacts=[],
                     )
                 ],
@@ -513,7 +513,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 id="1",
                 description="Test task",
                 prompt="Test prompt",
-                status=TaskExecutionStatus.PENDING,
+                status=ToolExecutionStatus.PENDING,
                 task_type="create_insight",
             )
         ]
@@ -547,9 +547,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
 
                 self.assertEqual(len(result.messages), 1)
                 self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-                self.assertEqual(
-                    cast(AssistantToolCallMessage, result.messages[0]).content, NO_TASKS_RESULTS_TOOL_RESULT
-                )
+                self.assertEqual(cast(AssistantToolCallMessage, result.messages[0]).content, NO_TOOL_RESULTS)
 
     @parameterized.expand(
         [
@@ -565,7 +563,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
             task_results=[
-                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
+                ToolResult(id="1", description="Task", content="Result", status=ToolExecutionStatus.COMPLETED)
             ],
         )
 
@@ -593,11 +591,11 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
             task_results=[
-                TaskResult(
+                ToolResult(
                     id="1",
                     description="Task",
-                    result="Result",
-                    status=TaskExecutionStatus.COMPLETED,
+                    content="Result",
+                    status=ToolExecutionStatus.COMPLETED,
                     artifacts=[_create_test_artifact("valid_id", "Valid artifact")],
                 )
             ],
@@ -620,11 +618,11 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
             task_results=[
-                TaskResult(
+                ToolResult(
                     id="1",
                     description="Task",
-                    result="Result",
-                    status=TaskExecutionStatus.COMPLETED,
+                    content="Result",
+                    status=ToolExecutionStatus.COMPLETED,
                     artifacts=[artifact1, artifact2],
                 )
             ],
@@ -650,7 +648,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
             task_results=[
-                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
+                ToolResult(id="1", description="Task", content="Result", status=ToolExecutionStatus.COMPLETED)
             ],
         )
 
@@ -667,7 +665,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
             task_results=[
-                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
+                ToolResult(id="1", description="Task", content="Result", status=ToolExecutionStatus.COMPLETED)
             ],
         )
 
@@ -684,7 +682,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                         id="1",
                         description="Test",
                         prompt="Test prompt",
-                        status=TaskExecutionStatus.PENDING,
+                        status=ToolExecutionStatus.PENDING,
                         task_type="create_insight",
                     )
                 ],

@@ -8,7 +8,6 @@ from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlan
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
-from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState
 from ee.hogai.graph.graph import BaseAssistantGraph
 
@@ -56,21 +55,11 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
             DeepResearchNodeName.PLANNER_TOOLS,
             deep_research_planner_tools.router,
             path_map={
-                "task_executor": DeepResearchNodeName.TASK_EXECUTOR,
                 "continue": DeepResearchNodeName.PLANNER,
                 "end": next_node,
             },
         )
 
-        return self
-
-    def add_task_executor(self, next_node: DeepResearchNodeName = DeepResearchNodeName.PLANNER):
-        """
-        Add the core task executor node that handles task execution.
-        """
-        executor_node = DeepResearchTaskExecutorNode(self._team, self._user)
-        self.add_node(DeepResearchNodeName.TASK_EXECUTOR, executor_node)
-        self.add_edge(DeepResearchNodeName.TASK_EXECUTOR, next_node)
         return self
 
     def add_report_node(self, next_node: DeepResearchNodeName = DeepResearchNodeName.END):
@@ -87,6 +76,5 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
             .add_planner_nodes()
             .add_report_node()
             .add_title_generator()
-            .add_task_executor()
             .compile(checkpointer=checkpointer)
         )

@@ -136,11 +136,11 @@ export function HogFunctionInputs(): JSX.Element {
                 current_inputs_schema: configuration.inputs_schema ?? [],
                 hog_code: configuration.hog ?? '',
             }}
-            callback={(toolOutput: CyclotronJobInputSchemaType[]) => {
+            callback={(toolOutput: { schema: CyclotronJobInputSchemaType[] }) => {
                 // Store the old inputs before changing
                 setOldInputs(configuration.inputs_schema ?? [])
                 // Store the new inputs from Max Tool
-                setNewInputs(toolOutput)
+                setNewInputs(toolOutput.schema)
                 // Report that AI was prompted
                 reportAIHogFunctionInputsPrompted()
                 // Don't immediately update the form - let user accept/reject
