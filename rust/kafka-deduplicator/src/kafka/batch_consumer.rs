@@ -2,19 +2,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::kafka::batch_context::BatchConsumerContext;
 use crate::kafka::batch_message::{Batch, BatchError, KafkaMessage};
 use crate::kafka::metrics_consts::{BATCH_CONSUMER_KAFKA_ERRORS, BATCH_CONSUMER_MESSAGES_RECEIVED};
 use crate::kafka::rebalance_handler::RebalanceHandler;
-use crate::kafka::batch_context::BatchConsumerContext;
 use crate::kafka::types::Partition;
 
 use anyhow::anyhow;
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{
-    CommitMode, Consumer, MessageStream, StreamConsumer,
-};
+use rdkafka::consumer::{CommitMode, Consumer, MessageStream, StreamConsumer};
 use rdkafka::error::KafkaResult;
 use rdkafka::message::Message;
 use rdkafka::TopicPartitionList;
@@ -22,7 +20,6 @@ use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
-
 
 pub struct BatchConsumer<T> {
     consumer: StreamConsumer<BatchConsumerContext>,

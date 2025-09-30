@@ -2,11 +2,11 @@ use std::sync::Arc;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
+use crate::kafka::types::Partition;
 use crate::kafka::{rebalance_handler::RebalanceHandler, stateful_context::RebalanceEvent};
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, TopicPartitionList};
 use tracing::{error, info, warn};
-use crate::kafka::types::Partition;
 
 pub struct BatchConsumerContext {
     rebalance_handler: Arc<dyn RebalanceHandler>,
