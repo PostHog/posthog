@@ -9,6 +9,7 @@ use tracing::info;
 
 use crate::metrics::MetricsHelper;
 use crate::metrics_const::*;
+use crate::rocksdb::dedup_metadata::DedupFieldName;
 use crate::rocksdb::store::RocksDbStore;
 
 use super::keys::{TimestampKey, UuidIndexKey, UuidKey};
@@ -179,13 +180,9 @@ impl DeduplicationStore {
                     DeduplicationResultReason::SameEvent,
                 )
             } else {
-                let different_fields_names = similarity
-                    .different_fields
-                    .iter()
-                    .map(|(field_name, _, _)| field_name.clone())
-                    .collect::<Vec<String>>();
-
-                if different_fields_names.len() == 1 && different_fields_names[0] == "uuid" {
+                if similarity.different_fields.len() == 1
+                    && similarity.different_fields[0].0 == DedupFieldName::Uuid
+                {
                     DeduplicationResult::ConfirmedDuplicate(
                         DeduplicationType::Timestamp,
                         DeduplicationResultReason::OnlyUuidDifferent,
@@ -241,7 +238,7 @@ impl DeduplicationStore {
                 self.metrics
                     .counter(TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER)
                     .with_label("lib", &lib_name)
-                    .with_label("field", field_name)
+                    .with_label("field", &field_name.to_string())
                     .increment(1);
             }
 
@@ -308,13 +305,9 @@ impl DeduplicationStore {
                     DeduplicationResultReason::SameEvent,
                 )
             } else {
-                let different_fields_names = similarity
-                    .different_fields
-                    .iter()
-                    .map(|(field_name, _, _)| field_name.clone())
-                    .collect::<Vec<String>>();
-
-                if different_fields_names.len() == 1 && different_fields_names[0] == "timestamp" {
+                if similarity.different_fields.len() == 1
+                    && similarity.different_fields[0].0 == DedupFieldName::Timestamp
+                {
                     DeduplicationResult::ConfirmedDuplicate(
                         DeduplicationType::UUID,
                         DeduplicationResultReason::OnlyTimestampDifferent,
@@ -375,7 +368,7 @@ impl DeduplicationStore {
                 self.metrics
                     .counter(UUID_DEDUP_FIELD_DIFFERENCES_COUNTER)
                     .with_label("lib", &lib_name)
-                    .with_label("field", field_name)
+                    .with_label("field", &field_name.to_string())
                     .increment(1);
             }
 

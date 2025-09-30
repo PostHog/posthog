@@ -176,6 +176,19 @@ impl MetadataV1 {
 /// Type alias for property differences
 type PropertyDifference = (String, Option<(String, String)>);
 
+/// Field names used in deduplication comparisons
+#[derive(Debug, Clone, PartialEq, strum_macros::Display, strum_macros::EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum DedupFieldName {
+    Event,
+    DistinctId,
+    Token,
+    Timestamp,
+    Set,
+    SetOnce,
+    Uuid,
+}
+
 /// Represents the similarity between two events
 #[derive(Debug)]
 pub struct EventSimilarity {
@@ -184,7 +197,7 @@ pub struct EventSimilarity {
     /// Number of top-level fields that differ (excluding properties)
     pub different_field_count: u32,
     /// List of field names that differ with their values (original -> new)
-    pub different_fields: Vec<(String, String, String)>, // (field_name, original_value, new_value)
+    pub different_fields: Vec<(DedupFieldName, String, String)>, // (field_name, original_value, new_value)
     /// Properties similarity score (0.0 = completely different, 1.0 = identical)
     pub properties_similarity: f64,
     /// Number of properties that differ
@@ -219,7 +232,7 @@ impl EventSimilarity {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "event".to_string(),
+                DedupFieldName::Event,
                 original.event.clone(),
                 new.event.clone(),
             ));
@@ -230,7 +243,7 @@ impl EventSimilarity {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "distinct_id".to_string(),
+                DedupFieldName::DistinctId,
                 format_value_opt(&original.distinct_id),
                 format_value_opt(&new.distinct_id),
             ));
@@ -241,7 +254,7 @@ impl EventSimilarity {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "token".to_string(),
+                DedupFieldName::Token,
                 format_opt(&original.token),
                 format_opt(&new.token),
             ));
@@ -257,7 +270,7 @@ impl EventSimilarity {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "timestamp".to_string(),
+                DedupFieldName::Timestamp,
                 original_ts
                     .map(|ts| ts.to_string())
                     .unwrap_or_else(|| "<invalid>".to_string()),
@@ -272,7 +285,7 @@ impl EventSimilarity {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "set".to_string(),
+                DedupFieldName::Set,
                 format_map_opt(&original.set),
                 format_map_opt(&new.set),
             ));
@@ -283,7 +296,7 @@ impl EventSimilarity {
             matching_fields += 1;
         } else {
             different_fields.push((
-                "set_once".to_string(),
+                DedupFieldName::SetOnce,
                 format_map_opt(&original.set_once),
                 format_map_opt(&new.set_once),
             ));
@@ -589,7 +602,7 @@ mod tests {
         assert!(similarity
             .different_fields
             .iter()
-            .any(|(field, _, _)| field == "timestamp"));
+            .any(|(field, _, _)| field == &DedupFieldName::Timestamp));
 
         assert_eq!(similarity.different_property_count, 2); // url differs, browser is new
         assert!(similarity
@@ -800,13 +813,13 @@ mod tests {
         assert!(similarity
             .different_fields
             .iter()
-            .any(|(field, _, _)| field == "timestamp"));
+            .any(|(field, _, _)| field == &DedupFieldName::Timestamp));
 
         // First timestamp is invalid (has non-ASCII), second is valid ISO
         let timestamp_diff = similarity
             .different_fields
             .iter()
-            .find(|(field, _, _)| field == "timestamp")
+            .find(|(field, _, _)| field == &DedupFieldName::Timestamp)
             .unwrap();
         assert_eq!(timestamp_diff.1, "<invalid>"); // Czech timestamp can't be parsed
                                                    // Second timestamp is valid ISO format, should show the milliseconds value

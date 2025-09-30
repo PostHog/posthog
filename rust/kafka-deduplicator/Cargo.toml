@@ -33,6 +33,7 @@ rocksdb = "0.24.0"
 serde = { workspace = true }
 serde_json = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
+strum = "0.27.0"
 strum_macros = "0.27.2"
 tokio = { workspace = true }
 tokio-util = { version = "0.7.16", features = ["rt"] }
