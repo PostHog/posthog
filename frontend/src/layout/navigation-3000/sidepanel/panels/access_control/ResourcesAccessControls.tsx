@@ -94,13 +94,12 @@ export function ResourcesAccessControls(): JSX.Element {
         {
             title: '',
             key: 'default',
-            width: 0,
+            width: 300,
             render: () => 'All roles and members',
         },
         {
             title: 'Defaults',
             key: 'defaults',
-            width: 0,
             render: (_, { accessControlByResource }) => {
                 return <SummarizeAccessLevels accessControlByResource={accessControlByResource} />
             },
@@ -108,18 +107,17 @@ export function ResourcesAccessControls(): JSX.Element {
         {
             title: '',
             key: 'actions',
-            width: 0,
+            width: 100,
+            align: 'right',
             render: () => {
                 return (
-                    <div className="flex gap-2 justify-end">
-                        <LemonButton
-                            size="small"
-                            onClick={openDefaultModal}
-                            disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
-                        >
-                            Edit
-                        </LemonButton>
-                    </div>
+                    <LemonButton
+                        size="small"
+                        onClick={openDefaultModal}
+                        disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
+                    >
+                        Edit
+                    </LemonButton>
                 )
             },
         },
@@ -130,7 +128,7 @@ export function ResourcesAccessControls(): JSX.Element {
         {
             title: 'User',
             key: 'member',
-            width: 0,
+            width: 300,
             render: (_, { organization_member }) => {
                 return (
                     <div className="flex items-center gap-2">
@@ -146,7 +144,6 @@ export function ResourcesAccessControls(): JSX.Element {
         {
             title: 'Permissions',
             key: 'permissions',
-            width: 0,
             render: (_, { accessControlByResource }) => {
                 return <SummarizeAccessLevels accessControlByResource={accessControlByResource} />
             },
@@ -154,18 +151,17 @@ export function ResourcesAccessControls(): JSX.Element {
         {
             title: '',
             key: 'actions',
-            width: 0,
+            width: 100,
+            align: 'right',
             render: (_, member) => {
                 return (
-                    <div className="flex gap-2 justify-end">
-                        <LemonButton
-                            size="small"
-                            onClick={() => openMemberModal(member)}
-                            disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
-                        >
-                            Edit
-                        </LemonButton>
-                    </div>
+                    <LemonButton
+                        size="small"
+                        onClick={() => openMemberModal(member)}
+                        disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
+                    >
+                        Edit
+                    </LemonButton>
                 )
             },
         },
@@ -176,7 +172,7 @@ export function ResourcesAccessControls(): JSX.Element {
         {
             title: 'Role',
             key: 'role',
-            width: 0,
+            width: 300,
             render: (_, { role }) => {
                 return <span>{role!.name}</span>
             },
@@ -184,7 +180,6 @@ export function ResourcesAccessControls(): JSX.Element {
         {
             title: 'Members',
             key: 'members',
-            width: 0,
             render: (_, { role }) => {
                 return (
                     <div className="flex space-x-2">
@@ -208,7 +203,6 @@ export function ResourcesAccessControls(): JSX.Element {
         {
             title: 'Permissions',
             key: 'permissions',
-            width: 0,
             render: (_, { accessControlByResource }) => {
                 return <SummarizeAccessLevels accessControlByResource={accessControlByResource} />
             },
@@ -216,18 +210,17 @@ export function ResourcesAccessControls(): JSX.Element {
         {
             title: '',
             key: 'actions',
-            width: 0,
+            width: 100,
+            align: 'right',
             render: (_, role) => {
                 return (
-                    <div className="flex gap-2 justify-end">
-                        <LemonButton
-                            size="small"
-                            onClick={() => openRoleModal(role)}
-                            disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
-                        >
-                            Edit
-                        </LemonButton>
-                    </div>
+                    <LemonButton
+                        size="small"
+                        onClick={() => openRoleModal(role)}
+                        disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
+                    >
+                        Edit
+                    </LemonButton>
                 )
             },
         },
