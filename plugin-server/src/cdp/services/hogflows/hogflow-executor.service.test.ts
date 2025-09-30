@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
 import { createHogExecutionGlobals, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { compileHog } from '~/cdp/templates/compiler'
+import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
 import { HogFlow } from '~/schema/hogflow'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -94,34 +95,7 @@ describe('Hogflow Executor', () => {
             ],
         })
 
-        await insertHogFunctionTemplate(hub.postgres, {
-            id: 'template-posthog-capture',
-            name: 'Capture a PostHog event',
-            code: `
-postHogCapture({
-  'event': inputs.event,
-  'distinct_id': inputs.distinct_id,
-  'properties': inputs.properties
-})
-`,
-            inputs_schema: [
-                {
-                    key: 'event',
-                    type: 'string',
-                    required: true,
-                },
-                {
-                    key: 'distinct_id',
-                    type: 'string',
-                    required: true,
-                },
-                {
-                    key: 'properties',
-                    type: 'dictionary',
-                    required: false,
-                },
-            ],
-        })
+        await insertHogFunctionTemplate(hub.postgres, posthogCaptureTemplate)
 
         executor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
     })
