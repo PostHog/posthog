@@ -27,6 +27,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.delete_recordings.types import (
     DeleteRecordingBlocksInput,
     DeleteRecordingError,
+    LoadRecordingError,
     RecordingInput,
     RecordingsWithPersonInput,
 )
@@ -105,37 +106,56 @@ async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
 
 
 def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
-    result = json.loads(raw_response)
+    if len(raw_response) == 0:
+        raise LoadRecordingError("Got empty response from ClickHouse.")
 
-    return [session["session_id"] for session in result["data"]]
+    try:
+        result = json.loads(raw_response)
+        rows = result["data"]
+        return [session["session_id"] for session in rows]
+    except json.JSONDecodeError as e:
+        raise LoadRecordingError("Unable to parse JSON response from ClickHouse.") from e
+    except KeyError as e:
+        raise LoadRecordingError("Got malformed JSON response from ClickHouse.") from e
 
 
 @activity.defn(name="load-recordings-with-person")
 async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[str]:
-    team = await Team.objects.aget(id=input.team_id)
+    async with Heartbeater():
+        bind_contextvars(distinct_ids=input.distinct_ids, team_id=input.team_id)
+        logger = LOGGER.bind()
+        logger.info(f"Loading all sessions for {len(input.distinct_ids)} distinct IDs")
 
-    query = SessionRecordingListFromQuery(
-        team, RecordingsQuery(distinct_ids=input.distinct_ids, date_from=f"-{team.session_recording_retention_period}")
-    )
+        team = await Team.objects.aget(id=input.team_id)
 
-    hogql_query = await database_sync_to_async(query.get_query)()
+        logger.info("Building ClickHouse query")
+        query = SessionRecordingListFromQuery(
+            team,
+            RecordingsQuery(distinct_ids=input.distinct_ids, date_from=f"-{team.session_recording_retention_period}"),
+        )
 
-    hogql_context = HogQLContext(
-        team=team,
-        output_format="JSON",
-        enable_select_queries=True,
-    )
+        hogql_query = await database_sync_to_async(query.get_query)()
 
-    raw_query = await database_sync_to_async(print_ast)(
-        hogql_query,
-        hogql_context,
-        "clickhouse",
-    )
+        hogql_context = HogQLContext(
+            team=team,
+            output_format="JSON",
+            enable_select_queries=True,
+        )
 
-    async with get_client() as client:
-        async with client.aget_query(
-            query=raw_query, query_parameters=hogql_context.values, query_id=str(uuid4())
-        ) as ch_response:
-            raw_response = await ch_response.content.read()
+        raw_query = await database_sync_to_async(print_ast)(
+            hogql_query,
+            hogql_context,
+            "clickhouse",
+        )
 
-    return _parse_session_recording_list_response(raw_response)
+        logger.info("Querying ClickHouse")
+        async with get_client() as client:
+            async with client.aget_query(
+                query=raw_query, query_parameters=hogql_context.values, query_id=str(uuid4())
+            ) as ch_response:
+                raw_response = await ch_response.content.read()
+
+        session_ids: list[str] = _parse_session_recording_list_response(raw_response)
+
+        logger.info(f"Successfully loaded {len(session_ids)} session IDs")
+        return session_ids

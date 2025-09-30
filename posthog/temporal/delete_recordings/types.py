@@ -23,3 +23,7 @@ class RecordingsWithPersonInput:
 
 class DeleteRecordingError(Exception):
     pass
+
+
+class LoadRecordingError(Exception):
+    pass
