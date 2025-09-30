@@ -12,6 +12,7 @@ from posthog.hogql import ast
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.models.team.team import Team
+from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
@@ -71,6 +72,36 @@ def _query_to_view(
         fields=schema.fields,
         source_id=str(handle.source.id) if handle.source else None,
     )
+
+
+SUPPORTED_DATA_WAREHOUSE_SAVED_QUERY_TYPES = [
+    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_CHARGE,
+    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_CUSTOMER,
+    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_PRODUCT,
+    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_REVENUE_ITEM,
+    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_SUBSCRIPTION,
+    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_MRR,
+]
+
+
+def saved_query_to_hogql(saved_query: DataWarehouseSavedQuery) -> str | None:
+    if not saved_query.query_type:
+        return None
+    if saved_query.query_type not in SUPPORTED_DATA_WAREHOUSE_SAVED_QUERY_TYPES:
+        return None
+
+    # TODO: Generate the query at runtime
+    raise NotImplementedError("Generating queries at runtime is not implemented yet")
+
+
+def saved_query_clickhouse_types(saved_query: DataWarehouseSavedQuery) -> dict[str, str] | None:
+    if not saved_query.query_type:
+        return None
+    if saved_query.query_type not in SUPPORTED_DATA_WAREHOUSE_SAVED_QUERY_TYPES:
+        return None
+
+    # TODO: Generate the ClickHouse types at runtime
+    raise NotImplementedError("Generating ClickHouse columns at runtime is not implemented yet")
 
 
 def build_all_revenue_analytics_views(team: Team, timings: HogQLTimings) -> list[RevenueAnalyticsBaseView]:

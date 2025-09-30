@@ -57,6 +57,16 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         FAILED = "Failed"
         RUNNING = "Running"
 
+    class QueryType(models.TextChoices):
+        """The type of query to generate"""
+
+        REVENUE_ANALYTICS_CHARGE = ("revenue_analytics_charge", "Revenue Analytics Charge")
+        REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
+        REVENUE_ANALYTICS_PRODUCT = ("revenue_analytics_product", "Revenue Analytics Product")
+        REVENUE_ANALYTICS_REVENUE_ITEM = ("revenue_analytics_revenue_item", "Revenue Analytics Revenue Item")
+        REVENUE_ANALYTICS_SUBSCRIPTION = ("revenue_analytics_subscription", "Revenue Analytics Subscription")
+        REVENUE_ANALYTICS_MRR = ("revenue_analytics_mrr", "Revenue Analytics MRR")
+
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     latest_error = models.TextField(default=None, null=True, blank=True)
@@ -67,7 +77,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         help_text="Dict of all columns with ClickHouse type (including Nullable())",
     )
     external_tables = models.JSONField(default=list, null=True, blank=True, help_text="List of all external tables")
-    query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
+
     status = models.CharField(
         null=True, choices=Status.choices, max_length=64, help_text="The status of when this SavedQuery last ran."
     )
@@ -82,6 +92,16 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
     is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
+    # Queries will either be a HogQL query or will include a QueryType to generate the query at runtime
+    # We'll use the external_data_source to generate the query at runtime, so we need to cascade delete
+    _query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query", db_column="query")
+    query_type = models.CharField(
+        null=True, choices=QueryType.choices, max_length=64, help_text="The type of query to generate"
+    )
+    external_data_source = models.ForeignKey(
+        "posthog.ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -89,6 +109,29 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
                 name="posthog_datawarehouse_saved_query_unique_name",
             )
         ]
+
+    @property
+    def query(self) -> dict:
+        if self._query is not None:
+            return self._query
+
+        # Currently these are all revenue analytics queries, so it makes sense to run this without any checks
+        # TODO: Make this more generic to support query types from other sources
+        if self.query_type is not None:
+            from products.revenue_analytics.backend.views.orchestrator import saved_query_to_hogql
+
+            query = saved_query_to_hogql(self)
+            if query is None:
+                raise ValueError(f"Unsupported query type: {self.query_type}")
+            return {"kind": "HogQLQuery", "query": query}
+
+        raise ValueError("No query type or query provided")
+
+    @query.setter
+    def query(self, value: dict):
+        self._query = value
+        self.query_type = None
+        self.external_data_source = None
 
     @property
     def name_chain(self) -> list[str]:
@@ -125,14 +168,22 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         self.save()
 
     def get_columns(self) -> dict[str, dict[str, Any]]:
-        from posthog.api.services.query import process_query_dict
-        from posthog.hogql_queries.query_runner import ExecutionMode
+        if self._query is not None:
+            from posthog.api.services.query import process_query_dict
+            from posthog.hogql_queries.query_runner import ExecutionMode
 
-        response = process_query_dict(self.team, self.query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        result = getattr(response, "types", [])
+            response = process_query_dict(
+                self.team, self._query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+            )
+            clickhouse_types = getattr(response, "types", [])
+        elif self.query_type is not None:
+            from products.revenue_analytics.backend.views.orchestrator import saved_query_clickhouse_types
 
-        if result is None or isinstance(result, int):
-            raise Exception("No columns types provided by clickhouse in get_columns")
+            clickhouse_types = saved_query_clickhouse_types(self)
+            if clickhouse_types is None:
+                raise Exception("No ClickHouse types provided by saved_query_clickhouse_types")
+        else:
+            raise Exception("No query type or query provided")
 
         columns = {
             str(item[0]): {
@@ -140,7 +191,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
                 "clickhouse": item[1],
                 "valid": True,
             }
-            for item in result
+            for item in clickhouse_types
         }
 
         return columns
@@ -190,13 +241,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     @property
     def url_pattern(self):
+        bucket_name = "dlt"
         if settings.USE_LOCAL_SETUP:
             parsed = urlparse(settings.BUCKET_URL)
             bucket_name = parsed.netloc
 
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
-
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+        return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(
         self, modifiers: Optional[HogQLQueryModifiers] = None
