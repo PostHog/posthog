@@ -223,10 +223,12 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
                 const urlValues = objectClean(router.values.searchParams)
 
                 // Only include non-default values in URL
+                // We always include the page number in the URL
                 const nonDefaultValues = objectClean(
                     Object.fromEntries(
                         Object.entries(nextValues).filter(
                             ([key, value]) =>
+                                key === 'page' ||
                                 DEFAULT_PLAYLIST_FILTERS[key as keyof typeof DEFAULT_PLAYLIST_FILTERS] !== value
                         )
                     )
