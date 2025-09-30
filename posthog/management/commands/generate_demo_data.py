@@ -1,5 +1,6 @@
 # ruff: noqa: T201 allow print statements
 
+import os
 import logging
 import secrets
 import datetime as dt
@@ -102,6 +103,13 @@ class Command(BaseCommand):
             default=False,
             help="Skip syncing feature flags from API after data generation",
         )
+        parser.add_argument(
+
+            "--say-on-complete",
+            action="store_true",
+            default=False,
+            help="Use text-to-speech to say when the process is complete",
+        )
 
     def handle(self, *args, **options):
         timer = monotonic()
@@ -202,8 +210,12 @@ class Command(BaseCommand):
                     f"http://localhost:8000/signup?email={user.email}\n"
                 )
             )
+            if options["say_on_complete"]:
+                os.system('say "done"')
         else:
             print("Dry run - not saving results.")
+            if options["say_on_complete"]:
+                os.system('say "done (dry run)"')
 
     @staticmethod
     def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):
