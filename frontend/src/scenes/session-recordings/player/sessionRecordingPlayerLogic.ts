@@ -104,7 +104,7 @@ export enum SessionRecordingPlayerMode {
     Video = 'video',
 }
 
-const ModesWithInteractions = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
+export const ModesWithInteractions = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
     playerKey: string
