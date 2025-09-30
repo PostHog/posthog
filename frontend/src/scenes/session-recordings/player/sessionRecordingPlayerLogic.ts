@@ -113,6 +113,7 @@ export enum SessionRecordingPlayerMode {
 }
 
 const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
+export const ModesThatCanHavePlayerControllerButtons = ModesThatCanBeMarkedViewed
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
     playerKey: string
