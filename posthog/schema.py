@@ -92,6 +92,7 @@ class AssistantContextualTool(StrEnum):
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
+    FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
 
 
 class AssistantDateRange(BaseModel):
@@ -1182,6 +1183,7 @@ class ExperimentMetricOutlierHandling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ignore_zeros: Optional[bool] = None
     lower_bound_percentile: Optional[float] = None
     upper_bound_percentile: Optional[float] = None
 
@@ -2047,6 +2049,26 @@ class PlanningStepStatus(StrEnum):
     COMPLETED = "completed"
 
 
+class PlaywrightWorkspaceSetupData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_name: Optional[str] = None
+
+
+class PlaywrightWorkspaceSetupResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_id: str
+    organization_name: str
+    personal_api_key: str
+    team_id: str
+    team_name: str
+    user_email: str
+    user_id: str
+
+
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
@@ -2703,6 +2725,24 @@ class TaxonomicFilterGroupType(StrEnum):
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
     MAX_AI_CONTEXT = "max_ai_context"
+
+
+class TestSetupRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: Optional[dict[str, Any]] = None
+
+
+class TestSetupResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    available_tests: Optional[list[str]] = None
+    error: Optional[str] = None
+    result: Optional[Any] = None
+    success: bool
+    test_name: str
 
 
 class TimelineEntry(BaseModel):
@@ -4323,6 +4363,16 @@ class RetentionValue(BaseModel):
     )
     count: int
     label: Optional[str] = None
+
+
+class RevenueAnalyticsAssistantFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[RevenueAnalyticsBreakdown]
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: list[RevenueAnalyticsPropertyFilter]
 
 
 class RevenueAnalyticsEventItem(BaseModel):
@@ -12668,6 +12718,7 @@ class ExperimentMeanMetric(BaseModel):
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
+    ignore_zeros: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
@@ -12683,6 +12734,7 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ignore_zeros: Optional[bool] = None
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]

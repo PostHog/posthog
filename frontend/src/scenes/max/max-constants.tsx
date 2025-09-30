@@ -150,6 +150,11 @@ export const TOOL_DEFINITIONS: Omit<
         description: "Edit the dashboard you're viewing",
         product: Scene.Dashboard,
     },
+    filter_revenue_analytics: {
+        name: 'Filter revenue analytics',
+        description: 'Filter revenue analytics to find the most impactful revenue insights',
+        product: Scene.RevenueAnalytics,
+    },
 }
 
 export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
