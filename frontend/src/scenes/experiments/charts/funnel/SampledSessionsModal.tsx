@@ -55,22 +55,22 @@ export function SampledSessionsModal(): JSX.Element {
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
     }
 
-    const getLinkTextAndUrl = (session: SessionData): [string, string] => {
-        let key: string
-        let value: string
-
+    const getLinkTextAndUrl = (session: SessionData) => {
         if (session.session_id) {
-            key = '$session_id'
-            value = session.session_id
+            return {
+                text: session.session_id,
+                url: getEventsUrl('$session_id', session.session_id),
+            }
         } else if (session.person_id) {
-            key = 'person_id'
-            value = session.person_id
-        } else {
-            key = 'uuid'
-            value = session.event_uuid
+            return {
+                text: session.person_id,
+                url: getEventsUrl('person_id', session.person_id),
+            }
         }
-
-        return [value, getEventsUrl(key, value)]
+        return {
+            text: session.event_uuid,
+            url: getEventsUrl('uuid', session.event_uuid),
+        }
     }
 
     const columns: LemonTableColumns<SessionData> = [
@@ -78,19 +78,19 @@ export function SampledSessionsModal(): JSX.Element {
             title: 'Session',
             key: 'sessionId',
             render: (_, session) => {
-                const [linkText, eventsUrl] = getLinkTextAndUrl(session)
+                const { text, url } = getLinkTextAndUrl(session)
                 return (
                     <div className="flex items-center gap-1">
                         <Link
-                            to={eventsUrl}
+                            to={url}
                             onClick={(e) => {
                                 e.preventDefault()
-                                sceneLogic.actions.newTab(eventsUrl)
+                                sceneLogic.actions.newTab(url)
                             }}
                             className="font-mono text-xs whitespace-nowrap"
                             title={`View events for session ${session.session_id}`}
                         >
-                            {linkText}
+                            {text}
                             <IconOpenInNew style={{ fontSize: 14 }} />
                         </Link>
                     </div>
