@@ -21,9 +21,9 @@ import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
-    const { id } = attributes
+    const { id, distinctId } = attributes
 
-    const logic = personLogic({ id })
+    const logic = personLogic({ distinctId, id })
     const { info, infoLoading, person, personLoading } = useValues(logic)
     const { setExpanded, setActions, insertAfter } = useActions(notebookNodeLogic)
     const { setTitlePlaceholder } = useActions(notebookNodeLogic)
@@ -130,7 +130,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                                     {infoLoading ? (
                                         <LemonSkeleton className="h-4 w-24" />
                                     ) : info?.lastSeen ? (
-                                        <TZLabel time={info.lastSeen.toISOString()} />
+                                        <TZLabel time={info.lastSeen} />
                                     ) : (
                                         'unknown'
                                     )}
@@ -165,7 +165,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
 }
 
 type NotebookNodePersonAttributes = {
-    id: string
+    id: string | undefined
+    distinctId: string
 }
 
 export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttributes>({
@@ -174,15 +175,17 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     Component,
     minHeight: '10rem',
     expandable: false,
-    href: (attrs) => urls.personByDistinctId(attrs.id),
+    href: (attrs) => urls.personByDistinctId(attrs.distinctId),
     resizeable: true,
     attributes: {
         id: {},
+        distinctId: {},
     },
+    // FIXME: pasteOptions is not really working. Maybe change to personByUUID
     pasteOptions: {
         find: urls.personByDistinctId('(.+)', false),
         getAttributes: async (match) => {
-            return { id: match[1] }
+            return { distinctId: match[1], id: undefined }
         },
     },
     serializedText: (attrs) => {

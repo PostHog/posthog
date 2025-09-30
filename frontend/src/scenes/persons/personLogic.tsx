@@ -10,18 +10,19 @@ import { PersonType } from '~/types'
 import type { personLogicType } from './personLogicType'
 
 export interface PersonLogicProps {
-    id: string
+    id: string | undefined
+    distinctId: string
 }
 
 export interface Info {
     sessionCount: number
     eventCount: number
-    lastSeen: Date | null
+    lastSeen: string | null
 }
 
 export const personLogic = kea<personLogicType>([
     props({} as PersonLogicProps),
-    key((props) => props.id),
+    key((props) => props.distinctId),
     path((key) => ['scenes', 'persons', 'personLogic', key]),
     actions({
         loadPerson: true,
@@ -32,7 +33,7 @@ export const personLogic = kea<personLogicType>([
             null as PersonType | null,
             {
                 loadPerson: async (): Promise<PersonType | null> => {
-                    const response = await api.persons.list({ distinct_id: props.id })
+                    const response = await api.persons.list({ distinct_id: props.distinctId })
                     const person = response.results[0]
                     return person
                 },

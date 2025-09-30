@@ -16,11 +16,11 @@ import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePropertiesAttributes>): JSX.Element | null => {
-    const { id } = attributes
+    const { id, distinctId } = attributes
 
     const { expanded } = useValues(notebookNodeLogic)
 
-    const logic = personLogic({ id })
+    const logic = personLogic({ id, distinctId })
     const { person, personLoading } = useValues(logic)
     const { pinnedPersonProperties } = useValues(userPreferencesLogic)
 
@@ -89,6 +89,7 @@ function PropertyItem({
 
 type NotebookNodePropertiesAttributes = {
     id: string
+    distinctId: string
 }
 
 export const NotebookNodeProperties = createPostHogWidgetNode({
@@ -100,5 +101,6 @@ export const NotebookNodeProperties = createPostHogWidgetNode({
     startExpanded: true,
     attributes: {
         id: {},
+        distinctId: {},
     },
 })

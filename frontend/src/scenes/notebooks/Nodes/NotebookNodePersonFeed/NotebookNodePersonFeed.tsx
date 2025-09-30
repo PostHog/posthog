@@ -43,10 +43,10 @@ const Feed = ({ person }: FeedProps): JSX.Element => {
 }
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttributes>): JSX.Element | null => {
-    const { id } = attributes
+    const { id, distinctId } = attributes
     const { expanded } = useValues(notebookNodeLogic)
 
-    const logic = personLogic({ id })
+    const logic = personLogic({ id, distinctId })
     const { person, personLoading } = useValues(logic)
 
     if (!expanded) {
@@ -64,6 +64,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttri
 
 type NotebookNodePersonFeedAttributes = {
     id: string
+    distinctId: string
 }
 
 export const NotebookNodePersonFeed = createPostHogWidgetNode<NotebookNodePersonFeedAttributes>({
@@ -75,5 +76,6 @@ export const NotebookNodePersonFeed = createPostHogWidgetNode<NotebookNodePerson
     startExpanded: true,
     attributes: {
         id: {},
+        distinctId: {},
     },
 })
