@@ -1,5 +1,6 @@
 import re
 import json
+import time
 from typing import Any, Optional
 
 from django.http import JsonResponse
@@ -19,6 +20,9 @@ logger = structlog.get_logger(__name__)
 
 # 6 hours to match current client-side caching
 GITHUB_SDK_CACHE_EXPIRY = 6 * 60 * 60
+# Rate limiting safeguards
+MAX_RETRIES = 3
+INITIAL_BACKOFF = 1  # seconds
 
 
 @api_view(["GET"])
@@ -163,7 +167,7 @@ def fetch_python_sdk_data() -> Optional[dict[str, Any]]:
 
 
 def fetch_node_sdk_data() -> Optional[dict[str, Any]]:
-    """Fetch Node.js SDK data from CHANGELOG.md (simplified logic)"""
+    """Fetch Node.js SDK data from CHANGELOG.md + GitHub releases API"""
     try:
         # Fetch CHANGELOG.md for versions
         changelog_response = requests.get(
@@ -182,7 +186,10 @@ def fetch_node_sdk_data() -> Optional[dict[str, Any]]:
         latest_version = matches[0]
         versions = matches
 
-        return {"latestVersion": latest_version, "versions": versions, "releaseDates": {}}
+        # Fetch GitHub release dates (cached at server level, safe from rate limiting)
+        release_dates = fetch_github_release_dates("PostHog/posthog-js")
+
+        return {"latestVersion": latest_version, "versions": versions, "releaseDates": release_dates}
     except Exception:
         return None
 
@@ -435,43 +442,74 @@ def fetch_dotnet_sdk_data() -> Optional[dict[str, Any]]:
 
 def fetch_github_release_dates(repo: str) -> dict[str, str]:
     """
-    Fetch release dates from GitHub releases API.
+    Fetch release dates from GitHub releases API with exponential backoff.
     Returns dict mapping version to ISO date string.
     """
-    try:
-        response = requests.get(f"https://api.github.com/repos/{repo}/releases?per_page=4", timeout=10)
-        if not response.ok:
-            return {}
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = requests.get(f"https://api.github.com/repos/{repo}/releases?per_page=4", timeout=10)
 
-        releases = response.json()
-        release_dates = {}
+            # Handle rate limiting with exponential backoff (403 or 429)
+            if response.status_code in [403, 429]:
+                if attempt < MAX_RETRIES - 1:
+                    backoff_time = INITIAL_BACKOFF * (2**attempt)
+                    logger.warning(
+                        f"[SDK Doctor] GitHub API rate limit hit for {repo} (status {response.status_code}), retrying in {backoff_time}s (attempt {attempt + 1}/{MAX_RETRIES})"
+                    )
+                    time.sleep(backoff_time)
+                    continue
+                else:
+                    logger.error(
+                        f"[SDK Doctor] GitHub API rate limit exceeded for {repo} after {MAX_RETRIES} attempts (status {response.status_code})"
+                    )
+                    return {}
 
-        for release in releases:
-            tag_name = release.get("tag_name", "")
-            published_at = release.get("published_at", "")
+            if not response.ok:
+                logger.warning(f"[SDK Doctor] GitHub API error for {repo}: {response.status_code}")
+                return {}
 
-            if not tag_name or not published_at:
+            releases = response.json()
+            release_dates = {}
+
+            for release in releases:
+                tag_name = release.get("tag_name", "")
+                published_at = release.get("published_at", "")
+
+                if not tag_name or not published_at:
+                    continue
+
+                # Extract version from tag name based on repo patterns
+                if repo == "PostHog/posthog-js":
+                    # Web SDK: posthog-js@1.258.5
+                    # Node SDK: posthog-node@5.8.4
+                    # React Native: posthog-react-native@4.4.0
+                    if "@" in tag_name:
+                        version = tag_name.split("@")[1]
+                        release_dates[version] = published_at
+                elif repo in [
+                    "PostHog/posthog-python",
+                    "PostHog/posthog-flutter",
+                    "PostHog/posthog-ios",
+                    "PostHog/posthog-android",
+                ]:
+                    # Standard repos: v1.2.3
+                    if tag_name.startswith("v"):
+                        version = tag_name[1:]
+                        release_dates[version] = published_at
+
+            return release_dates
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1:
+                backoff_time = INITIAL_BACKOFF * (2**attempt)
+                logger.warning(
+                    f"[SDK Doctor] Error fetching GitHub releases for {repo}, retrying in {backoff_time}s: {str(e)}"
+                )
+                time.sleep(backoff_time)
                 continue
+            else:
+                logger.exception(
+                    f"[SDK Doctor] Failed to fetch GitHub releases for {repo} after {MAX_RETRIES} attempts"
+                )
+                return {}
 
-            # Extract version from tag name based on repo patterns
-            if repo == "PostHog/posthog-js":
-                # Web SDK: posthog-js@1.258.5
-                # Node SDK: posthog-node@5.8.4
-                # React Native: posthog-react-native@4.4.0
-                if "@" in tag_name:
-                    version = tag_name.split("@")[1]
-                    release_dates[version] = published_at
-            elif repo in [
-                "PostHog/posthog-python",
-                "PostHog/posthog-flutter",
-                "PostHog/posthog-ios",
-                "PostHog/posthog-android",
-            ]:
-                # Standard repos: v1.2.3
-                if tag_name.startswith("v"):
-                    version = tag_name[1:]
-                    release_dates[version] = published_at
-
-        return release_dates
-    except Exception:
-        return {}
+    return {}

@@ -112,31 +112,7 @@ export type SdkHealthStatus = 'healthy' | 'warning' | 'critical'
 
 */
 
-// Fetch Node.js SDK release dates from GitHub Releases API for time-based detection
-const fetchNodeGitHubReleaseDates = async (): Promise<Record<string, string>> => {
-    try {
-        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=4')
-        if (!response.ok) {
-            throw new Error(`GitHub API error: ${response.status}`)
-        }
-
-        const releases = await response.json()
-        const releaseDates: Record<string, string> = {}
-
-        // Node.js releases use version tags like "posthog-node@5.6.0"
-        const nodeReleases = releases.filter((release: any) => release.tag_name?.startsWith('posthog-node@'))
-
-        nodeReleases.forEach((release: any) => {
-            const version = release.tag_name.replace('posthog-node@', '')
-            releaseDates[version] = release.published_at
-        })
-
-        return releaseDates
-    } catch (error) {
-        console.warn('[SDK Doctor] Failed to fetch Node.js SDK GitHub release dates:', error)
-        return {}
-    }
-}
+// Fetch Node.js SDK release dates - REMOVED: Now handled by server API with proper caching and rate limiting
 
 // NEW: Fetch individual SDK data on-demand with per-SDK caching
 const fetchSdkData = async (
@@ -259,81 +235,9 @@ const fetchSdkData = async (
                 return pythonResult
 
             case 'node':
-                changelogUrl = 'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/node/CHANGELOG.md'
-                versionRegex = /^## (\d+\.\d+\.\d+)$/gm
-                githubFetcher = async () => {
-                    // First try to get release dates from PR links in CHANGELOG.md
-                    const changelogResponse = await fetch(
-                        'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/node/CHANGELOG.md'
-                    )
-                    if (!changelogResponse.ok) {
-                        throw new Error(`Failed to fetch Node.js CHANGELOG.md: ${changelogResponse.status}`)
-                    }
-                    const changelogText = await changelogResponse.text()
-
-                    const releaseDates: Record<string, string> = {}
-
-                    // Extract version sections with their PR links
-                    const versionSections = changelogText.split(/^## (\d+\.\d+\.\d+)$/gm)
-
-                    for (let i = 1; i < versionSections.length; i += 2) {
-                        const version = versionSections[i]
-                        const content = versionSections[i + 1]
-
-                        // Extract first PR link: [#2346](https://github.com/PostHog/posthog-js/pull/2346)
-                        const prMatch = content.match(
-                            /\[#(\d+)\]\(https:\/\/github\.com\/PostHog\/posthog-js\/pull\/(\d+)\)/
-                        )
-
-                        if (prMatch) {
-                            const prNumber = prMatch[2]
-                            try {
-                                // Fetch PR merge date from GitHub API
-                                const prResponse = await fetch(
-                                    `https://api.github.com/repos/PostHog/posthog-js/pulls/${prNumber}`
-                                )
-                                if (prResponse.ok) {
-                                    const prData = await prResponse.json()
-                                    if (prData.merged_at) {
-                                        releaseDates[version] = prData.merged_at
-                                        console.info(
-                                            `[SDK Doctor] Node.js ${version} -> ${prData.merged_at} (from PR #${prNumber})`
-                                        )
-                                    }
-                                }
-                            } catch (error) {
-                                console.warn(
-                                    `[SDK Doctor] Failed to fetch PR #${prNumber} for Node.js ${version}:`,
-                                    error
-                                )
-                            }
-
-                            // Add delay to avoid rate limiting
-                            await new Promise((resolve) => setTimeout(resolve, 100))
-                        }
-                    }
-
-                    // Fallback to GitHub releases API for versions without PR links
-                    try {
-                        const githubReleaseDates = await fetchNodeGitHubReleaseDates()
-                        for (const [version, date] of Object.entries(githubReleaseDates)) {
-                            if (!releaseDates[version] && typeof date === 'string') {
-                                releaseDates[version] = date
-                                console.info(
-                                    `[SDK Doctor] Node.js ${version} -> ${date} (from GitHub releases API fallback)`
-                                )
-                            }
-                        }
-                    } catch (error) {
-                        console.warn('[SDK Doctor] GitHub releases API fallback failed for Node.js:', error)
-                    }
-
-                    console.info(
-                        `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Node.js version dates (PR links + GitHub releases fallback)`
-                    )
-                    return releaseDates
-                }
-                break
+                // Node.js SDK data is now handled entirely by the server API (includes GitHub releases)
+                // No direct GitHub API calls from frontend - prevents rate limiting issues
+                return null
 
             case 'react-native':
                 changelogUrl =
