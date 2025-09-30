@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
+import { NamedQueryLastExecutionTimesRequest } from '~/queries/schema/schema-general'
 import { QueryEndpointType } from '~/types'
 
 import type { queryEndpointsLogicType } from './queryEndpointsLogicType'
@@ -36,7 +37,9 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
                     let haystack: QueryEndpointType[] = response.results || []
 
                     if (haystack.length > 0) {
-                        const names = haystack.map((endpoint) => endpoint.name)
+                        const names: NamedQueryLastExecutionTimesRequest = {
+                            names: haystack.map((endpoint) => endpoint.name),
+                        }
                         const lastExecutionTimes = await api.queryEndpoint.getLastExecutionTimes(names)
 
                         haystack = haystack.map((endpoint) => ({

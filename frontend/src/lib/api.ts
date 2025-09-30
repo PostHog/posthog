@@ -30,6 +30,7 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    NamedQueryLastExecutionTimesRequest,
     NamedQueryRequest,
     Node,
     NodeKind,
@@ -1623,18 +1624,25 @@ const api = {
         async update(name: string, data: NamedQueryRequest): Promise<QueryEndpointType> {
             return await new ApiRequest().queryEndpointDetail(name).update({ data })
         },
-        async getLastExecutionTimes(names: string[]): Promise<Record<string, string>> {
-            if (names.length === 0) {
+        async getLastExecutionTimes(data: NamedQueryLastExecutionTimesRequest): Promise<Record<string, string>> {
+            if (data.names.length === 0) {
                 return {}
             }
 
-            const response = await new ApiRequest().queryEndpoint().lastExecutionTimes().create({
-                data: { names },
-            })
-
+            const response: QueryStatusResponse = await new ApiRequest()
+                .queryEndpoint()
+                .lastExecutionTimes()
+                .create({ data })
             const result: Record<string, string> = {}
-            for (const name of names) {
-                result[name] = response.last_execution_times[name]
+            if (response.query_status?.results) {
+                for (const row of response.query_status.results) {
+                    if (row && row.length >= 2) {
+                        const [name, timestamp] = row
+                        if (name && timestamp) {
+                            result[name] = timestamp
+                        }
+                    }
+                }
             }
 
             return result

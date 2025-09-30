@@ -11,7 +11,16 @@ from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import HogQLQuery, HogQLQueryModifiers, NamedQueryRequest, NamedQueryRunRequest, QueryRequest
+from posthog.schema import (
+    HogQLQuery,
+    HogQLQueryModifiers,
+    NamedQueryLastExecutionTimesRequest,
+    NamedQueryRequest,
+    NamedQueryRunRequest,
+    QueryRequest,
+    QueryStatus,
+    QueryStatusResponse,
+)
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
@@ -273,14 +282,21 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
     @extend_schema(
         description="Get the last execution times in the past 6 monthsfor multiple named queries.",
-        responses={200: "Last execution times"},
+        request=NamedQueryLastExecutionTimesRequest,
+        responses={200: QueryStatusResponse},
     )
     @action(methods=["POST"], detail=False, url_path="last_execution_times")
     def get_named_queries_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
         try:
-            names = request.data.get("names", [])
+            data = NamedQueryLastExecutionTimesRequest.model_validate(request.data)
+            names = data.names
             if not names:
-                return Response({"last_execution_times": {}}, status=200)
+                return Response(
+                    QueryStatusResponse(
+                        query_status=QueryStatus(id="", team_id=self.team.pk, complete=True)
+                    ).model_dump(),
+                    status=200,
+                )
 
             quoted_names = [f"'{name}'" for name in names]
             names_list = ",".join(quoted_names)
@@ -297,18 +313,9 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
             )
             result = hogql_runner.calculate()
 
-            last_execution_times = {}
-            for name in names:
-                last_execution_times[name] = None
+            query_status = QueryStatus(id="", team_id=self.team.pk, complete=True, results=result.results)
 
-            if result.results:
-                for row in result.results:
-                    if len(row) >= 2:
-                        name, timestamp = row[0], row[1]
-                        if name and timestamp:
-                            last_execution_times[name] = timestamp
-
-            return Response({"last_execution_times": last_execution_times}, status=200)
+            return Response(QueryStatusResponse(query_status=query_status).model_dump(), status=200)
         except ConcurrencyLimitExceeded as c:
             raise Throttled(detail=str(c))
         except Exception as e:
