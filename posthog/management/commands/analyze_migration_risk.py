@@ -8,6 +8,7 @@ from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.discovery import MigrationDiscovery
 from posthog.management.migration_analysis.formatters import ConsoleTreeFormatter
 from posthog.management.migration_analysis.models import MigrationRisk, RiskLevel
+from posthog.management.migration_analysis.policies import SingleMigrationPolicy
 
 
 class Command(BaseCommand):
@@ -27,6 +28,16 @@ class Command(BaseCommand):
             self.stdout.write("No migrations to analyze")
             return
 
+        # Check batch-level policies (e.g., multiple migrations)
+        batch_policy_violations = self.check_batch_policies(migration_paths)
+        if batch_policy_violations:
+            print("\n📋 POLICY VIOLATIONS:")
+            for violation in batch_policy_violations:
+                print(f"  {violation}")
+            if options.get("fail_on_blocked"):
+                sys.exit(1)
+            return
+
         results = self.analyze_migrations(migration_paths)
 
         if not results:
@@ -43,6 +54,11 @@ class Command(BaseCommand):
     def get_migration_paths(self) -> list[str]:
         """Read migration paths from stdin"""
         return MigrationDiscovery.read_paths_from_stdin()
+
+    def check_batch_policies(self, migration_paths: list[str]) -> list[str]:
+        """Check policies that apply to the batch of migrations."""
+        policy = SingleMigrationPolicy(len(migration_paths))
+        return policy.check_batch()
 
     def analyze_migrations(self, migration_paths: list[str]) -> list[MigrationRisk]:
         """Analyze a list of migration file paths"""
