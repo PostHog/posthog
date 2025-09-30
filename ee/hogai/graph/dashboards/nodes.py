@@ -121,7 +121,7 @@ class DashboardCreationNode(AssistantNode):
 
                 result = await self._create_insights(left_to_create, result, config)
 
-            all_insight_ids = set()
+            all_insight_ids: set[int] = set()
             messages = []
             for query_metadata in result.values():
                 all_insight_ids.update(

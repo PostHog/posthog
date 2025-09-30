@@ -542,5 +542,5 @@ class SQLResultsFormatter:
             if isinstance(row, dict):
                 lines.append("|".join([str(cell) for cell in row.values()]))
             else:
-                lines.append("|".join([str(cell) for cell in row]))
+                lines.append("|".join([str(cell) for cell in row]))  # type: ignore
         return "\n".join(lines)
