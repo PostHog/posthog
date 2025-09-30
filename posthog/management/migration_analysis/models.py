@@ -7,16 +7,14 @@ from enum import Enum
 class RiskLevel(Enum):
     """Risk level definitions with scoring ranges"""
 
-    SAFE = ("Safe", 0, 1, "\033[92m", "✅")
-    NEEDS_REVIEW = ("Needs Review", 2, 3, "\033[93m", "⚠️")
-    BLOCKED = ("Blocked", 4, 5, "\033[91m", "❌")
+    SAFE = ("Safe", 0, 1)
+    NEEDS_REVIEW = ("Needs Review", 2, 3)
+    BLOCKED = ("Blocked", 4, 5)
 
-    def __init__(self, category: str, min_score: int, max_score: int, color: str, icon: str):
+    def __init__(self, category: str, min_score: int, max_score: int):
         self.category = category
         self.min_score = min_score
         self.max_score = max_score
-        self.color = color
-        self.icon = icon
 
     @classmethod
     def from_score(cls, score: int) -> "RiskLevel":
