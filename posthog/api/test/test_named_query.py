@@ -1,8 +1,12 @@
+from datetime import datetime
+from time import sleep
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from rest_framework import status
+
+from posthog.schema import NamedQueryLastExecutionTimesRequest
 
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.named_query import NamedQuery
@@ -575,3 +579,118 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
         self.assertIn("Query override is not supported for HogQL queries", response_data["detail"])
+
+    def test_get_last_execution_times_empty_names(self):
+        """Test getting last execution times with empty names list."""
+        data = NamedQueryLastExecutionTimesRequest(names=[]).model_dump()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/named_query/last_execution_times/", data, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertIn("query_status", response_data, response_data)
+        query_status = response_data["query_status"]
+        self.assertIn("complete", query_status)
+        self.assertIn("results", query_status)
+
+        self.assertIsNone(query_status["results"], query_status)
+
+    def test_get_last_execution_times_after_named_query_execution(self):
+        """Test getting last execution times with query names after they have been executed."""
+        NamedQuery.objects.create(
+            name="test_query_1",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+        NamedQuery.objects.create(
+            name="test_query_2",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 2"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Execute the named queries to generate query_log entries
+        response1 = self.client.get(f"/api/environments/{self.team.id}/named_query/test_query_1/run/")
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+
+        response2 = self.client.get(f"/api/environments/{self.team.id}/named_query/test_query_2/run/")
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        # wait for the queries to end up in query_log :/
+        sleep(3)
+
+        data = {"names": ["test_query_1", "test_query_2", "nonexistent_query"]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/named_query/last_execution_times/", data, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        response_data = response.json()
+
+        self.assertIn("query_status", response_data)
+        query_status = response_data["query_status"]
+        self.assertIn("complete", query_status)
+        self.assertIn("results", query_status)
+        self.assertIsInstance(query_status["results"], list)
+
+        results = query_status["results"]
+        self.assertEqual(len(results), 2, f"Expected 2 results, got {results}")
+
+        query_timestamps = {row[0]: row[1] for row in results if len(row) >= 2}
+
+        self.assertIn("test_query_1", query_timestamps, f"test_query_1 not found in results: {results}")
+        self.assertIn("test_query_2", query_timestamps, f"test_query_2 not found in results: {results}")
+        self.assertIsNotNone(
+            datetime.fromisoformat(query_timestamps["test_query_1"]),
+            f"Invalid timestamp format for test_query_1: {query_timestamps['test_query_1']}",
+        )
+        self.assertIsNotNone(
+            datetime.fromisoformat(query_timestamps["test_query_2"]),
+            f"Invalid timestamp format for test_query_2: {query_timestamps['test_query_2']}",
+        )
+
+    def test_get_last_execution_times_with_nonexistent_query(self):
+        """Test getting last execution times with a nonexistent query."""
+        data = {"names": ["nonexistent_query"]}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/named_query/last_execution_times/", data, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertIn("query_status", response_data)
+        query_status = response_data["query_status"]
+        self.assertIsInstance(query_status["results"], list)
+        self.assertEqual(len(query_status["results"]), 0)
+
+    def test_get_last_execution_times_of_named_query_not_executed(self):
+        """Test getting last execution times of a named query that has not been executed."""
+        NamedQuery.objects.create(
+            name="test_query_1",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        data = {"names": ["test_query_1"]}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/named_query/last_execution_times/", data, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertIn("query_status", response_data)
+        query_status = response_data["query_status"]
+        self.assertIsInstance(query_status["results"], list)
+        self.assertEqual(len(query_status["results"]), 0, query_status)
