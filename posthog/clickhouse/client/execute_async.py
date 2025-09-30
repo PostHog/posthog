@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Optional
 
 import orjson as json
 import structlog
+import posthoganalytics
 from prometheus_client import Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
@@ -50,7 +51,9 @@ class QueryRetrievalError(Exception):
 
 class QueryStatusManager:
     STATUS_TTL_SECONDS = 60 * 20  # 20 minutes
+    DEDUP_TTL_SECONDS = 60 * 20  # 20 minutes
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
+    KEY_PREFIX_RUNNING_QUERIES = "running_queries"
 
     def __init__(self, query_id: str, team_id: int):
         self.redis_client = redis.get_client()
@@ -64,6 +67,10 @@ class QueryStatusManager:
     @property
     def clickhouse_query_status_key(self) -> str:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:status"
+
+    @property
+    def running_queries_key(self) -> str:
+        return f"{self.KEY_PREFIX_RUNNING_QUERIES}:{self.team_id}"
 
     def store_query_status(self, query_status: QueryStatus):
         value = SafeJSONRenderer().render(query_status.model_dump(exclude={"clickhouse_query_progress"}))
@@ -140,6 +147,38 @@ class QueryStatusManager:
         logger.info("Deleting redis query key %s", self.results_key)
         self.redis_client.delete(self.results_key)
         self.redis_client.delete(self.clickhouse_query_status_key)
+
+    def get_running_query_by_cache_key(self, cache_key: str) -> Optional[str]:
+        """Get the query_id of a running query with the given cache_key, if any."""
+        try:
+            query_id = self.redis_client.hget(self.running_queries_key, cache_key)
+            if query_id:
+                decoded_query_id = query_id.decode("utf-8")
+                logger.debug("Found duplicate running query", cache_key=cache_key, query_id=decoded_query_id)
+                return decoded_query_id
+            return None
+        except Exception as e:
+            logger.exception("Error getting running query", cache_key=cache_key, error=str(e))
+            return None
+
+    def register_cache_key_mapping(self, cache_key: str) -> None:
+        """Register this query as running with the given cache_key."""
+        try:
+            self.redis_client.hset(self.running_queries_key, cache_key, self.query_id)
+            self.redis_client.expire(self.running_queries_key, self.DEDUP_TTL_SECONDS)
+            logger.debug("Registered running query", cache_key=cache_key, query_id=self.query_id)
+        except Exception as e:
+            logger.exception(
+                "Error registering running query", cache_key=cache_key, query_id=self.query_id, error=str(e)
+            )
+
+    def unregister_cache_key_mapping(self, cache_key: str) -> None:
+        """Unregister a query that's no longer running."""
+        try:
+            self.redis_client.hdel(self.running_queries_key, cache_key)
+            logger.debug("Unregistered running query", cache_key=cache_key)
+        except Exception as e:
+            logger.exception("Error unregistering running query", cache_key=cache_key, error=str(e))
 
 
 def execute_process_query(
@@ -222,6 +261,27 @@ def execute_process_query(
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
         manager.store_query_status(query_status)
+        try:
+            cache_key = None
+            if query_status.results:
+                cache_key = query_status.results.get("cache_key")
+
+            if cache_key:
+                manager.unregister_cache_key_mapping(cache_key)
+                posthoganalytics.capture(
+                    event="query duplicate unregistered",
+                    distinct_id=user_id,
+                    properties={
+                        "team": team_id,
+                        "cache_key": cache_key,
+                        "query_id": query_id,
+                        "query_json": query_json,
+                        "start_time": query_status.start_time,
+                        "end_time": query_status.end_time,
+                    },
+                )
+        except Exception as e:
+            capture_exception(e)
 
 
 def enqueue_process_query_task(
@@ -232,6 +292,7 @@ def enqueue_process_query_task(
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
     query_id: Optional[str] = None,
+    cache_key: Optional[str] = None,
     # Attention: This is to pierce through the _manager_ cache, query runner will always refresh
     refresh_requested: bool = False,
     force: bool = False,
@@ -250,6 +311,14 @@ def enqueue_process_query_task(
         # If we've seen this query before return and don't resubmit it.
         return manager.get_query_status()
 
+    try:
+        if cache_key:
+            existing_query_id = manager.get_running_query_by_cache_key(cache_key)
+            if existing_query_id:
+                return get_query_status(team.id, existing_query_id)
+    except Exception as e:
+        logger.exception("Error checking for duplicate query", team_id=team.id, error=str(e))
+
     # Immediately set status, so we don't have race with celery
     query_status = QueryStatus(
         id=query_id,
@@ -259,6 +328,22 @@ def enqueue_process_query_task(
         dashboard_id=dashboard_id,
     )
     manager.store_query_status(query_status)
+
+    if cache_key:
+        try:
+            manager.register_cache_key_mapping(cache_key)
+            posthoganalytics.capture(
+                event="query duplicate registered",
+                distinct_id=user_id,
+                properties={
+                    "team": team.id,
+                    "cache_key": cache_key,
+                    "query_id": query_id,
+                    "query_json": query_json,
+                },
+            )
+        except Exception as e:
+            logger.exception("Error registering running query for deduplication", team_id=team.id, error=str(e))
 
     task_signature = process_query_task.si(
         team.id, user_id, query_id, query_json, is_query_service, LimitContext.QUERY_ASYNC
