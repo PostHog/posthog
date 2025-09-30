@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Optional
 
 import orjson as json
 import structlog
+import posthoganalytics
 from prometheus_client import Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
@@ -267,6 +268,18 @@ def execute_process_query(
 
             if cache_key:
                 manager.unregister_cache_key_mapping(cache_key)
+                posthoganalytics.capture(
+                    event="query duplicate unregistered",
+                    distinct_id=user_id,
+                    properties={
+                        "team": team_id,
+                        "cache_key": cache_key,
+                        "query_id": query_id,
+                        "query_json": query_json,
+                        "start_time": query_status.start_time,
+                        "end_time": query_status.end_time,
+                    },
+                )
         except Exception as e:
             capture_exception(e)
 
@@ -319,6 +332,16 @@ def enqueue_process_query_task(
     if cache_key:
         try:
             manager.register_cache_key_mapping(cache_key)
+            posthoganalytics.capture(
+                event="query duplicate registered",
+                distinct_id=user_id,
+                properties={
+                    "team": team.id,
+                    "cache_key": cache_key,
+                    "query_id": query_id,
+                    "query_json": query_json,
+                },
+            )
         except Exception as e:
             logger.exception("Error registering running query for deduplication", team_id=team.id, error=str(e))
 
