@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useActions } from 'kea'
 import { useRef } from 'react'
 
+import { getSeriesColor } from 'lib/colors'
 import { percentage } from 'lib/utils'
 
 import { SessionData } from '~/queries/schema/schema-general'
@@ -9,7 +10,6 @@ import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { useTooltip } from './FunnelBarVertical'
 import { useFunnelChartData } from './FunnelChart'
-import { getSeriesColor } from './funnelUtils'
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 
 export interface StepBarProps {
@@ -28,7 +28,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
     const { experimentResult } = useFunnelChartData()
     const { openModal } = useActions(sampledSessionsModalLogic)
 
-    const seriesColor = getSeriesColor(step)
+    const seriesColor = getSeriesColor((step as any).breakdown_index)
 
     // Get sampled sessions from the experiment result
     // Find the variant result that matches this series

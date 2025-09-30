@@ -303,47 +303,10 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
-                    const options: HogExecutorExecuteAsyncOptions = {
-                        maxAsyncFunctions: MAX_ASYNC_STEPS,
-                        asyncFunctionsNames: mock_async_functions ? ['fetch', 'sendEmail'] : undefined,
-                        functions: mock_async_functions
-                            ? {
-                                  fetch: (...args: any[]) => {
-                                      logs.push({
-                                          level: 'info',
-                                          timestamp: DateTime.now(),
-                                          message: `Async function 'fetch' was mocked with arguments:`,
-                                      })
-                                      logs.push({
-                                          level: 'info',
-                                          timestamp: DateTime.now(),
-                                          message: `fetch('${args[0]}', ${JSON.stringify(args[1], null, 2)})`,
-                                      })
-
-                                      return {
-                                          status: 200,
-                                          body: {},
-                                      }
-                                  },
-                                  sendEmail: (...args: any[]) => {
-                                      logs.push({
-                                          level: 'info',
-                                          timestamp: DateTime.now(),
-                                          message: `Async function 'sendEmail' was mocked with arguments:`,
-                                      })
-                                      logs.push({
-                                          level: 'info',
-                                          timestamp: DateTime.now(),
-                                          message: `sendEmail('${JSON.stringify(args[0], null, 2)})`,
-                                      })
-
-                                      return {
-                                          success: true,
-                                      }
-                                  },
-                              }
-                            : undefined,
-                    }
+                    const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
+                        mock_async_functions,
+                        logs
+                    )
 
                     let response: any = null
                     if (isNativeHogFunction(compoundConfiguration)) {
@@ -417,7 +380,7 @@ export class CdpApi {
     private postHogflowInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const { clickhouse_event, configuration, invocation_id, current_action_id } = req.body
+            const { clickhouse_event, configuration, invocation_id, current_action_id, mock_async_functions } = req.body
 
             logger.info('⚡️', 'Received hogflow invocation', { id, team_id, body: req.body })
 
@@ -487,13 +450,15 @@ export class CdpApi {
                   }
                 : undefined
 
-            const result = await this.hogFlowExecutor.executeCurrentAction(invocation)
+            const logs: MinimalLogEntry[] = []
+            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
+            const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
                 nextActionId: result.invocation.state.currentAction?.id,
                 status: result.error ? 'error' : 'success',
                 errors: result.error ? [result.error] : [],
-                logs: result.logs,
+                logs: [...result.logs, ...logs],
             })
         } catch (e) {
             console.error(e)
@@ -621,4 +586,51 @@ export class CdpApi {
                 return res.status(500).json({ error: 'Failed to validate token' })
             }
         }
+}
+
+const buildHogExecutorAsyncOptions = (
+    mockAsyncFunctions: boolean,
+    logs: MinimalLogEntry[]
+): HogExecutorExecuteAsyncOptions => {
+    return {
+        maxAsyncFunctions: MAX_ASYNC_STEPS,
+        asyncFunctionsNames: mockAsyncFunctions ? [] : undefined,
+        functions: mockAsyncFunctions
+            ? {
+                  fetch: (...args: any[]) => {
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `Async function 'fetch' was mocked with arguments:`,
+                      })
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `fetch('${args[0]}', ${JSON.stringify(args[1], null, 2)})`,
+                      })
+
+                      return {
+                          status: 200,
+                          body: {},
+                      }
+                  },
+                  sendEmail: (...args: any[]) => {
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `Async function 'sendEmail' was mocked with arguments:`,
+                      })
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `sendEmail(${JSON.stringify(args[0], null, 2)})`,
+                      })
+
+                      return {
+                          success: true,
+                      }
+                  },
+              }
+            : undefined,
+    }
 }

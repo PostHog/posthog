@@ -17,6 +17,7 @@ import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-genera
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
+import { OperatorValueSelectProps } from './components/OperatorValueSelect'
 import { propertyFilterLogic } from './propertyFilterLogic'
 
 export interface PropertyFiltersProps {
@@ -51,6 +52,7 @@ export interface PropertyFiltersProps {
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
+    operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
 }
 
 export function PropertyFilters({
@@ -84,6 +86,7 @@ export function PropertyFilters({
     exactMatchFeatureFlagCohortOperators = false,
     hideBehavioralCohorts,
     addFilterDocLink,
+    operatorAllowlist,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -153,6 +156,7 @@ export function PropertyFilters({
                                             size={buttonSize}
                                             addFilterDocLink={addFilterDocLink}
                                             editable={editable}
+                                            operatorAllowlist={operatorAllowlist}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

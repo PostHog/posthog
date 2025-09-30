@@ -5,7 +5,7 @@ import { normalizeEvent } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { drop, ok } from '../pipelines/results'
-import { SyncProcessingStep } from '../pipelines/steps'
+import { ProcessingStep } from '../pipelines/steps'
 
 function parseKafkaMessage(message: Message): IncomingEvent | null {
     try {
@@ -21,18 +21,18 @@ function parseKafkaMessage(message: Message): IncomingEvent | null {
     }
 }
 
-export function createParseKafkaMessageStep<T extends { message: Message }>(): SyncProcessingStep<
+export function createParseKafkaMessageStep<T extends { message: Message }>(): ProcessingStep<
     T,
     T & { event: IncomingEvent }
 > {
-    return function parseKafkaMessageStep(input) {
+    return async function parseKafkaMessageStep(input) {
         const { message } = input
 
         const parsedEvent = parseKafkaMessage(message)
         if (!parsedEvent) {
-            return drop('Failed to parse Kafka message')
+            return Promise.resolve(drop('Failed to parse Kafka message'))
         }
 
-        return ok({ ...input, event: parsedEvent })
+        return Promise.resolve(ok({ ...input, event: parsedEvent }))
     }
 }
