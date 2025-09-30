@@ -171,14 +171,8 @@ jobs:
                     exit 0
                   fi
 
-                  # Initialize comment body
+                  # Initialize comment body for SQL changes
                   COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
-
-                  # Get risk analysis
-                  RISK_ANALYSIS=$(echo "$CHANGED_FILES" | grep -v migrations/0001_ | python manage.py analyze_migration_risk 2>&1 || true)
-                  if [ -n "$RISK_ANALYSIS" ]; then
-                    COMMENT_BODY+="### 🔍 Migration Risk Analysis\n\n\`\`\`\n$RISK_ANALYSIS\n\`\`\`\n\n---\n\n"
-                  fi
 
                   # Process each changed migration file
                   for file in $CHANGED_FILES; do
@@ -220,14 +214,39 @@ jobs:
                   COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
                   COMMENT_BODY_JSON=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
 
-                  # Post new comment to PR
-                  echo "Posting comment to PR"
+                  # Post SQL comment to PR
+                  echo "Posting SQL comment to PR"
                   echo "$COMMENT_BODY_JSON"
                   curl -X POST \
                     -H "Authorization: token $GITHUB_TOKEN" \
                     -H "Accept: application/vnd.github.v3+json" \
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
                     -d "$COMMENT_BODY_JSON"
+
+                  # Get risk analysis and post as separate comment
+                  RISK_ANALYSIS=$(echo "$CHANGED_FILES" | grep -v migrations/0001_ | python manage.py analyze_migration_risk 2>&1 || true)
+                  if [ -n "$RISK_ANALYSIS" ]; then
+                    # Delete previous risk analysis comments
+                    echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
+                      echo "Deleting risk analysis comment $comment_id"
+                      curl -X DELETE \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
+                    done
+
+                    # Post risk analysis comment
+                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks. This is a new analyzer running alongside the existing checks.\n\n\`\`\`\n$RISK_ANALYSIS\n\`\`\`\n\n**Legend:**\n- ✅ **Safe**: No locks, backwards compatible\n- ⚠️ **Needs Review**: May have performance impact, review carefully\n- ❌ **Blocked**: Causes locks, breaks backwards compatibility, or violates PostHog policies\n\nIf you see blocked migrations, please review the feedback and update your migration."
+                    RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
+                    RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
+
+                    echo "Posting risk analysis comment to PR"
+                    curl -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                      -d "$RISK_COMMENT_JSON"
+                  fi
 
             - name: Run migrations for this PR
               run: |
