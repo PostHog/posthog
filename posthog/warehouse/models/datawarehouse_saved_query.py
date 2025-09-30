@@ -20,6 +20,7 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 from posthog.sync import database_sync_to_async
+from posthog.warehouse.models.datawarehouse_saved_query_query_type import DataWarehouseSavedQueryQueryType
 from posthog.warehouse.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
@@ -57,16 +58,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         FAILED = "Failed"
         RUNNING = "Running"
 
-    class QueryType(models.TextChoices):
-        """The type of query to generate"""
-
-        REVENUE_ANALYTICS_CHARGE = ("revenue_analytics_charge", "Revenue Analytics Charge")
-        REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
-        REVENUE_ANALYTICS_PRODUCT = ("revenue_analytics_product", "Revenue Analytics Product")
-        REVENUE_ANALYTICS_REVENUE_ITEM = ("revenue_analytics_revenue_item", "Revenue Analytics Revenue Item")
-        REVENUE_ANALYTICS_SUBSCRIPTION = ("revenue_analytics_subscription", "Revenue Analytics Subscription")
-        REVENUE_ANALYTICS_MRR = ("revenue_analytics_mrr", "Revenue Analytics MRR")
-
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     latest_error = models.TextField(default=None, null=True, blank=True)
@@ -96,7 +87,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     # We'll use the external_data_source to generate the query at runtime, so we need to cascade delete
     _query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query", db_column="query")
     query_type = models.CharField(
-        null=True, choices=QueryType.choices, max_length=64, help_text="The type of query to generate"
+        null=True,
+        choices=DataWarehouseSavedQueryQueryType.choices,
+        max_length=64,
+        help_text="The type of query to generate",
     )
     external_data_source = models.ForeignKey(
         "posthog.ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True

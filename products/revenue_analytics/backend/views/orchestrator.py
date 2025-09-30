@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from django.db.models import Prefetch
 
@@ -12,7 +12,7 @@ from posthog.hogql import ast
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.models.team.team import Team
-from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.warehouse.models.datawarehouse_saved_query_query_type import DataWarehouseSavedQueryQueryType
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
@@ -26,6 +26,9 @@ from products.revenue_analytics.backend.views.core import (
 )
 from products.revenue_analytics.backend.views.schemas import SCHEMAS
 from products.revenue_analytics.backend.views.sources.registry import BUILDERS
+
+if TYPE_CHECKING:
+    from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 SUPPORTED_SOURCES: list[ExternalDataSourceType] = [ExternalDataSourceType.STRIPE]
 
@@ -75,12 +78,12 @@ def _query_to_view(
 
 
 SUPPORTED_DATA_WAREHOUSE_SAVED_QUERY_TYPES = [
-    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_CHARGE,
-    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_CUSTOMER,
-    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_PRODUCT,
-    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_REVENUE_ITEM,
-    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_SUBSCRIPTION,
-    DataWarehouseSavedQuery.QueryType.REVENUE_ANALYTICS_MRR,
+    DataWarehouseSavedQueryQueryType.REVENUE_ANALYTICS_CHARGE,
+    DataWarehouseSavedQueryQueryType.REVENUE_ANALYTICS_CUSTOMER,
+    DataWarehouseSavedQueryQueryType.REVENUE_ANALYTICS_PRODUCT,
+    DataWarehouseSavedQueryQueryType.REVENUE_ANALYTICS_REVENUE_ITEM,
+    DataWarehouseSavedQueryQueryType.REVENUE_ANALYTICS_SUBSCRIPTION,
+    DataWarehouseSavedQueryQueryType.REVENUE_ANALYTICS_MRR,
 ]
 
 
