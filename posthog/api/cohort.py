@@ -10,6 +10,7 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from pydantic import (
@@ -179,6 +180,16 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 )
 
 logger = structlog.get_logger(__name__)
+
+
+class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
+    person_ids = serializers.ListField(
+        child=serializers.UUIDField(), required=True, help_text="List of person UUIDs to add to the cohort"
+    )
+
+
+class RemovePersonRequestSerializer(serializers.Serializer):
+    person_id = serializers.UUIDField(required=True, help_text="Person UUID to remove from the cohort")
 
 
 class CSVConfig:
@@ -746,10 +757,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return graph, behavioral_cohorts
 
-    @action(
-        methods=["GET"],
-        detail=True,
-    )
+    @extend_schema(summary="Duplicate as static cohort", description="Create a static copy of a dynamic cohort")
+    @action(methods=["GET"], detail=True, required_scopes=["cohort:write"])
     def duplicate_as_static_cohort(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
         team = self.team
@@ -852,7 +861,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
-    @action(methods=["PATCH"], detail=True)
+    @extend_schema(request=AddPersonsToStaticCohortRequestSerializer)
+    @action(methods=["PATCH"], detail=True, required_scopes=["cohort:write"])
     def add_persons_to_static_cohort(self, request: request.Request, **kwargs):
         cohort: Cohort = self.get_object()
         if not cohort.is_static:
@@ -885,7 +895,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
         return Response({"success": True}, status=200)
 
-    @action(methods=["PATCH"], detail=True)
+    @extend_schema(request=RemovePersonRequestSerializer)
+    @action(methods=["PATCH"], detail=True, required_scopes=["cohort:write"])
     def remove_person_from_static_cohort(self, request: request.Request, **kwargs):
         cohort: Cohort = self.get_object()
         if not cohort.is_static:
