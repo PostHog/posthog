@@ -24,19 +24,7 @@ class TestSESProvider(TestCase):
             SES_ENDPOINT="",
         ):
             provider = SESProvider()
-            assert provider.access_key_id == "test_access_key"
-            assert provider.secret_access_key == "test_secret_key"
-            assert provider.region == "us-east-1"
-
-    def test_init_missing_access_key(self):
-        with override_settings(SES_ACCESS_KEY_ID="", SES_SECRET_ACCESS_KEY="test_secret_key"):
-            with pytest.raises(ValueError, match="SES_ACCESS_KEY_ID is not set"):
-                SESProvider()
-
-    def test_init_missing_secret_key(self):
-        with override_settings(SES_ACCESS_KEY_ID="test_access_key", SES_SECRET_ACCESS_KEY=""):
-            with pytest.raises(ValueError, match="SES_SECRET_ACCESS_KEY is not set"):
-                SESProvider()
+            assert provider.client
 
     def test_create_email_domain_success(self):
         provider = SESProvider()

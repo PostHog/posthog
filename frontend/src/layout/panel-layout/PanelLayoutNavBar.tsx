@@ -19,6 +19,7 @@ import {
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DebugNotice } from 'lib/components/DebugNotice'
+import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -311,7 +312,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         activePanelIdentifier === item.identifier ||
                                                         activePanelIdentifierFromUrl === item.identifier
                                                     }
-                                                    className="group pr-1"
+                                                    className="group"
                                                     menuItem={!isLayoutNavCollapsed}
                                                     iconOnly={isLayoutNavCollapsed}
                                                     tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
@@ -347,7 +348,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             .toLowerCase()}`}
                                                         buttonProps={{
                                                             menuItem: !isLayoutNavCollapsed,
-                                                            className: 'group pr-1',
+                                                            className: 'group',
                                                             iconOnly: isLayoutNavCollapsed,
                                                             active: isStaticNavItemActive(item.identifier),
                                                         }}
@@ -391,6 +392,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="p-1 flex flex-col gap-px items-center">
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            <NavPanelAdvertisement />
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <ButtonPrimitive
                                     menuItem={!isLayoutNavCollapsed}
@@ -476,7 +478,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement="right"
                                     iconOnly={isLayoutNavCollapsed}
                                     data-attr="menu-item-me"
-                                    className="pr-1"
                                 >
                                     <ProfilePicture user={user} size={isLayoutNavCollapsed ? 'md' : 'xs'} />
                                     {!isLayoutNavCollapsed && (
