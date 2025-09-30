@@ -1897,7 +1897,7 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters
   '''
-  /* cohort_calculation:cohort_calc:c029f570 */
+  /* cohort_calculation:cohort_calc:88693fbe */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -1906,7 +1906,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:c029f570%'
+    AND query LIKE '%cohort_calc:88693fbe%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -2298,7 +2298,7 @@
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
   '''
-  /* cohort_calculation:cohort_calc:579e15a1 */
+  /* cohort_calculation:cohort_calc:3a1fa6a6 */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -2307,7 +2307,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:579e15a1%'
+    AND query LIKE '%cohort_calc:3a1fa6a6%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
