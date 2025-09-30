@@ -37,10 +37,28 @@ class AddFieldAnalyzer(OperationAnalyzer):
                 details={"model": op.model_name, "field": op.name},
             )
         elif not is_nullable and has_default:
+            # Check if default is a callable (potentially volatile)
+            default_value = field.default
+            if callable(default_value):
+                # Check for common volatile callables
+                default_name = getattr(default_value, "__name__", str(default_value))
+                if "uuid" in default_name.lower() or "random" in default_name.lower():
+                    return OperationRisk(
+                        type=self.operation_type,
+                        score=5,
+                        reason=f"Adding NOT NULL field with volatile default ({default_name}) rewrites entire table",
+                        details={"model": op.model_name, "field": op.name, "default": default_name},
+                    )
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=2,
+                    reason=f"Adding NOT NULL field with callable default ({default_name}) - verify it's stable",
+                    details={"model": op.model_name, "field": op.name, "default": default_name},
+                )
             return OperationRisk(
                 type=self.operation_type,
                 score=1,
-                reason="Adding NOT NULL field with default (verify it's a constant)",
+                reason="Adding NOT NULL field with constant default (safe in PG11+)",
                 details={"model": op.model_name, "field": op.name},
             )
         else:
@@ -83,11 +101,31 @@ class AlterFieldAnalyzer(OperationAnalyzer):
     default_score = 3
 
     def analyze(self, op) -> OperationRisk:
+        field = op.field
+        field_type = field.__class__.__name__
+
+        # Check for specific dangerous alterations
+        # Note: We can't easily compare old vs new field without loading the old migration state,
+        # so we look for markers that suggest dangerous changes
+
+        # Setting NOT NULL on existing column is very dangerous
+        if not field.null and hasattr(field, "_null_changed"):
+            return OperationRisk(
+                type=self.operation_type,
+                score=5,
+                reason="Setting NOT NULL on existing column requires full table scan and locks table",
+                details={"model": op.model_name, "field": op.name},
+            )
+
+        # Changing to a more restrictive max_length could be dangerous
+        # (would need validation), but we can't detect this without old state
+
+        # Default case: needs review
         return OperationRisk(
             type=self.operation_type,
             score=3,
-            reason="Field alteration may cause table locks or data loss",
-            details={"model": op.model_name, "field": op.name},
+            reason="Field alteration may cause table locks or data loss (check if changing type or constraints)",
+            details={"model": op.model_name, "field": op.name, "field_type": field_type},
         )
 
 
@@ -249,5 +287,47 @@ class AlterIndexTogetherAnalyzer(OperationAnalyzer):
             type=self.operation_type,
             score=3,
             reason="Altering indexes may lock table",
+            details={},
+        )
+
+
+class RemoveIndexAnalyzer(OperationAnalyzer):
+    operation_type = "RemoveIndex"
+    default_score = 0
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=0,
+            reason="Removing index is safe (doesn't block reads/writes)",
+            details={"model": op.model_name if hasattr(op, "model_name") else "unknown"},
+        )
+
+
+class SeparateDatabaseAndStateAnalyzer(OperationAnalyzer):
+    operation_type = "SeparateDatabaseAndState"
+    default_score = 2
+
+    def analyze(self, op) -> OperationRisk:
+        # This operation separates database operations from state operations
+        # We should analyze the database_operations for actual risk
+        # The state_operations are just Django model state changes
+
+        if hasattr(op, "database_operations") and op.database_operations:
+            # Get count of database operations to note in details
+            db_op_count = len(op.database_operations)
+            db_op_types = [db_op.__class__.__name__ for db_op in op.database_operations]
+
+            return OperationRisk(
+                type=self.operation_type,
+                score=2,
+                reason=f"Contains {db_op_count} database operation(s) - review database_operations for actual risk",
+                details={"database_operations": ", ".join(db_op_types)},
+            )
+
+        return OperationRisk(
+            type=self.operation_type,
+            score=0,
+            reason="Only state operations (no database changes)",
             details={},
         )

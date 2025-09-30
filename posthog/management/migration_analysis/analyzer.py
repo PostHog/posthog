@@ -12,10 +12,12 @@ from posthog.management.migration_analysis.operations import (
     CreateModelAnalyzer,
     DeleteModelAnalyzer,
     RemoveFieldAnalyzer,
+    RemoveIndexAnalyzer,
     RenameFieldAnalyzer,
     RenameModelAnalyzer,
     RunPythonAnalyzer,
     RunSQLAnalyzer,
+    SeparateDatabaseAndStateAnalyzer,
 )
 
 
@@ -45,6 +47,8 @@ class RiskAnalyzer:
         "CreateModel": CreateModelAnalyzer(),
         "AlterUniqueTogether": AlterUniqueTogetherAnalyzer(),
         "AlterIndexTogether": AlterIndexTogetherAnalyzer(),
+        "RemoveIndex": RemoveIndexAnalyzer(),
+        "SeparateDatabaseAndState": SeparateDatabaseAndStateAnalyzer(),
     }
 
     def analyze_migration(self, migration, path: str) -> MigrationRisk:
