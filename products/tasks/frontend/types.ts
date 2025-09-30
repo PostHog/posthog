@@ -137,3 +137,5 @@ export interface WorkflowConfiguration {
     workflow: TaskWorkflow
     stages: WorkflowStage[]
 }
+
+export type TaskTrackerTab = 'dashboard' | 'backlog' | 'kanban' | 'settings'

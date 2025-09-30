@@ -3,8 +3,8 @@ import { Message } from 'node-rdkafka'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { EventHeaders, Hub, IncomingEvent, IncomingEventWithTeam } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { AsyncPreprocessingStep } from '../processing-pipeline'
+import { drop, ok } from '../pipelines/results'
+import { ProcessingStep } from '../pipelines/steps'
 
 async function resolveTeam(
     hub: Pick<Hub, 'teamManager'>,
@@ -51,8 +51,8 @@ async function resolveTeam(
 
 export function createResolveTeamStep<T extends { message: Message; headers: EventHeaders; event: IncomingEvent }>(
     hub: Hub
-): AsyncPreprocessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
-    return async (input) => {
+): ProcessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
+    return async function resolveTeamStep(input) {
         const { message, headers, event } = input
 
         const eventWithTeam = await resolveTeam(hub, message, headers, event.event)
@@ -61,6 +61,6 @@ export function createResolveTeamStep<T extends { message: Message; headers: Eve
             return drop('Failed to resolve team')
         }
 
-        return success({ ...input, eventWithTeam })
+        return ok({ ...input, eventWithTeam })
     }
 }

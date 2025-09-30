@@ -3,6 +3,7 @@ import datetime as dt
 import dataclasses
 from typing import Any, Optional
 
+import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
@@ -143,8 +144,11 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
         conditions_per_workflow = math.ceil(total_conditions / inputs.parallelism)
         conditions_per_workflow = min(conditions_per_workflow, inputs.conditions_per_workflow)
 
-        # Step 3: Import the child workflow inputs
-        from posthog.temporal.messaging.behavioral_cohorts_workflow import BehavioralCohortsWorkflowInputs
+        # Step 3: Import the child workflow inputs and workflow class
+        from posthog.temporal.messaging.behavioral_cohorts_workflow import (
+            BehavioralCohortsWorkflow,
+            BehavioralCohortsWorkflowInputs,
+        )
 
         # Step 4: Launch child workflows - fire and forget
         workflows_scheduled = 0
@@ -168,11 +172,13 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
             )
 
             # Start child workflow - fire and forget, don't wait for result
+            # Set parent_close_policy to ABANDON so child workflows continue after parent completes
             await temporalio.workflow.start_child_workflow(
-                "behavioral-cohorts-analysis",
+                BehavioralCohortsWorkflow.run,
                 child_inputs,
                 id=child_id,
                 task_queue=MESSAGING_TASK_QUEUE,
+                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
             )
             workflows_scheduled += 1
 

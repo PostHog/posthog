@@ -95,11 +95,13 @@ export const actionLogic = kea<actionLogicType>([
                     key: DataManagementTab.Actions,
                     name: 'Actions',
                     path: urls.actions(),
+                    iconType: 'action',
                 },
                 {
                     key: [Scene.Action, action?.id || 'new'],
                     name: inProgressName ?? (action?.name || ''),
                     forceEditMode: !action?.id,
+                    iconType: 'action',
                 },
             ],
         ],

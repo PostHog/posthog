@@ -310,6 +310,7 @@ const featureFlagActionsMapping: Record<
     id: () => null,
     created_at: () => null,
     created_by: () => null,
+    updated_at: () => null,
     is_simple_flag: () => null,
     experiment_set: () => null,
     features: () => null,
