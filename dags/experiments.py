@@ -90,13 +90,13 @@ def _get_experiment_metrics(context: dagster.SensorEvaluationContext) -> list[tu
 
 def _remove_step_sessions_from_experiment_result(result: ExperimentQueryResponse) -> ExperimentQueryResponse:
     """
-    Remove step_sessions fields from experiment results to reduce API response size.
+    Remove step_sessions values from experiment results to reduce API response size.
     """
-    if hasattr(result.baseline, "step_sessions") and result.baseline.step_sessions is not None:
+    if result.baseline is not None:
         result.baseline.step_sessions = None
 
-    for variant in result.variant_results:
-        if hasattr(variant, "step_sessions") and variant.step_sessions is not None:
+    if result.variant_results is not None:
+        for variant in result.variant_results:
             variant.step_sessions = None
 
     return result
