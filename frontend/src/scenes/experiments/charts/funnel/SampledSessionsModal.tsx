@@ -88,7 +88,7 @@ export function SampledSessionsModal(): JSX.Element {
                                 sceneLogic.actions.newTab(url)
                             }}
                             className="font-mono text-xs whitespace-nowrap"
-                            title={`View events for session ${session.session_id}`}
+                            title={`View events for ${text}`}
                         >
                             {text}
                             <IconOpenInNew style={{ fontSize: 14 }} />
