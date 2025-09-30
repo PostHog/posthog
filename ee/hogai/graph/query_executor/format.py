@@ -539,5 +539,8 @@ class SQLResultsFormatter:
         lines: list[str] = []
         lines.append("|".join(self._columns))
         for row in self._results:
-            lines.append("|".join([str(cell) for cell in row.values()]))
+            if isinstance(row, dict):
+                lines.append("|".join([str(cell) for cell in row.values()]))
+            else:
+                lines.append("|".join([str(cell) for cell in row]))
         return "\n".join(lines)

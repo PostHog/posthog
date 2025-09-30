@@ -12,6 +12,17 @@ The dashboard contains {insight_count} insight{insight_plural}.
 {insights_list}
 
 """
+
+DASHBOARD_EDIT_SUCCESS_MESSAGE_TEMPLATE = """
+**Dashboard Edited**
+
+The dashboard [{dashboard_name}]({dashboard_url}) was edited successfully.
+The dashboard now has {insight_count} new insight{insight_plural} added to it.
+
+**Added insights**
+{insights_list}
+
+"""
 QUERIES_WITHOUT_INSIGHTS_MESSAGE_TEMPLATE = """
 **Queries without insights**
 Due to issues with creating insights, the following queries were not included in the dashboard:

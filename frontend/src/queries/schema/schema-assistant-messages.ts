@@ -237,6 +237,7 @@ export type AssistantContextualTool =
     | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
+    | 'edit_current_dashboard'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

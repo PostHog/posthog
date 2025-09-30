@@ -788,7 +788,8 @@
                 "search_docs",
                 "search_insights",
                 "session_summarization",
-                "create_dashboard"
+                "create_dashboard",
+                "edit_current_dashboard"
             ],
             "type": "string"
         },
