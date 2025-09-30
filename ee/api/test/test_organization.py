@@ -13,6 +13,7 @@ from posthog.tasks.tasks import sync_all_organization_available_product_features
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
@@ -201,7 +202,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
             expected_response = {
                 "attr": None,
-                "detail": "You do not have admin access to this resource.",
+                "detail": "Your organization access level is insufficient.",
                 "code": "permission_denied",
                 "type": "authentication_error",
             }
@@ -290,10 +291,17 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
     def test_get_organization_restricted_teams_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        Team.objects.create(
+        forbidden_team = Team.objects.create(
             organization=self.organization,
             name="FORBIDDEN",
-            access_control=True,
+        )
+
+        # Set up new access control system - restrict project to no default access
+        AccessControl.objects.create(
+            team=forbidden_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(forbidden_team.id),
         )
 
         response = self.client.get(f"/api/organizations/{self.organization.id}")

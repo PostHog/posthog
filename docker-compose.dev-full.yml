@@ -258,6 +258,14 @@ services:
             file: docker-compose.base.yml
             service: jaeger
 
+    localstack:
+        extends:
+            file: docker-compose.base.yml
+            service: localstack
+
 networks:
     otel_network:
         driver: bridge
+
+volumes:
+    redpanda-data:

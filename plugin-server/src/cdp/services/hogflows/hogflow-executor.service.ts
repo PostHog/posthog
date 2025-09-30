@@ -15,6 +15,7 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
+import { HogExecutorExecuteAsyncOptions } from '../hog-executor.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -276,7 +277,10 @@ export class HogFlowExecutorService {
     }
 
     public async executeCurrentAction(
-        invocation: CyclotronJobInvocationHogFlow
+        invocation: CyclotronJobInvocationHogFlow,
+        options?: {
+            hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+        }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
         result.finished = false // Typically we are never finished unless we error or exit
@@ -307,7 +311,12 @@ export class HogFlowExecutorService {
             }
 
             try {
-                const handlerResult = await handler.execute(invocation, currentAction, result)
+                const handlerResult = await handler.execute({
+                    invocation,
+                    action: currentAction,
+                    result,
+                    hogExecutorOptions: options?.hogExecutorOptions,
+                })
 
                 if (handlerResult.finished) {
                     result.finished = true
@@ -378,25 +387,29 @@ export class HogFlowExecutorService {
     private maybeContinueToNextActionOnError(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
     ): void {
-        const { invocation } = result
-        // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
-        const currentAction = ensureCurrentAction(invocation)
-        if (currentAction?.on_error === 'continue') {
-            const nextAction = findContinueAction(invocation)
-            if (nextAction) {
-                this.logAction(
-                    result,
-                    currentAction,
-                    'info',
-                    `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to on_error setting`
-                )
+        try {
+            const { invocation } = result
+            // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
+            const currentAction = ensureCurrentAction(invocation)
+            if (currentAction?.on_error === 'continue') {
+                const nextAction = findContinueAction(invocation)
+                if (nextAction) {
+                    this.logAction(
+                        result,
+                        currentAction,
+                        'info',
+                        `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to on_error setting`
+                    )
 
-                /**
-                 * TODO: Determine if we should track this as a 'succeeded' metric here or
-                 * a new metric_name e.g. 'continued_after_error'
-                 */
-                this.goToNextAction(result, currentAction, nextAction, 'succeeded')
+                    /**
+                     * TODO: Determine if we should track this as a 'succeeded' metric here or
+                     * a new metric_name e.g. 'continued_after_error'
+                     */
+                    this.goToNextAction(result, currentAction, nextAction, 'succeeded')
+                }
             }
+        } catch (err) {
+            logger.error('Error trying to continue to next action on error', { error: err })
         }
     }
 
