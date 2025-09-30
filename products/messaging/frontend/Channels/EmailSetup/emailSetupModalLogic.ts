@@ -17,7 +17,7 @@ export interface EmailSetupModalLogicProps {
 
 export interface DnsRecord {
     type: string
-    status: string
+    status: 'success' | 'pending'
     recordValue: string
     recordType: string
     recordHostname: string
@@ -26,6 +26,7 @@ export interface DnsRecord {
 export interface EmailSenderFormType {
     email: string
     name: string
+    provider: 'ses' | 'mailjet' | 'maildev'
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
@@ -41,10 +42,11 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     forms(({ actions }) => ({
         emailSender: {
             defaults: {
+                provider: 'mailjet',
                 email: '',
                 name: '',
-            },
-            errors: ({ email, name }) => {
+            } as EmailSenderFormType,
+            errors: ({ email, name, provider }) => {
                 let emailError = undefined
                 if (!email) {
                     emailError = 'Email is required'
@@ -55,6 +57,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 return {
                     email: emailError,
                     name: !name ? 'Name is required' : undefined,
+                    provider: !provider ? 'Provider is required' : undefined,
                 }
             },
             submit: async (config) => {
