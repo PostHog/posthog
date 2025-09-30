@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -56,7 +58,7 @@ async def eval_dashboard_name_update(patch_get_stream_writer, pytestconfig, demo
 
     await MaxPublicEval(
         experiment_name="dashboard_name_update",
-        task=task_rename_dashboard,
+        task=task_rename_dashboard,  # type: ignore
         scores=[SemanticSimilarity()],
         data=[
             EvalCase(
@@ -119,7 +121,7 @@ async def eval_insights_addition(patch_get_stream_writer, pytestconfig, demo_org
 
     await MaxPublicEval(
         experiment_name="insights_addition",
-        task=task_add_insights,
+        task=task_add_insights,  # type: ignore
         scores=[SemanticSimilarity()],
         data=[
             EvalCase(
@@ -215,7 +217,7 @@ async def eval_combined_rename_and_add(pytestconfig, demo_org_team_user):
 
     await MaxPublicEval(
         experiment_name="combined_rename_and_add",
-        task=task_combined_edit,
+        task=task_combined_edit,  # type: ignore
         scores=[SemanticSimilarity()],
         data=[
             EvalCase(
@@ -252,7 +254,7 @@ async def eval_error_handling(pytestconfig, demo_org_team_user):
     async def task_with_errors(error_scenario: str):
         tool = EditCurrentDashboardTool(team=demo_org_team_user[1], user=demo_org_team_user[2])
 
-        contextual_tools = {}
+        contextual_tools: dict[str, dict[str, dict[str, Any]]] = {}
         if error_scenario == "missing_context":
             contextual_tools = {"edit_current_dashboard": {}}
         elif error_scenario == "missing_dashboard_id":
@@ -283,7 +285,7 @@ async def eval_error_handling(pytestconfig, demo_org_team_user):
 
     await MaxPublicEval(
         experiment_name="error_handling",
-        task=task_with_errors,
+        task=task_with_errors,  # type: ignore
         scores=[SemanticSimilarity()],
         data=[
             EvalCase(
