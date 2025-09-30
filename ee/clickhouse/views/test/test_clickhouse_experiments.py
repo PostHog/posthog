@@ -482,7 +482,9 @@ class TestExperimentCRUD(APILicensedTest):
                     ],
                     "properties": [],
                 },
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}],
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": "secondary", "uuid": "test-uuid-1"}}
+                ],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -494,7 +496,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
         experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
-        self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary"})
+        self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary", "uuid": "test-uuid-1"})
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
         self.assertEqual(saved_metric.id, saved_metric_id)
         self.assertEqual(
@@ -526,8 +528,8 @@ class TestExperimentCRUD(APILicensedTest):
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
             {
                 "saved_metrics_ids": [
-                    {"id": saved_metric_id, "metadata": {"type": "secondary"}},
-                    {"id": saved_metric_2_id, "metadata": {"type": "tertiary"}},
+                    {"id": saved_metric_id, "metadata": {"type": "secondary", "uuid": "test-uuid-1"}},
+                    {"id": saved_metric_2_id, "metadata": {"type": "tertiary", "uuid": "test-uuid-2"}},
                 ]
             },
         )
@@ -536,8 +538,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 2)
         experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.all()
-        self.assertEqual(experiment_to_saved_metric[0].metadata, {"type": "secondary"})
-        self.assertEqual(experiment_to_saved_metric[1].metadata, {"type": "tertiary"})
+        self.assertEqual(experiment_to_saved_metric[0].metadata, {"type": "secondary", "uuid": "test-uuid-1"})
+        self.assertEqual(experiment_to_saved_metric[1].metadata, {"type": "tertiary", "uuid": "test-uuid-2"})
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.all()
         self.assertEqual(sorted([saved_metric[0].id, saved_metric[1].id]), [saved_metric_id, saved_metric_2_id])
 
@@ -552,7 +554,7 @@ class TestExperimentCRUD(APILicensedTest):
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
             {
                 "saved_metrics_ids": [
-                    {"id": saved_metric_id, "metadata": {"type": "secondary"}},
+                    {"id": saved_metric_id, "metadata": {"type": "secondary", "uuid": "test-uuid-1"}},
                 ]
             },
         )
@@ -568,7 +570,7 @@ class TestExperimentCRUD(APILicensedTest):
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
             {
                 "saved_metrics_ids": [
-                    {"id": saved_metric_id, "metadata": {"type": "secondary"}},
+                    {"id": saved_metric_id, "metadata": {"type": "secondary", "uuid": "test-uuid-1"}},
                 ]
             },
         )
@@ -658,7 +660,7 @@ class TestExperimentCRUD(APILicensedTest):
             f"/api/projects/{self.team.id}/experiments/",
             {
                 **exp_data,
-                "saved_metrics_ids": [{"id": 12345678}],
+                "saved_metrics_ids": [{"id": 12345678, "metadata": {"type": "secondary", "uuid": "test-uuid"}}],
             },
         )
 
@@ -701,6 +703,30 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "validation_error")
         self.assertEqual(response.json()["detail"], "Metadata must be an object")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], "Metadata must have a uuid key")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [{"id": saved_metric_id}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], "Saved metric must have metadata")
 
     @freeze_time("2025-02-10T13:00:00Z")
     def test_fetching_experiment_with_stale_metric_dates_applies_experiment_date_range(self):
@@ -787,12 +813,12 @@ class TestExperimentCRUD(APILicensedTest):
             metrics_secondary=[trends_query],
         )
 
-        for saved_metric_data in [saved_funnel_metric, saved_trends_metric]:
+        for i, saved_metric_data in enumerate([saved_funnel_metric, saved_trends_metric]):
             saved_metric_serializer = ExperimentToSavedMetricSerializer(
                 data={
                     "experiment": experiment.id,
                     "saved_metric": saved_metric_data.id,
-                    "metadata": {"type": "secondary"},
+                    "metadata": {"type": "secondary", "uuid": f"test-uuid-{i+1}"},
                 },
             )
             saved_metric_serializer.is_valid(raise_exception=True)

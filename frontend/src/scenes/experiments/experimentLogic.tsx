@@ -453,12 +453,9 @@ export const experimentLogic = kea<experimentLogicType>([
             funnelAggregateByHogQL,
             isSecondary,
         }),
-        addSharedMetricsToExperiment: (
-            sharedMetricIds: SharedMetric['id'][],
-            metadata: { type: 'primary' | 'secondary' }
-        ) => ({
+        addSharedMetricsToExperiment: (sharedMetricIds: SharedMetric['id'][], isSecondary: boolean) => ({
             sharedMetricIds,
-            metadata,
+            isSecondary,
         }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
         duplicateMetric: ({ uuid, isSecondary, newUuid }: { uuid: string; isSecondary: boolean; newUuid: string }) => ({
@@ -1093,23 +1090,33 @@ export const experimentLogic = kea<experimentLogicType>([
                 holdout_id: values.experiment.holdout_id,
             })
         },
-        addSharedMetricsToExperiment: async ({ sharedMetricIds, metadata }) => {
-            const existingMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
+        addSharedMetricsToExperiment: async ({ sharedMetricIds, isSecondary }) => {
+            const existingMetricPayloads = values.experiment.saved_metrics.map((sharedMetric) => ({
                 id: sharedMetric.saved_metric,
                 metadata: sharedMetric.metadata,
             }))
 
-            const newMetricsIds = sharedMetricIds.map((id: SharedMetric['id']) => ({ id, metadata }))
-            newMetricsIds.forEach((metricId) => {
-                const metric = values.sharedMetrics.find((m: SharedMetric) => m.id === metricId.id)
+            const newMetricPayloads = sharedMetricIds.map((id: SharedMetric['id']) => {
+                const metric = values.sharedMetrics.find((m: SharedMetric) => m.id === id)
+                const metadata: { type: 'primary' | 'secondary'; uuid?: string } = {
+                    type: isSecondary ? 'secondary' : 'primary',
+                }
+                if (metric?.query?.uuid) {
+                    metadata.uuid = metric.query.uuid
+                }
+                return { id, metadata }
+            })
+
+            newMetricPayloads.forEach((payload) => {
+                const metric = values.sharedMetrics.find((m: SharedMetric) => m.id === payload.id)
                 if (metric) {
                     actions.reportExperimentSharedMetricAssigned(values.experimentId, metric)
                 }
             })
-            const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
+            const allMetricPayloads = [...existingMetricPayloads, ...newMetricPayloads]
 
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: combinedMetricsIds,
+                saved_metrics_ids: allMetricPayloads,
                 primary_metrics_ordered_uuids: values.experiment.primary_metrics_ordered_uuids,
                 secondary_metrics_ordered_uuids: values.experiment.secondary_metrics_ordered_uuids,
             })
@@ -1117,14 +1124,14 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.loadExperiment()
         },
         removeSharedMetricFromExperiment: async ({ sharedMetricId }) => {
-            const sharedMetricsIds = values.experiment.saved_metrics
+            const remainingMetricPayloads = values.experiment.saved_metrics
                 .filter((sharedMetric) => sharedMetric.saved_metric !== sharedMetricId)
                 .map((sharedMetric) => ({
                     id: sharedMetric.saved_metric,
                     metadata: sharedMetric.metadata,
                 }))
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: sharedMetricsIds,
+                saved_metrics_ids: remainingMetricPayloads,
                 primary_metrics_ordered_uuids: values.experiment.primary_metrics_ordered_uuids,
                 secondary_metrics_ordered_uuids: values.experiment.secondary_metrics_ordered_uuids,
             })

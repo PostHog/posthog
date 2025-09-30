@@ -139,9 +139,7 @@ export function SharedMetricModal({
                                             : 'primary_metrics_ordered_uuids']: newOrderingArray,
                                     })
 
-                                    addSharedMetricsToExperiment(selectedMetricIds, {
-                                        type: isSecondary ? 'secondary' : 'primary',
-                                    })
+                                    addSharedMetricsToExperiment(selectedMetricIds, !!isSecondary)
                                     isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
                                 }}
                                 type="primary"

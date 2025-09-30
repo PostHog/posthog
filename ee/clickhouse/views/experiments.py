@@ -119,7 +119,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         if value is None:
             return value
 
-        # check value is valid json list with id and optionally metadata param
+        # check value is valid json list with id and metadata param
         if not isinstance(value, list):
             raise ValidationError("Saved metrics must be a list")
 
@@ -128,13 +128,16 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 raise ValidationError("Saved metric must be an object")
             if "id" not in saved_metric:
                 raise ValidationError("Saved metric must have an id")
-            if "metadata" in saved_metric and not isinstance(saved_metric["metadata"], dict):
-                raise ValidationError("Metadata must be an object")
 
-            # metadata is optional, but if it exists, should have type key
-            # TODO: extend with other metadata keys when known
-            if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
+            # metadata is required and must have type and uuid
+            if "metadata" not in saved_metric:
+                raise ValidationError("Saved metric must have metadata")
+            if not isinstance(saved_metric["metadata"], dict):
+                raise ValidationError("Metadata must be an object")
+            if "type" not in saved_metric["metadata"]:
                 raise ValidationError("Metadata must have a type key")
+            if "uuid" not in saved_metric["metadata"]:
+                raise ValidationError("Metadata must have a uuid key")
 
         # check if all saved metrics exist
         saved_metrics = ExperimentSavedMetric.objects.filter(id__in=[saved_metric["id"] for saved_metric in value])
@@ -294,7 +297,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
             experiment.variants = web_variants
             experiment.save()
-
         if saved_metrics_data:
             for saved_metric_data in saved_metrics_data:
                 saved_metric_serializer = ExperimentToSavedMetricSerializer(
