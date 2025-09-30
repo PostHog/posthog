@@ -271,7 +271,7 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
+        mock_client.verify_email_domain.assert_called_once_with("posthog.com")
 
         integration.refresh_from_db()
         assert integration.config == {
@@ -315,7 +315,7 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
+        mock_client.verify_email_domain.assert_called_once_with("posthog.com")
 
         integration.refresh_from_db()
         assert integration.config == {

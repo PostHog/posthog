@@ -1,8 +1,9 @@
 use crate::api::errors::FlagError;
 use crate::config::Config;
-use common_database::get_pool;
+use common_database::get_pool_with_timeout;
 use sqlx::PgPool;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Direct database pool access for different operation types
 #[derive(Clone)]
@@ -15,34 +16,44 @@ pub struct DatabasePools {
 
 impl DatabasePools {
     pub async fn from_config(config: &Config) -> Result<Self, FlagError> {
+        let acquire_timeout = Duration::from_secs(config.acquire_timeout_secs);
         let non_persons_reader = Arc::new(
-            get_pool(&config.read_database_url, config.max_pg_connections)
-                .await
-                .map_err(|e| {
-                    FlagError::DatabaseError(
-                        e,
-                        Some("Failed to create non-persons reader pool".to_string()),
-                    )
-                })?,
+            get_pool_with_timeout(
+                &config.read_database_url,
+                config.max_pg_connections,
+                acquire_timeout,
+            )
+            .await
+            .map_err(|e| {
+                FlagError::DatabaseError(
+                    e,
+                    Some("Failed to create non-persons reader pool".to_string()),
+                )
+            })?,
         );
 
         let non_persons_writer = Arc::new(
-            get_pool(&config.write_database_url, config.max_pg_connections)
-                .await
-                .map_err(|e| {
-                    FlagError::DatabaseError(
-                        e,
-                        Some("Failed to create flag matching writer pool".to_string()),
-                    )
-                })?,
+            get_pool_with_timeout(
+                &config.write_database_url,
+                config.max_pg_connections,
+                acquire_timeout,
+            )
+            .await
+            .map_err(|e| {
+                FlagError::DatabaseError(
+                    e,
+                    Some("Failed to create flag matching writer pool".to_string()),
+                )
+            })?,
         );
 
         // Create persons pools if configured, otherwise reuse the non-persons pools
         let persons_reader = if config.is_persons_db_routing_enabled() {
             Arc::new(
-                get_pool(
+                get_pool_with_timeout(
                     &config.get_persons_read_database_url(),
                     config.max_pg_connections,
+                    acquire_timeout,
                 )
                 .await
                 .map_err(|e| {
@@ -58,9 +69,10 @@ impl DatabasePools {
 
         let persons_writer = if config.is_persons_db_routing_enabled() {
             Arc::new(
-                get_pool(
+                get_pool_with_timeout(
                     &config.get_persons_write_database_url(),
                     config.max_pg_connections,
+                    acquire_timeout,
                 )
                 .await
                 .map_err(|e| {

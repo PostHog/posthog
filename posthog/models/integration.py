@@ -1155,7 +1155,7 @@ class EmailIntegration:
         if provider == "ses":
             verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
         elif provider == "mailjet":
-            verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+            verification_result = self.mailjet_provider.verify_email_domain(domain)
         elif provider == "maildev":
             verification_result = {
                 "status": "success",
