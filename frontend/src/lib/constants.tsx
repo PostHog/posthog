@@ -171,7 +171,6 @@ export const FEATURE_FLAGS = {
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     HOGQL_DASHBOARD_ASYNC: 'hogql-dashboard-async', // owner: @webjunkie
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-ingestion
-    PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
@@ -310,7 +309,6 @@ export const FEATURE_FLAGS = {
     HOW_TO_READ_METRICS_EXPLANATION: 'how-to-read-metrics-explanation', // owner: @jurajmajerik #team-experiments
     EXPERIMENT_TIMESERIES: 'experiment-timeseries', // owner: @jurajmajerik #team-experiments
     DASHBOARD_TILE_OVERRIDES: 'dashboard-tile-overrides', // owner: @gesh #team-product-analytics
-    REPLAY_HOVER_UI: 'replay-hover-ui', // owner: @pauldambra #team-replay
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     EXPERIMENTS_FUNNEL_CHART: 'experiments-funnel-chart', // owner: @andehen #team-experiments
     REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW: 'replay-x-llm-analytics-conversation-view', // owner: @pauldambra #team-replay
