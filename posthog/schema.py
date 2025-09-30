@@ -313,6 +313,7 @@ class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
 class Display(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
     BOLD_NUMBER = "BoldNumber"
@@ -525,6 +526,7 @@ class ChartDisplayCategory(StrEnum):
 class ChartDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
@@ -1356,6 +1358,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
+    HOME = "home"
 
 
 class FileSystemImport(BaseModel):
@@ -2045,6 +2048,26 @@ class PlanningStepStatus(StrEnum):
     COMPLETED = "completed"
 
 
+class PlaywrightWorkspaceSetupData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_name: Optional[str] = None
+
+
+class PlaywrightWorkspaceSetupResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_id: str
+    organization_name: str
+    personal_api_key: str
+    team_id: str
+    team_name: str
+    user_email: str
+    user_id: str
+
+
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
@@ -2402,6 +2425,15 @@ class SessionAttributionGroupBy(StrEnum):
     INITIAL_URL = "InitialURL"
 
 
+class SessionData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event_uuid: str
+    person_id: str
+    session_id: str
+
+
 class SessionEventsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2692,6 +2724,24 @@ class TaxonomicFilterGroupType(StrEnum):
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
     MAX_AI_CONTEXT = "max_ai_context"
+
+
+class TestSetupRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: Optional[dict[str, Any]] = None
+
+
+class TestSetupResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    available_tests: Optional[list[str]] = None
+    error: Optional[str] = None
+    result: Optional[Any] = None
+    success: bool
+    test_name: str
 
 
 class TimelineEntry(BaseModel):
@@ -3824,6 +3874,8 @@ class ExperimentStatsBase(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
 
@@ -3837,6 +3889,8 @@ class ExperimentStatsBaseValidated(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3855,6 +3909,8 @@ class ExperimentVariantResultBayesian(BaseModel):
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
     significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3873,6 +3929,8 @@ class ExperimentVariantResultFrequentist(BaseModel):
     numerator_denominator_sum_product: Optional[float] = None
     p_value: Optional[float] = None
     significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
