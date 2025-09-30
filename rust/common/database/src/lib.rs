@@ -57,29 +57,21 @@ pub struct PoolConfig {
     pub test_before_acquire: bool,
 }
 
-impl PoolConfig {
-    /// Creates a minimal config with conservative defaults
-    /// Services should override these with their own environment-based configs
-    pub fn minimal() -> Self {
+impl Default for PoolConfig {
+    /// Provides sensible production defaults
+    /// Services can override these with their own environment-based configs
+    fn default() -> Self {
         Self {
             max_connections: 10,
-            acquire_timeout: Duration::from_secs(5),
-            idle_timeout: None,
-            max_lifetime: None,
-            test_before_acquire: false,
+            acquire_timeout: Duration::from_secs(10),
+            idle_timeout: Some(Duration::from_secs(300)),  // Close idle connections after 5 minutes
+            max_lifetime: Some(Duration::from_secs(1800)), // Force refresh connections after 30 minutes
+            test_before_acquire: true,                     // Test connection health before use
         }
     }
 }
 
-impl Default for PoolConfig {
-    /// Default provides conservative fallback values
-    /// Services should use their own configurations from environment variables
-    fn default() -> Self {
-        Self::minimal()
-    }
-}
-
-/// Legacy function for backward compatibility - uses minimal defaults
+/// Legacy function for backward compatibility - uses default production settings
 /// New services should use get_pool_with_config() with their own PoolConfig
 pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
     let config = PoolConfig {
@@ -89,7 +81,7 @@ pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::E
     get_pool_with_config(url, config).await
 }
 
-/// Legacy function for backward compatibility - uses minimal defaults
+/// Legacy function for backward compatibility - uses default production settings except for timeout
 /// New services should use get_pool_with_config() with their own PoolConfig
 pub async fn get_pool_with_timeout(
     url: &str,
