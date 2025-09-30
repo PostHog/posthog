@@ -185,7 +185,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 inputRef.current?.focus()
             }, 100)
         }
-    }, [isEditing])
+    }, [isEditing, tab, clickOnTab])
 
     return (
         <Link

@@ -7,10 +7,11 @@ import {
     CyclotronJobInvocationResult,
     MinimalLogEntry,
 } from '../../../types'
+import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
-import { ActionHandler, ActionHandlerResult } from './action.interface'
+import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 
@@ -22,12 +23,13 @@ export class HogFunctionHandler implements ActionHandler {
         private recipientPreferencesService: RecipientPreferencesService
     ) {}
 
-    async execute(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: Action,
-        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
-    ): Promise<ActionHandlerResult> {
-        const functionResult = await this.executeHogFunction(invocation, action)
+    async execute({
+        invocation,
+        action,
+        result,
+        hogExecutorOptions,
+    }: ActionHandlerOptions<Action>): Promise<ActionHandlerResult> {
+        const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
 
         // Add all logs
         functionResult.logs.forEach((log: MinimalLogEntry) => {
@@ -55,7 +57,8 @@ export class HogFunctionHandler implements ActionHandler {
 
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Action
+        action: Action,
+        hogExecutorOptions?: HogExecutorExecuteAsyncOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
         const hogFunctionInvocation = await this.hogFlowFunctionsService.buildHogFunctionInvocation(
@@ -83,6 +86,6 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
-        return this.hogFlowFunctionsService.executeWithAsyncFunctions(hogFunctionInvocation)
+        return this.hogFlowFunctionsService.executeWithAsyncFunctions(hogFunctionInvocation, hogExecutorOptions)
     }
 }
