@@ -396,8 +396,10 @@ def wait_for_backup(
         return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
 
     done = False
+    tries = 0
     if backup:
-        while not done:
+        while not done and tries < 5:
+            tries += 1
             map_hosts(backup.wait).result().values()
             most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
             if most_recent_status and most_recent_status.status == "CREATING_BACKUP":
