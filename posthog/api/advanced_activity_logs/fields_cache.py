@@ -40,3 +40,14 @@ def cache_fields(organization_id: str, fields_data: dict, record_count: int) -> 
             client.setex(key, CACHE_TTL_SECONDS, json_data)
     except Exception as e:
         capture_exception(e)
+
+
+def delete_cached_fields(organization_id: str) -> bool:
+    """Delete cached fields for an organization"""
+    try:
+        client = get_client()
+        key = _get_cache_key(organization_id)
+        return bool(client.delete(key))
+    except Exception as e:
+        capture_exception(e)
+        return False
