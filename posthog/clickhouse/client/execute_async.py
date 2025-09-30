@@ -50,7 +50,7 @@ class QueryRetrievalError(Exception):
 
 class QueryStatusManager:
     STATUS_TTL_SECONDS = 60 * 20  # 20 minutes
-    DEDUP_TTL_SECONDS = 60 * 60  # 20 minutes
+    DEDUP_TTL_SECONDS = 60 * 20  # 20 minutes
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
     KEY_PREFIX_RUNNING_QUERIES = "running_queries"
 
@@ -151,7 +151,11 @@ class QueryStatusManager:
         """Get the query_id of a running query with the given cache_key, if any."""
         try:
             query_id = self.redis_client.hget(self.running_queries_key, cache_key)
-            return query_id.decode("utf-8") if query_id else None
+            if query_id:
+                decoded_query_id = query_id.decode("utf-8")
+                logger.debug("Found duplicate running query", cache_key=cache_key, query_id=decoded_query_id)
+                return decoded_query_id
+            return None
         except Exception as e:
             logger.exception("Error getting running query", cache_key=cache_key, error=str(e))
             return None
@@ -161,7 +165,7 @@ class QueryStatusManager:
         try:
             self.redis_client.hset(self.running_queries_key, cache_key, self.query_id)
             self.redis_client.expire(self.running_queries_key, self.DEDUP_TTL_SECONDS)
-            logger.warning("Registered running query", cache_key=cache_key, query_id=self.query_id)
+            logger.debug("Registered running query", cache_key=cache_key, query_id=self.query_id)
         except Exception as e:
             logger.exception(
                 "Error registering running query", cache_key=cache_key, query_id=self.query_id, error=str(e)
@@ -171,7 +175,7 @@ class QueryStatusManager:
         """Unregister a query that's no longer running."""
         try:
             self.redis_client.hdel(self.running_queries_key, cache_key)
-            logger.warning("Unregistered running query", cache_key=cache_key)
+            logger.debug("Unregistered running query", cache_key=cache_key)
         except Exception as e:
             logger.exception("Error unregistering running query", cache_key=cache_key, error=str(e))
 
@@ -264,7 +268,7 @@ def execute_process_query(
             if cache_key:
                 manager.unregister_cache_key_mapping(cache_key)
         except Exception as e:
-            logger.exception("Error cleaning up deduplication tracking", team_id=team_id, error=str(e))
+            capture_exception(e)
 
 
 def enqueue_process_query_task(
@@ -298,12 +302,6 @@ def enqueue_process_query_task(
         if cache_key:
             existing_query_id = manager.get_running_query_by_cache_key(cache_key)
             if existing_query_id:
-                logger.warning(
-                    "Found duplicate running query",
-                    cache_key=cache_key,
-                    existing_query_id=existing_query_id,
-                    new_query_id=query_id,
-                )
                 return get_query_status(team.id, existing_query_id)
     except Exception as e:
         logger.exception("Error checking for duplicate query", team_id=team.id, error=str(e))
