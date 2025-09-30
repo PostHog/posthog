@@ -23,6 +23,7 @@ class TikTokAdsSource(BaseSource[TikTokAdsSourceConfig]):
             name=SchemaExternalDataSourceType.TIK_TOK_ADS,
             label="TikTok Ads",
             caption="",
+            iconPath="/static/services/tiktok.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

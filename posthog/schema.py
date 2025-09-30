@@ -1658,7 +1658,7 @@ class IntegrationKind(StrEnum):
     META_ADS = "meta-ads"
     CLICKUP = "clickup"
     REDDIT_ADS = "reddit-ads"
-    TIK_TOK_ADS = "tik-tok-ads"
+    TIKTOK_ADS = "tiktok-ads"
 
 
 class IntervalType(StrEnum):
