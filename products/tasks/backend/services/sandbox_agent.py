@@ -4,7 +4,12 @@ from pydantic import BaseModel
 
 from products.tasks.backend.lib.constants import SETUP_REPOSITORY_PROMPT
 
-from .sandbox_environment import ExecutionResult, SandboxEnvironment, SandboxEnvironmentConfig
+from .sandbox_environment import (
+    ExecutionResult,
+    SandboxEnvironment,
+    SandboxEnvironmentConfig,
+    SandboxEnvironmentTemplate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +18,8 @@ REPOSITORY_TARGET_DIR = "repo"
 DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 
 
-class SandboxAgentConfig(BaseModel):
+class SandboxAgentCreateConfig(BaseModel):
+    name: str
     repository_url: str
     github_token: str
     task_id: str
@@ -22,23 +28,16 @@ class SandboxAgentConfig(BaseModel):
 
 
 class SandboxAgent:
-    """
-    Agent that uses sandbox environments to execute tasks.
-    """
+    """Agent that uses sandbox environments to execute tasks."""
 
-    config: SandboxAgentConfig
     sandbox: SandboxEnvironment
 
-    def __init__(self, sandbox: SandboxEnvironment, config: SandboxAgentConfig):
+    def __init__(self, sandbox: SandboxEnvironment):
         self.sandbox = sandbox
-        self.config = config
 
     @classmethod
-    async def create(
-        cls,
-        sandbox: SandboxEnvironment,
-        config: SandboxAgentConfig,
-    ) -> "SandboxAgent":
+    async def create(cls, config: SandboxAgentCreateConfig) -> "SandboxAgent":
+        """Create a new SandboxAgent with a fresh sandbox environment."""
         environment_variables = {
             "REPOSITORY_URL": config.repository_url,
             "POSTHOG_CLI_TOKEN": config.posthog_personal_api_key,
@@ -46,27 +45,15 @@ class SandboxAgent:
         }
 
         sandbox_config = SandboxEnvironmentConfig(
-            name=sandbox.config.name,
-            template=sandbox.config.template,
+            name=config.name,
+            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
             environment_variables=environment_variables,
-            entrypoint=sandbox.config.entrypoint,
         )
 
         sandbox = await SandboxEnvironment.create(sandbox_config)
-        agent = cls(sandbox, config)
-
-        return agent
+        return cls(sandbox)
 
     async def clone_repository(self, repository: str, github_token: str) -> ExecutionResult:
-        """Clone a repository into the expected location.
-
-        Args:
-            repository: Repository in format "org/repo"
-            github_token: GitHub access token
-
-        Returns:
-            ExecutionResult from the clone command
-        """
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
@@ -86,6 +73,7 @@ class SandboxAgent:
         return await self.sandbox.execute(clone_command, timeout_seconds=5 * 60)
 
     async def setup_repository(self, repository: str) -> ExecutionResult:
+        """Setup a repository for snapshotting using the PostHog Code Agent."""
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
@@ -96,30 +84,31 @@ class SandboxAgent:
         if "missing" in check_result.stdout:
             raise RuntimeError(f"Repository path {repo_path} does not exist. Clone the repository first.")
 
-        setup_command = f"cd {repo_path} && {self.get_setup_command()}"
+        setup_command = f"cd {repo_path} && {self._get_setup_command(repo_path)}"
 
         logger.info(f"Running code agent setup for {repository} in sandbox {self.sandbox.id}")
         return await self.sandbox.execute(setup_command, timeout_seconds=15 * 60)
 
-    async def execute_task(self) -> ExecutionResult:
-        """Execute PostHog Code Agent commands in the sandbox."""
+    async def execute_task(self, task_id: str, repository: str) -> ExecutionResult:
+        """Execute PostHog Code Agent for a task."""
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
-        full_command = f"cd {self.repository_dir} && {self.get_task_command()}"
+        org, repo = repository.split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        logger.info(
-            f"Executing task {self.config.task_id} in directory {self.repository_dir} in sandbox {self.sandbox.id}"
-        )
-        return await self.sandbox.execute(full_command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
+        command = f"cd {repo_path} && {self._get_task_command(task_id)}"
 
-    def get_task_command(self) -> str:
-        """Get the command to execute the task."""
-        return f"npx @posthog/code-agent --task-id {self.config.task_id}"
+        logger.info(f"Executing task {task_id} in {repo_path} in sandbox {self.sandbox.id}")
+        return await self.sandbox.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
 
-    def get_setup_command(self) -> str:
-        """Get the command to setup the repository."""
-        return f"npx @posthog/code-agent --prompt {SETUP_REPOSITORY_PROMPT.format(cwd=self.working_dir, repository=self.repository_dir)}"
+    def _get_task_command(self, task_id: str) -> str:
+        """Get the command to execute a task."""
+        return f"npx @posthog/code-agent --task-id {task_id}"
+
+    def _get_setup_command(self, repo_path: str) -> str:
+        """Get the command to setup a repository."""
+        return f"npx @posthog/code-agent --prompt '{SETUP_REPOSITORY_PROMPT.format(repository=repo_path)}'"
 
     async def destroy(self) -> None:
         """Destroy the underlying sandbox."""
@@ -130,14 +119,6 @@ class SandboxAgent:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.destroy()
-
-    @property
-    def working_dir(self) -> str:
-        return WORKING_DIR
-
-    @property
-    def repository_dir(self) -> str:
-        return f"{WORKING_DIR}/{REPOSITORY_TARGET_DIR}"
 
     @property
     def is_running(self) -> bool:

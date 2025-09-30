@@ -17,13 +17,13 @@ class GetBaseSnapshotOutput:
 
 
 @dataclass
-class CheckRepoInSnapshotInput:
+class CheckSnapshotExistsForRepositoryInput:
     github_integration_id: int
     repository: str
 
 
 @dataclass
-class CheckRepoInSnapshotOutput:
+class CheckSnapshotExistsForRepositoryOutput:
     exists: bool
     snapshot_id: str | None
 
@@ -33,7 +33,6 @@ class SetupRepoInSnapshotInput:
     github_integration_id: int
     team_id: int
     repository: str
-    github_token: str
 
 
 @dataclass
@@ -107,10 +106,68 @@ class ExecuteCodeAgentOutput:
 @dataclass
 class CleanupSandboxInput:
     sandbox_id: str
-    api_key_id: str | None = None
-    kill_execution_id: str | None = None
 
 
 @dataclass
 class CleanupSandboxOutput:
     success: bool
+
+
+@dataclass
+class TaskDetails:
+    task_id: str
+    team_id: int
+    user_id: int
+    github_integration_id: int
+    repository: str
+
+
+@dataclass
+class CreateSandboxForSetupInput:
+    base_snapshot_external_id: str
+
+
+@dataclass
+class CloneRepositoryInput:
+    sandbox_id: str
+    repository: str
+    github_integration_id: int
+
+
+@dataclass
+class SetupRepositoryInput:
+    sandbox_id: str
+    repository: str
+
+
+@dataclass
+class InitiateSnapshotInput:
+    sandbox_id: str
+
+
+@dataclass
+class PollSnapshotStatusInput:
+    snapshot_external_id: str
+
+
+@dataclass
+class FinalizeSnapshotRecordInput:
+    snapshot_record_id: str
+    snapshot_external_id: str
+
+
+@dataclass
+class MarkSnapshotErrorInput:
+    snapshot_record_id: str
+
+
+@dataclass
+class CreateSandboxFromSnapshotInput:
+    snapshot_id: str
+
+
+@dataclass
+class ExecuteTaskInput:
+    sandbox_id: str
+    task_id: str
+    repository: str

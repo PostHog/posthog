@@ -4,9 +4,18 @@ from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel
-from runloop_api_client import AsyncRunloop
+from runloop_api_client import (
+    AsyncRunloop,
+    NotFoundError as RunloopNotFoundError,
+)
+
+from products.tasks.backend.models import SandboxSnapshot
 
 logger = logging.getLogger(__name__)
+
+
+class NotFoundError(Exception):
+    pass
 
 
 class SandboxEnvironmentStatus(str, Enum):
@@ -44,6 +53,7 @@ class SandboxEnvironmentConfig(BaseModel):
     default_execution_timeout_seconds: int = 10 * 60  # 10 minutes
     environment_variables: Optional[dict[str, str]] = None
     entrypoint: Optional[str] = None
+    snapshot_id: Optional[str] = None
 
 
 def get_runloop_client() -> AsyncRunloop:
@@ -87,13 +97,21 @@ class SandboxEnvironment:
         if not blueprint_name:
             raise RuntimeError(f"Unknown template for sandbox {config.name}")
 
+        snapshot_external_id = None
+
+        if config.snapshot_id:
+            snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
+
+            if snapshot.status == SandboxSnapshot.Status.COMPLETE:
+                snapshot_external_id = snapshot.external_id
+
         try:
             # Wait for devbox to be running before returning
             devbox = await client.devboxes.create_and_await_running(
                 name=config.name,
-                blueprint_name=blueprint_name,
                 environment_variables=config.environment_variables or {},
                 entrypoint=config.entrypoint,
+                **({"snapshot_id": snapshot_external_id} if snapshot_external_id else {blueprint_name: blueprint_name}),
             )
 
         except Exception as e:
@@ -132,6 +150,8 @@ class SandboxEnvironment:
             return sandbox
 
         except Exception as e:
+            if isinstance(e, RunloopNotFoundError):
+                raise NotFoundError(f"Sandbox {sandbox_id} not found")
             logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
             raise RuntimeError(f"Failed to retrieve sandbox {sandbox_id}: {e}")
 
