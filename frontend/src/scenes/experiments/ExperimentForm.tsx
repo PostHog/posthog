@@ -151,7 +151,6 @@ const ExperimentFormFields = (): JSX.Element => {
                     setShowFeatureFlagSelector(false)
                 }}
             />
-
             {webExperimentsAvailable && (
                 <>
                     <SceneSection
@@ -161,7 +160,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     >
                         <LemonRadio
                             value={experiment.type}
-                            className="flex flex-col gap-2"
+                            className="flex flex-col gap-2 mt-4"
                             onChange={(type) => {
                                 setExperimentType(type)
                             }}
@@ -199,6 +198,7 @@ const ExperimentFormFields = (): JSX.Element => {
                         className="gap-y-0"
                     >
                         <LemonRadio
+                            className="mt-4"
                             value={
                                 experiment.parameters.aggregation_group_type_index != undefined
                                     ? experiment.parameters.aggregation_group_type_index
