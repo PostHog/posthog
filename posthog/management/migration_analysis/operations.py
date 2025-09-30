@@ -177,7 +177,7 @@ class RenameFieldAnalyzer(OperationAnalyzer):
             score=4,
             reason="Renaming column breaks old code during deployment",
             details={"model": op.model_name, "old": op.old_name, "new": op.new_name},
-            guidance="Deploy column renames in 3 steps: 1) Add new column, deploy code that writes to both. 2) Backfill data from old to new column. 3) Deploy code that only uses new column, then drop old column in a separate migration.",
+            guidance="""**Don't rename columns in production** - accept the bad name. If you must: 1) Add new column, deploy code that writes to both but reads from old. 2) Backfill data. 3) Deploy code that reads from new. 4) Never drop the old column - leave it forever.""",
         )
 
 
@@ -191,7 +191,7 @@ class RenameModelAnalyzer(OperationAnalyzer):
             score=4,
             reason="Renaming table breaks old code during deployment",
             details={"old": op.old_name, "new": op.new_name},
-            guidance="Deploy table renames in 3 steps: 1) Create new table as copy, deploy code that writes to both. 2) Backfill data from old to new table. 3) Deploy code that only uses new table, then drop old table in a separate migration.",
+            guidance="""**Don't rename tables in production** - accept the bad name. If you must: Use views (1. Rename table, create view with old name. 2. Deploy code. 3. Drop view). Or expand-contract (1. Create new table, write to both. 2. Backfill. 3. Read from new. 4. Never drop old table).""",
         )
 
 
