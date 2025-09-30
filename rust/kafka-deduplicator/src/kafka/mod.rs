@@ -1,5 +1,6 @@
 // Stateful Kafka module - coordinates Kafka consumption with external state systems
 pub mod batch_consumer;
+pub mod batch_context;
 pub mod batch_message;
 pub mod config;
 pub mod message;
