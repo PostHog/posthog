@@ -137,7 +137,7 @@ pub struct Config {
     #[envconfig(default = "")]
     pub redis_writer_url: String,
 
-    #[envconfig(default = "1")]
+    #[envconfig(default = "20")]
     pub acquire_timeout_secs: u64,
 
     #[envconfig(from = "MAXMIND_DB_PATH", default = "")]
