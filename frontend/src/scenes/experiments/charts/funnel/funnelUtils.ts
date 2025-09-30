@@ -1,4 +1,3 @@
-import { getSeriesColor as getSeriesColorFromLib } from 'lib/colors'
 import { FunnelLayout } from 'lib/constants'
 import { flattenedStepsByBreakdown, stepsWithConversionMetrics } from 'scenes/funnels/funnelUtils'
 
@@ -20,16 +19,6 @@ export interface ProcessedFunnelData {
     stepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
     flattenedBreakdowns: FlattenedFunnelStepByBreakdown[]
     hasFunnelResults: boolean
-}
-
-/**
- * Get a consistent color for a funnel series using the same index-based approach as exposure charts.
- */
-export function getSeriesColor(series: FunnelStepWithConversionMetrics): string {
-    // Use the breakdownIndex if available (added by experiment conversion)
-    // This matches exactly what the exposure chart does with getSeriesColor(index)
-    const index = (series as any).breakdownIndex ?? 0
-    return getSeriesColorFromLib(index)
 }
 
 /**
