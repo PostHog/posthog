@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+import os
 from typing import Optional
 
 import structlog
@@ -39,6 +40,7 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
 )
+from posthog.hogql_queries.experiments.map_agg_query_builder import MapAggregationQueryBuilder
 from posthog.hogql_queries.experiments.utils import (
     get_bayesian_experiment_result,
     get_experiment_stats_method,
@@ -106,6 +108,23 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Just to simplify access
         self.metric = self.query.metric
+
+    @property
+    def use_map_aggregation(self) -> bool:
+        """
+        Determines whether to use the map aggregation query builder.
+        Only enabled for mean metrics without data warehouse support (MVP scope).
+        """
+        # Only for mean metrics (MVP scope)
+        if not isinstance(self.metric, ExperimentMeanMetric):
+            return False
+
+        # No data warehouse support yet
+        if self.is_data_warehouse_query:
+            return False
+
+        # Check environment variable for testing/rollout
+        return os.getenv("EXPERIMENT_USE_MAP_AGGREGATION", "false").lower() == "true"
 
     def _get_metrics_aggregated_per_entity_query(
         self,
@@ -439,6 +458,24 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
     def _get_experiment_query(self) -> ast.SelectQuery:
+        """
+        Returns the main experiment query.
+        Branches to map aggregation implementation if enabled, otherwise uses legacy approach.
+        """
+        if self.use_map_aggregation:
+            # Use new map aggregation query builder (single scan, no self-join)
+            builder = MapAggregationQueryBuilder(
+                experiment=self.experiment,
+                team=self.team,
+                metric=self.metric,
+                variants=self.variants,
+                date_range_query=self.date_range_query,
+                entity_key=self.entity_key,
+                multiple_variant_handling=self.multiple_variant_handling,
+            )
+            return builder.build_query()
+
+        # Legacy implementation (self-join approach)
         # Get all entities that should be included in the experiment
         exposure_query = get_experiment_exposure_query(
             self.experiment,

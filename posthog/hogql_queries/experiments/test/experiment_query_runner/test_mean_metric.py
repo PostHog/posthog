@@ -1,6 +1,8 @@
 from typing import cast
+from unittest import mock
 
 from freezegun import freeze_time
+from parameterized import parameterized
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -20,9 +22,10 @@ from posthog.test.test_journeys import journeys_for
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
+    @parameterized.expand([("legacy",), ("map_aggregation",)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_sum_metric(self):
+    def test_property_sum_metric(self, implementation):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -95,24 +98,26 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
+        with mock.patch.dict("os.environ", {"EXPERIMENT_USE_MAP_AGGREGATION": "true" if implementation == "map_aggregation" else "false"}):
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+            result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+            assert result.baseline is not None
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
+            control_variant = result.baseline
+            test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 60)
-        self.assertEqual(test_variant.sum, 120)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+            self.assertEqual(control_variant.sum, 60)
+            self.assertEqual(test_variant.sum, 120)
+            self.assertEqual(control_variant.number_of_samples, 10)
+            self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("legacy",), ("map_aggregation",)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_outlier_handling_for_sum_metric(self):
+    def test_outlier_handling_for_sum_metric(self, implementation):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -187,24 +192,26 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
+        with mock.patch.dict("os.environ", {"EXPERIMENT_USE_MAP_AGGREGATION": "true" if implementation == "map_aggregation" else "false"}):
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+            result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+            assert result.baseline is not None
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
+            control_variant = result.baseline
+            test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 1055)
-        self.assertEqual(test_variant.sum, 1055)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+            self.assertEqual(control_variant.sum, 1055)
+            self.assertEqual(test_variant.sum, 1055)
+            self.assertEqual(control_variant.number_of_samples, 10)
+            self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("legacy",), ("map_aggregation",)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_outlier_handling_for_count_metric(self):
+    def test_outlier_handling_for_count_metric(self, implementation):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -281,24 +288,26 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
+        with mock.patch.dict("os.environ", {"EXPERIMENT_USE_MAP_AGGREGATION": "true" if implementation == "map_aggregation" else "false"}):
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+            result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+            assert result.baseline is not None
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
+            control_variant = result.baseline
+            test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 30.9)
-        self.assertEqual(test_variant.sum, 38.9)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+            self.assertEqual(control_variant.sum, 30.9)
+            self.assertEqual(test_variant.sum, 38.9)
+            self.assertEqual(control_variant.number_of_samples, 10)
+            self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("legacy",), ("map_aggregation",)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_unique_sessions_math_type(self):
+    def test_unique_sessions_math_type(self, implementation):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -373,24 +382,26 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
+        with mock.patch.dict("os.environ", {"EXPERIMENT_USE_MAP_AGGREGATION": "true" if implementation == "map_aggregation" else "false"}):
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+            result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+            assert result.baseline is not None
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
+            control_variant = result.baseline
+            test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 3)
-        self.assertEqual(test_variant.sum, 5)
-        self.assertEqual(control_variant.number_of_samples, 3)
-        self.assertEqual(test_variant.number_of_samples, 2)
+            self.assertEqual(control_variant.sum, 3)
+            self.assertEqual(test_variant.sum, 5)
+            self.assertEqual(control_variant.number_of_samples, 3)
+            self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand([("legacy",), ("map_aggregation",)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_max_metric(self):
+    def test_property_max_metric(self, implementation):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -451,24 +462,26 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
+        with mock.patch.dict("os.environ", {"EXPERIMENT_USE_MAP_AGGREGATION": "true" if implementation == "map_aggregation" else "false"}):
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+            result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+            assert result.baseline is not None
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
+            control_variant = result.baseline
+            test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 55)
-        self.assertEqual(test_variant.sum, 160)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 2)
+            self.assertEqual(control_variant.sum, 55)
+            self.assertEqual(test_variant.sum, 160)
+            self.assertEqual(control_variant.number_of_samples, 2)
+            self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand([("legacy",), ("map_aggregation",)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_min_metric(self):
+    def test_property_min_metric(self, implementation):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -529,24 +542,26 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
+        with mock.patch.dict("os.environ", {"EXPERIMENT_USE_MAP_AGGREGATION": "true" if implementation == "map_aggregation" else "false"}):
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+            result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+            assert result.baseline is not None
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
+            control_variant = result.baseline
+            test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 15)
-        self.assertEqual(test_variant.sum, 90)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 2)
+            self.assertEqual(control_variant.sum, 15)
+            self.assertEqual(test_variant.sum, 90)
+            self.assertEqual(control_variant.number_of_samples, 2)
+            self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand([("legacy",), ("map_aggregation",)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_avg_metric(self):
+    def test_property_avg_metric(self, implementation):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -607,23 +622,25 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
+        with mock.patch.dict("os.environ", {"EXPERIMENT_USE_MAP_AGGREGATION": "true" if implementation == "map_aggregation" else "false"}):
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+            result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+            assert result.baseline is not None
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
+            control_variant = result.baseline
+            test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 35)
-        self.assertEqual(test_variant.sum, 130)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 2)
+            self.assertEqual(control_variant.sum, 35)
+            self.assertEqual(test_variant.sum, 130)
+            self.assertEqual(control_variant.number_of_samples, 2)
+            self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand([("legacy",), ("map_aggregation",)])
     @freeze_time("2020-01-01T12:00:00Z")
-    def test_outlier_handling_with_ignore_zeros(self):
+    def test_outlier_handling_with_ignore_zeros(self, implementation):
         """Test that ignore_zeros works correctly when calculating upper bound percentile"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -714,31 +731,32 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
+        with mock.patch.dict("os.environ", {"EXPERIMENT_USE_MAP_AGGREGATION": "true" if implementation == "map_aggregation" else "false"}):
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+            result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+            assert result.baseline is not None
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
+            control_variant = result.baseline
+            test_variant = result.variant_results[0]
 
-        # With ignore_zeros=True, the 90th percentile should be calculated from non-zero values only
-        # For control: [100, 100, 100, 1000, 1000] -> 90th percentile = 1000, so outliers aren't capped
-        # For test: [150, 150, 150, 2000, 2000] -> 90th percentile = 2000, so outliers aren't capped
-        # But if zeros were included, percentiles would be much lower and outliers would be capped
+            # With ignore_zeros=True, the 90th percentile should be calculated from non-zero values only
+            # For control: [100, 100, 100, 1000, 1000] -> 90th percentile = 1000, so outliers aren't capped
+            # For test: [150, 150, 150, 2000, 2000] -> 90th percentile = 2000, so outliers aren't capped
+            # But if zeros were included, percentiles would be much lower and outliers would be capped
 
-        # All users are included in the sample count
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+            # All users are included in the sample count
+            self.assertEqual(control_variant.number_of_samples, 10)
+            self.assertEqual(test_variant.number_of_samples, 10)
 
-        # With ignore_zeros=True and 90th percentile:
-        # For control: non-zero values are [100, 100, 100, 1000, 1000] -> 90th percentile = 1000
-        # For test: non-zero values are [150, 150, 150, 2000, 2000] -> 90th percentile = 2000
-        # Since the 90th percentile equals the max outlier values, they should not be capped
+            # With ignore_zeros=True and 90th percentile:
+            # For control: non-zero values are [100, 100, 100, 1000, 1000] -> 90th percentile = 1000
+            # For test: non-zero values are [150, 150, 150, 2000, 2000] -> 90th percentile = 2000
+            # Since the 90th percentile equals the max outlier values, they should not be capped
 
-        # Control: 5*0 + 3*100 + 2*1000 = 2300
-        # Test: 5*0 + 3*150 + 2*2000 = 4450
-        self.assertEqual(control_variant.sum, 2300)
-        self.assertEqual(test_variant.sum, 4450)
+            # Control: 5*0 + 3*100 + 2*1000 = 2300
+            # Test: 5*0 + 3*150 + 2*2000 = 4450
+            self.assertEqual(control_variant.sum, 2300)
+            self.assertEqual(test_variant.sum, 4450)
