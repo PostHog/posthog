@@ -51,6 +51,32 @@ pub struct DeduplicationStore {
     metrics: MetricsHelper,
 }
 
+#[derive(strum_macros::Display, Debug, Copy, Clone, PartialEq)]
+pub enum DeduplicationResultReason {
+    OnlyUuidDifferent,
+    OnlyTimestampDifferent,
+    SameEvent,
+}
+
+#[derive(strum_macros::Display, Debug, Copy, Clone, PartialEq)]
+pub enum DeduplicationType {
+    Timestamp,
+    UUID,
+}
+
+#[derive(strum_macros::Display, Debug, Copy, Clone, PartialEq)]
+pub enum DeduplicationResult {
+    ConfirmedDuplicate(DeduplicationType, DeduplicationResultReason), // The reason why it's a confirmed duplicate
+    PotentialDuplicate(DeduplicationType),
+    New,
+}
+
+impl DeduplicationResult {
+    pub fn is_duplicate(&self) -> bool {
+        matches!(self, DeduplicationResult::ConfirmedDuplicate(_, _))
+    }
+}
+
 impl DeduplicationStore {
     // Column families for different tracking patterns
     const TIMESTAMP_CF: &'static str = "timestamp_records";
@@ -106,22 +132,27 @@ impl DeduplicationStore {
     }
 
     /// Handle an event, tracking both timestamp and UUID patterns
-    pub fn handle_event_with_raw(&self, raw_event: &RawEvent) -> Result<bool> {
+    pub fn handle_event_with_raw(&self, raw_event: &RawEvent) -> Result<DeduplicationResult> {
         let _start_time = Instant::now();
 
         // Track timestamp-based deduplication
-        let is_new_timestamp = self.handle_timestamp_dedup(raw_event)?;
+        let deduplication_result = self.handle_timestamp_dedup(raw_event)?;
+
+        if !matches!(deduplication_result, DeduplicationResult::New) {
+            return Ok(deduplication_result);
+        }
 
         // Track UUID-based deduplication (only if UUID exists)
         if raw_event.uuid.is_some() {
-            let _is_new_uuid = self.handle_uuid_dedup(raw_event)?;
+            let deduplication_result = self.handle_uuid_dedup(raw_event)?;
+            return Ok(deduplication_result);
         }
 
-        Ok(is_new_timestamp)
+        Ok(deduplication_result)
     }
 
     /// Handle timestamp-based deduplication
-    fn handle_timestamp_dedup(&self, raw_event: &RawEvent) -> Result<bool> {
+    fn handle_timestamp_dedup(&self, raw_event: &RawEvent) -> Result<DeduplicationResult> {
         let key = TimestampKey::from(raw_event);
         let key_bytes: Vec<u8> = (&key).into();
 
@@ -138,8 +169,31 @@ impl DeduplicationStore {
             // Calculate similarity
             let similarity = metadata.calculate_similarity(raw_event)?;
 
-            // Update metadata
+            // Always update metadata to track all seen events
             metadata.update_duplicate(raw_event);
+
+            // Determine the deduplication result based on similarity
+            let dedup_result = if similarity.overall_score == 1.0 {
+                DeduplicationResult::ConfirmedDuplicate(
+                    DeduplicationType::Timestamp,
+                    DeduplicationResultReason::SameEvent,
+                )
+            } else {
+                let different_fields_names = similarity
+                    .different_fields
+                    .iter()
+                    .map(|(field_name, _, _)| field_name.clone())
+                    .collect::<Vec<String>>();
+
+                if different_fields_names.len() == 1 && different_fields_names[0] == "uuid" {
+                    DeduplicationResult::ConfirmedDuplicate(
+                        DeduplicationType::Timestamp,
+                        DeduplicationResultReason::OnlyUuidDifferent,
+                    )
+                } else {
+                    DeduplicationResult::PotentialDuplicate(DeduplicationType::Timestamp)
+                }
+            };
 
             // Log the duplicate
             info!(
@@ -197,7 +251,7 @@ impl DeduplicationStore {
             self.store
                 .put(Self::TIMESTAMP_CF, &key_bytes, &serialized)?;
 
-            return Ok(false); // It's a duplicate
+            return Ok(dedup_result);
         }
 
         // Key doesn't exist - store it with initial metadata
@@ -216,11 +270,11 @@ impl DeduplicationStore {
             .with_label("dedup_type", "timestamp")
             .increment(1);
 
-        Ok(true) // New event
+        Ok(DeduplicationResult::New) // New event
     }
 
     /// Handle UUID-based deduplication
-    fn handle_uuid_dedup(&self, raw_event: &RawEvent) -> Result<bool> {
+    fn handle_uuid_dedup(&self, raw_event: &RawEvent) -> Result<DeduplicationResult> {
         let key = UuidKey::from(raw_event);
         let key_bytes: Vec<u8> = (&key).into();
 
@@ -244,8 +298,31 @@ impl DeduplicationStore {
             // Calculate similarity
             let similarity = metadata.calculate_similarity(raw_event)?;
 
-            // Update metadata
+            // Always update metadata to track all seen events
             metadata.update_duplicate(raw_event);
+
+            // Determine the deduplication result based on similarity
+            let dedup_result = if similarity.overall_score == 1.0 {
+                DeduplicationResult::ConfirmedDuplicate(
+                    DeduplicationType::UUID,
+                    DeduplicationResultReason::SameEvent,
+                )
+            } else {
+                let different_fields_names = similarity
+                    .different_fields
+                    .iter()
+                    .map(|(field_name, _, _)| field_name.clone())
+                    .collect::<Vec<String>>();
+
+                if different_fields_names.len() == 1 && different_fields_names[0] == "timestamp" {
+                    DeduplicationResult::ConfirmedDuplicate(
+                        DeduplicationType::UUID,
+                        DeduplicationResultReason::OnlyTimestampDifferent,
+                    )
+                } else {
+                    DeduplicationResult::PotentialDuplicate(DeduplicationType::UUID)
+                }
+            };
 
             // Log the duplicate
             info!(
@@ -307,7 +384,7 @@ impl DeduplicationStore {
                 .context("Failed to serialize UUID metadata")?;
             self.store.put(Self::UUID_CF, &key_bytes, &serialized)?;
 
-            return Ok(false); // It's a duplicate
+            return Ok(dedup_result);
         }
 
         // New UUID combination - store it
@@ -336,7 +413,7 @@ impl DeduplicationStore {
             .with_label("dedup_type", "uuid")
             .increment(1);
 
-        Ok(true) // New UUID combination
+        Ok(DeduplicationResult::New) // New UUID combination
     }
 
     pub fn cleanup_old_entries(&self) -> Result<u64> {
@@ -620,7 +697,7 @@ mod tests {
         );
 
         let result = store.handle_event_with_raw(&event).unwrap();
-        assert!(result); // Should be new
+        assert_eq!(result, DeduplicationResult::New); // Should be new
     }
 
     #[test]
@@ -632,8 +709,17 @@ mod tests {
         let event2 =
             create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone());
 
-        assert!(store.handle_event_with_raw(&event1).unwrap()); // First is new
-        assert!(!store.handle_event_with_raw(&event2).unwrap()); // Second is duplicate
+        assert_eq!(
+            store.handle_event_with_raw(&event1).unwrap(),
+            DeduplicationResult::New
+        ); // First is new
+        assert_eq!(
+            store.handle_event_with_raw(&event2).unwrap(),
+            DeduplicationResult::ConfirmedDuplicate(
+                DeduplicationType::Timestamp,
+                DeduplicationResultReason::SameEvent
+            )
+        ); // Second is duplicate
     }
 
     #[test]
@@ -663,8 +749,17 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(store.handle_event_with_raw(&event1).unwrap()); // First is new
-        assert!(!store.handle_event_with_raw(&event2).unwrap()); // Second is duplicate by timestamp
+        assert_eq!(
+            store.handle_event_with_raw(&event1).unwrap(),
+            DeduplicationResult::New
+        ); // First is new
+        assert_eq!(
+            store.handle_event_with_raw(&event2).unwrap(),
+            DeduplicationResult::ConfirmedDuplicate(
+                DeduplicationType::Timestamp,
+                DeduplicationResultReason::SameEvent
+            )
+        ); // Second is duplicate by timestamp
 
         // Now test with same UUID but different timestamp
         let event3 = RawEvent {
@@ -677,7 +772,13 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(store.handle_event_with_raw(&event3).unwrap()); // New by timestamp, but duplicate by UUID
+        assert_eq!(
+            store.handle_event_with_raw(&event3).unwrap(),
+            DeduplicationResult::ConfirmedDuplicate(
+                DeduplicationType::UUID,
+                DeduplicationResultReason::OnlyTimestampDifferent
+            )
+        ); // New by timestamp, but duplicate by UUID
     }
 
     #[test]
@@ -697,7 +798,10 @@ mod tests {
         };
 
         // Process the event
-        assert!(store.handle_event_with_raw(&event).unwrap());
+        assert_eq!(
+            store.handle_event_with_raw(&event).unwrap(),
+            DeduplicationResult::New
+        );
 
         // Verify that the timestamp index was created
         let timestamp_ms = crate::utils::timestamp::parse_timestamp(timestamp).unwrap();
@@ -759,11 +863,26 @@ mod tests {
         };
 
         // First event is new
-        assert!(store.handle_event_with_raw(&event1).unwrap());
+        assert_eq!(
+            store.handle_event_with_raw(&event1).unwrap(),
+            DeduplicationResult::New
+        );
 
         // Second and third are duplicates by UUID (but different timestamps)
-        assert!(store.handle_event_with_raw(&event2).unwrap()); // New timestamp
-        assert!(store.handle_event_with_raw(&event3).unwrap()); // New timestamp
+        assert_eq!(
+            store.handle_event_with_raw(&event2).unwrap(),
+            DeduplicationResult::ConfirmedDuplicate(
+                DeduplicationType::UUID,
+                DeduplicationResultReason::OnlyTimestampDifferent
+            )
+        ); // New timestamp
+        assert_eq!(
+            store.handle_event_with_raw(&event3).unwrap(),
+            DeduplicationResult::ConfirmedDuplicate(
+                DeduplicationType::UUID,
+                DeduplicationResultReason::OnlyTimestampDifferent
+            )
+        ); // New timestamp
 
         // Verify UUID metadata tracks all timestamps
         let uuid_key = UuidKey::from(&event1);
@@ -860,7 +979,10 @@ mod tests {
             };
 
             // These should be new again after cleanup (timestamp records were deleted)
-            assert!(store.handle_event_with_raw(&old_event).unwrap());
+            assert_eq!(
+                store.handle_event_with_raw(&old_event).unwrap(),
+                DeduplicationResult::New
+            );
         }
 
         // Verify new records are still detected as duplicates
@@ -876,7 +998,10 @@ mod tests {
             };
 
             // These should still be duplicates (not cleaned up)
-            assert!(!store.handle_event_with_raw(&test_event).unwrap());
+            assert_eq!(
+                store.handle_event_with_raw(&test_event).unwrap(),
+                DeduplicationResult::PotentialDuplicate(DeduplicationType::Timestamp)
+            );
         }
     }
 
@@ -996,10 +1121,19 @@ mod tests {
         };
 
         // Should be tracked only in timestamp CF, not UUID CF
-        assert!(store.handle_event_with_raw(&event).unwrap());
+        assert_eq!(
+            store.handle_event_with_raw(&event).unwrap(),
+            DeduplicationResult::New
+        );
 
         // Duplicate by timestamp
-        assert!(!store.handle_event_with_raw(&event).unwrap());
+        assert_eq!(
+            store.handle_event_with_raw(&event).unwrap(),
+            DeduplicationResult::ConfirmedDuplicate(
+                DeduplicationType::Timestamp,
+                DeduplicationResultReason::SameEvent
+            )
+        );
 
         // Verify no UUID tracking occurred
         let uuid_cf = store
