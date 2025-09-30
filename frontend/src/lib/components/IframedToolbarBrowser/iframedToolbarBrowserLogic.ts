@@ -337,7 +337,15 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             actions.startTrackingLoading()
         }
     }),
-    beforeUnmount(({ actions, props }) => {
+    beforeUnmount(({ actions, props, cache }) => {
         props.clearBrowserUrlOnUnmount && actions.setBrowserUrl('')
+
+        // Clean up loading timeouts to prevent memory leaks and ghost banner messages
+        if (cache.errorTimeout) {
+            clearTimeout(cache.errorTimeout)
+        }
+        if (cache.warnTimeout) {
+            clearTimeout(cache.warnTimeout)
+        }
     }),
 ])

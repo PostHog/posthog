@@ -30,6 +30,7 @@ import {
     NativeMarketingSource,
     VALID_NATIVE_MARKETING_SOURCES,
     generateUniqueName,
+    validColumnsForTiles,
 } from './utils'
 
 export type ExternalTable = {
@@ -87,6 +88,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         showColumnConfigModal: true,
         hideColumnConfigModal: true,
         setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
+        setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
     }),
     reducers({
         draftConversionGoal: [
@@ -181,6 +183,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             persistConfig,
             {
                 setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
+            },
+        ],
+        tileColumnSelection: [
+            MarketingAnalyticsColumnsSchemaNames.Cost as validColumnsForTiles,
+            persistConfig,
+            {
+                setTileColumnSelection: (_, { column }) => column,
             },
         ],
     }),
@@ -315,18 +324,19 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             (dataWarehouseSourcesLoading: boolean) => dataWarehouseSourcesLoading,
         ],
         createMarketingDataWarehouseNodes: [
-            (s) => [s.validExternalTables, s.baseCurrency, s.validNativeSources],
+            (s) => [s.validExternalTables, s.baseCurrency, s.validNativeSources, s.tileColumnSelection],
             (
                 validExternalTables: ExternalTable[],
                 baseCurrency: CurrencyCode,
-                validNativeSources: NativeSource[]
+                validNativeSources: NativeSource[],
+                tileColumnSelection: validColumnsForTiles
             ): DataWarehouseNode[] => {
                 const nonNativeNodeList: DataWarehouseNode[] = validExternalTables
-                    .map((table) => externalAdsCostTile(table, baseCurrency))
+                    .map((table) => externalAdsCostTile(table, baseCurrency, tileColumnSelection))
                     .filter(Boolean) as DataWarehouseNode[]
 
                 const nativeNodeList: DataWarehouseNode[] = validNativeSources
-                    .map((source) => MarketingDashboardMapper(source))
+                    .map((source) => MarketingDashboardMapper(source, tileColumnSelection))
                     .filter(Boolean) as DataWarehouseNode[]
 
                 return [...nativeNodeList, ...nonNativeNodeList]

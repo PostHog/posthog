@@ -30,6 +30,7 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    NamedQueryRequest,
     Node,
     NodeKind,
     PersistedFolder,
@@ -39,8 +40,9 @@ import {
     RecordingsQueryResponse,
     RefreshType,
     SourceConfig,
+    TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
+import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -90,7 +92,6 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
-    FeatureFlagAssociatedRoleType,
     FeatureFlagStatusResponse,
     FeatureFlagType,
     GoogleAdsConversionActionType,
@@ -118,7 +119,6 @@ import {
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
-    OrganizationResourcePermissionType,
     OrganizationType,
     PersonListParams,
     PersonType,
@@ -130,13 +130,13 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
+    QueryEndpointType,
     QueryTabState,
     RawAnnotationType,
     RawBatchExportBackfill,
     RawBatchExportRun,
     RoleMemberType,
     RoleType,
-    RolesListParams,
     ScheduledChangeType,
     SchemaIncrementalFieldsResponse,
     SearchListParams,
@@ -393,14 +393,6 @@ export class ApiRequest {
 
     public organizationsDetail(id: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId()): ApiRequest {
         return this.organizations().addPathComponent(id)
-    }
-
-    public organizationResourceAccess(): ApiRequest {
-        return this.organizations().current().addPathComponent('resource_access')
-    }
-
-    public organizationResourceAccessDetail(id: OrganizationResourcePermissionType['id']): ApiRequest {
-        return this.organizationResourceAccess().addPathComponent(id)
     }
 
     public organizationFeatureFlags(orgId: OrganizationType['id'], featureFlagKey: FeatureFlagType['key']): ApiRequest {
@@ -676,6 +668,10 @@ export class ApiRequest {
 
     public cohortsAddPersonsToStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('add_persons_to_static_cohort')
+    }
+
+    public cohortsRemovePersonFromStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('remove_person_from_static_cohort')
     }
 
     public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -956,7 +952,7 @@ export class ApiRequest {
 
     // # Tasks
     public tasks(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('tasks')
+        return this.projectsDetail(teamId).addPathComponent('tasks')
     }
 
     public task(id: Task['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1253,13 +1249,6 @@ export class ApiRequest {
         return this.featureFlag(flagId).addPathComponent('role_access')
     }
 
-    public featureFlagAccessPermissionsDetail(
-        flagId: FeatureFlagType['id'],
-        id: FeatureFlagAssociatedRoleType['id']
-    ): ApiRequest {
-        return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
-    }
-
     // # Queries
     public query(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('query')
@@ -1279,6 +1268,14 @@ export class ApiRequest {
 
     public queryLog(queryId: string, teamId?: TeamType['id']): ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
+    }
+
+    public queryEndpoint(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('named_query')
+    }
+
+    public queryEndpointDetail(name: string): ApiRequest {
+        return this.queryEndpoint().addPathComponent(name)
     }
 
     // Conversations
@@ -1578,7 +1575,8 @@ const api = {
             basic?: boolean,
             refresh?: RefreshType,
             filtersOverride?: DashboardFilter | null,
-            variablesOverride?: Record<string, HogQLVariable> | null
+            variablesOverride?: Record<string, HogQLVariable> | null,
+            tileFiltersOverride?: TileFilters | null
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
@@ -1589,6 +1587,7 @@ const api = {
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
+                        tile_filters_override: tileFiltersOverride,
                     })
                 )
                 .get()
@@ -1604,6 +1603,49 @@ const api = {
         },
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
+        },
+    },
+
+    queryEndpoint: {
+        async list(): Promise<CountedPaginatedResponse<QueryEndpointType>> {
+            return await new ApiRequest().queryEndpoint().get()
+        },
+        async create(data: NamedQueryRequest): Promise<QueryEndpointType> {
+            return await new ApiRequest().queryEndpoint().create({ data })
+        },
+        async delete(name: string): Promise<void> {
+            return await new ApiRequest().queryEndpointDetail(name).delete()
+        },
+        async update(name: string, data: NamedQueryRequest): Promise<QueryEndpointType> {
+            return await new ApiRequest().queryEndpointDetail(name).update({ data })
+        },
+        async getLastExecutionTimes(names: string[]): Promise<Record<string, string>> {
+            if (names.length === 0) {
+                return {}
+            }
+
+            const query = hogql`
+                SELECT
+                    name,
+                    max(query_start_time) as last_executed_at
+                FROM query_log
+                WHERE name in (${hogql.raw(names.map((name) => `'${name}'`).join(','))})
+                GROUP BY name
+            `
+
+            const response = await api.queryHogQL(query, {
+                refresh: 'force_blocking',
+            })
+
+            const result: Record<string, string> = {}
+            for (const row of response.results) {
+                const [name, lastExecutedAt] = row
+                if (name && lastExecutedAt) {
+                    result[name] = lastExecutedAt
+                }
+            }
+
+            return result
         },
     },
 
@@ -2228,6 +2270,10 @@ const api = {
         async addPersonsToStaticCohort(cohortId: CohortType['id'], ids: string[]): Promise<{ success: boolean }> {
             return await new ApiRequest().cohortsAddPersonsToStatic(cohortId).update({ data: { person_ids: ids } })
         },
+        async removePersonFromCohort(cohortId: CohortType['id'], personId: string): Promise<{ success: boolean }> {
+            const payload = { person_id: personId }
+            return await new ApiRequest().cohortsRemovePersonFromStatic(cohortId).update({ data: payload })
+        },
     },
 
     dashboards: {
@@ -2391,34 +2437,12 @@ const api = {
         },
     },
 
-    resourceAccessPermissions: {
-        featureFlags: {
-            async create(featureFlagId: number, roleId: RoleType['id']): Promise<FeatureFlagAssociatedRoleType> {
-                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).create({
-                    data: {
-                        role_id: roleId,
-                    },
-                })
-            },
-            async list(featureFlagId: number): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
-                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).get()
-            },
-
-            async delete(
-                featureFlagId: number,
-                id: FeatureFlagAssociatedRoleType['id']
-            ): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
-                return await new ApiRequest().featureFlagAccessPermissionsDetail(featureFlagId, id).delete()
-            },
-        },
-    },
-
     roles: {
         async get(roleId: RoleType['id']): Promise<RoleType> {
             return await new ApiRequest().rolesDetail(roleId).get()
         },
-        async list(params: RolesListParams = {}): Promise<PaginatedResponse<RoleType>> {
-            return await new ApiRequest().roles().withQueryString(toParams(params)).get()
+        async list(): Promise<PaginatedResponse<RoleType>> {
+            return await new ApiRequest().roles().get()
         },
         async delete(roleId: RoleType['id']): Promise<void> {
             return await new ApiRequest().rolesDetail(roleId).delete()
@@ -3838,23 +3862,6 @@ const api = {
         },
         async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
             return await new ApiRequest().integrationEmailVerify(id).create()
-        },
-    },
-
-    resourcePermissions: {
-        async list(): Promise<PaginatedResponse<OrganizationResourcePermissionType>> {
-            return await new ApiRequest().organizationResourceAccess().get()
-        },
-        async create(data: Partial<OrganizationResourcePermissionType>): Promise<OrganizationResourcePermissionType> {
-            return await new ApiRequest().organizationResourceAccess().create({ data })
-        },
-        async update(
-            resourceId: OrganizationResourcePermissionType['id'],
-            data: Partial<OrganizationResourcePermissionType>
-        ): Promise<OrganizationResourcePermissionType> {
-            return await new ApiRequest().organizationResourceAccessDetail(resourceId).update({
-                data,
-            })
         },
     },
 

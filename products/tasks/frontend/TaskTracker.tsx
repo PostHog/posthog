@@ -13,6 +13,7 @@ import { GitHubIntegrationSettings } from './components/GitHubIntegrationSetting
 import { KanbanView } from './components/KanbanView'
 import { TaskControlPanel } from './components/TaskControlPanel'
 import { tasksLogic } from './tasksLogic'
+import type { TaskTrackerTab } from './types'
 
 export const scene: SceneExport = {
     component: TaskTracker,
@@ -28,7 +29,7 @@ export function TaskTracker(): JSX.Element {
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
     }
 
-    const tabs = [
+    const tabs: { key: TaskTrackerTab; label: string; content: React.ReactNode }[] = [
         {
             key: 'dashboard' as const,
             label: 'Dashboard',

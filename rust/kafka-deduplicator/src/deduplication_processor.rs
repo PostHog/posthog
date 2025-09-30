@@ -197,7 +197,13 @@ impl MessageProcessor for DeduplicationProcessor {
         // Parse the captured event and extract the raw event from it
         let raw_event = match serde_json::from_slice::<CapturedEvent>(payload) {
             Ok(captured_event) => {
+                // extract well-validated values from the CapturedEvent that
+                // may or may not be present in the wrapped RawEvent
                 let now = captured_event.now.clone();
+                let extracted_distinct_id = captured_event.distinct_id.clone();
+                let extracted_token = captured_event.token.clone();
+                let extracted_uuid = captured_event.uuid;
+
                 // The RawEvent is serialized in the data field
                 match serde_json::from_str::<RawEvent>(&captured_event.data) {
                     Ok(mut raw_event) => {
@@ -221,6 +227,21 @@ impl MessageProcessor for DeduplicationProcessor {
                                 // Timestamp exists and is valid, keep it
                             }
                         }
+
+                        // if RawEvent is missing any of the core values
+                        // extracted by capture into the CapturedEvent
+                        // wrapper, use those values for downstream analysis
+                        if raw_event.uuid.is_none() {
+                            raw_event.uuid = Some(extracted_uuid);
+                        }
+                        if raw_event.distinct_id.is_none() && !extracted_distinct_id.is_empty() {
+                            raw_event.distinct_id =
+                                Some(serde_json::Value::String(extracted_distinct_id));
+                        }
+                        if raw_event.token.is_none() && !extracted_token.is_empty() {
+                            raw_event.token = Some(extracted_token);
+                        }
+
                         raw_event
                     }
                     Err(e) => {

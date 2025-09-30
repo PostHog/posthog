@@ -1,8 +1,11 @@
+from django.db import IntegrityError, transaction
+
 from rest_framework import serializers
 
 from posthog.models.integration import Integration
 
-from .models import AgentDefinition, Task, TaskWorkflow, WorkflowStage
+from .agents import get_agent_dict_by_id
+from .models import Task, TaskWorkflow, WorkflowStage
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -44,11 +47,9 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
 
     def get_repository_list(self, obj):
-        """Get the list of repositories this task can work with"""
         return obj.repository_list
 
     def get_primary_repository(self, obj):
-        """Get the primary repository for this task"""
         return obj.primary_repository
 
     def validate_github_integration(self, value):
@@ -113,7 +114,8 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
     """Serializer for workflow stages"""
 
     task_count = serializers.SerializerMethodField()
-    agent_name = serializers.CharField(source="agent.name", read_only=True)
+    agent = serializers.SerializerMethodField()
+    agent_name = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = WorkflowStage
@@ -131,11 +133,17 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
             "fallback_stage",
             "task_count",
         ]
-        read_only_fields = ["id", "task_count", "agent_name"]
+        read_only_fields = ["id", "task_count", "agent"]
 
     def get_task_count(self, obj):
         """Get number of tasks currently in this stage"""
         return Task.objects.filter(current_stage=obj).count()
+
+    def get_agent(self, obj):
+        """Get the agent object for this stage"""
+        if hasattr(obj, "agent_name") and obj.agent_name:
+            return get_agent_dict_by_id(obj.agent_name)
+        return None
 
     def validate_workflow(self, value):
         """Validate that the workflow exists and belongs to the current team"""
@@ -143,18 +151,25 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Workflow must belong to the same team")
         return value
 
+    def validate_agent_name(self, value):
+        """Validate that the agent name is valid"""
+        if value:
+            from .agents import get_agent_by_id
 
-class AgentDefinitionSerializer(serializers.ModelSerializer):
+            if not get_agent_by_id(value):
+                raise serializers.ValidationError(f"Invalid agent name: {value}")
+        return value
+
+
+class AgentDefinitionSerializer(serializers.Serializer):
     """Serializer for agent definitions"""
 
-    class Meta:
-        model = AgentDefinition
-        fields = ["id", "name", "agent_type", "description", "config", "is_active", "created_at", "updated_at"]
-        read_only_fields = ["id", "created_at", "updated_at"]
-
-    def create(self, validated_data):
-        validated_data["team"] = self.context["team"]
-        return super().create(validated_data)
+    id = serializers.CharField()
+    name = serializers.CharField()
+    agent_type = serializers.CharField()
+    description = serializers.CharField()
+    config = serializers.DictField(default=dict)
+    is_active = serializers.BooleanField(default=True)
 
 
 class TaskWorkflowSerializer(serializers.ModelSerializer):
@@ -184,7 +199,7 @@ class TaskWorkflowSerializer(serializers.ModelSerializer):
 
     def get_task_count(self, obj):
         """Get number of tasks using this workflow"""
-        return obj.get_tasks_in_workflow().count()
+        return obj.tasks.count()
 
     def get_can_delete(self, obj):
         """Check if workflow can be safely deleted"""
@@ -192,8 +207,6 @@ class TaskWorkflowSerializer(serializers.ModelSerializer):
         return {"can_delete": can_delete, "reason": reason}
 
     def create(self, validated_data):
-        from django.db import IntegrityError
-
         validated_data["team"] = self.context["team"]
         try:
             return super().create(validated_data)
@@ -228,7 +241,6 @@ class WorkflowConfigurationSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         """Create a complete workflow with stages"""
-        from django.db import IntegrityError, transaction
 
         try:
             with transaction.atomic():

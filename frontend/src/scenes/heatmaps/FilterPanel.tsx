@@ -10,6 +10,7 @@ import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
@@ -118,9 +119,12 @@ export function FilterPanel(): JSX.Element {
 
     const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false)
 
+    // KLUDGE: the loading bar flaps in visual regression tests,
+    // for some reason our wait for loading to finish can't see it
+    // this is ugly but better than stopping taking visual snapshots of it
     return (
         <>
-            {debouncedLoading && (
+            {debouncedLoading && !inStorybook() && !inStorybookTestRunner() && (
                 <LoadingBar
                     wrapperClassName="absolute top-0 left-0 w-full overflow-hidden rounded-none my-0"
                     className="h-1 rounded-none"
