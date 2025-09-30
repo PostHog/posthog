@@ -22,7 +22,7 @@ impl DatabasePools {
                 "ACQUIRE_TIMEOUT_SECS must be at least 1 second".to_string(),
             ));
         }
-        
+
         let pool_config = PoolConfig {
             max_connections: config.max_pg_connections,
             acquire_timeout: Duration::from_secs(config.acquire_timeout_secs),
@@ -38,43 +38,40 @@ impl DatabasePools {
             },
             test_before_acquire: *config.test_before_acquire,
         };
-        
+
         let non_persons_reader = Arc::new(
             get_pool_with_config(&config.read_database_url, pool_config.clone())
-            .await
-            .map_err(|e| {
-                FlagError::DatabaseError(
-                    e,
-                    Some("Failed to create non-persons reader pool".to_string()),
-                )
-            })?,
+                .await
+                .map_err(|e| {
+                    FlagError::DatabaseError(
+                        e,
+                        Some("Failed to create non-persons reader pool".to_string()),
+                    )
+                })?,
         );
 
         let non_persons_writer = Arc::new(
             get_pool_with_config(&config.write_database_url, pool_config.clone())
-            .await
-            .map_err(|e| {
-                FlagError::DatabaseError(
-                    e,
-                    Some("Failed to create non-persons writer pool".to_string()),
-                )
-            })?,
+                .await
+                .map_err(|e| {
+                    FlagError::DatabaseError(
+                        e,
+                        Some("Failed to create non-persons writer pool".to_string()),
+                    )
+                })?,
         );
 
         // Create persons pools if configured, otherwise reuse the non-persons pools
         let persons_reader = if config.is_persons_db_routing_enabled() {
             Arc::new(
-                get_pool_with_config(
-                    &config.get_persons_read_database_url(),
-                    pool_config.clone(),
-                )
-                .await
-                .map_err(|e| {
-                    FlagError::DatabaseError(
-                        e,
-                        Some("Failed to create persons reader pool".to_string()),
-                    )
-                })?,
+                get_pool_with_config(&config.get_persons_read_database_url(), pool_config.clone())
+                    .await
+                    .map_err(|e| {
+                        FlagError::DatabaseError(
+                            e,
+                            Some("Failed to create persons reader pool".to_string()),
+                        )
+                    })?,
             )
         } else {
             non_persons_reader.clone()

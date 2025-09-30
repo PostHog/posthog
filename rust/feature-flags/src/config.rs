@@ -146,21 +146,21 @@ pub struct Config {
     // - Decrease for faster failure detection (minimum 1s)
     #[envconfig(default = "3")]
     pub acquire_timeout_secs: u64,
-    
+
     // Close connections that have been idle for this many seconds
     // - Set to 0 to disable (connections never close due to idle)
     // - Increase for bursty traffic to avoid reconnection overhead (e.g., 600-900)
     // - Decrease to free resources more aggressively (e.g., 60-120)
     #[envconfig(default = "300")]
     pub idle_timeout_secs: u64,
-    
+
     // Force refresh connections after this many seconds regardless of activity
     // - Set to 0 to disable (connections never refresh automatically)
     // - Decrease for unreliable networks or frequent DB restarts (e.g., 600-900)
     // - Increase for stable environments to reduce overhead (e.g., 3600-7200)
     #[envconfig(default = "1800")]
     pub max_lifetime_secs: u64,
-    
+
     // Test connection health before returning from pool
     // - Set to true for production to catch stale connections
     // - Set to false in tests or very stable environments for slight performance gain

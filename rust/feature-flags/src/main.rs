@@ -34,7 +34,12 @@ async fn shutdown() {
     tracing::info!("Shutting down gracefully...");
 }
 
-fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str, export_timeout_secs: u64) -> Tracer {
+fn init_tracer(
+    sink_url: &str,
+    sampling_rate: f64,
+    service_name: &str,
+    export_timeout_secs: u64,
+) -> Tracer {
     opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_trace_config(

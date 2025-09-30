@@ -89,7 +89,10 @@ where
 
     // TODO - we don't have a more complex health check yet, but we should add e.g. some around DB operations
     let simple_loop = health
-        .register("simple_loop".to_string(), Duration::from_secs(config.health_check_interval_secs))
+        .register(
+            "simple_loop".to_string(),
+            Duration::from_secs(config.health_check_interval_secs),
+        )
         .await;
     tokio::spawn(liveness_loop(simple_loop));
 

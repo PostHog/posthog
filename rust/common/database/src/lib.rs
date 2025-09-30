@@ -111,15 +111,15 @@ pub async fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPoo
         .max_connections(config.max_connections)
         .acquire_timeout(config.acquire_timeout)
         .test_before_acquire(config.test_before_acquire);
-    
+
     if let Some(idle_timeout) = config.idle_timeout {
         options = options.idle_timeout(idle_timeout);
     }
-    
+
     if let Some(max_lifetime) = config.max_lifetime {
         options = options.max_lifetime(max_lifetime);
     }
-    
+
     options.connect(url).await
 }
 
