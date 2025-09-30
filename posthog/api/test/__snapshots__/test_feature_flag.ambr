@@ -119,7 +119,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts
   '''
-  /* cohort_calculation:cohort_calc:6da1e54c */
+  /* cohort_calculation:cohort_calc:20277920 */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -128,7 +128,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:6da1e54c%'
+    AND query LIKE '%cohort_calc:20277920%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -145,7 +145,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
   '''
-  /* cohort_calculation:cohort_calc:cf311bd9 */
+  /* cohort_calculation:cohort_calc:7dcc5bc1 */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -154,7 +154,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:cf311bd9%'
+    AND query LIKE '%cohort_calc:7dcc5bc1%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -245,7 +245,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
   '''
-  /* cohort_calculation:cohort_calc:abe4e98d */
+  /* cohort_calculation:cohort_calc:6f5ce0eb */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -254,7 +254,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:abe4e98d%'
+    AND query LIKE '%cohort_calc:6f5ce0eb%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -271,7 +271,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
   '''
-  /* cohort_calculation:cohort_calc:0ba3da8c */
+  /* cohort_calculation:cohort_calc:4ab92a7a */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -280,7 +280,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:0ba3da8c%'
+    AND query LIKE '%cohort_calc:4ab92a7a%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -352,7 +352,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.2
   '''
-  /* cohort_calculation:cohort_calc:163b8acd */
+  /* cohort_calculation:cohort_calc:d1b19575 */
   SELECT query_id,
          query_duration_ms,
          read_rows,
@@ -361,7 +361,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:163b8acd%'
+    AND query LIKE '%cohort_calc:d1b19575%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
