@@ -49,4 +49,21 @@ describe('addGroupProperties()', () => {
         expect(mockGroupTypeManager.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'project')
         expect(mockGroupTypeManager.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'foobar')
     })
+
+    it('falls back on $group_type and $group_key', async () => {
+        const properties = {
+            foo: 'bar',
+            $group_type: 'project',
+            $group_key: 'web',
+        }
+
+        expect(await addGroupProperties(2, 2 as ProjectId, properties, mockGroupTypeManager)).toEqual({
+            foo: 'bar',
+            $group_type: 'project',
+            $group_key: 'web',
+            $group_0: 'web',
+        })
+
+        expect(mockGroupTypeManager.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'project')
+    })
 })
