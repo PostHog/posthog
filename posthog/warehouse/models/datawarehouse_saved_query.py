@@ -112,7 +112,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     @property
     def query(self) -> dict:
-        if self._query is not None:
+        if self._query:
             return self._query
 
         # Currently these are all revenue analytics queries, so it makes sense to run this without any checks
@@ -168,7 +168,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         self.save()
 
     def get_columns(self) -> dict[str, dict[str, Any]]:
-        if self._query is not None:
+        if self._query:
             from posthog.api.services.query import process_query_dict
             from posthog.hogql_queries.query_runner import ExecutionMode
 
