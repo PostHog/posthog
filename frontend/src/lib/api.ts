@@ -3130,12 +3130,6 @@ const api = {
             return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
         },
 
-        async getSimilarRecordings(
-            session_recording_id: SessionRecordingType['id']
-        ): Promise<{ count: number; results: string[] }> {
-            return await new ApiRequest().recording(session_recording_id).withAction('analyze/similar').get()
-        },
-
         async bulkDeleteRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
             success: boolean
             deleted_count: number

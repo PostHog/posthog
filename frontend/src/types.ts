@@ -647,7 +647,7 @@ export interface TeamType extends TeamBasicType {
     person_display_name_properties: string[]
     has_group_types: boolean
     group_types: GroupType[]
-    primary_dashboard: number // Dashboard shown on the project homepage
+    primary_dashboard: number | null // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
@@ -4539,6 +4539,7 @@ export type APIScopeObject =
     | 'sharing_configuration'
     | 'subscription'
     | 'survey'
+    | 'task'
     | 'user'
     | 'webhook'
     | 'warehouse_view'
