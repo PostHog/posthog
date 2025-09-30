@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-BASELINE_PATH = REPO_ROOT / "mypy-baseline.txt"
+TY_BASELINE_PATH = REPO_ROOT / "ty-baseline.txt"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 # ty prints lines like ``path:line[:column]: error[rule] message``.
@@ -113,8 +113,6 @@ def _run_mypy_baseline(
             subcommand,
             "--config",
             str(PYPROJECT_PATH),
-            "--baseline-path",
-            str(BASELINE_PATH),
             *extra_args,
         ],
         cwd=REPO_ROOT,
@@ -127,9 +125,17 @@ def _run_mypy_baseline(
     return TyResult(returncode=proc.returncode, output=proc.stdout)
 
 
-def _check(paths: Sequence[str]) -> int:
-    baseline_paths = _load_baseline_paths(BASELINE_PATH)
-    filtered_targets = [path for path in paths if not _should_skip(path, baseline_paths=baseline_paths)]
+def _check(paths: Sequence[str], *, from_hook: bool = False) -> int:
+    # Early exit if called from lint-staged and user hasn't opted in
+    if from_hook:
+        result = subprocess.run(
+            ["git", "config", "--get", "posthog.enableTy"], cwd=REPO_ROOT, capture_output=True, text=True, check=False
+        )
+        if result.returncode != 0 or result.stdout.strip().lower() != "true":
+            return 0  # Not opted in, skip silently
+
+    # Check all files - mypy-baseline filter handles line-level filtering
+    filtered_targets = list(paths)
     if not filtered_targets:
         return 0
 
@@ -143,7 +149,7 @@ def _check(paths: Sequence[str]) -> int:
     baseline_result = _run_mypy_baseline(
         "filter",
         input_text=normalized,
-        extra_args=("--hide-stats",),
+        extra_args=("--hide-stats", "--baseline-path", str(TY_BASELINE_PATH)),
     )
     if baseline_result.output:
         sys.stdout.write(baseline_result.output)
@@ -169,14 +175,15 @@ def _check(paths: Sequence[str]) -> int:
 
 
 def _sync(paths: Sequence[str]) -> int:
-    targets = list(paths) if paths else [str(REPO_ROOT)]
+    # Check all Python directories if no paths specified
+    targets = list(paths) if paths else ["posthog", "ee", "common", "dags"]
     ty_result = _run_ty(targets)
     normalized = _normalize_ty_output(ty_result.output)
 
     sync_result = _run_mypy_baseline(
         "sync",
         input_text=normalized,
-        extra_args=("--hide-stats",),
+        extra_args=("--hide-stats", "--baseline-path", str(TY_BASELINE_PATH)),
     )
 
     if sync_result.output:
@@ -197,7 +204,7 @@ def _sync(paths: Sequence[str]) -> int:
     return 0
 
 
-def _parse_args(argv: Sequence[str]) -> tuple[str, list[str]]:
+def _parse_args(argv: Sequence[str]) -> tuple[str, list[str], bool]:
     parser = argparse.ArgumentParser(
         description="Run ty with mypy-baseline integration.",
     )
@@ -216,24 +223,23 @@ def _parse_args(argv: Sequence[str]) -> tuple[str, list[str]]:
     sync_parser.add_argument("paths", nargs="*")
 
     # ``bin/ty.py <files>`` should behave like ``bin/ty.py check <files>`` for lint-staged.
-    if argv and not argv[0].startswith("-") and argv[0] not in {"check", "sync"}:
+    # When called this way (no subcommand), it's from a hook
+    from_hook = argv and not argv[0].startswith("-") and argv[0] not in {"check", "sync"}
+    if from_hook:
         argv = ["check", *argv]
 
     args = parser.parse_args(argv)
     command = args.command or "check"
     paths = getattr(args, "paths", []) or []
-    return command, list(paths)
+    return command, list(paths), from_hook
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    command, paths = _parse_args(list(argv) if argv is not None else sys.argv[1:])
+    command, paths, from_hook = _parse_args(list(argv) if argv is not None else sys.argv[1:])
     if command == "check":
-        return _check(paths)
+        return _check(paths, from_hook=from_hook)
     if command == "sync":
-        sys.stderr.write("❌ ty sync is currently disabled.\n")
-        sys.stderr.write("💡 Only mypy should update the baseline during alpha phase.\n")
-        sys.stderr.write("   Use mypy-baseline sync instead for authoritative baseline updates.\n")
-        return 1
+        return _sync(paths)
     raise AssertionError(f"Unknown command: {command}")
 
 
