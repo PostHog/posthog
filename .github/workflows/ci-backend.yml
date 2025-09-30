@@ -174,6 +174,12 @@ jobs:
                   # Initialize comment body
                   COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
 
+                  # Get risk analysis
+                  RISK_ANALYSIS=$(echo "$CHANGED_FILES" | grep -v migrations/0001_ | python manage.py analyze_migration_risk 2>&1 || true)
+                  if [ -n "$RISK_ANALYSIS" ]; then
+                    COMMENT_BODY+="### 🔍 Migration Risk Analysis\n\n\`\`\`\n$RISK_ANALYSIS\n\`\`\`\n\n---\n\n"
+                  fi
+
                   # Process each changed migration file
                   for file in $CHANGED_FILES; do
                     if [[ $file =~ migrations/([0-9]+)_ ]]; then
@@ -238,6 +244,9 @@ jobs:
                   # initial migrations (0001_*) as these are guaranteed to be
                   # run on initial setup where there is no data.
                   echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
+
+                  # Run risk analyzer with --fail-on-blocked to fail CI if blocked migrations found
+                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | python manage.py analyze_migration_risk --fail-on-blocked
 
             - name: Check CH migrations
               run: |
