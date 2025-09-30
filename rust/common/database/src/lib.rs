@@ -64,7 +64,7 @@ impl Default for PoolConfig {
         Self {
             max_connections: 10,
             acquire_timeout: Duration::from_secs(10),
-            idle_timeout: Some(Duration::from_secs(300)),  // Close idle connections after 5 minutes
+            idle_timeout: Some(Duration::from_secs(300)), // Close idle connections after 5 minutes
             max_lifetime: Some(Duration::from_secs(1800)), // Force refresh connections after 30 minutes
             test_before_acquire: true,                     // Test connection health before use
         }
