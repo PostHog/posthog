@@ -61,7 +61,7 @@ def _process_query_request(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
 ) -> tuple[BaseModel, str, ExecutionMode]:
     """Helper function to process query requests and return the necessary data for both sync and async endpoints."""
-    query = request_data.query
+    query: str = request_data.query  # Type error for testing
 
     if request_data.filters_override is not None:
         query = apply_dashboard_filters(query, request_data.filters_override, team)
