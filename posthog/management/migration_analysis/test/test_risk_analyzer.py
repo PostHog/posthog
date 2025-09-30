@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 from django.db import migrations, models
 
-from posthog.management.commands.analyze_migration_risk import RiskAnalyzer, RiskLevel
+from posthog.management.migration_analysis import RiskAnalyzer, RiskLevel
 
 
 def create_mock_operation(op_class, **kwargs):

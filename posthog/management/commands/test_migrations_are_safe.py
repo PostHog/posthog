@@ -8,7 +8,7 @@ from typing import Optional
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
-from posthog.management.commands.migration_utils import MigrationDiscovery
+from posthog.management.migration_analysis import MigrationDiscovery
 
 
 def _get_new_tables(sql: str):

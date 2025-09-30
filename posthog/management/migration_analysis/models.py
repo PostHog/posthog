@@ -1,0 +1,68 @@
+"""Data models for migration risk analysis."""
+
+from dataclasses import dataclass
+from enum import Enum
+
+
+class RiskLevel(Enum):
+    """Risk level definitions with scoring ranges"""
+
+    SAFE = ("Safe", 0, 1, "\033[92m", "✅")
+    NEEDS_REVIEW = ("Needs Review", 2, 3, "\033[93m", "⚠️")
+    BLOCKED = ("Blocked", 4, 5, "\033[91m", "❌")
+
+    def __init__(self, category: str, min_score: int, max_score: int, color: str, icon: str):
+        self.category = category
+        self.min_score = min_score
+        self.max_score = max_score
+        self.color = color
+        self.icon = icon
+
+    @classmethod
+    def from_score(cls, score: int) -> "RiskLevel":
+        """Determine risk level from a numeric score"""
+        for level in cls:
+            if level.min_score <= score <= level.max_score:
+                return level
+        return cls.BLOCKED if score > 3 else cls.SAFE
+
+
+@dataclass
+class OperationRisk:
+    type: str
+    score: int
+    reason: str
+    details: dict
+
+    @property
+    def level(self) -> RiskLevel:
+        return RiskLevel.from_score(self.score)
+
+
+@dataclass
+class MigrationRisk:
+    path: str
+    app: str
+    name: str
+    operations: list[OperationRisk]
+    combination_risks: list[str] = None
+
+    def __post_init__(self):
+        if self.combination_risks is None:
+            self.combination_risks = []
+
+    @property
+    def max_score(self) -> int:
+        # If there are combination risks, boost score to at least 4 (Blocked)
+        base_score = max((op.score for op in self.operations), default=0)
+        if self.combination_risks:
+            return max(base_score, 4)
+        return base_score
+
+    @property
+    def level(self) -> RiskLevel:
+        return RiskLevel.from_score(self.max_score)
+
+    @property
+    def category(self) -> str:
+        return self.level.category
