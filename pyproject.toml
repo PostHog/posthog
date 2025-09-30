@@ -356,3 +356,8 @@ exclude = [
 
 [tool.ty.rules]
 unresolved-import = "ignore"
+# Django-related rules - ty doesn't support Django's metaprogramming yet
+# See: https://github.com/astral-sh/ty/issues/291
+unresolved-attribute = "ignore"  # Django model fields, relationships, auto-generated attributes
+invalid-argument-type = "ignore"  # Django querysets, managers, form fields
+possibly-unbound-attribute = "ignore"  # Related to unresolved-attribute
