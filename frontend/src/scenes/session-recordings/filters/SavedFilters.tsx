@@ -40,47 +40,36 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
     return {
         dataIndex: 'recordings_counts',
         title: 'Count',
-        tooltip: 'Count of recordings in the collection',
+        tooltip: 'Count of recordings in the saved filter',
         width: 0,
         render: function Render(recordings_counts) {
             if (!isPlaylistRecordingsCounts(recordings_counts)) {
                 return null
             }
 
-            const hasResults =
-                recordings_counts.collection.count !== null || recordings_counts.saved_filters?.count !== null
+            const hasResults = recordings_counts.saved_filters?.count !== null
 
-            const totalPinnedCount: number | null = recordings_counts.collection.count
-            const unwatchedPinnedCount =
-                (recordings_counts.collection.count || 0) - (recordings_counts.collection.watched_count || 0)
             const totalSavedFiltersCount = recordings_counts.saved_filters?.count || 0
             const unwatchedSavedFiltersCount =
                 (recordings_counts.saved_filters?.count || 0) - (recordings_counts.saved_filters?.watched_count || 0)
 
-            // we don't allow both saved filters and pinned anymore
-            const isShowingSavedFilters = hasResults && !totalPinnedCount
-            const totalCount = isShowingSavedFilters ? totalSavedFiltersCount : totalPinnedCount
-            const unwatchedCount = isShowingSavedFilters ? unwatchedSavedFiltersCount : unwatchedPinnedCount
-            // if we're showing saved filters, then we might have more results
-            const hasMoreResults = isShowingSavedFilters && recordings_counts.saved_filters?.has_more
-
-            const lastRefreshedAt = isShowingSavedFilters ? recordings_counts.saved_filters?.last_refreshed_at : null
-
-            const description = isShowingSavedFilters ? 'that match these saved filters' : 'in this collection'
+            const lastRefreshedAt = recordings_counts.saved_filters?.last_refreshed_at
 
             const tooltip = (
                 <div className="text-start">
                     {hasResults ? (
-                        totalCount > 0 ? (
-                            unwatchedCount > 0 ? (
+                        totalSavedFiltersCount > 0 ? (
+                            unwatchedSavedFiltersCount > 0 ? (
                                 <p>
-                                    You have {unwatchedCount} unwatched recordings to watch out of a total of{' '}
-                                    {totalCount}
-                                    {hasMoreResults ? '+' : ''} {description}.
+                                    You have {unwatchedSavedFiltersCount} unwatched recordings to watch out of a total
+                                    of {totalSavedFiltersCount}
+                                    {recordings_counts.saved_filters?.has_more ? '+' : ''} that match these saved
+                                    filters.
                                 </p>
                             ) : (
                                 <p>
-                                    You have watched all of the {totalCount} recordings {description}.
+                                    You have watched all of the {totalSavedFiltersCount} recordings that match these
+                                    saved filters.
                                 </p>
                             )
                         ) : (
@@ -89,7 +78,7 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
                     ) : (
                         <p>Counts have not yet been calculated for this playlist.</p>
                     )}
-                    {isShowingSavedFilters && lastRefreshedAt ? (
+                    {lastRefreshedAt ? (
                         <div className="text-xs items-center flex flex-row gap-x-1">
                             Last refreshed: <TZLabel time={lastRefreshedAt} showPopover={false} />
                         </div>
@@ -103,9 +92,9 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
                         {hasResults ? (
                             <span className="flex items-center deprecated-space-x-1">
                                 <LemonBadge.Number
-                                    status={unwatchedCount ? 'primary' : 'muted'}
+                                    status={unwatchedSavedFiltersCount ? 'primary' : 'muted'}
                                     className="text-xs cursor-pointer"
-                                    count={totalCount}
+                                    count={totalSavedFiltersCount}
                                     maxDigits={3}
                                     showZero={true}
                                     forcePlus={
