@@ -23,9 +23,6 @@ ENDPOINTS = (
 )
 
 INCREMENTAL_ENDPOINTS = (
-    MetaAdsResource.Ads,
-    MetaAdsResource.Adsets,
-    MetaAdsResource.Campaigns,
     MetaAdsResource.AdStats,
     MetaAdsResource.AdsetStats,
     MetaAdsResource.CampaignStats,
