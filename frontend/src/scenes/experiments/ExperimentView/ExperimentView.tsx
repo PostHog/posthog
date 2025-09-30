@@ -29,12 +29,7 @@ import {
     ResultsQuery,
 } from '../components/ResultsBreakdown'
 import { experimentLogic } from '../experimentLogic'
-import {
-    appendMetricToOrderingArray,
-    isLegacyExperiment,
-    isLegacyExperimentQuery,
-    removeMetricFromOrderingArray,
-} from '../utils'
+import { isLegacyExperiment, isLegacyExperimentQuery, removeMetricFromOrderingArray } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -266,36 +261,19 @@ export function ExperimentView(): JSX.Element {
                             <ExperimentMetricModal
                                 experimentId={experimentId}
                                 onSave={(metric, context) => {
-                                    // Check if this is an edit (metric with same UUID already exists) or create
-                                    const existingMetricIndex = experiment[context.field].findIndex(
-                                        (m) => m.uuid === metric.uuid
-                                    )
-                                    const isEdit = existingMetricIndex !== -1
-
-                                    let newMetrics
-                                    let newOrderingArray
-
-                                    if (isEdit) {
-                                        // Replace existing metric
-                                        newMetrics = experiment[context.field].map((m) =>
-                                            m.uuid === metric.uuid ? metric : m
-                                        )
-                                        // Keep existing ordering for edits
-                                        newOrderingArray = experiment[context.orderingField]
-                                    } else {
-                                        // Add new metric
-                                        newMetrics = [...experiment[context.field], metric]
-                                        // Add to ordering array for new metrics
-                                        newOrderingArray = appendMetricToOrderingArray(
-                                            experiment,
-                                            metric.uuid!,
-                                            context.type === 'secondary'
-                                        )
-                                    }
+                                    const metrics = experiment[context.field]
+                                    const isNew = !metrics.some(({ uuid }) => uuid === metric.uuid)
 
                                     setExperiment({
-                                        [context.field]: newMetrics,
-                                        [context.orderingField]: newOrderingArray,
+                                        [context.field]: isNew
+                                            ? [...metrics, metric]
+                                            : metrics.map((m) => (m.uuid === metric.uuid ? metric : m)),
+                                        ...(isNew && {
+                                            [context.orderingField]: [
+                                                ...(experiment[context.orderingField] ?? []),
+                                                metric.uuid,
+                                            ],
+                                        }),
                                     })
 
                                     updateExperimentMetrics()
@@ -307,17 +285,15 @@ export function ExperimentView(): JSX.Element {
                                         return
                                     }
 
-                                    const newOrderingArray = removeMetricFromOrderingArray(
-                                        experiment,
-                                        metric.uuid,
-                                        context.type === 'secondary'
-                                    )
-
-                                    const newMetrics = experiment[context.field].filter((m) => m.uuid !== metric.uuid)
-
                                     setExperiment({
-                                        [context.field]: newMetrics,
-                                        [context.orderingField]: newOrderingArray,
+                                        [context.field]: experiment[context.field].filter(
+                                            (m) => m.uuid !== metric.uuid
+                                        ),
+                                        [context.orderingField]: removeMetricFromOrderingArray(
+                                            experiment,
+                                            metric.uuid,
+                                            context.type === 'secondary'
+                                        ),
                                     })
 
                                     updateExperimentMetrics()

@@ -464,7 +464,8 @@ class SimPerson(ABC):
 
     def __str__(self) -> str:
         """Return person ID. Overriding this is recommended but optional."""
-        return " / ".join(self._distinct_ids) if self._distinct_ids else "???"
+        # Sort distinct_ids to ensure deterministic string representation
+        return " / ".join(sorted(self._distinct_ids)) if self._distinct_ids else "???"
 
     def __hash__(self) -> int:
         return hash(self.in_product_id)
