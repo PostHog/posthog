@@ -6,7 +6,8 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -27,7 +28,6 @@ from .serializers import (
     TaskBulkReorderRequestSerializer,
     TaskBulkReorderResponseSerializer,
     TaskProgressResponseSerializer,
-    TaskProgressStreamRequestSerializer,
     TaskProgressStreamResponseSerializer,
     TaskSerializer,
     TaskUpdatePositionRequestSerializer,
@@ -386,7 +386,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         summary="Stream task progress",
         description="Get real-time progress updates for a task. Use the 'since' parameter to get only recent updates.",
-        parameters=[TaskProgressStreamRequestSerializer],
+        parameters=[
+            OpenApiParameter(
+                name="since",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="ISO datetime to get progress updates since (format: YYYY-MM-DDTHH:MM:SS.ffffffZ)",
+            )
+        ],
         responses={
             200: OpenApiResponse(
                 response=TaskProgressStreamResponseSerializer,

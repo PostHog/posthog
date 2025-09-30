@@ -327,13 +327,6 @@ class TaskProgressUpdateSerializer(serializers.Serializer):
     workflow_id = serializers.CharField(help_text="Temporal workflow ID")
 
 
-class TaskProgressStreamRequestSerializer(serializers.Serializer):
-    since = serializers.DateTimeField(
-        required=False,
-        help_text="ISO datetime to get progress updates since (format: YYYY-MM-DDTHH:MM:SS.ffffffZ)",
-    )
-
-
 class TaskProgressStreamResponseSerializer(serializers.Serializer):
     progress_updates = TaskProgressUpdateSerializer(many=True, help_text="Array of recent progress updates")
     server_time = serializers.DateTimeField(help_text="Current server time in ISO format")
