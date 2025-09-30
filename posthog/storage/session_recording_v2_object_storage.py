@@ -116,7 +116,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             return s3_response["Body"].read()
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.read_failed",
+                "session_recording_v2_object_storage.read_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
@@ -135,7 +135,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             return s3_response["Body"].read()
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.read_failed",
+                "session_recording_v2_object_storage.read_all_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
@@ -177,7 +177,13 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
 
         except Exception as e:
             posthoganalytics.tag("bucket", self.bucket)
-            logger.exception("Failed to read and decompress file", error=e)
+            logger.exception(
+                "session_recording_v2_object_storage.fetch_file_failed",
+                bucket=self.bucket,
+                file_name=blob_key,
+                error=e,
+                s3_response=s3_response,
+            )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
 
     def fetch_block(self, block_url: str) -> str:
@@ -211,7 +217,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
         except BlockFetchError:
             raise
         except Exception as e:
-            logger.exception("Failed to read and decompress block", error=e)
+            logger.exception(
+                "session_recording_v2_object_storage.fetch_block_failed",
+                bucket=self.bucket,
+                block_url=block_url,
+                error=e,
+            )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
     def delete_block(self, block_url: str) -> None:
@@ -241,7 +252,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
         except BlockDeleteError:
             raise
         except Exception as e:
-            logger.exception("Failed to delete block", error=e)
+            logger.exception(
+                "session_recording_v2_object_storage.delete_block_failed",
+                bucket=self.bucket,
+                block_url=block_url,
+                error=e,
+            )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
     def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
@@ -260,7 +276,8 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             return target_key, None
         except Exception as e:
             logger.exception(
-                "Failed to store LTS recording",
+                "session_recording_v2_object_storage.store_lts_recording_failed",
+                bucket=self.bucket,
                 recording_id=recording_id,
                 error=e,
             )
@@ -287,7 +304,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             return await s3_response["Body"].read()
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.read_failed",
+                "async_session_recording_v2_object_storage.read_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
@@ -306,7 +323,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             return await s3_response["Body"].read()
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.read_failed",
+                "async_session_recording_v2_object_storage.read_all_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
@@ -324,7 +341,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             )
         except Exception as e:
             logger.exception(
-                "session_recording_v2_object_storage.write_failed",
+                "async_session_recording_v2_object_storage.write_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
@@ -347,7 +364,13 @@ class AsyncSessionRecordingV2ObjectStorage:
             return snappy.decompress(file_body).decode("utf-8")
         except Exception as e:
             posthoganalytics.tag("bucket", self.bucket)
-            logger.exception("Failed to read and decompress file", error=e)
+            logger.exception(
+                "async_session_recording_v2_object_storage.fetch_file_failed",
+                bucket=self.bucket,
+                file_name=blob_key,
+                error=e,
+                s3_response=s3_response,
+            )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
 
     async def fetch_block(self, block_url: str) -> str:
@@ -381,7 +404,12 @@ class AsyncSessionRecordingV2ObjectStorage:
         except BlockFetchError:
             raise
         except Exception as e:
-            logger.exception("Failed to read and decompress block", error=e)
+            logger.exception(
+                "async_session_recording_v2_object_storage.fetch_block_failed",
+                bucket=self.bucket,
+                block_url=block_url,
+                error=e,
+            )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
     async def delete_block(self, block_url: str) -> None:
@@ -411,7 +439,12 @@ class AsyncSessionRecordingV2ObjectStorage:
         except BlockDeleteError:
             raise
         except Exception as e:
-            logger.exception("Failed to delete block", error=e)
+            logger.exception(
+                "async_session_recording_v2_object_storage.delete_block_failed",
+                bucket=self.bucket,
+                block_url=block_url,
+                error=e,
+            )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
     async def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
@@ -430,7 +463,8 @@ class AsyncSessionRecordingV2ObjectStorage:
             return target_key, None
         except Exception as e:
             logger.exception(
-                "Failed to store LTS recording",
+                "async_session_recording_v2_object_storage.store_lts_recording_failed",
+                bucket=self.bucket,
                 recording_id=recording_id,
                 error=e,
             )

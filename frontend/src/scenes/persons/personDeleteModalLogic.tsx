@@ -55,10 +55,16 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
             null as PersonType | null,
             {
                 deletePerson: async ({ person, deleteEvents, deleteRecordings }) => {
-                    const params = {
-                        delete_events: deleteEvents,
-                        delete_recordings: deleteRecordings,
+                    const params: Record<string, boolean> = {}
+
+                    if (deleteEvents) {
+                        params.delete_events = true
                     }
+
+                    if (deleteRecordings) {
+                        params.delete_recordings = true
+                    }
+
                     await api.delete(`api/person/${person.id}?${toParams(params)}`)
                     lemonToast.success(
                         <>
