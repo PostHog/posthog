@@ -15,6 +15,7 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
+import { HogExecutorExecuteAsyncOptions } from '../hog-executor.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -276,7 +277,10 @@ export class HogFlowExecutorService {
     }
 
     public async executeCurrentAction(
-        invocation: CyclotronJobInvocationHogFlow
+        invocation: CyclotronJobInvocationHogFlow,
+        options?: {
+            hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+        }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
         result.finished = false // Typically we are never finished unless we error or exit
@@ -307,7 +311,12 @@ export class HogFlowExecutorService {
             }
 
             try {
-                const handlerResult = await handler.execute(invocation, currentAction, result)
+                const handlerResult = await handler.execute({
+                    invocation,
+                    action: currentAction,
+                    result,
+                    hogExecutorOptions: options?.hogExecutorOptions,
+                })
 
                 if (handlerResult.finished) {
                     result.finished = true
