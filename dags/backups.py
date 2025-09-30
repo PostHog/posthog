@@ -398,7 +398,7 @@ def wait_for_backup(
     done = False
     tries = 0
     if backup:
-        while not done and tries < 5:
+        while not done:
             tries += 1
             map_hosts(backup.wait).result().values()
             most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
@@ -406,7 +406,7 @@ def wait_for_backup(
                 continue
             if most_recent_status and most_recent_status.status == "BACKUP_CREATED":
                 done = True
-            if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
+            if (most_recent_status and most_recent_status.status != "BACKUP_CREATED") or tries >= 5:
                 raise ValueError(
                     f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
                 )
