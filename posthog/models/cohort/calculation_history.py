@@ -84,6 +84,9 @@ class CohortCalculationHistory(RootTeamMixin, models.Model):
             query_info["written_rows"] = written_rows
 
         if query_info:
+            # Ensure queries is always a list
+            if self.queries is None:
+                self.queries = []
             self.queries.append(query_info)
 
     @property
