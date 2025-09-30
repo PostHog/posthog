@@ -106,7 +106,9 @@ class MapAggregationQueryBuilderHogQL:
             )
             conversion_window_constraint = f"AND toTimeZone(timestamp, '{timezone}') < toDateTime('{date_to}', '{timezone}') + INTERVAL {conversion_window_seconds} SECOND"
         else:
-            conversion_window_constraint = f"AND toTimeZone(timestamp, '{timezone}') < toDateTime('{date_to}', '{timezone}')"
+            conversion_window_constraint = (
+                f"AND toTimeZone(timestamp, '{timezone}') < toDateTime('{date_to}', '{timezone}')"
+            )
 
         # Build variant selection expression
         if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
@@ -148,8 +150,7 @@ class MapAggregationQueryBuilderHogQL:
                         metric_predicate
                     ) AS metric_events_array
                 FROM events
-                WHERE team_id = {team_id}
-                  AND (exposure_predicate OR metric_predicate)
+                WHERE (exposure_predicate OR metric_predicate)
                 GROUP BY entity_id
             ) AS events_enriched
             WHERE events_enriched.first_exposure_time IS NOT NULL
@@ -176,17 +177,16 @@ class MapAggregationQueryBuilderHogQL:
         variants_list = ", ".join(f"'{v}'" for v in self.variants)
 
         predicate = f"""(
-            team_id = {self.team.pk}
-            AND toTimeZone(timestamp, '{timezone}') >= toDateTime('{date_from}', '{timezone}')
+            toTimeZone(timestamp, '{timezone}') >= toDateTime('{date_from}', '{timezone}')
             AND toTimeZone(timestamp, '{timezone}') <= toDateTime('{date_to}', '{timezone}')
             AND event = '{self.exposure_event}'
             AND properties.{self.feature_flag_variant_property} IN [{variants_list}]
         """
 
         if self.exposure_event == "$feature_flag_called":
-            predicate += f"\n            AND properties.`$feature_flag` = '{self.feature_flag.key}'"
+            predicate += f" AND properties.`$feature_flag` = '{self.feature_flag.key}'"
 
-        predicate += "\n        )"
+        predicate += ")"
 
         return predicate
 
@@ -197,8 +197,7 @@ class MapAggregationQueryBuilderHogQL:
         Builds the metric predicate as a string.
         """
         predicate = f"""(
-            team_id = {self.team.pk}
-            AND toTimeZone(timestamp, '{timezone}') >= toDateTime('{date_from}', '{timezone}')
+            toTimeZone(timestamp, '{timezone}') >= toDateTime('{date_from}', '{timezone}')
             {conversion_window_constraint}
             AND event = '{event_name}'
         )"""
