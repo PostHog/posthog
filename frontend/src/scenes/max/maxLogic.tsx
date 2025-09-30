@@ -578,6 +578,9 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             {
                 content: 'Create a survey to measure product market fit',
             },
+            {
+                content: 'Analyze survey responses to prioritize key features our users are interested in',
+            },
         ],
         url: urls.surveys(),
         tooltip: 'Max can help you create surveys to collect feedback from your users.',

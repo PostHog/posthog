@@ -37,6 +37,7 @@ class NodeRole(StrEnum):
     COORDINATOR = "coordinator"
     DATA = "data"
     INGESTION_EVENTS = "events"
+    INGESTION_SMALL = "small"
     SHUFFLEHOG = "shufflehog"
 
 
@@ -55,6 +56,8 @@ class ClickHouseUser(StrEnum):
     CACHE_WARMUP = "cache_warmup"
     # Whenever the HogQL needs to query CH to get some metadata
     HOGQL = "hogql"
+    MESSAGING = "messaging"  # a.k.a. behavioral cohorts
+    MAX_AI = "max_ai"
 
     # Dev Operations - do not normally use
     OPS = "ops"

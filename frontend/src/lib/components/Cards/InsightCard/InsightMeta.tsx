@@ -1,6 +1,5 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
-import posthog from 'posthog-js'
+import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
@@ -100,7 +99,8 @@ export function InsightMeta({
     placement,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insightFeedback } = useValues(insightLogic)
+    const { setInsightFeedback } = useActions(insightLogic)
     const { exportContext } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
@@ -140,27 +140,17 @@ export function InsightMeta({
             <div className="flex gap-0">
                 <LemonButton
                     size="small"
-                    icon={<IconThumbsUp />}
-                    onClick={() => {
-                        posthog.capture('customer-analytics-insight-liked', {
-                            insight_id: insight.short_id,
-                            insight_name: insight.name,
-                            dashboard_id: dashboardId,
-                        })
-                    }}
+                    icon={<IconThumbsUp className={insightFeedback === 'liked' ? 'text-accent' : ''} />}
+                    onClick={() => setInsightFeedback('liked')}
                     tooltip="Like this insight"
+                    disabledReason={insightFeedback === 'liked' ? 'Already liked' : ''}
                 />
                 <LemonButton
                     size="small"
-                    icon={<IconThumbsDown />}
-                    onClick={() => {
-                        posthog.capture('customer-analytics-insight-disliked', {
-                            insight_id: insight.short_id,
-                            insight_name: insight.name,
-                            dashboard_id: dashboardId,
-                        })
-                    }}
+                    icon={<IconThumbsDown className={insightFeedback === 'disliked' ? 'text-accent' : ''} />}
+                    onClick={() => setInsightFeedback('disliked')}
                     tooltip="Dislike this insight"
+                    disabledReason={insightFeedback === 'disliked' ? 'Already disliked' : ''}
                 />
             </div>
         ) : null

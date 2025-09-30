@@ -35,18 +35,21 @@ pub fn team_id_label_filter(
 
 pub fn parse_exception_for_prometheus_label(err: &FlagError) -> &'static str {
     match err {
-        FlagError::DatabaseError(msg) => {
-            if msg.contains("statement timeout") {
+        FlagError::DatabaseError(sqlx_error, context) => {
+            let error_msg = sqlx_error.to_string();
+            let context_msg = context.as_deref().unwrap_or("");
+
+            if error_msg.contains("statement timeout") {
                 "timeout"
-            } else if msg.contains("no more connections") {
+            } else if error_msg.contains("no more connections") {
                 "no_more_connections"
-            } else if msg.contains("Failed to fetch conditions") {
+            } else if context_msg.contains("Failed to fetch conditions") {
                 "flag_condition_retry"
-            } else if msg.contains("Failed to fetch group") {
+            } else if context_msg.contains("Failed to fetch group") {
                 "group_mapping_retry"
-            } else if msg.contains("Database healthcheck failed") {
+            } else if context_msg.contains("Database healthcheck failed") {
                 "healthcheck_failed"
-            } else if msg.contains("query_wait_timeout") {
+            } else if error_msg.contains("query_wait_timeout") {
                 "query_wait_timeout"
             } else {
                 "database_error"

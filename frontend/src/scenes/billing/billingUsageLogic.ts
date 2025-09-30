@@ -76,7 +76,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     path(['scenes', 'billing', 'billingUsageLogic']),
     props({} as BillingUsageLogicProps),
     key(({ dashboardItemId }) => dashboardItemId || 'global'),
-    connect({
+    connect(() => ({
         values: [
             organizationLogic,
             ['currentOrganization'],
@@ -86,7 +86,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             ['isHobby'],
         ],
         actions: [eventUsageLogic, ['reportBillingUsageInteraction']],
-    }),
+    })),
     actions({
         setFilters: (filters: Partial<BillingFilters>, shouldDebounce: boolean = true) => ({
             filters,
