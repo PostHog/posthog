@@ -61,14 +61,15 @@ class MigrationDiscovery:
         Raises:
             ValueError: If path format is not recognized
         """
-        # Try products structure first
+        # Try products structure first: products/product_name/backend/migrations/0001_initial.py
         products_match = re.findall(r"products/([a-z_]+)/backend/migrations/([a-zA-Z_0-9]+)\.py", path)
         if products_match:
             app_label, migration_name = products_match[0]
             return MigrationInfo(path=path, app_label=app_label, migration_name=migration_name)
 
-        # Fall back to generic structure (posthog, ee, etc)
-        generic_match = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", path)
+        # Fall back to generic structure: posthog/migrations/0001_initial.py or ee/migrations/0001_initial.py
+        # Allow underscores in app labels to match products pattern
+        generic_match = re.findall(r"([a-z_]+)\/migrations\/([a-zA-Z_0-9]+)\.py", path)
         if generic_match:
             app_label, migration_name = generic_match[0]
             return MigrationInfo(path=path, app_label=app_label, migration_name=migration_name)

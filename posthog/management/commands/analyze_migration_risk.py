@@ -46,7 +46,7 @@ class Command(BaseCommand):
 
         self.print_report(results)
 
-        if options["fail_on_blocked"]:
+        if options.get("fail_on_blocked"):
             blocked = [r for r in results if r.level == RiskLevel.BLOCKED]
             if blocked:
                 sys.exit(1)

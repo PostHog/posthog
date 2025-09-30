@@ -47,14 +47,16 @@ class UUIDPrimaryKeyPolicy(MigrationPolicy):
 
         # Check for integer primary key
         for field_name, field in op.fields:
-            if field_name == "id":
-                field_type = field.__class__.__name__
-                if field_type in ["AutoField", "BigAutoField"]:
-                    return [
-                        f"Model '{op.name}' uses integer ID ({field_type}). "
-                        "PostHog requires UUID primary keys. "
-                        "Use `from posthog.models.utils import UUIDModel` and inherit from UUIDModel."
-                    ]
+            if field_name != "id":
+                continue
+
+            field_type = field.__class__.__name__
+            if field_type in ["AutoField", "BigAutoField"]:
+                return [
+                    f"Model '{op.name}' uses integer ID ({field_type}). "
+                    "PostHog requires UUID primary keys. "
+                    "Use `from posthog.models.utils import UUIDModel` and inherit from UUIDModel."
+                ]
 
         return []
 

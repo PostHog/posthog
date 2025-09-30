@@ -27,9 +27,9 @@ class AddFieldAnalyzer(OperationAnalyzer):
 
     def analyze(self, op) -> OperationRisk:
         field = op.field
-        is_nullable = field.null or getattr(field, "blank", False)
 
-        if is_nullable:
+        # Only null=True matters for database safety (blank=True is just form validation)
+        if field.null:
             return self._analyze_nullable_field(op)
 
         has_default = field.default != models.NOT_PROVIDED
@@ -328,28 +328,28 @@ class RemoveIndexAnalyzer(OperationAnalyzer):
 
 class SeparateDatabaseAndStateAnalyzer(OperationAnalyzer):
     operation_type = "SeparateDatabaseAndState"
-    default_score = 2
+    default_score = 0
 
-    def analyze(self, op) -> OperationRisk:
-        # This operation separates database operations from state operations
-        # We should analyze the database_operations for actual risk
-        # The state_operations are just Django model state changes
+    def analyze(self, op, analyzer=None) -> OperationRisk:
+        """
+        Analyze SeparateDatabaseAndState operation.
 
-        if hasattr(op, "database_operations") and op.database_operations:
-            # Get count of database operations to note in details
-            db_op_count = len(op.database_operations)
-            db_op_types = [db_op.__class__.__name__ for db_op in op.database_operations]
-
+        Note: The actual risk comes from database_operations inside this wrapper.
+        The RiskAnalyzer will recursively analyze those operations separately.
+        """
+        if not hasattr(op, "database_operations") or not op.database_operations:
             return OperationRisk(
                 type=self.operation_type,
-                score=2,
-                reason=f"Contains {db_op_count} database operation(s) - review database_operations for actual risk",
-                details={"database_operations": ", ".join(db_op_types)},
+                score=0,
+                reason="Only state operations (no database changes)",
+                details={},
             )
+
+        db_op_types = [db_op.__class__.__name__ for db_op in op.database_operations]
 
         return OperationRisk(
             type=self.operation_type,
             score=0,
-            reason="Only state operations (no database changes)",
-            details={},
+            reason=f"Wrapper operation - see nested operations for risk: {', '.join(db_op_types)}",
+            details={"database_operations": ", ".join(db_op_types)},
         )

@@ -93,7 +93,7 @@ class ConsoleTreeFormatter(RiskFormatter):
         lines = []
 
         # Determine prefix based on whether there are warnings after operations
-        has_warnings = bool(risk.combination_risks or risk.policy_violations)
+        has_warnings = risk.combination_risks or risk.policy_violations
         is_last_op = idx == len(risk.operations) - 1
         prefix = "  │  " if has_warnings and not is_last_op else "  "
 

@@ -60,6 +60,12 @@ class RiskAnalyzer:
             risk = self.analyze_operation(op)
             operation_risks.append(risk)
 
+            # Recursively analyze database_operations in SeparateDatabaseAndState
+            if op.__class__.__name__ == "SeparateDatabaseAndState" and hasattr(op, "database_operations"):
+                for db_op in op.database_operations:
+                    db_risk = self.analyze_operation(db_op)
+                    operation_risks.append(db_risk)
+
         # Check for dangerous operation combinations
         combination_risks = self.check_operation_combinations(migration, operation_risks)
 

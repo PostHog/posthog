@@ -1,5 +1,7 @@
 """Utility classes and functions for migration analysis."""
 
+import re
+
 
 class VolatileFunctionDetector:
     """Detects volatile functions in field defaults that cause table rewrites."""
@@ -67,11 +69,18 @@ class OperationCategorizer:
 
         sql_upper = str(op_risk.details.get("sql", "")).upper() if op_risk.details else ""
 
-        if any(kw in sql_upper for kw in self.DML_KEYWORDS):
-            self.dml_ops.append((idx, op_risk))
+        # Use word boundaries to avoid false positives like UPDATE_TIME matching UPDATE
+        for kw in self.DML_KEYWORDS:
+            if re.search(r"\b" + re.escape(kw) + r"\b", sql_upper):
+                self.dml_ops.append((idx, op_risk))
+                break
 
-        if any(kw in sql_upper for kw in self.DDL_KEYWORDS):
-            self.ddl_ops.append((idx, op_risk))
+        for kw in self.DDL_KEYWORDS:
+            # DDL keywords may have spaces, so escape and replace spaces with \s+
+            pattern = r"\b" + re.escape(kw).replace(r"\ ", r"\s+") + r"\b"
+            if re.search(pattern, sql_upper):
+                self.ddl_ops.append((idx, op_risk))
+                break
 
     @property
     def has_dml(self) -> bool:

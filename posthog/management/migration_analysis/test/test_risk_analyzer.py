@@ -52,8 +52,9 @@ class TestAddFieldOperations:
         assert "nullable" in risk.reason.lower()
         assert risk.level == RiskLevel.SAFE
 
-    def test_add_blank_field(self):
-        field = models.CharField(max_length=100, blank=True, null=False)
+    def test_add_blank_field_without_null(self):
+        """blank=True doesn't make database safe - only null=True does."""
+        field = models.CharField(max_length=100, blank=True, null=False, default="")
         op = create_mock_operation(
             migrations.AddField,
             model_name="testmodel",
@@ -63,7 +64,8 @@ class TestAddFieldOperations:
 
         risk = self.analyzer.analyze_operation(op)
 
-        assert risk.score == 0
+        # blank=True is just form validation, so this needs a default to be safe
+        assert risk.score == 1
         assert risk.level == RiskLevel.SAFE
 
     def test_add_not_null_with_default(self):
@@ -82,8 +84,12 @@ class TestAddFieldOperations:
         assert risk.level == RiskLevel.SAFE
 
     def test_add_not_null_without_default(self):
+        """Test NOT NULL field without default - Django doesn't set default, it's NOT_PROVIDED by default."""
+        # Don't set default parameter - Django fields default to NOT_PROVIDED
         field = models.CharField(max_length=100, null=False, blank=False)
-        field.default = models.NOT_PROVIDED
+        # Verify the field has no default (models.NOT_PROVIDED is the sentinel value)
+        assert field.default == models.NOT_PROVIDED
+
         op = create_mock_operation(
             migrations.AddField,
             model_name="testmodel",
@@ -255,7 +261,8 @@ class TestRunSQLOperations:
         assert risk.score == 3
         assert risk.level == RiskLevel.NEEDS_REVIEW
 
-    def test_run_sql_with_select(self):
+    def test_run_sql_with_concurrent_index(self):
+        """Test CREATE INDEX CONCURRENTLY - should need review but not be high risk."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="CREATE INDEX CONCURRENTLY idx_foo ON users(foo);",
