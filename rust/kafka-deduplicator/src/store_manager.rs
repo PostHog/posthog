@@ -905,7 +905,10 @@ mod tests {
         // Event should be seen as duplicate in store2 (proving they're the same store)
         assert_eq!(
             store2.handle_event_with_raw(&event).unwrap(),
-            DeduplicationResult::ConfirmedDuplicate(DeduplicationType::Timestamp, DeduplicationResultReason::SameEvent)
+            DeduplicationResult::ConfirmedDuplicate(
+                DeduplicationType::Timestamp,
+                DeduplicationResultReason::SameEvent
+            )
         );
     }
 
