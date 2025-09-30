@@ -379,6 +379,8 @@ if not CDP_API_URL:
 
 CACHES = {
     "default": {
+        # IMPORTANT: If any of these settings change, make sure the
+        # feature-flags crate is updated accordingly.
         "BACKEND": "django_redis.cache.RedisCache",
         # the django redis default client can be replica aware
         # if location is an array then the first element is the primary

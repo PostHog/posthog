@@ -148,6 +148,7 @@ class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
                 {
                     "task_id": inputs.task_id,
                     "team_id": inputs.team_id,
+                    "user_id": inputs.user_id,
                     "transition_config": agent_info,
                     "repo_info": repo_info,
                 },

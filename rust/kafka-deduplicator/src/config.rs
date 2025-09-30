@@ -89,8 +89,11 @@ pub struct Config {
     pub port: u16,
 
     // Checkpoint configuration - integrated from checkpoint::config
-    #[envconfig(default = "300")] // 5 minutes in seconds
+    #[envconfig(default = "900")] // 15 minutes in seconds
     pub checkpoint_interval_secs: u64,
+
+    #[envconfig(default = "1680")] // 28 minutes in seconds
+    pub checkpoint_cleanup_interval_secs: u64,
 
     #[envconfig(default = "72")] // 72 hours
     pub max_checkpoint_retention_hours: u32,
@@ -98,7 +101,16 @@ pub struct Config {
     #[envconfig(default = "3")]
     pub max_concurrent_checkpoints: usize,
 
-    #[envconfig(default = "./checkpoints")]
+    #[envconfig(default = "200")]
+    pub checkpoint_gate_interval_millis: u64,
+
+    #[envconfig(default = "10")]
+    pub checkpoint_worker_shutdown_timeout_secs: u64,
+
+    #[envconfig(default = "5")]
+    pub max_local_checkpoints: usize,
+
+    #[envconfig(default = "/tmp/checkpoints")]
     pub local_checkpoint_dir: String,
 
     pub s3_bucket: Option<String>,
@@ -109,13 +121,10 @@ pub struct Config {
     // how often to perform a full checkpoint vs. incremental
     // if 0, then we will always do full uploads
     #[envconfig(default = "0")]
-    pub full_upload_interval: u32,
+    pub checkpoint_full_upload_interval: u32,
 
     #[envconfig(default = "us-east-1")]
     pub aws_region: String,
-
-    #[envconfig(default = "5")]
-    pub max_local_checkpoints: usize,
 
     #[envconfig(default = "300")] // 5 minutes in seconds
     pub s3_timeout_secs: u64,
@@ -212,6 +221,11 @@ impl Config {
         Duration::from_secs(self.flush_interval_secs)
     }
 
+    /// Get cleanup interval as Duration
+    pub fn cleanup_interval(&self) -> Duration {
+        Duration::from_secs(self.cleanup_interval_secs)
+    }
+
     /// Get producer send timeout as Duration
     pub fn producer_send_timeout(&self) -> Duration {
         Duration::from_millis(self.kafka_producer_send_timeout_ms as u64)
@@ -260,9 +274,21 @@ impl Config {
         Duration::from_secs(self.checkpoint_interval_secs)
     }
 
-    /// Get cleanup interval as Duration
-    pub fn cleanup_interval(&self) -> Duration {
-        Duration::from_secs(self.cleanup_interval_secs)
+    /// Get local stale checkpoint cleanup scan interval as Duration
+    pub fn checkpoint_cleanup_interval(&self) -> Duration {
+        Duration::from_secs(self.checkpoint_cleanup_interval_secs)
+    }
+
+    pub fn checkpoint_gate_interval(&self) -> Duration {
+        Duration::from_millis(self.checkpoint_gate_interval_millis)
+    }
+
+    pub fn checkpoint_worker_shutdown_timeout(&self) -> Duration {
+        Duration::from_secs(self.checkpoint_worker_shutdown_timeout_secs)
+    }
+
+    pub fn max_local_checkpoints(&self) -> usize {
+        self.max_local_checkpoints
     }
 
     /// Get S3 timeout as Duration

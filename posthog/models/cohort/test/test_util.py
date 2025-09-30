@@ -4,7 +4,7 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import (
-    get_dependent_cohorts,
+    get_all_cohort_dependencies,
     print_cohort_hogql_query,
     simplified_cohort_filter_properties,
     sort_cohorts_topologically,
@@ -387,7 +387,7 @@ class TestDependentCohorts(BaseTest):
             groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
         )
 
-        self.assertEqual(get_dependent_cohorts(cohort), [])
+        self.assertEqual(get_all_cohort_dependencies(cohort), [])
 
     def test_dependent_cohorts_for_nested_cohort(self):
         cohort1 = _create_cohort(
@@ -402,8 +402,8 @@ class TestDependentCohorts(BaseTest):
             groups=[{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}],
         )
 
-        self.assertEqual(get_dependent_cohorts(cohort1), [])
-        self.assertEqual(get_dependent_cohorts(cohort2), [cohort1])
+        self.assertEqual(get_all_cohort_dependencies(cohort1), [])
+        self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
 
     def test_dependent_cohorts_for_deeply_nested_cohort(self):
         cohort1 = _create_cohort(
@@ -435,9 +435,9 @@ class TestDependentCohorts(BaseTest):
             ],
         )
 
-        self.assertEqual(get_dependent_cohorts(cohort1), [])
-        self.assertEqual(get_dependent_cohorts(cohort2), [cohort1])
-        self.assertEqual(get_dependent_cohorts(cohort3), [cohort2, cohort1])
+        self.assertEqual(get_all_cohort_dependencies(cohort1), [])
+        self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
+        self.assertEqual(get_all_cohort_dependencies(cohort3), [cohort2, cohort1])
 
     def test_dependent_cohorts_for_circular_nested_cohort(self):
         cohort1 = _create_cohort(
@@ -472,9 +472,9 @@ class TestDependentCohorts(BaseTest):
         cohort1.groups = [{"properties": [{"key": "id", "value": cohort3.pk, "type": "cohort"}]}]
         cohort1.save()
 
-        self.assertEqual(get_dependent_cohorts(cohort3), [cohort2, cohort1])
-        self.assertEqual(get_dependent_cohorts(cohort2), [cohort1, cohort3])
-        self.assertEqual(get_dependent_cohorts(cohort1), [cohort3, cohort2])
+        self.assertEqual(get_all_cohort_dependencies(cohort3), [cohort2, cohort1])
+        self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1, cohort3])
+        self.assertEqual(get_all_cohort_dependencies(cohort1), [cohort3, cohort2])
 
     def test_dependent_cohorts_for_complex_nested_cohort(self):
         cohort1 = _create_cohort(
@@ -554,11 +554,11 @@ class TestDependentCohorts(BaseTest):
             ],
         )
 
-        self.assertEqual(get_dependent_cohorts(cohort1), [])
-        self.assertEqual(get_dependent_cohorts(cohort2), [cohort1])
-        self.assertEqual(get_dependent_cohorts(cohort3), [cohort2, cohort1])
-        self.assertEqual(get_dependent_cohorts(cohort4), [cohort1])
-        self.assertEqual(get_dependent_cohorts(cohort5), [cohort4, cohort1, cohort2])
+        self.assertEqual(get_all_cohort_dependencies(cohort1), [])
+        self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
+        self.assertEqual(get_all_cohort_dependencies(cohort3), [cohort2, cohort1])
+        self.assertEqual(get_all_cohort_dependencies(cohort4), [cohort1])
+        self.assertEqual(get_all_cohort_dependencies(cohort5), [cohort4, cohort1, cohort2])
 
     def test_dependent_cohorts_ignore_invalid_ids(self):
         cohort1 = _create_cohort(
@@ -593,8 +593,8 @@ class TestDependentCohorts(BaseTest):
             ],
         )
 
-        self.assertEqual(get_dependent_cohorts(cohort2), [cohort1])
-        self.assertEqual(get_dependent_cohorts(cohort3), [cohort2, cohort1])
+        self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
+        self.assertEqual(get_all_cohort_dependencies(cohort3), [cohort2, cohort1])
 
 
 class TestSortCohortsTopologically(BaseTest):
@@ -619,7 +619,7 @@ class TestSortCohortsTopologically(BaseTest):
             groups=[{"properties": [{"key": "id", "value": MISSING_COHORT_ID, "type": "cohort"}]}],
         )
 
-        dependent_cohorts = get_dependent_cohorts(cohort)
+        dependent_cohorts = get_all_cohort_dependencies(cohort)
         all_cohort_ids = {dep.id for dep in dependent_cohorts}
         all_cohort_ids.add(cohort.id)
 

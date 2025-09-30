@@ -80,6 +80,7 @@ export const actionsLogic = kea<actionsLogicType>([
                         key: DataManagementTab.Actions,
                         name: 'Actions',
                         path: urls.actions(),
+                        iconType: 'action',
                     },
                 ]
             },

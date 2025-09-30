@@ -32,6 +32,9 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     search_text = serializers.CharField(required=False, allow_blank=True)
     detail_filters = serializers.JSONField(required=False, default={})
     hogql_filter = serializers.CharField(required=False, allow_blank=True)
+    was_impersonated = serializers.BooleanField(required=False)
+    is_system = serializers.BooleanField(required=False)
+    item_ids = serializers.ListField(child=serializers.CharField(), required=False, default=[])
 
 
 class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
