@@ -478,21 +478,22 @@ export function SidePanelSdkDoctor(): JSX.Element {
 
                 {/* Show warning for feature flag misconfigurations if detected */}
                 {featureFlagMisconfiguration.detected && (
-                    <Section title="Feature flag misconfiguration detected">
+                    <Section title="Possible feature flag misconfiguration">
                         <div className="p-3 bg-danger/10 rounded border border-danger/20">
                             <div className="flex items-start">
                                 <IconWarning className="text-danger text-xl mt-0.5 mr-2 flex-shrink-0" />
                                 <div>
-                                    <p className="font-semibold">Feature flag(s) called before PostHog loaded</p>
+                                    <p className="font-semibold">Feature flag(s) called before any other events</p>
                                     <p className="text-sm mt-1">
-                                        Ooops. It looks you're calling feature flags before PostHog has finished
-                                        loading. This can cause flags to return incorrect values, make experiment
-                                        results inaccurate, and cause inconsistent user experiences.
+                                        Ooops. It looks you're calling feature flags before any other events have been
+                                        captured in the session. This can cause flags to return incorrect values, make
+                                        experiment results inaccurate, and cause inconsistent user experiences.
                                     </p>
                                     <p className="text-sm mt-1">
                                         To fix this: Use bootstrapping to make flags available instantly, or use{' '}
-                                        <code>onFeatureFlags</code> to wait on PostHog before calling flags. (See the
-                                        links below for details)
+                                        <code>onFeatureFlags</code> to wait on PostHog before calling flags.
+                                        <br />
+                                        (See the links below for details)
                                     </p>
                                     <div className="mt-2 flex gap-3">
                                         <Link
