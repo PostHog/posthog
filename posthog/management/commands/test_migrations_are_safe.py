@@ -147,7 +147,15 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         def run_and_check_migration(variable):
             try:
-                results = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", variable)[0]
+                # Handle both posthog/migrations and products/*/backend/migrations paths
+                # For products: products/product_name/backend/migrations/0001_initial.py -> (product_name, 0001_initial)
+                # For posthog: posthog/migrations/0001_initial.py -> (posthog, 0001_initial)
+                products_match = re.findall(r"products/([a-z_]+)/backend/migrations/([a-zA-Z_0-9]+)\.py", variable)
+                if products_match:
+                    results = products_match[0]
+                else:
+                    results = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", variable)[0]
+
                 sql = call_command("sqlmigrate", results[0], results[1])
                 should_fail = validate_migration_sql(sql)
                 if should_fail:
