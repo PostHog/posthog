@@ -3,6 +3,7 @@
 from django.db import models
 
 from posthog.management.migration_analysis.models import OperationRisk
+from posthog.management.migration_analysis.utils import VolatileFunctionDetector
 
 
 class OperationAnalyzer:
@@ -27,47 +28,68 @@ class AddFieldAnalyzer(OperationAnalyzer):
     def analyze(self, op) -> OperationRisk:
         field = op.field
         is_nullable = field.null or getattr(field, "blank", False)
-        has_default = field.default != models.NOT_PROVIDED
 
-        if not is_nullable and not has_default:
+        if is_nullable:
+            return self._analyze_nullable_field(op)
+
+        has_default = field.default != models.NOT_PROVIDED
+        if not has_default:
+            return self._risk_not_null_no_default(op)
+
+        return self._analyze_not_null_with_default(op, field)
+
+    def _analyze_nullable_field(self, op) -> OperationRisk:
+        """Nullable fields are always safe."""
+        return OperationRisk(
+            type=self.operation_type,
+            score=0,
+            reason="Adding nullable field is safe",
+            details={"model": op.model_name, "field": op.name},
+        )
+
+    def _risk_not_null_no_default(self, op) -> OperationRisk:
+        """NOT NULL without default requires table rewrite with lock."""
+        return OperationRisk(
+            type=self.operation_type,
+            score=5,
+            reason="Adding NOT NULL field without default locks table",
+            details={"model": op.model_name, "field": op.name},
+        )
+
+    def _analyze_not_null_with_default(self, op, field) -> OperationRisk:
+        """Analyze NOT NULL field with default value."""
+        if not callable(field.default):
+            return self._risk_constant_default(op)
+
+        return self._analyze_callable_default(op, field)
+
+    def _risk_constant_default(self, op) -> OperationRisk:
+        """Constant defaults are safe in PostgreSQL 11+."""
+        return OperationRisk(
+            type=self.operation_type,
+            score=1,
+            reason="Adding NOT NULL field with constant default (safe in PG11+)",
+            details={"model": op.model_name, "field": op.name},
+        )
+
+    def _analyze_callable_default(self, op, field) -> OperationRisk:
+        """Analyze callable defaults (functions)."""
+        default_name = getattr(field.default, "__name__", str(field.default))
+
+        if VolatileFunctionDetector.is_volatile(default_name):
             return OperationRisk(
                 type=self.operation_type,
                 score=5,
-                reason="Adding NOT NULL field without default locks table",
-                details={"model": op.model_name, "field": op.name},
+                reason=f"Adding NOT NULL field with volatile default ({default_name}) rewrites entire table",
+                details={"model": op.model_name, "field": op.name, "default": default_name},
             )
-        elif not is_nullable and has_default:
-            # Check if default is a callable (potentially volatile)
-            default_value = field.default
-            if callable(default_value):
-                # Check for common volatile callables
-                default_name = getattr(default_value, "__name__", str(default_value))
-                if "uuid" in default_name.lower() or "random" in default_name.lower():
-                    return OperationRisk(
-                        type=self.operation_type,
-                        score=5,
-                        reason=f"Adding NOT NULL field with volatile default ({default_name}) rewrites entire table",
-                        details={"model": op.model_name, "field": op.name, "default": default_name},
-                    )
-                return OperationRisk(
-                    type=self.operation_type,
-                    score=2,
-                    reason=f"Adding NOT NULL field with callable default ({default_name}) - verify it's stable",
-                    details={"model": op.model_name, "field": op.name, "default": default_name},
-                )
-            return OperationRisk(
-                type=self.operation_type,
-                score=1,
-                reason="Adding NOT NULL field with constant default (safe in PG11+)",
-                details={"model": op.model_name, "field": op.name},
-            )
-        else:
-            return OperationRisk(
-                type=self.operation_type,
-                score=0,
-                reason="Adding nullable field is safe",
-                details={"model": op.model_name, "field": op.name},
-            )
+
+        return OperationRisk(
+            type=self.operation_type,
+            score=2,
+            reason=f"Adding NOT NULL field with callable default ({default_name}) - verify it's stable",
+            details={"model": op.model_name, "field": op.name, "default": default_name},
+        )
 
 
 class RemoveFieldAnalyzer(OperationAnalyzer):

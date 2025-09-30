@@ -19,6 +19,7 @@ from posthog.management.migration_analysis.operations import (
     RunSQLAnalyzer,
     SeparateDatabaseAndStateAnalyzer,
 )
+from posthog.management.migration_analysis.utils import OperationCategorizer
 
 
 class RiskAnalyzer:
@@ -95,66 +96,46 @@ class RiskAnalyzer:
         2. RunSQL + DDL should be isolated
         3. Multiple schema changes in non-atomic migration
         """
+        categorizer = OperationCategorizer(operation_risks)
+
         warnings = []
-
-        # Categorize operations with indices for reference
-        has_runsql_dml = False
-        has_runsql_ddl = False
-        has_schema_changes = False
-        runsql_ops = []
-        schema_change_ops = []
-        dml_ops = []
-        ddl_ops = []
-
-        for idx, op_risk in enumerate(operation_risks):
-            if op_risk.type == "RunSQL":
-                runsql_ops.append((idx, op_risk))
-                # Check SQL content
-                sql_upper = str(op_risk.details.get("sql", "")).upper() if op_risk.details else ""
-                if any(kw in sql_upper for kw in ["UPDATE", "DELETE", "INSERT"]):
-                    has_runsql_dml = True
-                    dml_ops.append((idx, op_risk))
-                if any(kw in sql_upper for kw in ["CREATE INDEX", "ALTER TABLE", "ADD COLUMN"]):
-                    has_runsql_ddl = True
-                    ddl_ops.append((idx, op_risk))
-
-            # Schema-changing operations
-            if op_risk.type in [
-                "AddField",
-                "RemoveField",
-                "AlterField",
-                "RenameField",
-                "AddIndex",
-                "AddConstraint",
-                "CreateModel",
-                "DeleteModel",
-            ]:
-                has_schema_changes = True
-                schema_change_ops.append((idx, op_risk))
-
-        # Check for dangerous combinations
-        if has_runsql_dml and has_schema_changes:
-            # Build reference to involved operations
-            dml_refs = ", ".join(f"#{idx+1} {op.type}" for idx, op in dml_ops)
-            schema_refs = ", ".join(f"#{idx+1} {op.type}" for idx, op in schema_change_ops)
-            warnings.append(
-                f"❌ CRITICAL: {dml_refs} + {schema_refs}\n"
-                "   RunSQL with DML (UPDATE/DELETE/INSERT) combined with schema changes. "
-                "This creates a long-running transaction that holds locks for the entire duration. "
-                "Split into separate migrations: 1) schema changes, 2) data migration."
-            )
-
-        if has_runsql_ddl and len(operation_risks) > 1:
-            ddl_refs = ", ".join(f"#{idx+1} {op.type}" for idx, op in ddl_ops)
-            warnings.append(
-                f"⚠️  WARNING: {ddl_refs} mixed with other operations\n"
-                "   RunSQL with DDL (CREATE INDEX/ALTER TABLE) should be isolated in their own migration "
-                "to avoid lock conflicts."
-            )
-
-        if len(runsql_ops) > 0 and not getattr(migration, "atomic", True):
-            warnings.append(
-                "⚠️  INFO: Migration is marked atomic=False. Ensure data migrations handle failures correctly."
-            )
+        warnings.extend(self._check_dml_with_schema_changes(categorizer))
+        warnings.extend(self._check_ddl_isolation(categorizer, operation_risks))
+        warnings.extend(self._check_non_atomic_runsql(migration, categorizer))
 
         return warnings
+
+    def _check_dml_with_schema_changes(self, categorizer: OperationCategorizer) -> list[str]:
+        """Check for DML operations mixed with schema changes."""
+        if not (categorizer.has_dml and categorizer.has_schema_changes):
+            return []
+
+        dml_refs = categorizer.format_operation_refs(categorizer.dml_ops)
+        schema_refs = categorizer.format_operation_refs(categorizer.schema_ops)
+
+        return [
+            f"❌ CRITICAL: {dml_refs} + {schema_refs}\n"
+            "   RunSQL with DML (UPDATE/DELETE/INSERT) combined with schema changes. "
+            "This creates a long-running transaction that holds locks for the entire duration. "
+            "Split into separate migrations: 1) schema changes, 2) data migration."
+        ]
+
+    def _check_ddl_isolation(self, categorizer: OperationCategorizer, operation_risks: list) -> list[str]:
+        """Check if DDL operations should be isolated."""
+        if not categorizer.has_ddl or len(operation_risks) <= 1:
+            return []
+
+        ddl_refs = categorizer.format_operation_refs(categorizer.ddl_ops)
+
+        return [
+            f"⚠️  WARNING: {ddl_refs} mixed with other operations\n"
+            "   RunSQL with DDL (CREATE INDEX/ALTER TABLE) should be isolated in their own migration "
+            "to avoid lock conflicts."
+        ]
+
+    def _check_non_atomic_runsql(self, migration, categorizer: OperationCategorizer) -> list[str]:
+        """Check for non-atomic migrations with RunSQL."""
+        if not categorizer.runsql_ops or getattr(migration, "atomic", True):
+            return []
+
+        return ["⚠️  INFO: Migration is marked atomic=False. Ensure data migrations handle failures correctly."]
