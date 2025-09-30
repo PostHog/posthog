@@ -307,6 +307,7 @@ export enum AccessControlResourceType {
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
+    Experiment = 'experiment',
 }
 
 interface UserBaseType {
@@ -3898,6 +3899,7 @@ export interface Experiment {
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
+    user_access_level: AccessControlLevel
 }
 
 export interface FunnelExperimentVariant {

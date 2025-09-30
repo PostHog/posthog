@@ -5,6 +5,7 @@ import { match } from 'ts-pattern'
 
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -27,7 +28,15 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ActivityScope, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    Experiment,
+    ExperimentsTabs,
+    ProductKey,
+    ProgressStatus,
+} from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
 import { StatusTag, createMaxToolExperimentSurveyConfig } from './ExperimentView/components'
@@ -239,80 +248,98 @@ const ExperimentsTable = ({
                                 <LemonButton to={urls.experiment(`${experiment.id}`)} size="small" fullWidth>
                                     View
                                 </LemonButton>
-                                <LemonButton onClick={() => openDuplicateModal(experiment)} size="small" fullWidth>
-                                    Duplicate
-                                </LemonButton>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Experiment}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={experiment.user_access_level}
+                                >
+                                    <LemonButton onClick={() => openDuplicateModal(experiment)} size="small" fullWidth>
+                                        Duplicate
+                                    </LemonButton>
+                                </AccessControlAction>
                                 <ExperimentSurveyButton experiment={experiment} />
                                 {!experiment.archived &&
                                     experiment?.end_date &&
                                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
-                                        <LemonButton
-                                            onClick={() => {
-                                                LemonDialog.open({
-                                                    title: 'Archive this experiment?',
-                                                    content: (
-                                                        <div className="text-sm text-secondary">
-                                                            This action will move the experiment to the archived tab. It
-                                                            can be restored at any time.
-                                                        </div>
-                                                    ),
-                                                    primaryButton: {
-                                                        children: 'Archive',
-                                                        type: 'primary',
-                                                        onClick: () => archiveExperiment(experiment.id as number),
-                                                        size: 'small',
-                                                    },
-                                                    secondaryButton: {
-                                                        children: 'Cancel',
-                                                        type: 'tertiary',
-                                                        size: 'small',
-                                                    },
-                                                })
-                                            }}
-                                            data-attr={`experiment-${experiment.id}-dropdown-archive`}
-                                            fullWidth
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.Experiment}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={experiment.user_access_level}
                                         >
-                                            Archive experiment
-                                        </LemonButton>
-                                    )}
-                                <LemonDivider />
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete this experiment?',
-                                            content: (
-                                                <div className="text-sm text-secondary">
-                                                    Experiment with its settings will be deleted, but event data will be
-                                                    preserved.
-                                                </div>
-                                            ),
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                type: 'primary',
-                                                onClick: () => {
-                                                    void deleteWithUndo({
-                                                        endpoint: `projects/${currentProjectId}/experiments`,
-                                                        object: { name: experiment.name, id: experiment.id },
-                                                        callback: () => {
-                                                            loadExperiments()
+                                            <LemonButton
+                                                onClick={() => {
+                                                    LemonDialog.open({
+                                                        title: 'Archive this experiment?',
+                                                        content: (
+                                                            <div className="text-sm text-secondary">
+                                                                This action will move the experiment to the archived
+                                                                tab. It can be restored at any time.
+                                                            </div>
+                                                        ),
+                                                        primaryButton: {
+                                                            children: 'Archive',
+                                                            type: 'primary',
+                                                            onClick: () => archiveExperiment(experiment.id as number),
+                                                            size: 'small',
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                            type: 'tertiary',
+                                                            size: 'small',
                                                         },
                                                     })
-                                                },
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
-                                    data-attr={`experiment-${experiment.id}-dropdown-remove`}
-                                    fullWidth
+                                                }}
+                                                data-attr={`experiment-${experiment.id}-dropdown-archive`}
+                                                fullWidth
+                                            >
+                                                Archive experiment
+                                            </LemonButton>
+                                        </AccessControlAction>
+                                    )}
+                                <LemonDivider />
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Experiment}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={experiment.user_access_level}
                                 >
-                                    Delete experiment
-                                </LemonButton>
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Delete this experiment?',
+                                                content: (
+                                                    <div className="text-sm text-secondary">
+                                                        Experiment with its settings will be deleted, but event data
+                                                        will be preserved.
+                                                    </div>
+                                                ),
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    type: 'primary',
+                                                    onClick: () => {
+                                                        void deleteWithUndo({
+                                                            endpoint: `projects/${currentProjectId}/experiments`,
+                                                            object: { name: experiment.name, id: experiment.id },
+                                                            callback: () => {
+                                                                loadExperiments()
+                                                            },
+                                                        })
+                                                    },
+                                                    size: 'small',
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'tertiary',
+                                                    size: 'small',
+                                                },
+                                            })
+                                        }}
+                                        data-attr={`experiment-${experiment.id}-dropdown-remove`}
+                                        fullWidth
+                                    >
+                                        Delete experiment
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
@@ -400,9 +427,19 @@ export function Experiments(): JSX.Element {
                     type: 'experiment',
                 }}
                 actions={
-                    <LemonButton size="small" type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
-                        New experiment
-                    </LemonButton>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Experiment}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            data-attr="create-experiment"
+                            to={urls.experiment('new')}
+                        >
+                            New experiment
+                        </LemonButton>
+                    </AccessControlAction>
                 }
             />
             <SceneDivider />
