@@ -127,8 +127,8 @@ class RiskAnalyzer:
         schema_refs = categorizer.format_operation_refs(categorizer.schema_ops)
 
         return [
-            f"❌ CRITICAL: {dml_refs} + {schema_refs}\n"
-            "   RunSQL with DML (UPDATE/DELETE/INSERT) combined with schema changes. "
+            f"❌ CRITICAL: {dml_refs} + {schema_refs}    "
+            "RunSQL with DML (UPDATE/DELETE/INSERT) combined with schema changes. "
             "This creates a long-running transaction that holds locks for the entire duration. "
             "Split into separate migrations: 1) schema changes, 2) data migration."
         ]
@@ -141,8 +141,8 @@ class RiskAnalyzer:
         ddl_refs = categorizer.format_operation_refs(categorizer.ddl_ops)
 
         return [
-            f"⚠️  WARNING: {ddl_refs} mixed with other operations\n"
-            "   RunSQL with DDL (CREATE INDEX/ALTER TABLE) should be isolated in their own migration "
+            f"⚠️  WARNING: {ddl_refs} mixed with other operations    "
+            "RunSQL with DDL (CREATE INDEX/ALTER TABLE) should be isolated in their own migration "
             "to avoid lock conflicts."
         ]
 

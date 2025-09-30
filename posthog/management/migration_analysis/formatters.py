@@ -117,12 +117,20 @@ class ConsoleTreeFormatter(RiskFormatter):
         # Format details (exclude SQL to keep output clean)
         details_str = ", ".join(f"{k}: {v}" for k, v in op_risk.details.items() if k != "sql")
 
+        # Map risk level to icon
+        level_icons = {
+            RiskLevel.SAFE: "✅",
+            RiskLevel.NEEDS_REVIEW: "⚠️",
+            RiskLevel.BLOCKED: "❌",
+        }
+        icon = level_icons.get(op_risk.level, "")
+
         if details_str:
-            lines.append(f"{prefix}└─ {op_number} {op_risk.type} (score: {op_risk.score})")
+            lines.append(f"{prefix}└─ {op_number} {icon} {op_risk.type}")
             lines.append(f"{prefix}   {op_risk.reason}")
             lines.append(f"{prefix}   {details_str}")
         else:
-            lines.append(f"{prefix}└─ {op_number} {op_risk.type} (score: {op_risk.score}): {op_risk.reason}")
+            lines.append(f"{prefix}└─ {op_number} {icon} {op_risk.type}: {op_risk.reason}")
 
         return lines
 
