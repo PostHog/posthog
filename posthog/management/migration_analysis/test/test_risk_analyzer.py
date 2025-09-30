@@ -288,7 +288,23 @@ class TestCreateModelOperations:
     def setup_method(self):
         self.analyzer = RiskAnalyzer()
 
-    def test_create_model(self):
+    def test_create_model_with_uuid(self):
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="TestModel",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("name", models.CharField(max_length=100)),
+            ],
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 0
+        assert risk.level == RiskLevel.SAFE
+        assert not risk.is_policy_violation
+
+    def test_create_model_with_autofield(self):
         op = create_mock_operation(
             migrations.CreateModel,
             name="TestModel",
@@ -300,9 +316,27 @@ class TestCreateModelOperations:
 
         risk = self.analyzer.analyze_operation(op)
 
-        # CreateModel defaults to score 2 (unknown operation default)
-        # unless we explicitly handle it
-        assert risk.score >= 0
+        assert risk.score == 4
+        assert risk.level == RiskLevel.BLOCKED
+        assert risk.is_policy_violation
+        assert "UUIDModel" in risk.reason
+
+    def test_create_model_with_bigautofield(self):
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="TestModel",
+            fields=[
+                ("id", models.BigAutoField(primary_key=True)),
+                ("name", models.CharField(max_length=100)),
+            ],
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 4
+        assert risk.level == RiskLevel.BLOCKED
+        assert risk.is_policy_violation
+        assert "UUIDModel" in risk.reason
 
 
 class TestCombinationRisks:

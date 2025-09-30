@@ -77,6 +77,10 @@ class ConsoleTreeFormatter(RiskFormatter):
         for idx, op_risk in enumerate(risk.operations):
             lines.extend(self._format_operation(idx, op_risk, risk))
 
+        # Format policy violations
+        if risk.policy_violations:
+            lines.extend(self._format_policy_violations(risk.policy_violations))
+
         # Format combination warnings
         if risk.combination_risks:
             lines.extend(self._format_combination_risks(risk.combination_risks))
@@ -88,10 +92,10 @@ class ConsoleTreeFormatter(RiskFormatter):
         """Format single operation with tree structure."""
         lines = []
 
-        # Determine prefix based on whether there are combination risks
-        has_combination = bool(risk.combination_risks)
+        # Determine prefix based on whether there are warnings after operations
+        has_warnings = bool(risk.combination_risks or risk.policy_violations)
         is_last_op = idx == len(risk.operations) - 1
-        prefix = "  │  " if has_combination and not is_last_op else "  "
+        prefix = "  │  " if has_warnings and not is_last_op else "  "
 
         # Format operation line with numbering
         op_number = f"#{idx + 1}"
@@ -108,6 +112,18 @@ class ConsoleTreeFormatter(RiskFormatter):
 
         return lines
 
+    def _format_policy_violations(self, violations: list[str]) -> list[str]:
+        """Format PostHog policy violations."""
+        lines = []
+        lines.append("  │")
+        lines.append(f"  └──> {self.COLOR_RED}📋 POSTHOG POLICY VIOLATIONS:{self.COLOR_RESET}")
+
+        for violation in violations:
+            wrapped = textwrap.fill(violation, width=72, initial_indent="       ", subsequent_indent="       ")
+            lines.append(wrapped)
+
+        return lines
+
     def _format_combination_risks(self, warnings: list[str]) -> list[str]:
         """Format combination risk warnings."""
         lines = []
@@ -119,47 +135,3 @@ class ConsoleTreeFormatter(RiskFormatter):
             lines.append(wrapped)
 
         return lines
-
-
-class PlainTextFormatter(RiskFormatter):
-    """Formats risk reports as plain text without colors or tree structure."""
-
-    def format_report(self, results: list[MigrationRisk]) -> str:
-        """Format complete report as plain text."""
-        safe = [r for r in results if r.level == RiskLevel.SAFE]
-        review = [r for r in results if r.level == RiskLevel.NEEDS_REVIEW]
-        blocked = [r for r in results if r.level == RiskLevel.BLOCKED]
-
-        lines = []
-        lines.append("=" * 80)
-        lines.append("Migration Risk Report")
-        lines.append("=" * 80)
-        lines.append(f"Summary: {len(safe)} Safe | {len(review)} Needs Review | {len(blocked)} Blocked")
-        lines.append("")
-
-        for level_name, risks in [("BLOCKED", blocked), ("NEEDS REVIEW", review), ("SAFE", safe)]:
-            if risks:
-                lines.append(f"{level_name}:")
-                for risk in risks:
-                    lines.append(self.format_migration(risk))
-
-        return "\n".join(lines)
-
-    def format_migration(self, risk: MigrationRisk) -> str:
-        """Format single migration as plain text."""
-        lines = [f"  {risk.path}"]
-
-        for idx, op_risk in enumerate(risk.operations):
-            lines.append(f"    #{idx + 1} {op_risk.type} (score: {op_risk.score}): {op_risk.reason}")
-            if op_risk.details:
-                details_str = ", ".join(f"{k}: {v}" for k, v in op_risk.details.items() if k != "sql")
-                if details_str:
-                    lines.append(f"       {details_str}")
-
-        if risk.combination_risks:
-            lines.append("    COMBINATION RISKS:")
-            for warning in risk.combination_risks:
-                lines.append(f"      {warning}")
-
-        lines.append("")
-        return "\n".join(lines)

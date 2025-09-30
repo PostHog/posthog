@@ -31,6 +31,7 @@ class OperationRisk:
     score: int
     reason: str
     details: dict
+    is_policy_violation: bool = False  # True if this is a team policy, not a safety issue
 
     @property
     def level(self) -> RiskLevel:
@@ -44,16 +45,19 @@ class MigrationRisk:
     name: str
     operations: list[OperationRisk]
     combination_risks: list[str] = None
+    policy_violations: list[str] = None  # PostHog-specific coding policies
 
     def __post_init__(self):
         if self.combination_risks is None:
             self.combination_risks = []
+        if self.policy_violations is None:
+            self.policy_violations = []
 
     @property
     def max_score(self) -> int:
-        # If there are combination risks, boost score to at least 4 (Blocked)
+        # If there are combination risks or policy violations, boost score to at least 4 (Blocked)
         base_score = max((op.score for op in self.operations), default=0)
-        if self.combination_risks:
+        if self.combination_risks or self.policy_violations:
             return max(base_score, 4)
         return base_score
 
