@@ -19,6 +19,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { ActionsTable } from 'products/actions/frontend/components/ActionsTable'
@@ -198,6 +199,21 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                         return !tab.flag || !!featureFlags[tab.flag]
                     })
                     .map(([tabName, _]) => tabName) as DataManagementTab[]
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.tab],
+            (tab: DataManagementTab): SidePanelSceneContext | null => {
+                if (tab === DataManagementTab.EventDefinitions) {
+                    return {
+                        activity_scope: ActivityScope.EVENT_DEFINITION,
+                    }
+                } else if (tab === DataManagementTab.PropertyDefinitions) {
+                    return {
+                        activity_scope: ActivityScope.PROPERTY_DEFINITION,
+                    }
+                }
+                return null
             },
         ],
     }),
