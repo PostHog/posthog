@@ -17,7 +17,7 @@ from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.format import enrich_props_with_descriptions, format_properties_xml
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorMessages
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
+from ee.hogai.graph.taxonomy.tools import ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import AssistantNodeName
@@ -55,7 +55,7 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
-    def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
+    def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
         """Handle custom tool execution."""
         if tool_name == "retrieve_revenue_analytics_property_values":
             result = self._retrieve_revenue_analytics_property_values(tool_input.arguments.property_key)
