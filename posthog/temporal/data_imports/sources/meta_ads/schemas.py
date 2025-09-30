@@ -32,30 +32,6 @@ INCREMENTAL_ENDPOINTS = (
 )
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    MetaAdsResource.Ads: [
-        {
-            "label": "updated_time",
-            "type": IncrementalFieldType.Date,
-            "field": "updated_time",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
-    MetaAdsResource.Adsets: [
-        {
-            "label": "updated_time",
-            "type": IncrementalFieldType.Date,
-            "field": "updated_time",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
-    MetaAdsResource.Campaigns: [
-        {
-            "label": "updated_time",
-            "type": IncrementalFieldType.Date,
-            "field": "updated_time",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
     MetaAdsResource.AdStats: [
         {
             "label": "date_start",
