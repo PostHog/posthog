@@ -55,7 +55,7 @@ export function SampledSessionsModal(): JSX.Element {
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
     }
 
-    const getLinkTextAndUrl = (session: SessionData) => {
+    const getLinkTextAndUrl = (session: SessionData): { text: string; url: string } => {
         if (session.session_id) {
             return {
                 text: session.session_id,
@@ -75,8 +75,8 @@ export function SampledSessionsModal(): JSX.Element {
 
     const columns: LemonTableColumns<SessionData> = [
         {
-            title: 'Session',
-            key: 'sessionId',
+            title: 'Person',
+            key: 'personId',
             render: (_, session) => {
                 const { text, url } = getLinkTextAndUrl(session)
                 return (
@@ -143,8 +143,8 @@ export function SampledSessionsModal(): JSX.Element {
                 </div>
 
                 <div className="text-xs text-muted border-t pt-2">
-                    <strong>Note:</strong> This shows a sample of up to 100 users per step. Session recordings are only
-                    available for sessions that have been captured and not deleted.
+                    <strong>Note:</strong> This shows a sample of up to 100 persons per step. Session recordings are
+                    only available for sessions that have been captured and not deleted.
                 </div>
             </div>
         </LemonModal>

@@ -1,0 +1,337 @@
+{
+    "number_of_users": 2000,
+    "start_timestamp": "2025-09-20T21:15:43.822806",
+    "end_timestamp": "2025-09-28T21:15:43.822810",
+    "variants": {
+        "control": {
+            "weight": 0.1,
+            "actions": [
+                {
+                    "event": "$pageview",
+                    "probability": 0.8,
+                    "count": 1,
+                    "properties": {},
+                    "required_for_next": true
+                },
+                {
+                    "event": "$feedback opened",
+                    "probability": 0.8,
+                    "count": 1,
+                    "required_for_next": true
+                },
+                {
+                    "event": "$feedback sent",
+                    "probability": 0.8,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {
+                        "score": {
+                            "distribution": "normal",
+                            "params": {
+                                "mean": 100.0,
+                                "stddev": 30.0
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "test_1": {
+            "weight": 0.1,
+            "actions": [
+                {
+                    "event": "$pageview",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "$feedback opened",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true
+                },
+                {
+                    "event": "$feedback sent",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {
+                        "score": {
+                            "distribution": "normal",
+                            "params": {
+                                "mean": 100.0,
+                                "stddev": 30.0
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "test_2": {
+            "weight": 0.1,
+            "actions": [
+                {
+                    "event": "$pageview",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "$feedback opened",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true
+                },
+                {
+                    "event": "$feedback sent",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {
+                        "score": {
+                            "distribution": "normal",
+                            "params": {
+                                "mean": 100.0,
+                                "stddev": 30.0
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "test_3": {
+            "weight": 0.1,
+            "actions": [
+                {
+                    "event": "$pageview",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "$feedback opened",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true
+                },
+                {
+                    "event": "$feedback sent",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {
+                        "score": {
+                            "distribution": "normal",
+                            "params": {
+                                "mean": 100.0,
+                                "stddev": 30.0
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "test_4": {
+            "weight": 0.2,
+            "actions": [
+                {
+                    "event": "$pageview",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "$feedback opened",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true
+                },
+                {
+                    "event": "$feedback sent",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {
+                        "score": {
+                            "distribution": "normal",
+                            "params": {
+                                "mean": 100.0,
+                                "stddev": 30.0
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "test_5": {
+            "weight": 0.1,
+            "actions": [
+                {
+                    "event": "$pageview",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "$feedback opened",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true
+                },
+                {
+                    "event": "$feedback sent",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {
+                        "score": {
+                            "distribution": "normal",
+                            "params": {
+                                "mean": 100.0,
+                                "stddev": 30.0
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "test_6": {
+            "weight": 0.1,
+            "actions": [
+                {
+                    "event": "$pageview",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "$feedback opened",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true
+                },
+                {
+                    "event": "$feedback sent",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {
+                        "score": {
+                            "distribution": "normal",
+                            "params": {
+                                "mean": 100.0,
+                                "stddev": 30.0
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "test_7": {
+            "weight": 0.1,
+            "actions": [
+                {
+                    "event": "$pageview",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "$feedback opened",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true
+                },
+                {
+                    "event": "$feedback sent",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {
+                        "score": {
+                            "distribution": "normal",
+                            "params": {
+                                "mean": 100.0,
+                                "stddev": 30.0
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "test_8": {
+            "weight": 0.2,
+            "actions": [
+                {
+                    "event": "$pageview",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "$feedback opened",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true
+                },
+                {
+                    "event": "$feedback sent",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {
+                        "score": {
+                            "distribution": "normal",
+                            "params": {
+                                "mean": 100.0,
+                                "stddev": 30.0
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "test_9": {
+            "weight": 0.1,
+            "actions": [
+                {
+                    "event": "$pageview",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {}
+                },
+                {
+                    "event": "$feedback opened",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true
+                },
+                {
+                    "event": "$feedback sent",
+                    "probability": 0.78,
+                    "count": 1,
+                    "required_for_next": true,
+                    "properties": {
+                        "score": {
+                            "distribution": "normal",
+                            "params": {
+                                "mean": 100.0,
+                                "stddev": 30.0
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}
