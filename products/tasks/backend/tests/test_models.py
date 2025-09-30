@@ -916,6 +916,7 @@ class TestSandboxSnapshot(TestCase):
         SandboxSnapshot.objects.create(integration=self.integration, status=SandboxSnapshot.Status.IN_PROGRESS)
 
         latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
+        assert latest is not None
         self.assertEqual(latest.status, SandboxSnapshot.Status.COMPLETE)
 
     def test_get_latest_snapshot_for_integration_ignores_error(self):
@@ -923,6 +924,7 @@ class TestSandboxSnapshot(TestCase):
         SandboxSnapshot.objects.create(integration=self.integration, status=SandboxSnapshot.Status.ERROR)
 
         latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
+        assert latest is not None
         self.assertEqual(latest.status, SandboxSnapshot.Status.COMPLETE)
 
     def test_get_latest_snapshot_for_integration_none(self):
