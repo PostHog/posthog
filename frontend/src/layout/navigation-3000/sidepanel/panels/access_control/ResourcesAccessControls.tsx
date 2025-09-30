@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import {
     LemonButton,
@@ -270,42 +270,51 @@ export function ResourcesAccessControls(): JSX.Element {
             </PayGateMini>
 
             {/* Modals for adding/editing access controls */}
-            <ResourceAccessControlModal
-                modalOpen={memberModalOpen}
-                setModalOpen={closeMemberModal}
-                placeholder="Search for team members to add…"
-                onSave={handleSaveMemberAccess}
-                options={addableMembers.map((member) => ({
-                    key: member.id,
-                    label: `${fullName(member.user)} ${member.user.email}`,
-                    labelComponent: <UserSelectItem user={member.user} />,
-                }))}
-                type="member"
-                editingEntry={editingMember}
-                loading={resourceAccessControlsLoading}
-            />
+            {memberModalOpen && (
+                <ResourceAccessControlModal
+                    key={editingMember?.organization_member?.id || 'new'}
+                    modalOpen={memberModalOpen}
+                    setModalOpen={closeMemberModal}
+                    placeholder="Search for team members to add…"
+                    onSave={handleSaveMemberAccess}
+                    options={addableMembers.map((member) => ({
+                        key: member.id,
+                        label: `${fullName(member.user)} ${member.user.email}`,
+                        labelComponent: <UserSelectItem user={member.user} />,
+                    }))}
+                    type="member"
+                    editingEntry={editingMember}
+                    loading={resourceAccessControlsLoading}
+                />
+            )}
 
-            <ResourceAccessControlModal
-                modalOpen={roleModalOpen}
-                setModalOpen={closeRoleModal}
-                placeholder="Search for roles to add…"
-                onSave={handleSaveRoleAccess}
-                options={addableRoles.map((role) => ({
-                    key: role.id,
-                    label: role.name,
-                }))}
-                type="role"
-                editingEntry={editingRole}
-                loading={resourceAccessControlsLoading}
-            />
+            {roleModalOpen && (
+                <ResourceAccessControlModal
+                    key={editingRole?.role?.id || 'new'}
+                    modalOpen={roleModalOpen}
+                    setModalOpen={closeRoleModal}
+                    placeholder="Search for roles to add…"
+                    onSave={handleSaveRoleAccess}
+                    options={addableRoles.map((role) => ({
+                        key: role.id,
+                        label: role.name,
+                    }))}
+                    type="role"
+                    editingEntry={editingRole}
+                    loading={resourceAccessControlsLoading}
+                />
+            )}
 
-            <DefaultResourceAccessControlModal
-                modalOpen={defaultModalOpen}
-                setModalOpen={closeDefaultModal}
-                onSave={handleSaveDefaultAccess}
-                defaultResourceAccessControls={defaultResourceAccessControls}
-                loading={resourceAccessControlsLoading}
-            />
+            {defaultModalOpen && (
+                <DefaultResourceAccessControlModal
+                    key="default"
+                    modalOpen={defaultModalOpen}
+                    setModalOpen={closeDefaultModal}
+                    onSave={handleSaveDefaultAccess}
+                    defaultResourceAccessControls={defaultResourceAccessControls}
+                    loading={resourceAccessControlsLoading}
+                />
+            )}
         </div>
     )
 
@@ -390,7 +399,7 @@ function ResourcesAccessControlMembers({
                 <h3 className="mb-0">Members</h3>
                 <LemonButton
                     type="primary"
-                    onClick={openMemberModal}
+                    onClick={() => openMemberModal()}
                     disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
                 >
                     Add
@@ -422,7 +431,7 @@ function ResourcesAccessControlRoles({
                 <h3 className="mb-0">Roles</h3>
                 <LemonButton
                     type="primary"
-                    onClick={openRoleModal}
+                    onClick={() => openRoleModal()}
                     disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
                 >
                     Add
@@ -456,39 +465,33 @@ function ResourceAccessControlModal(props: {
 }): JSX.Element | null {
     const { availableLevels, resources, canEditRoleBasedAccessControls } = useValues(resourcesAccessControlLogic)
 
-    const [items, setItems] = useState<string[]>([])
-    const [resourceLevels, setResourceLevels] = useState<Partial<Record<APIScopeObject, AccessControlLevel | null>>>({})
-
     const isEditMode = !!props.editingEntry
 
-    useEffect(() => {
-        if (props.modalOpen && resources.length > 0) {
-            if (isEditMode && props.editingEntry) {
-                const editingId =
-                    props.type === 'member'
-                        ? (props.editingEntry as MemberResourceAccessControls).organization_member?.id
-                        : (props.editingEntry as RoleResourceAccessControls).role?.id
-
-                if (editingId) {
-                    setItems([editingId])
-                }
-
-                const initialResourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>> = {}
-                resources.forEach((resource) => {
-                    const ac = props.editingEntry!.accessControlByResource[resource]
-                    initialResourceLevels[resource] = ac?.access_level ?? null
-                })
-                setResourceLevels(initialResourceLevels)
-            } else {
-                setItems([])
-                const initialResourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>> = {}
-                resources.forEach((resource) => {
-                    initialResourceLevels[resource] = null
-                })
-                setResourceLevels(initialResourceLevels)
-            }
+    const [items, setItems] = useState<string[]>(() => {
+        if (!isEditMode || !props.editingEntry) {
+            return []
         }
-    }, [props.modalOpen, resources, props.editingEntry, isEditMode, props.type])
+        const editingId =
+            props.type === 'member'
+                ? (props.editingEntry as MemberResourceAccessControls).organization_member?.id
+                : (props.editingEntry as RoleResourceAccessControls).role?.id
+        return editingId ? [editingId] : []
+    })
+
+    const [resourceLevels, setResourceLevels] = useState<Partial<Record<APIScopeObject, AccessControlLevel | null>>>(
+        () => {
+            const levels: Partial<Record<APIScopeObject, AccessControlLevel | null>> = {}
+            resources.forEach((resource) => {
+                if (isEditMode && props.editingEntry) {
+                    const ac = props.editingEntry?.accessControlByResource?.[resource]
+                    levels[resource] = ac?.access_level ?? null
+                } else {
+                    levels[resource] = null
+                }
+            })
+            return levels
+        }
+    )
 
     const isFormValid = useMemo(() => {
         return items.length > 0
@@ -648,18 +651,16 @@ function DefaultResourceAccessControlModal(props: {
 }): JSX.Element | null {
     const { availableLevels, resources, canEditRoleBasedAccessControls } = useValues(resourcesAccessControlLogic)
 
-    const [resourceLevels, setResourceLevels] = useState<Partial<Record<APIScopeObject, AccessControlLevel | null>>>({})
-
-    useEffect(() => {
-        if (props.modalOpen && resources.length > 0) {
-            const initialResourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>> = {}
+    const [resourceLevels, setResourceLevels] = useState<Partial<Record<APIScopeObject, AccessControlLevel | null>>>(
+        () => {
+            const levels: Partial<Record<APIScopeObject, AccessControlLevel | null>> = {}
             resources.forEach((resource) => {
                 const ac = props.defaultResourceAccessControls?.accessControlByResource?.[resource]
-                initialResourceLevels[resource] = ac?.access_level ?? null
+                levels[resource] = ac?.access_level ?? null
             })
-            setResourceLevels(initialResourceLevels)
+            return levels
         }
-    }, [props.modalOpen, resources, props.defaultResourceAccessControls])
+    )
 
     const getValidationMessage = (): string | undefined => {
         if (!canEditRoleBasedAccessControls) {
