@@ -394,20 +394,22 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
         with patch("posthog.api.person.sync_connect") as mock_connect:
-            mock_client = mock.AsyncMock()
-            mock_connect.return_value = mock_client
-            response = self.client.delete(f"/api/person/{person.uuid}/?delete_recordings=true")
-            mock_connect.assert_called_once()
-            mock_client.start_workflow.assert_called_once()
-            mock_client.start_workflow.assert_called_with(
-                "delete-recordings-with-person",
-                RecordingsWithPersonInput(
-                    distinct_ids=["person_1", "anonymous_id"],
-                    team_id=self.team.id,
-                ),
-                id=f"delete-recordings-with-person-{person.uuid}",
-                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
-            )
+            with patch("posthog.api.person.uuid") as mock_uuid:
+                mock_uuid.uuid4.return_value = "1234"
+                mock_client = mock.AsyncMock()
+                mock_connect.return_value = mock_client
+                response = self.client.delete(f"/api/person/{person.uuid}/?delete_recordings=true&delete_events=true")
+                mock_connect.assert_called_once()
+                mock_client.start_workflow.assert_called_once()
+                mock_client.start_workflow.assert_called_with(
+                    "delete-recordings-with-person",
+                    RecordingsWithPersonInput(
+                        distinct_ids=["person_1", "anonymous_id"],
+                        team_id=self.team.id,
+                    ),
+                    id=f"delete-recordings-with-person-{person.uuid}-1234",
+                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
@@ -426,20 +428,22 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
         with patch("posthog.api.person.sync_connect") as mock_connect:
-            mock_client = mock.AsyncMock()
-            mock_connect.return_value = mock_client
-            response = self.client.delete(f"/api/person/{person.uuid}/?delete_recordings=true&delete_events=true")
-            mock_connect.assert_called_once()
-            mock_client.start_workflow.assert_called_once()
-            mock_client.start_workflow.assert_called_with(
-                "delete-recordings-with-person",
-                RecordingsWithPersonInput(
-                    distinct_ids=["person_1", "anonymous_id"],
-                    team_id=self.team.id,
-                ),
-                id=f"delete-recordings-with-person-{person.uuid}",
-                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
-            )
+            with patch("posthog.api.person.uuid") as mock_uuid:
+                mock_uuid.uuid4.return_value = "1234"
+                mock_client = mock.AsyncMock()
+                mock_connect.return_value = mock_client
+                response = self.client.delete(f"/api/person/{person.uuid}/?delete_recordings=true&delete_events=true")
+                mock_connect.assert_called_once()
+                mock_client.start_workflow.assert_called_once()
+                mock_client.start_workflow.assert_called_with(
+                    "delete-recordings-with-person",
+                    RecordingsWithPersonInput(
+                        distinct_ids=["person_1", "anonymous_id"],
+                        team_id=self.team.id,
+                    ),
+                    id=f"delete-recordings-with-person-{person.uuid}-1234",
+                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
