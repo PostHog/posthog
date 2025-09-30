@@ -1,15 +1,13 @@
 # ruff: noqa: T201 allow print statements
 
-import os
-import re
 import sys
-import select
 from dataclasses import dataclass
 from enum import Enum
 
 from django.core.management.base import BaseCommand
 from django.db import models
-from django.db.migrations.loader import MigrationLoader
+
+from posthog.management.commands.migration_utils import MigrationDiscovery
 
 
 class RiskLevel(Enum):
@@ -401,71 +399,32 @@ class Command(BaseCommand):
         self.print_report(results)
 
         if options["fail_on_blocked"]:
-            blocked = [r for r in results if r.category == "Blocked"]
+            blocked = [r for r in results if r.level == RiskLevel.BLOCKED]
             if blocked:
                 sys.exit(1)
 
     def get_migration_paths(self) -> list[str]:
         """Read migration paths from stdin"""
-        if select.select([sys.stdin], [], [], 1)[0]:
-            migration_paths = [line.strip() for line in sys.stdin.readlines() if line.strip()]
-        else:
-            if os.getenv("CI"):
-                print("No migrations provided in CI")
-                sys.exit(1)
-            migration_paths = []
-
-        return migration_paths
+        return MigrationDiscovery.read_paths_from_stdin()
 
     def analyze_migrations(self, migration_paths: list[str]) -> list[MigrationRisk]:
         """Analyze a list of migration file paths"""
         analyzer = RiskAnalyzer()
         results = []
 
-        loader = MigrationLoader(None)
+        # Process paths and load migrations using shared utility
+        loaded_migrations = MigrationDiscovery.process_migration_paths(
+            migration_paths,
+            skip_invalid=False,
+            fail_on_ci=True,
+        )
 
-        for path in migration_paths:
-            if not path:
-                continue
-            if not path.endswith(".py"):
-                print(f"Skipping non-Python file: {path}")
-                continue
-            if ".." in path or path.startswith("/"):
-                print(f"Skipping suspicious path: {path}")
-                continue
-
-            try:
-                app_label, migration_name = self.parse_migration_path(path)
-                migration_key = (app_label, migration_name)
-
-                if migration_key not in loader.disk_migrations:
-                    print(f"Warning: Could not find migration {app_label}.{migration_name}")
-                    continue
-
-                migration = loader.disk_migrations[migration_key]
-
-                risk = analyzer.analyze_migration(migration, path)
-                results.append(risk)
-
-            except Exception as e:
-                print(f"Error analyzing {path}: {e}")
-                if os.getenv("CI"):
-                    sys.exit(1)
+        # Analyze each migration
+        for migration_info, migration in loaded_migrations:
+            risk = analyzer.analyze_migration(migration, migration_info.path)
+            results.append(risk)
 
         return results
-
-    def parse_migration_path(self, path: str) -> tuple[str, str]:
-        products_match = re.findall(r"products/([a-z_]+)/backend/migrations/([a-zA-Z_0-9]+)\.py", path)
-        if products_match:
-            app_label, migration_name = products_match[0]
-            return app_label, migration_name
-
-        generic_match = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", path)
-        if generic_match:
-            app_label, migration_name = generic_match[0]
-            return app_label, migration_name
-
-        raise ValueError(f"Could not parse migration path: {path}")
 
     def print_report(self, results: list[MigrationRisk]):
         safe = [r for r in results if r.level == RiskLevel.SAFE]
