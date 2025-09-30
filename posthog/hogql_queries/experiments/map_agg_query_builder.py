@@ -9,13 +9,8 @@ data using conditional aggregations (minIf, groupArrayIf), then filter in memory
 Performance: Expected 2-10x speedup compared to self-join approach.
 """
 
-from typing import Union
 
-from posthog.schema import (
-    ExperimentMeanMetric,
-    ExperimentMetricMathType,
-    MultipleVariantHandling,
-)
+from posthog.schema import ExperimentMeanMetric, ExperimentMetricMathType, MultipleVariantHandling
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr

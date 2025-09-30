@@ -1,11 +1,12 @@
 from typing import cast
-from unittest import mock
 
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from unittest import mock
 
 from django.test import override_settings
+
+from parameterized import parameterized
 
 from posthog.schema import (
     EventsNode,
