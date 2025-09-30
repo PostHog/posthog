@@ -16,12 +16,24 @@ def _create_definitions():
     Bundle all experiment components into a complete Dagster definitions object.
     """
 
-    jobs = [experiments.experiment_timeseries_job]
-    sensors = [experiments.experiment_discovery_sensor]
-    schedules = [experiments.daily_experiment_full_refresh_schedule]
+    jobs = [
+        experiments.experiment_regular_metrics_job,
+        experiments.experiment_saved_metrics_job,
+    ]
+    sensors = [
+        experiments.experiment_regular_metrics_discovery_sensor,
+        experiments.experiment_saved_metrics_discovery_sensor,
+    ]
+    schedules = [
+        experiments.daily_experiment_regular_metrics_refresh_schedule,
+        experiments.daily_experiment_saved_metrics_refresh_schedule,
+    ]
 
     definitions = dagster.Definitions(
-        assets=[experiments.experiment_timeseries],
+        assets=[
+            experiments.experiment_regular_metrics_timeseries,
+            experiments.experiment_saved_metrics_timeseries,
+        ],
         jobs=jobs,
         sensors=sensors,
         schedules=schedules,
