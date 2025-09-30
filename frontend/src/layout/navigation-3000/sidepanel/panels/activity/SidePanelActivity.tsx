@@ -175,7 +175,7 @@ export const SidePanelActivity = (): JSX.Element => {
                             ) : activeTab === SidePanelActivityTab.All ? (
                                 hasAnyContext ? (
                                     <>
-                                        {allActivityResponseLoading && !allActivity.length ? (
+                                        {allActivityResponseLoading ? (
                                             <LemonSkeleton className="h-12 my-2" repeat={10} fade />
                                         ) : allActivity.length ? (
                                             <>
