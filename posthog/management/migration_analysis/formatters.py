@@ -41,7 +41,11 @@ class ConsoleTreeFormatter(RiskFormatter):
         blocked = [r for r in results if r.level == RiskLevel.BLOCKED]
 
         lines = []
-        lines.append(f"**Summary:** {len(safe)} Safe | {len(review)} Needs Review | {len(blocked)} Blocked\n")
+        lines.append(f"**Summary:** {len(safe)} Safe | {len(review)} Needs Review | {len(blocked)} Blocked")
+        lines.append("")
+        lines.append(
+            "**Legend:** ✅ Safe = No locks, backwards compatible | ⚠️ Needs Review = May have performance impact | ❌ Blocked = Causes locks or breaks compatibility\n"
+        )
 
         if blocked:
             lines.append(self._format_section(RiskLevel.BLOCKED, blocked))

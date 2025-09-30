@@ -236,8 +236,8 @@ jobs:
                         "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
                     done
 
-                    # Post risk analysis comment (output already contains markdown formatting)
-                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n**Legend:**\n- ✅ **Safe**: No locks, backwards compatible\n- ⚠️ **Needs Review**: May have performance impact, review carefully\n- ❌ **Blocked**: Causes locks, breaks backwards compatibility, or violates PostHog policies"
+                    # Post risk analysis comment (output already contains markdown formatting with legend)
+                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS"
                     RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
                     RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
 
