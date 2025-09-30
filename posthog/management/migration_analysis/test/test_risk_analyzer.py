@@ -38,7 +38,7 @@ class TestAddFieldOperations:
         self.analyzer = RiskAnalyzer()
 
     def test_add_nullable_field(self):
-        field = models.CharField(max_length=100, null=True)
+        field: models.Field = models.CharField(max_length=100, null=True)
         op = create_mock_operation(
             migrations.AddField,
             model_name="testmodel",
@@ -54,7 +54,7 @@ class TestAddFieldOperations:
 
     def test_add_blank_field_without_null(self):
         """blank=True doesn't make database safe - only null=True does."""
-        field = models.CharField(max_length=100, blank=True, null=False, default="")
+        field: models.Field = models.CharField(max_length=100, blank=True, null=False, default="")
         op = create_mock_operation(
             migrations.AddField,
             model_name="testmodel",
@@ -69,7 +69,7 @@ class TestAddFieldOperations:
         assert risk.level == RiskLevel.SAFE
 
     def test_add_not_null_with_default(self):
-        field = models.CharField(max_length=100, default="test", null=False, blank=False)
+        field: models.Field = models.CharField(max_length=100, default="test", null=False, blank=False)
         op = create_mock_operation(
             migrations.AddField,
             model_name="testmodel",
@@ -86,7 +86,7 @@ class TestAddFieldOperations:
     def test_add_not_null_without_default(self):
         """Test NOT NULL field without default - Django doesn't set default, it's NOT_PROVIDED by default."""
         # Don't set default parameter - Django fields default to NOT_PROVIDED
-        field = models.CharField(max_length=100, null=False, blank=False)
+        field: models.Field = models.CharField(max_length=100, null=False, blank=False)
         # Verify the field has no default (models.NOT_PROVIDED is the sentinel value)
         assert field.default == models.NOT_PROVIDED
 

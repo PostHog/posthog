@@ -46,8 +46,8 @@ class MigrationRisk:
     app: str
     name: str
     operations: list[OperationRisk]
-    combination_risks: list[str] = None
-    policy_violations: list[str] = None  # PostHog-specific coding policies
+    combination_risks: list[str] | None = None
+    policy_violations: list[str] | None = None  # PostHog-specific coding policies
 
     def __post_init__(self):
         if self.combination_risks is None:

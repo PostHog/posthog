@@ -13,6 +13,7 @@ import sys
 import select
 from dataclasses import dataclass
 
+from django.db.migrations import Migration
 from django.db.migrations.loader import MigrationLoader
 
 
@@ -143,7 +144,7 @@ class MigrationDiscovery:
         Returns:
             List of (MigrationInfo, migration_object) tuples
         """
-        results = []
+        results: list[tuple[MigrationInfo, Migration]] = []
         loader = MigrationLoader(None)  # Reuse loader for efficiency
 
         for path in paths:

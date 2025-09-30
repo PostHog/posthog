@@ -49,10 +49,10 @@ class OperationCategorizer:
 
     def __init__(self, operation_risks: list):
         self.operation_risks = operation_risks
-        self.dml_ops: list[tuple[int, any]] = []
-        self.ddl_ops: list[tuple[int, any]] = []
-        self.schema_ops: list[tuple[int, any]] = []
-        self.runsql_ops: list[tuple[int, any]] = []
+        self.dml_ops: list[tuple[int, object]] = []
+        self.ddl_ops: list[tuple[int, object]] = []
+        self.schema_ops: list[tuple[int, object]] = []
+        self.runsql_ops: list[tuple[int, object]] = []
         self._categorize()
 
     def _categorize(self):
@@ -94,6 +94,6 @@ class OperationCategorizer:
     def has_schema_changes(self) -> bool:
         return len(self.schema_ops) > 0
 
-    def format_operation_refs(self, ops: list[tuple[int, any]]) -> str:
+    def format_operation_refs(self, ops: list[tuple[int, object]]) -> str:
         """Format operation references like '#3 RunSQL, #5 AddField'."""
-        return ", ".join(f"#{idx+1} {op.type}" for idx, op in ops)
+        return ", ".join(f"#{idx+1} {getattr(op, 'type', 'Unknown')}" for idx, op in ops)
