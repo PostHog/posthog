@@ -32,6 +32,7 @@ class OperationRisk:
     reason: str
     details: dict
     is_policy_violation: bool = False  # True if this is a team policy, not a safety issue
+    parent_index: int | None = None  # Index of parent operation if nested (e.g., inside SeparateDatabaseAndState)
 
     @property
     def level(self) -> RiskLevel:
