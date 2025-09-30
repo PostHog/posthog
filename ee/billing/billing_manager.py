@@ -161,7 +161,7 @@ class BillingManager:
 
     def update_billing_organization_users(self, organization: Organization) -> None:
         try:
-            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))  # type: ignore
+            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
 
             first_owner_membership = (
                 OrganizationMembership.objects.filter(organization=organization, level=15)
@@ -183,11 +183,7 @@ class BillingManager:
             )
 
             org_users = list(
-                organization.members.values(  # type: ignore
-                    "email",
-                    "distinct_id",
-                    "organization_membership__level",
-                )
+                organization.members.values("email", "distinct_id", "organization_membership__level")
                 .order_by("email")  # Deterministic order for tests
                 .annotate(role=F("organization_membership__level"))
                 .filter(role__gte=OrganizationMembership.Level.ADMIN)

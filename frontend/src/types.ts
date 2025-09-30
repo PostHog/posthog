@@ -3419,6 +3419,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     id: number | null
     created_by: UserBasicType | null
     created_at: string | null
+    updated_at: string | null
     version: number | null
     last_modified_by: UserBasicType | null
     is_simple_flag: boolean
@@ -4361,12 +4362,22 @@ export interface LinearTeamType {
     name: string
 }
 
+export interface SharePasswordType {
+    id: string
+    created_at: string
+    note: string
+    created_by_email: string
+    is_active: boolean
+    password?: string
+}
+
 export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
     password_required: boolean
     settings?: SharingConfigurationSettings
+    share_passwords?: SharePasswordType[]
 }
 
 export enum ExporterFormat {
