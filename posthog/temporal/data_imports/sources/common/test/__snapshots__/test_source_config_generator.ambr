@@ -67,6 +67,7 @@
           ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
           ExternalDataSourceType.STRIPE: StripeSourceConfig,
           ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
+          ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
           ExternalDataSourceType.VITALLY: VitallySourceConfig,
           ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
       }[source]
