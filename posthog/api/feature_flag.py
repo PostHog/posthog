@@ -1067,8 +1067,6 @@ class FeatureFlagViewSet(
                 evaluation_runtime = request.GET["evaluation_runtime"]
                 queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
             elif key == "excluded_properties":
-                import json
-
                 try:
                     excluded_keys = json.loads(request.GET["excluded_properties"])
                     if excluded_keys:
@@ -1077,8 +1075,6 @@ class FeatureFlagViewSet(
                     # If the JSON is invalid, ignore the filter
                     pass
             elif key == "tags":
-                import json
-
                 try:
                     tags = json.loads(request.GET["tags"])
                     if tags:

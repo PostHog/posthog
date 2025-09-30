@@ -75,7 +75,7 @@ export function TagSelect({
                                                 type="checkbox"
                                                 className="cursor-pointer"
                                                 checked={value?.includes(tag) || false}
-                                                onChange={() => {}} // handled by button click
+                                                readOnly
                                             />
                                             <span>{tag}</span>
                                         </span>

@@ -142,11 +142,11 @@ export function FeatureFlagEvaluationTags({
     return (
         <div className={clsx(className, 'inline-flex flex-wrap gap-1 items-center')}>
             {tags.length > 0 &&
-                tags.map((tag, index) => {
+                tags.map((tag) => {
                     const isEvaluationTag = evaluationTags.includes(tag)
                     return (
                         <Tooltip
-                            key={index}
+                            key={tag}
                             title={
                                 isEvaluationTag ? 'This tag acts as an evaluation environment constraint' : undefined
                             }

@@ -5,7 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { objectsEqual, toParams } from 'lib/utils'
+import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -244,7 +244,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 search,
                 order,
                 evaluation_runtime,
-                tags: tags ? (Array.isArray(tags) ? tags : [tags]) : undefined,
+                tags: parseTagsFilter(tags),
             }
 
             pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined

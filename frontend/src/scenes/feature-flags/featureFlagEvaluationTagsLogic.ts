@@ -36,19 +36,19 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
             },
         ],
     })),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         setSelectedTags: () => {
             if (values.selectedTags.length === 0 && values.showEvaluationOptions) {
                 actions.setShowEvaluationOptions(false)
             }
         },
-        setEditingTags: ({ editing }) => {
-            // When entering edit mode, seed selections from latest props
-            if (editing) {
-                actions.setSelectedTags([...(props.tags || [])])
-                actions.setSelectedEvaluationTags([...(props.evaluationTags || [])])
-            }
-        },
+        // setEditingTags: ({ editing }) => {
+        //     // When entering edit mode, seed selections from latest props
+        //     if (editing) {
+        //         actions.setSelectedTags([...(props.tags || [])])
+        //         actions.setSelectedEvaluationTags([...(props.evaluationTags || [])])
+        //     }
+        // },
         updatePropsAndReset: ({ newTags, newEvaluationTags }) => {
             // Update the props and reset selections if not currently editing
             if (!values.editingTags) {
