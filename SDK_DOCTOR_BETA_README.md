@@ -4,19 +4,24 @@
 ### Current SDK Doctor functionality 🩺
 
 #### Detects outdated versions of 12 PostHog SDKs
-- **Smart alert thresholds by device type**: Desktop/web events trigger alerts when SDKs are 3+ releases behind *and* 48+ hours old, while mobile app events only alert for versions >8 weeks old (to reduce noise from slower rollout cycles)
-- **Volume-adaptive performance**: Automatically adjusts event sampling based on customer volume to balance detection accuracy with performance. Scans occur at session start, with autoscans every 30 minutes thereafter. On-demand scan is available via menu
-- **Indicators for outdatedness**: 🟢 Current, 🟡 Close enough, and 🔴 Outdated
+- Adds a button to the righthand sidebar if outdated SDKs detected in recent events
 - **12 PostHog SDKs supported**: Web, Python, React Native, Node.js, Flutter, iOS, Android, Go, PHP, .NET, Ruby, Elixir
-- **Self-help links**: We display links to SDK changelogs and documentation pages for easy upgrade guidance
-- **Server-side caching**: GitHub release version and release date info is cached server-side for 6 hours (for speed and to avoid rate-limiting)
+- **Indicators for outdatedness**: 🟢 Current, 🟡 Close enough, and 🔴 Outdated
+- **Links to docs**: Display links to SDK changelogs and documentation pages
+- **Alert thresholds by device type**: 
+  Desktop/web events trigger alerts when SDKs are 3+ releases behind *and* 48+ hours old. 
+  Mobile app events only alert for versions >8 weeks old (to reduce noise from slower rollout cycles)
+- **Selective annoyance** - The SDK Doctor button is only added to the righthand sidebar for `Outdated` versions (3 or more releases old, 48+ hours old.) Otherwise, SDK Doctor is only available via the menu in the lower right corner when SDKs are `Current` or `Close enough`
+- **Volume-adaptive event scanning**: Automatically adjusts the number of events sampled, based on customer volume. Scans occur at session start, with autoscans every 30 minutes thereafter. On-demand scan is available via menu
+- **Server-side caching**: GitHub release version and release date info is cached server-side for 6 hours (for speed, and to avoid rate-limiting)
 
 #### Detect Feature Flags called too soon
-- **Too soon**: Catches `Feature flag called` events occuring before any other events in the session
-- **Smart bootstrapping detection**: No alerts for bootstrapped flags
+- **Too soon**: Catches `Feature flag called` events captured before any other events in the session and displays an alert in the righthand sidebar
+- **Bootstrapping detection**: Does not show alerts for bootstrapped flags
 - **Example event links**: Provides links to the first feature flag called event detected, to help with debugging
-- Handles multiple flags at once, auto-clears alert after proper flag usage patterns detected
-
+- **Links to docs**: Shows links to bootstrapping doc and `onFeatureFlags` doc
+- Handles multiple flags at once
+- Auto-clears alert after proper flag usage patterns detected
 
 ---
 
