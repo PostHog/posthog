@@ -2,13 +2,10 @@ import { useValues } from 'kea'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
-import { ReplayTabs } from '~/types'
-
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 
 export function SavedFiltersEmptyState(): JSX.Element {
-    const playlistsLogic = sessionRecordingSavedFiltersLogic({ tab: ReplayTabs.Home })
-    const { loadPlaylistsFailed } = useValues(playlistsLogic)
+    const { loadPlaylistsFailed } = useValues(sessionRecordingSavedFiltersLogic)
     return loadPlaylistsFailed ? (
         <LemonBanner type="error">Error while trying to load saved filters.</LemonBanner>
     ) : (
@@ -24,8 +21,7 @@ export function SavedFiltersEmptyState(): JSX.Element {
 }
 
 export function SavedFiltersLoadingState(): JSX.Element {
-    const playlistsLogic = sessionRecordingSavedFiltersLogic({ tab: ReplayTabs.Home })
-    const { loadPlaylistsFailed } = useValues(playlistsLogic)
+    const { loadPlaylistsFailed } = useValues(sessionRecordingSavedFiltersLogic)
     return loadPlaylistsFailed ? (
         <LemonBanner type="error">Error while trying to load saved filters.</LemonBanner>
     ) : (

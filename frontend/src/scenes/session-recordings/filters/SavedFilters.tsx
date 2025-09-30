@@ -121,9 +121,12 @@ export function SavedFilters({
 }: {
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
-    const savedFiltersLogic = sessionRecordingSavedFiltersLogic({ tab: ReplayTabs.Home })
-    const { filters, savedFilters, paginationSavedFilters, savedFiltersLoading } = useValues(savedFiltersLogic)
-    const { deletePlaylist, setSavedPlaylistsFilters, setAppliedSavedFilter } = useActions(savedFiltersLogic)
+    const { filters, savedFilters, paginationSavedFilters, savedFiltersLoading } = useValues(
+        sessionRecordingSavedFiltersLogic
+    )
+    const { deletePlaylist, setSavedPlaylistsFilters, setAppliedSavedFilter } = useActions(
+        sessionRecordingSavedFiltersLogic
+    )
     const { setActiveFilterTab } = useActions(playlistLogic)
 
     if (savedFiltersLoading && !filters.search) {

@@ -34,7 +34,6 @@ import {
     AccessControlResourceType,
     PropertyOperator,
     RecordingUniversalFilters,
-    ReplayTabs,
     SidePanelTab,
     UniversalFiltersGroup,
 } from '~/types'
@@ -224,9 +223,8 @@ export const RecordingsUniversalFiltersEmbed = ({
         taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
-    const savedFiltersLogic = sessionRecordingSavedFiltersLogic({ tab: ReplayTabs.Home })
-    const { savedFilters, appliedSavedFilter } = useValues(savedFiltersLogic)
-    const { loadSavedFilters, setAppliedSavedFilter } = useActions(savedFiltersLogic)
+    const { savedFilters, appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
+    const { loadSavedFilters, setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
 
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 

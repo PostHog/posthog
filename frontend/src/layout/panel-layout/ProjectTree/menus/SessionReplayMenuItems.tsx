@@ -28,7 +28,7 @@ export function SessionReplayMenuItems({
     MenuSeparator = DropdownMenuSeparator,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
-    const { savedFilters, savedFiltersLoading } = useValues(sessionRecordingSavedFiltersLogic({ tab: ReplayTabs.Home }))
+    const { savedFilters, savedFiltersLoading } = useValues(sessionRecordingSavedFiltersLogic)
     const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLElement>): void {

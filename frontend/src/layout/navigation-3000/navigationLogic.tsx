@@ -71,7 +71,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['sceneConfig'],
             navigationLogic,
             ['mobileLayout'],
-            sessionRecordingSavedFiltersLogic({ tab: ReplayTabs.Home }),
+            sessionRecordingSavedFiltersLogic,
             ['savedFilters', 'savedFiltersLoading'],
             organizationLogic,
             ['isCurrentOrganizationUnavailable'],

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -20,10 +20,6 @@ import type { sessionRecordingSavedFiltersLogicType } from './sessionRecordingSa
 
 export const PLAYLISTS_PER_PAGE = 30
 
-export interface SavedSessionRecordingPlaylistsLogicProps {
-    tab: ReplayTabs
-}
-
 export const DEFAULT_PLAYLIST_FILTERS = {
     createdBy: 'All users',
     page: 1,
@@ -31,13 +27,10 @@ export const DEFAULT_PLAYLIST_FILTERS = {
 }
 
 export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFiltersLogicType>([
-    path((key) => ['scenes', 'session-recordings', 'filters', 'sessionRecordingSavedFiltersLogic', key]),
-    props({} as SavedSessionRecordingPlaylistsLogicProps),
-    key((props) => props.tab),
+    path(() => ['scenes', 'session-recordings', 'filters', 'sessionRecordingSavedFiltersLogic']),
     connect(() => ({
         actions: [sessionRecordingEventUsageLogic, ['reportRecordingPlaylistCreated']],
     })),
-
     actions(() => ({
         setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>) => ({
             filters,
