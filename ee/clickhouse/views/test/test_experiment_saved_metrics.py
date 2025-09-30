@@ -148,7 +148,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                     ],
                     "properties": [],
                 },
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}],
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": "secondary", "uuid": "test-uuid-1"}}
+                ],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -160,7 +162,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
         experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
-        self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary"})
+        self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary", "uuid": "test-uuid-1"})
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
         self.assertEqual(saved_metric.id, saved_metric_id)
         self.assertEqual(
