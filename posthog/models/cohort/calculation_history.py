@@ -117,6 +117,6 @@ class CohortCalculationHistory(RootTeamMixin, models.Model):
     @property
     def main_query(self) -> Optional[str]:
         """Get the main query (first query in the array)"""
-        if self.queries and len(self.queries) > 0:
+        if self.queries:
             return self.queries[0].get("query")
         return None

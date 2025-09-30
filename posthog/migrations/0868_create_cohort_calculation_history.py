@@ -26,7 +26,7 @@ class Migration(migrations.Migration):
                     "queries",
                     models.JSONField(
                         blank=True,
-                        default=list,
+                        default=None,
                         help_text="Array of query information (query, query_id, query_ms, memory_mb, read_rows, written_rows)",
                     ),
                 ),

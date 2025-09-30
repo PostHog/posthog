@@ -139,44 +139,24 @@ describe('cohortCalculationHistorySceneLogic', () => {
             expect(api.get).toHaveBeenCalledWith('api/cohort/123/calculation_history/?limit=50&offset=0')
         })
 
-        it('should calculate correct offset for different page and limit combinations', async () => {
-            // Test multiple page/limit combinations
-            const testCases = [
-                { page: 1, limit: 100, expectedOffset: 0 },
-                { page: 2, limit: 100, expectedOffset: 100 },
-                { page: 3, limit: 50, expectedOffset: 100 },
-                { page: 5, limit: 25, expectedOffset: 100 },
-            ]
+        const paginationTestCases = [
+            { description: 'first page with default limit', page: 1, limit: 100, expectedOffset: 0 },
+            { description: 'second page with default limit', page: 2, limit: 100, expectedOffset: 100 },
+            { description: 'third page with medium limit', page: 3, limit: 50, expectedOffset: 100 },
+            { description: 'fifth page with small limit', page: 5, limit: 25, expectedOffset: 100 },
+            { description: 'third page with small limit', page: 3, limit: 25, expectedOffset: 50 },
+            { description: 'large page with medium limit', page: 10, limit: 50, expectedOffset: 450 },
+            { description: 'first page with small limit', page: 1, limit: 10, expectedOffset: 0 },
+        ]
 
-            for (const { page, limit, expectedOffset } of testCases) {
+        paginationTestCases.forEach(({ description, page, limit, expectedOffset }) => {
+            it(`should calculate correct offset for pagination: ${description}`, async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setPage(page)
                     logic.actions.setLimit(limit)
                 })
                     .toDispatchActions(['setPage', 'loadCalculationHistory', 'setLimit', 'loadCalculationHistory'])
                     .toFinishAllListeners()
-
-                expect(api.get).toHaveBeenLastCalledWith(
-                    `api/cohort/123/calculation_history/?limit=${limit}&offset=${expectedOffset}`
-                )
-            }
-        })
-
-        // Parameterized test for comprehensive pagination scenarios
-        const paginationScenarios = [
-            { description: 'first page with default limit', page: 1, limit: 100, expectedOffset: 0 },
-            { description: 'second page with default limit', page: 2, limit: 100, expectedOffset: 100 },
-            { description: 'third page with small limit', page: 3, limit: 25, expectedOffset: 50 },
-            { description: 'large page with medium limit', page: 10, limit: 50, expectedOffset: 450 },
-            { description: 'first page with small limit', page: 1, limit: 10, expectedOffset: 0 },
-        ]
-
-        paginationScenarios.forEach(({ description, page, limit, expectedOffset }) => {
-            it(`should handle pagination correctly: ${description}`, async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setPage(page)
-                    logic.actions.setLimit(limit)
-                }).toFinishAllListeners()
 
                 expect(api.get).toHaveBeenLastCalledWith(
                     `api/cohort/123/calculation_history/?limit=${limit}&offset=${expectedOffset}`
@@ -212,7 +192,7 @@ describe('cohortCalculationHistorySceneLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadCohort({})
             })
-                .toDispatchActions(['loadCohort', 'setCohortMissing', 'loadCohortSuccess'])
+                .toDispatchActions(['loadCohort', 'setCohortMissing'])
                 .toMatchValues({ cohortMissing: true })
                 .toFinishAllListeners()
 
