@@ -396,21 +396,26 @@ class RiskAnalyzer:
         """
         warnings = []
 
-        # Categorize operations
+        # Categorize operations with indices for reference
         has_runsql_dml = False
         has_runsql_ddl = False
         has_schema_changes = False
         runsql_ops = []
+        schema_change_ops = []
+        dml_ops = []
+        ddl_ops = []
 
-        for op_risk in operation_risks:
+        for idx, op_risk in enumerate(operation_risks):
             if op_risk.type == "RunSQL":
-                runsql_ops.append(op_risk)
+                runsql_ops.append((idx, op_risk))
                 # Check SQL content
                 sql_upper = str(op_risk.details.get("sql", "")).upper() if op_risk.details else ""
                 if any(kw in sql_upper for kw in ["UPDATE", "DELETE", "INSERT"]):
                     has_runsql_dml = True
+                    dml_ops.append((idx, op_risk))
                 if any(kw in sql_upper for kw in ["CREATE INDEX", "ALTER TABLE", "ADD COLUMN"]):
                     has_runsql_ddl = True
+                    ddl_ops.append((idx, op_risk))
 
             # Schema-changing operations
             if op_risk.type in [
@@ -424,19 +429,26 @@ class RiskAnalyzer:
                 "DeleteModel",
             ]:
                 has_schema_changes = True
+                schema_change_ops.append((idx, op_risk))
 
         # Check for dangerous combinations
         if has_runsql_dml and has_schema_changes:
+            # Build reference to involved operations
+            dml_refs = ", ".join(f"#{idx+1} {op.type}" for idx, op in dml_ops)
+            schema_refs = ", ".join(f"#{idx+1} {op.type}" for idx, op in schema_change_ops)
             warnings.append(
-                "❌ CRITICAL: RunSQL with DML (UPDATE/DELETE/INSERT) combined with schema changes. "
+                f"❌ CRITICAL: {dml_refs} + {schema_refs}\n"
+                "   RunSQL with DML (UPDATE/DELETE/INSERT) combined with schema changes. "
                 "This creates a long-running transaction that holds locks for the entire duration. "
                 "Split into separate migrations: 1) schema changes, 2) data migration."
             )
 
         if has_runsql_ddl and len(operation_risks) > 1:
+            ddl_refs = ", ".join(f"#{idx+1} {op.type}" for idx, op in ddl_ops)
             warnings.append(
-                "⚠️  WARNING: RunSQL with DDL (CREATE INDEX/ALTER TABLE) mixed with other operations. "
-                "Consider isolating DDL operations in their own migration to avoid lock conflicts."
+                f"⚠️  WARNING: {ddl_refs} mixed with other operations\n"
+                "   RunSQL with DDL (CREATE INDEX/ALTER TABLE) should be isolated in their own migration "
+                "to avoid lock conflicts."
             )
 
         if len(runsql_ops) > 0 and not getattr(migration, "atomic", True):
@@ -536,28 +548,32 @@ class Command(BaseCommand):
     def print_migration_detail(self, risk: MigrationRisk):
         print(f"{risk.path}")
 
-        # Print combination warnings first (most important)
-        if risk.combination_risks:
-            print("\n  \033[91m⚠️  COMBINATION RISKS:\033[0m")
-            for warning in risk.combination_risks:
-                # Word wrap long warnings
-                import textwrap
+        # Print individual operations with tree structure
+        for idx, op_risk in enumerate(risk.operations):
+            # Add connecting line if there are combination risks and not the last operation
+            prefix = "  │  " if risk.combination_risks and idx < len(risk.operations) - 1 else "  "
 
-                wrapped = textwrap.fill(warning, width=76, initial_indent="  ", subsequent_indent="  ")
-                print(wrapped)
-            print()
-
-        # Print individual operations
-        for op_risk in risk.operations:
             details_str = ", ".join(
                 f"{k}: {v}"
                 for k, v in op_risk.details.items()
                 if k != "sql"  # Don't print full SQL
             )
             if details_str:
-                print(f"  └─ {op_risk.type} (score: {op_risk.score})")
-                print(f"     {op_risk.reason}")
-                print(f"     {details_str}")
+                print(f"{prefix}└─ #{idx+1} {op_risk.type} (score: {op_risk.score})")
+                print(f"{prefix}   {op_risk.reason}")
+                print(f"{prefix}   {details_str}")
             else:
-                print(f"  └─ {op_risk.type} (score: {op_risk.score}): {op_risk.reason}")
+                print(f"{prefix}└─ #{idx+1} {op_risk.type} (score: {op_risk.score}): {op_risk.reason}")
+
+        # Print combination warnings with connecting visual
+        if risk.combination_risks:
+            print("  │")
+            print("  └──> \033[91m⚠️  COMBINATION RISKS:\033[0m")
+            for warning in risk.combination_risks:
+                # Word wrap long warnings
+                import textwrap
+
+                wrapped = textwrap.fill(warning, width=72, initial_indent="       ", subsequent_indent="       ")
+                print(wrapped)
+
         print()
