@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconList, IconNotification } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
@@ -101,7 +101,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                 },
                                 {
                                     key: SidePanelActivityTab.All,
-                                    label: 'All activity',
+                                    label: 'Activity',
                                 },
                                 ...(featureFlags[FEATURE_FLAGS.METALYTICS]
                                     ? [
@@ -135,29 +135,24 @@ export const SidePanelActivity = (): JSX.Element => {
                             </div>
                         </div>
                     ) : activeTab === SidePanelActivityTab.All && hasAnyContext ? (
-                        <div className="flex items-center justify-between gap-2 px-2 pb-2 deprecated-space-y-2 shrink-0">
-                            <div className="flex items-center gap-2">
-                                {allActivityResponseLoading ? <Spinner textColored /> : null}
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                                <span>
-                                    Activity on{' '}
+                        <div className="flex items-center justify-between gap-2 px-2 pb-2 deprecated-space-y-2">
+                            <div>
+                                Activity on{' '}
+                                <strong>
                                     {hasItemContext
                                         ? `this ${humanizeScope(contextFromPage!.scope!, true).toLowerCase()}`
                                         : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}{' '}
-                                    by
-                                </span>
-                                <MemberSelect
-                                    value={activeFilters?.user ?? null}
-                                    onChange={(user) =>
-                                        setActiveFilters({
-                                            ...activeFilters,
-                                            user: user?.id ?? undefined,
-                                        })
-                                    }
-                                />
+                                </strong>
                             </div>
+                            <MemberSelect
+                                value={activeFilters?.user ?? null}
+                                onChange={(user) =>
+                                    setActiveFilters({
+                                        ...activeFilters,
+                                        user: user?.id ?? undefined,
+                                    })
+                                }
+                            />
                         </div>
                     ) : null}
 
@@ -206,12 +201,22 @@ export const SidePanelActivity = (): JSX.Element => {
                                                         'No more results'
                                                     )}
                                                 </div>
+                                                <div className="flex items-center justify-center pt-1">
+                                                    <Link
+                                                        to={urls.advancedActivityLogs()}
+                                                        onClick={() => closeSidePanel()}
+                                                        className="text-muted-alt text-xs"
+                                                    >
+                                                        or browse all activity logs
+                                                    </Link>
+                                                </div>
                                             </>
                                         ) : (
                                             <div className="flex flex-col items-center gap-2 p-6 text-center border border-dashed rounded">
                                                 <span>No activity yet</span>
                                                 {activeFilters?.user ? (
                                                     <LemonButton
+                                                        size="small"
                                                         type="secondary"
                                                         onClick={() =>
                                                             setActiveFilters({
@@ -223,6 +228,17 @@ export const SidePanelActivity = (): JSX.Element => {
                                                         Clear user filter
                                                     </LemonButton>
                                                 ) : null}
+                                                <div className="flex flex-col items-center justify-center text-xs text-muted-alt">
+                                                    <LemonButton
+                                                        size="small"
+                                                        type="secondary"
+                                                        to={urls.advancedActivityLogs()}
+                                                        data-attr="browse-all-activity-logs"
+                                                        onClick={() => closeSidePanel()}
+                                                    >
+                                                        Browse all activity logs
+                                                    </LemonButton>
+                                                </div>
                                             </div>
                                         )}
                                     </>
