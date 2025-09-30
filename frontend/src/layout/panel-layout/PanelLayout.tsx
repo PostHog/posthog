@@ -129,7 +129,6 @@ export function PanelLayout(): JSX.Element {
             <div
                 id="project-panel-layout"
                 className={cn(
-                    'group/panel-layout',
                     panelLayoutStyles({
                         isLayoutNavbarVisibleForMobile,
                         isLayoutNavbarVisibleForDesktop,
