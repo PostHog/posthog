@@ -161,8 +161,20 @@ class Command(BaseCommand):
                 if should_fail:
                     sys.exit(1)
 
-            except (IndexError, CommandError):
-                pass
+            except IndexError:
+                print(f"\n\n\033[93m⚠️  WARNING: Could not parse migration path: {variable.strip()}\033[0m")
+                print(
+                    "Expected format: posthog/migrations/NNNN_name.py or products/name/backend/migrations/NNNN_name.py"
+                )
+                if os.getenv("CI"):
+                    print("\033[91mFailing in CI due to unparseable migration path\033[0m")
+                    sys.exit(1)
+            except CommandError as e:
+                print(f"\n\n\033[93m⚠️  WARNING: Failed to run sqlmigrate for {variable.strip()}\033[0m")
+                print(f"Error: {e}")
+                if os.getenv("CI"):
+                    print("\033[91mFailing in CI due to sqlmigrate error\033[0m")
+                    sys.exit(1)
 
         # Wait for stdin with 1 second timeout
         if select.select([sys.stdin], [], [], 1)[0]:
@@ -184,4 +196,18 @@ class Command(BaseCommand):
             sys.exit(1)
 
         for data in migrations:
+            data = data.strip()
+            # Skip empty lines
+            if not data:
+                continue
+            # Validate file extension
+            if not data.endswith(".py"):
+                print(f"\033[93m⚠️  Skipping non-Python file: {data}\033[0m")
+                continue
+            # Prevent path traversal
+            if ".." in data or data.startswith("/"):
+                print(f"\033[91m⚠️  Skipping suspicious path: {data}\033[0m")
+                if os.getenv("CI"):
+                    sys.exit(1)
+                continue
             run_and_check_migration(data)
