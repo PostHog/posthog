@@ -55,6 +55,11 @@ class ConsoleTreeFormatter(RiskFormatter):
         if safe:
             lines.append(self._format_section(RiskLevel.SAFE, safe))
 
+        # Add guidance section if there are risky operations
+        guidance = self._collect_guidance(results)
+        if guidance:
+            lines.append(self._format_guidance(guidance))
+
         lines.append("")
         return "\n".join(lines)
 
@@ -143,3 +148,27 @@ class ConsoleTreeFormatter(RiskFormatter):
             lines.append(wrapped)
 
         return lines
+
+    def _collect_guidance(self, results: list[MigrationRisk]) -> dict[str, str]:
+        """Collect unique guidance from all operations."""
+        guidance_map = {}
+        for risk in results:
+            for op_risk in risk.operations:
+                if op_risk.guidance and op_risk.type not in guidance_map:
+                    guidance_map[op_risk.type] = op_risk.guidance
+        return guidance_map
+
+    def _format_guidance(self, guidance_map: dict[str, str]) -> str:
+        """Format guidance section."""
+        lines = []
+        lines.append("\n" + "=" * 80)
+        lines.append("📚 HOW TO DEPLOY THESE CHANGES SAFELY")
+        lines.append("=" * 80)
+        lines.append("")
+
+        for op_type, guidance in sorted(guidance_map.items()):
+            lines.append(f"**{op_type}:**")
+            lines.append(guidance)
+            lines.append("")
+
+        return "\n".join(lines)
