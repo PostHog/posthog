@@ -2,28 +2,20 @@
 Map Aggregation Query Builder for Experiments (Plain HogQL Version)
 
 This module implements the same single-scan query approach as map_agg_query_builder.py,
-but uses plain HogQL strings instead of Python AST construction. This is more concise
-and easier to read/maintain.
+but uses plain HogQL strings with placeholders instead of Python AST construction.
+This is more concise and easier to read/maintain.
 
 Performance: Expected 2-10x speedup compared to self-join approach.
 """
 
-from posthog.schema import (
-    ExperimentMeanMetric,
-    ExperimentMetricMathType,
-    MultipleVariantHandling,
-)
+from posthog.schema import ExperimentMeanMetric, ExperimentMetricMathType, MultipleVariantHandling
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
-from posthog.hogql_queries.experiments.base_query_utils import (
-    conversion_window_to_seconds,
-)
-from posthog.hogql_queries.experiments.exposure_query_logic import (
-    get_exposure_event_and_property,
-)
+from posthog.hogql_queries.experiments.base_query_utils import conversion_window_to_seconds
+from posthog.hogql_queries.experiments.exposure_query_logic import get_exposure_event_and_property
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from posthog.models.team.team import Team
@@ -32,7 +24,7 @@ from posthog.models.team.team import Team
 class MapAggregationQueryBuilderHogQL:
     """
     Builds a single-scan experiment query using map aggregations.
-    Uses plain HogQL string syntax for readability.
+    Uses plain HogQL strings with placeholders for readability and type safety.
     """
 
     def __init__(
@@ -64,160 +56,178 @@ class MapAggregationQueryBuilderHogQL:
 
     def build_query(self) -> ast.SelectQuery:
         """
-        Main entry point. Returns complete query built from HogQL string.
+        Main entry point. Returns complete query built from HogQL with placeholders.
         """
-        query_string = self._build_query_string()
-        return parse_select(query_string)
-
-    def _build_query_string(self) -> str:
-        """
-        Builds the complete query as a HogQL string.
-        """
-        # Get parameters
         timezone = self.team.timezone or "UTC"
-        team_id = self.team.pk
         date_from = self.date_range_query.date_from()
         date_to = self.date_range_query.date_to()
 
-        # Build variant list for IN clause
-        variants_list = ", ".join(f"'{v}'" for v in self.variants)
-
         # Get metric source details
         math_type = getattr(self.metric.source, "math", ExperimentMetricMathType.TOTAL)
-        event_name = self.metric.source.event if hasattr(self.metric.source, "event") else None
-        math_property = getattr(self.metric.source, "math_property", None)
 
-        # Build value expression for metric events
-        if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
-            value_expr = "`$session_id`"
-        elif math_type == ExperimentMetricMathType.DAU:
-            value_expr = "person_id"
-        elif math_property:
-            value_expr = f"properties.{math_property}"
+        # Build the query with placeholders
+        query = parse_select(
+            f"""
+            SELECT
+                metric_events.variant AS variant,
+                count(metric_events.entity_id) AS num_users,
+                sum(metric_events.value) AS total_sum,
+                sum(power(metric_events.value, 2)) AS total_sum_of_squares
+            FROM (
+                SELECT
+                    events_enriched.entity_id AS entity_id,
+                    events_enriched.variant AS variant,
+                    events_enriched.exposure_event_uuid AS exposure_event_uuid,
+                    events_enriched.exposure_session_id AS exposure_session_id,
+                    arrayFilter(x -> x.1 >= events_enriched.first_exposure_time, events_enriched.metric_events_array) AS metric_after_exposure,
+                    {{value_agg}} AS value
+                FROM (
+                    SELECT
+                        {{entity_key}} AS entity_id,
+                        {{variant_expr}} AS variant,
+                        minIf(toTimeZone(timestamp, '{timezone}'), {{exposure_predicate}}) AS first_exposure_time,
+                        argMinIf(uuid, toTimeZone(timestamp, '{timezone}'), {{exposure_predicate}}) AS exposure_event_uuid,
+                        argMinIf(`$session_id`, toTimeZone(timestamp, '{timezone}'), {{exposure_predicate}}) AS exposure_session_id,
+                        groupArrayIf(
+                            tuple(toTimeZone(timestamp, '{timezone}'), {{value_expr}}),
+                            {{metric_predicate}}
+                        ) AS metric_events_array
+                    FROM events
+                    WHERE ({{exposure_predicate}} OR {{metric_predicate}})
+                    GROUP BY entity_id
+                ) AS events_enriched
+                WHERE events_enriched.first_exposure_time IS NOT NULL
+            ) AS metric_events
+            GROUP BY metric_events.variant
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.entity_key),
+                "variant_expr": self._build_variant_expr(),
+                "exposure_predicate": self._build_exposure_predicate(timezone, date_from, date_to),
+                "metric_predicate": self._build_metric_predicate(timezone, date_from, date_to),
+                "value_expr": self._build_value_expr(math_type),
+                "value_agg": self._build_value_aggregation_expr(math_type),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _build_variant_expr(self) -> ast.Expr:
+        """
+        Builds the variant selection expression based on multiple variant handling.
+        """
+        variant_property = ast.Field(chain=["properties", self.feature_flag_variant_property])
+
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            return parse_expr(
+                "argMinIf({variant_property}, timestamp, {exposure_predicate})",
+                placeholders={
+                    "variant_property": variant_property,
+                    "exposure_predicate": self._build_exposure_predicate(
+                        self.team.timezone or "UTC",
+                        self.date_range_query.date_from(),
+                        self.date_range_query.date_to(),
+                    ),
+                },
+            )
         else:
-            value_expr = "1"  # For counting events
+            return parse_expr(
+                "if(uniqExactIf({variant_property}, {exposure_predicate}) > 1, {multiple_key}, anyIf({variant_property}, {exposure_predicate}))",
+                placeholders={
+                    "variant_property": variant_property,
+                    "exposure_predicate": self._build_exposure_predicate(
+                        self.team.timezone or "UTC",
+                        self.date_range_query.date_from(),
+                        self.date_range_query.date_to(),
+                    ),
+                    "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                },
+            )
+
+    def _build_exposure_predicate(self, timezone: str, date_from, date_to) -> ast.Expr:
+        """
+        Builds the exposure predicate as an AST expression.
+        """
+        predicates = [
+            parse_expr(f"toTimeZone(timestamp, '{timezone}') >= toDateTime('{date_from}', '{timezone}')"),
+            parse_expr(f"toTimeZone(timestamp, '{timezone}') <= toDateTime('{date_to}', '{timezone}')"),
+            parse_expr(f"event = '{self.exposure_event}'"),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["properties", self.feature_flag_variant_property]),
+                right=ast.Constant(value=self.variants),
+            ),
+        ]
+
+        if self.exposure_event == "$feature_flag_called":
+            predicates.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["properties", "$feature_flag"]),
+                    right=ast.Constant(value=self.feature_flag.key),
+                )
+            )
+
+        return ast.And(exprs=predicates) if len(predicates) > 1 else predicates[0]
+
+    def _build_metric_predicate(self, timezone: str, date_from, date_to) -> ast.Expr:
+        """
+        Builds the metric predicate as an AST expression.
+        """
+        event_name = self.metric.source.event if hasattr(self.metric.source, "event") else None
 
         # Build conversion window constraint
-        conversion_window_constraint = ""
         if self.metric.conversion_window and self.metric.conversion_window_unit:
             conversion_window_seconds = conversion_window_to_seconds(
                 self.metric.conversion_window,
                 self.metric.conversion_window_unit,
             )
-            conversion_window_constraint = f"AND toTimeZone(timestamp, '{timezone}') < toDateTime('{date_to}', '{timezone}') + INTERVAL {conversion_window_seconds} SECOND"
+            time_upper_bound = parse_expr(
+                f"toTimeZone(timestamp, '{timezone}') < toDateTime('{date_to}', '{timezone}') + INTERVAL {conversion_window_seconds} SECOND"
+            )
         else:
-            conversion_window_constraint = (
-                f"AND toTimeZone(timestamp, '{timezone}') < toDateTime('{date_to}', '{timezone}')"
+            time_upper_bound = parse_expr(
+                f"toTimeZone(timestamp, '{timezone}') < toDateTime('{date_to}', '{timezone}')"
             )
 
-        # Build variant selection expression
-        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
-            variant_expr = f"argMinIf(properties.{self.feature_flag_variant_property}, timestamp, exposure_predicate)"
+        predicates = [
+            parse_expr(f"toTimeZone(timestamp, '{timezone}') >= toDateTime('{date_from}', '{timezone}')"),
+            time_upper_bound,
+            parse_expr(f"event = '{event_name}'"),
+        ]
+
+        return ast.And(exprs=predicates)
+
+    def _build_value_expr(self, math_type: ExperimentMetricMathType) -> ast.Expr:
+        """
+        Builds the value expression for metric events based on math type.
+        """
+        if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
+            return ast.Field(chain=["$session_id"])
+        elif math_type == ExperimentMetricMathType.DAU:
+            return ast.Field(chain=["person_id"])
         else:
-            variant_expr = f"""if(
-                uniqExactIf(properties.{self.feature_flag_variant_property}, exposure_predicate) > 1,
-                '{MULTIPLE_VARIANT_KEY}',
-                anyIf(properties.{self.feature_flag_variant_property}, exposure_predicate)
-            )"""
+            math_property = getattr(self.metric.source, "math_property", None)
+            if math_property:
+                return ast.Field(chain=["properties", math_property])
+            else:
+                return ast.Constant(value=1)
 
-        # Build value aggregation based on math type
-        value_agg = self._get_value_aggregation_expr(math_type)
-
-        # Build the query
-        query = f"""
-        SELECT
-            metric_events.variant AS variant,
-            count(metric_events.entity_id) AS num_users,
-            sum(metric_events.value) AS total_sum,
-            sum(power(metric_events.value, 2)) AS total_sum_of_squares
-        FROM (
-            SELECT
-                events_enriched.entity_id AS entity_id,
-                events_enriched.variant AS variant,
-                events_enriched.exposure_event_uuid AS exposure_event_uuid,
-                events_enriched.exposure_session_id AS exposure_session_id,
-                arrayFilter(x -> x.1 >= events_enriched.first_exposure_time, events_enriched.metric_events_array) AS metric_after_exposure,
-                {value_agg} AS value
-            FROM (
-                SELECT
-                    {self.entity_key} AS entity_id,
-                    {variant_expr} AS variant,
-                    minIf(toTimeZone(timestamp, '{timezone}'), exposure_predicate) AS first_exposure_time,
-                    argMinIf(uuid, toTimeZone(timestamp, '{timezone}'), exposure_predicate) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, toTimeZone(timestamp, '{timezone}'), exposure_predicate) AS exposure_session_id,
-                    groupArrayIf(
-                        tuple(toTimeZone(timestamp, '{timezone}'), {value_expr}),
-                        metric_predicate
-                    ) AS metric_events_array
-                FROM events
-                WHERE (exposure_predicate OR metric_predicate)
-                GROUP BY entity_id
-            ) AS events_enriched
-            WHERE events_enriched.first_exposure_time IS NOT NULL
-        ) AS metric_events
-        GROUP BY metric_events.variant
-        """
-
-        # Now replace the predicate placeholders with actual conditions
-        exposure_predicate = self._build_exposure_predicate_string(timezone, date_from, date_to)
-        metric_predicate = self._build_metric_predicate_string(
-            timezone, date_from, date_to, event_name, conversion_window_constraint
-        )
-
-        # Replace placeholders
-        query = query.replace("exposure_predicate", exposure_predicate)
-        query = query.replace("metric_predicate", metric_predicate)
-
-        return query
-
-    def _build_exposure_predicate_string(self, timezone: str, date_from, date_to) -> str:
-        """
-        Builds the exposure predicate as a string.
-        """
-        variants_list = ", ".join(f"'{v}'" for v in self.variants)
-
-        predicate = f"""(
-            toTimeZone(timestamp, '{timezone}') >= toDateTime('{date_from}', '{timezone}')
-            AND toTimeZone(timestamp, '{timezone}') <= toDateTime('{date_to}', '{timezone}')
-            AND event = '{self.exposure_event}'
-            AND properties.{self.feature_flag_variant_property} IN [{variants_list}]
-        """
-
-        if self.exposure_event == "$feature_flag_called":
-            predicate += f" AND properties.`$feature_flag` = '{self.feature_flag.key}'"
-
-        predicate += ")"
-
-        return predicate
-
-    def _build_metric_predicate_string(
-        self, timezone: str, date_from, date_to, event_name: str, conversion_window_constraint: str
-    ) -> str:
-        """
-        Builds the metric predicate as a string.
-        """
-        predicate = f"""(
-            toTimeZone(timestamp, '{timezone}') >= toDateTime('{date_from}', '{timezone}')
-            {conversion_window_constraint}
-            AND event = '{event_name}'
-        )"""
-
-        return predicate
-
-    def _get_value_aggregation_expr(self, math_type: ExperimentMetricMathType) -> str:
+    def _build_value_aggregation_expr(self, math_type: ExperimentMetricMathType) -> ast.Expr:
         """
         Returns the value aggregation expression based on math type.
         """
         if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
-            return "toFloat(length(arrayDistinct(arrayMap(x -> x.2, metric_after_exposure))))"
+            return parse_expr("toFloat(length(arrayDistinct(arrayMap(x -> x.2, metric_after_exposure))))")
         elif math_type in [ExperimentMetricMathType.DAU, ExperimentMetricMathType.UNIQUE_GROUP]:
-            return "toFloat(length(arrayDistinct(arrayMap(x -> x.2, metric_after_exposure))))"
+            return parse_expr("toFloat(length(arrayDistinct(arrayMap(x -> x.2, metric_after_exposure))))")
         elif math_type == ExperimentMetricMathType.MIN:
-            return "arrayMin(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))"
+            return parse_expr("arrayMin(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))")
         elif math_type == ExperimentMetricMathType.MAX:
-            return "arrayMax(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))"
+            return parse_expr("arrayMax(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))")
         elif math_type == ExperimentMetricMathType.AVG:
-            return "arrayAvg(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))"
+            return parse_expr("arrayAvg(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))")
         else:
             # Default: SUM or TOTAL
-            return "arraySum(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))"
+            return parse_expr("arraySum(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))")
