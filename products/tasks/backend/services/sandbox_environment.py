@@ -20,6 +20,12 @@ class SandboxEnvironmentStatus(str, Enum):
     SHUTDOWN = "shutdown"
 
 
+class SandboxEnvironmentSnapshotStatus(str, Enum):
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
+    ERROR = "error"
+
+
 class SandboxEnvironmentTemplate(str, Enum):
     UBUNTU_LATEST_X86_64 = "ubuntu_latest_x86_64"
     DEFAULT_BASE = "default_base"
@@ -166,30 +172,40 @@ class SandboxEnvironment:
 
         return result
 
-    async def create_snapshot(self) -> str:
-        """Create a snapshot of the current devbox disk state and return the snapshot ID."""
+    async def initiate_snapshot(self) -> str:
         if not self.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
 
         try:
-            # Initiate async snapshot creation
-            snapshot = await self._client.devboxes.disk.create_snapshot_async(self.id)
+            devbox = await self._client.devboxes.retrieve(self.id)
+
+            snapshot = await self._client.devboxes.snapshot_disk_async(devbox.id)
+
             snapshot_id = snapshot.id
 
-            logger.info(f"Initiated snapshot creation for sandbox {self.id}, snapshot ID: {snapshot_id}")
+            logger.info(f"Initiated snapshot for sandbox {self.id}, snapshot ID: {snapshot_id}")
 
-            # Poll until snapshot is complete
-            final_snapshot = await self._client.devboxes.disk.await_snapshot_ready(
-                devbox_id=self.id, snapshot_id=snapshot_id
-            )
-
-            logger.info(f"Snapshot {snapshot_id} completed for sandbox {self.id}")
-
-            return final_snapshot.id
+            return snapshot_id
 
         except Exception as e:
-            logger.exception(f"Failed to create snapshot: {e}")
-            raise RuntimeError(f"Failed to create snapshot: {e}")
+            logger.exception(f"Failed to initiate snapshot: {e}")
+            raise RuntimeError(f"Failed to initiate snapshot: {e}")
+
+    @staticmethod
+    async def get_snapshot_status(external_id: str) -> SandboxEnvironmentSnapshotStatus:
+        try:
+            client = get_runloop_client()
+
+            logger.info(f"Getting snapshot status for {external_id}")
+
+            snapshot = await client.devboxes.disk_snapshots.query_status(external_id)
+
+            logger.info(f"Retrieved snapshot status for {external_id}: {snapshot.status}")
+
+            return SandboxEnvironmentSnapshotStatus(snapshot.status)
+        except Exception as e:
+            logger.exception(f"Failed to get snapshot status: {e}")
+            raise RuntimeError(f"Failed to get snapshot status: {e}")
 
     async def destroy(self) -> None:
         try:

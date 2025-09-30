@@ -2,6 +2,7 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from products.tasks.backend.models import SandboxSnapshot
+from products.tasks.backend.services.sandbox_agent import SandboxAgent
 from products.tasks.backend.temporal.sandbox.activity_schemas import (
     CheckRepoInSnapshotInput,
     CheckRepoInSnapshotOutput,
@@ -15,8 +16,8 @@ from products.tasks.backend.temporal.sandbox.activity_schemas import (
 @activity.defn
 async def get_base_snapshot_for_integration_activity(input: GetBaseSnapshotInput) -> GetBaseSnapshotOutput:
     """Get or create the base snapshot for a GitHub integration."""
-    # Get latest complete snapshot
-    snapshot = await sync_to_async(SandboxSnapshot.get_latest_complete)(input.github_integration_id)
+
+    snapshot = await sync_to_async(SandboxSnapshot.get_latest_snapshot_for_integration)(input.github_integration_id)
 
     is_new = False
     if not snapshot:
@@ -58,7 +59,7 @@ async def check_repo_in_snapshot_activity(input: CheckRepoInSnapshotInput) -> Ch
 @activity.defn
 async def setup_repo_in_snapshot_activity(input: SetupRepoInSnapshotInput) -> SetupRepoInSnapshotOutput:
     """Add a new repository to the integration's snapshot (creates NEW snapshot)."""
-
+    # Get latest complete snapshot to build from
     base_snapshot = await sync_to_async(SandboxSnapshot.get_latest_snapshot_for_integration)(
         input.github_integration_id, status=SandboxSnapshot.Status.COMPLETE
     )
@@ -71,29 +72,21 @@ async def setup_repo_in_snapshot_activity(input: SetupRepoInSnapshotInput) -> Se
         integration_id=input.github_integration_id,
         repos=new_repos,
         status=SandboxSnapshot.Status.IN_PROGRESS,
-        external_id=base_snapshot.external_id if base_snapshot else "TODO: Create base snapshot",
     )
 
     try:
-        # TODO: Implement actual sandbox setup flow:
-        # 1. Create sandbox from base snapshot
-        # 2. Clone repository
-        # 3. Run @posthog/code-agent with setup prompt
-        # 4. Create Runloop snapshot
-        # 5. Update new_snapshot with external_id and mark complete
-
-        # Placeholder implementation
-        new_external_id = f"snapshot_{new_snapshot.id}_TODO"
-        setup_logs = "TODO: Implement actual setup"
-
-        # Mark snapshot as complete
-        await sync_to_async(new_snapshot.update_status)(SandboxSnapshot.Status.COMPLETE)
-        new_snapshot.external_id = new_external_id
-        await sync_to_async(new_snapshot.save)(update_fields=["external_id"])
-
-        return SetupRepoInSnapshotOutput(
-            success=True, new_external_id=new_external_id, setup_logs=setup_logs, error=None
+        # Use SandboxAgent to setup repository and create snapshot
+        base_external_id = base_snapshot.external_id if base_snapshot else None
+        snapshot_id, setup_logs = await SandboxAgent.setup_repository_snapshot(
+            base_snapshot_id=base_external_id, repository=input.repository, github_token=input.github_token
         )
+
+        # Update snapshot with external_id and mark complete
+        new_snapshot.external_id = snapshot_id
+        await sync_to_async(new_snapshot.save)(update_fields=["external_id"])
+        await sync_to_async(new_snapshot.update_status)(SandboxSnapshot.Status.COMPLETE)
+
+        return SetupRepoInSnapshotOutput(success=True, new_external_id=snapshot_id, setup_logs=setup_logs, error=None)
 
     except Exception as e:
         # Mark snapshot as error

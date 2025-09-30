@@ -2,6 +2,8 @@ import logging
 
 from pydantic import BaseModel
 
+from products.tasks.backend.lib.constants import SETUP_REPOSITORY_PROMPT
+
 from .sandbox_environment import ExecutionResult, SandboxEnvironment, SandboxEnvironmentConfig
 
 logger = logging.getLogger(__name__)
@@ -55,31 +57,52 @@ class SandboxAgent:
 
         return agent
 
-    async def setup_repository(self) -> ExecutionResult:
+    async def clone_repository(self, repository: str, github_token: str) -> ExecutionResult:
+        """Clone a repository into the expected location.
+
+        Args:
+            repository: Repository in format "org/repo"
+            github_token: GitHub access token
+
+        Returns:
+            ExecutionResult from the clone command
+        """
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
-        return await self.clone_repository(self.config.repository_url)
+        org, repo = repository.split("/")
+        repo_url = f"https://x-access-token:{github_token}@github.com/{repository}.git"
+        target_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-    async def clone_repository(self, repo_url: str) -> ExecutionResult:
+        # Wipe existing directory if present, then clone
+        clone_command = (
+            f"rm -rf {target_path} && "
+            f"mkdir -p /tmp/workspace/repos/{org} && "
+            f"cd /tmp/workspace/repos/{org} && "
+            f"git clone {repo_url} {repo}"
+        )
+
+        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.sandbox.id}")
+        return await self.sandbox.execute(clone_command, timeout_seconds=5 * 60)
+
+    async def setup_repository(self, repository: str) -> ExecutionResult:
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
-        if repo_url.startswith("https://github.com/"):
-            auth_url = repo_url.replace(
-                "https://github.com/",
-                f"https://x-access-token:{self.config.github_token}@github.com/",
-            )
-        else:
-            raise ValueError("Only GitHub is supported")
+        org, repo = repository.split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        clone_command = f"git clone {auth_url} {WORKING_DIR}/{REPOSITORY_TARGET_DIR}"
+        check_result = await self.sandbox.execute(f"test -d {repo_path} && echo 'exists' || echo 'missing'")
+        if "missing" in check_result.stdout:
+            raise RuntimeError(f"Repository path {repo_path} does not exist. Clone the repository first.")
 
-        logger.info(f"Cloning repository {repo_url} to {self.repository_dir} in sandbox {self.sandbox.id}")
-        return await self.sandbox.execute(clone_command)
+        setup_command = f"cd {repo_path} && {self.get_setup_command()}"
+
+        logger.info(f"Running code agent setup for {repository} in sandbox {self.sandbox.id}")
+        return await self.sandbox.execute(setup_command, timeout_seconds=15 * 60)
 
     async def execute_task(self) -> ExecutionResult:
-        """Execute Claude Code commands in the sandbox."""
+        """Execute PostHog Code Agent commands in the sandbox."""
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
@@ -92,8 +115,11 @@ class SandboxAgent:
 
     def get_task_command(self) -> str:
         """Get the command to execute the task."""
-        # TODO: Replace with actual task execution: posthog-cli task run --task-id {self.config.task_id}
-        return "posthog-cli --help"
+        return f"npx @posthog/code-agent --task-id {self.config.task_id}"
+
+    def get_setup_command(self) -> str:
+        """Get the command to setup the repository."""
+        return f"npx @posthog/code-agent --prompt {SETUP_REPOSITORY_PROMPT.format(cwd=self.working_dir, repository=self.repository_dir)}"
 
     async def destroy(self) -> None:
         """Destroy the underlying sandbox."""
