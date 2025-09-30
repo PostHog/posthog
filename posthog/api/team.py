@@ -1032,7 +1032,7 @@ def validate_team_attrs(
             raise exceptions.ValidationError(
                 {"primary_dashboard": "Primary dashboard cannot be set on project creation."}
             )
-        if attrs["primary_dashboard"].team_id != instance.id:
+        if attrs["primary_dashboard"] and attrs["primary_dashboard"].team_id != instance.id:
             raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
 
     if "autocapture_exceptions_errors_to_ignore" in attrs:

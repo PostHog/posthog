@@ -303,3 +303,4 @@ volumes:
     redis-data:
     redis7-data:
     kafka-data:
+    redpanda-data:

@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconDownload } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { BasicFiltersTab } from './BasicFiltersTab'
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
@@ -10,7 +9,6 @@ import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 export function AdvancedActivityLogFiltersPanel(): JSX.Element {
     const { hasActiveFilters, exportsLoading } = useValues(advancedActivityLogsLogic)
     const { clearAllFilters, exportLogs } = useActions(advancedActivityLogsLogic)
-    const [activeTab, setActiveTab] = useState<'basic' | 'hogql'>('basic')
 
     return (
         <div className="border rounded-md p-4 bg-bg-light">
@@ -63,32 +61,7 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
                 </div>
             </div>
 
-            <LemonTabs
-                activeKey={activeTab}
-                onChange={setActiveTab}
-                data-attr="audit-logs-filter-tabs"
-                tabs={[
-                    {
-                        key: 'basic',
-                        label: 'Filters',
-                        content: <BasicFiltersTab />,
-                    },
-
-                    {
-                        key: 'hogql',
-                        label: 'HogQL',
-                        content: <HogQLFilterTab />,
-                    },
-                ]}
-            />
-        </div>
-    )
-}
-
-const HogQLFilterTab = (): JSX.Element => {
-    return (
-        <div className="pt-4">
-            <div>HogQL filter placeholder</div>
+            <BasicFiltersTab />
         </div>
     )
 }

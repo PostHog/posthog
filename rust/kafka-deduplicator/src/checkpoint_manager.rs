@@ -443,8 +443,17 @@ impl CheckpointManager {
     }
 
     async fn cleanup_local_checkpoints(config: &CheckpointConfig) -> Result<()> {
+        info!(
+            checkpoint_base_dir = config.local_checkpoint_dir,
+            "Checkpoint cleaner: starting local checkpoint cleanup scan..."
+        );
+
         let checkpoint_base_dir = PathBuf::from(config.local_checkpoint_dir.clone());
         if !checkpoint_base_dir.exists() {
+            warn!(
+                checkpoint_base_dir = config.local_checkpoint_dir,
+                "Checkpoint cleaner: local checkpoint directory does not exist, skipping cleanup"
+            );
             return Ok(());
         }
 
@@ -1097,10 +1106,10 @@ mod tests {
 
         let tmp_checkpoint_dir = TempDir::new().unwrap();
 
-        // configure frequent checkpoints and long retention, cleanup interval
+        // configure moderate checkpoints with reasonable intervals
         let config = CheckpointConfig {
-            checkpoint_interval: Duration::from_millis(3),
-            cleanup_interval: Duration::from_secs(120),
+            checkpoint_interval: Duration::from_millis(50), // Submit frequent checkpoints during test run
+            cleanup_interval: Duration::from_secs(30),
             max_concurrent_checkpoints: 2,
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
@@ -1110,11 +1119,15 @@ mod tests {
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
         manager.start();
 
-        tokio::time::sleep(Duration::from_millis(0)).await;
+        // Give the manager time to start checkpointing
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
         let mut hit_expected_cap = false;
         let mut never_above_zero = true;
+        let start = std::time::Instant::now();
+        let timeout = Duration::from_secs(3);
 
-        for _ in 0..1000000 {
+        while start.elapsed() < timeout {
             let inflight = manager.is_checkpointing.lock().await.len();
             if inflight == config.max_concurrent_checkpoints {
                 hit_expected_cap = true;
@@ -1125,9 +1138,20 @@ mod tests {
             if inflight == 0 {
                 never_above_zero = false;
             }
+
+            // Small sleep to prevent busy waiting
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        assert!(hit_expected_cap);
-        assert!(!never_above_zero);
+
+        assert!(
+            hit_expected_cap,
+            "Expected to hit the concurrent checkpoint cap of {}",
+            config.max_concurrent_checkpoints
+        );
+        assert!(
+            !never_above_zero,
+            "Expected to see some checkpointing activity"
+        );
 
         manager.stop().await;
 
