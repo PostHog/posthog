@@ -34,6 +34,7 @@ class TestNormalizeToExposureCriteria:
 
         result = normalize_to_exposure_criteria(input_dict)
 
+        assert result is not None
         assert isinstance(result.exposure_config, ExperimentEventExposureConfig)
         assert result.exposure_config.event == "test_event"
 
