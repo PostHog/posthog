@@ -16,6 +16,7 @@ import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TY_BASELINE_PATH = REPO_ROOT / "ty-baseline.txt"
@@ -90,7 +91,7 @@ def _run_ty(targets: Sequence[str]) -> TyResult:
     if not targets:
         return TyResult(returncode=0, output="")
     proc = subprocess.run(
-        ["uvx", "ty", "check", "--output-format", "concise", *targets],
+        ["uv", "run", "ty", "check", "--output-format", "concise", *targets],
         cwd=REPO_ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -108,7 +109,8 @@ def _run_mypy_baseline(
 ) -> TyResult:
     proc = subprocess.run(
         [
-            "uvx",
+            "uv",
+            "run",
             "mypy-baseline",
             subcommand,
             "--config",
@@ -224,14 +226,14 @@ def _parse_args(argv: Sequence[str]) -> tuple[str, list[str], bool]:
 
     # ``bin/ty.py <files>`` should behave like ``bin/ty.py check <files>`` for lint-staged.
     # When called this way (no subcommand), it's from a hook
-    from_hook = argv and not argv[0].startswith("-") and argv[0] not in {"check", "sync"}
+    from_hook: bool = bool(argv and not argv[0].startswith("-") and argv[0] not in {"check", "sync"})
     if from_hook:
         argv = ["check", *argv]
 
     args = parser.parse_args(argv)
-    command = args.command or "check"
-    paths = getattr(args, "paths", []) or []
-    return command, list(paths), from_hook
+    command: str = cast(str, args.command or "check")
+    paths: list[str] = cast(list[str], getattr(args, "paths", []) or [])
+    return command, paths, from_hook
 
 
 def main(argv: Sequence[str] | None = None) -> int:
