@@ -166,6 +166,31 @@ class SandboxEnvironment:
 
         return result
 
+    async def create_snapshot(self) -> str:
+        """Create a snapshot of the current devbox disk state and return the snapshot ID."""
+        if not self.is_running:
+            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+
+        try:
+            # Initiate async snapshot creation
+            snapshot = await self._client.devboxes.disk.create_snapshot_async(self.id)
+            snapshot_id = snapshot.id
+
+            logger.info(f"Initiated snapshot creation for sandbox {self.id}, snapshot ID: {snapshot_id}")
+
+            # Poll until snapshot is complete
+            final_snapshot = await self._client.devboxes.disk.await_snapshot_ready(
+                devbox_id=self.id, snapshot_id=snapshot_id
+            )
+
+            logger.info(f"Snapshot {snapshot_id} completed for sandbox {self.id}")
+
+            return final_snapshot.id
+
+        except Exception as e:
+            logger.exception(f"Failed to create snapshot: {e}")
+            raise RuntimeError(f"Failed to create snapshot: {e}")
+
     async def destroy(self) -> None:
         try:
             await self._client.devboxes.shutdown(self.id)

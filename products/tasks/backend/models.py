@@ -520,11 +520,13 @@ class SandboxSnapshot(models.Model):
         self.save(update_fields=["status"])
 
     @classmethod
-    def get_latest_snapshot_for_integration(cls, integration_id: int) -> Optional["SandboxSnapshot"]:
+    def get_latest_snapshot_for_integration(
+        cls, integration_id: int, status: Status = Status.COMPLETE
+    ) -> Optional["SandboxSnapshot"]:
         return (
             cls.objects.filter(
                 integration_id=integration_id,
-                status=cls.Status.COMPLETE,
+                status=status,
             )
             .order_by("-created_at")
             .first()
@@ -532,11 +534,11 @@ class SandboxSnapshot(models.Model):
 
     @classmethod
     def get_latest_snapshot_with_repos(
-        cls, integration_id: int, required_repos: list[str]
+        cls, integration_id: int, required_repos: list[str], status: Status = Status.COMPLETE
     ) -> Optional["SandboxSnapshot"]:
         snapshots = cls.objects.filter(
             integration_id=integration_id,
-            status=cls.Status.COMPLETE,
+            status=status,
         ).order_by("-created_at")
 
         for snapshot in snapshots:
