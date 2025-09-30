@@ -1,6 +1,6 @@
 """Data models for migration risk analysis."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -46,14 +46,8 @@ class MigrationRisk:
     app: str
     name: str
     operations: list[OperationRisk]
-    combination_risks: list[str] | None = None
-    policy_violations: list[str] | None = None  # PostHog-specific coding policies
-
-    def __post_init__(self):
-        if self.combination_risks is None:
-            self.combination_risks = []
-        if self.policy_violations is None:
-            self.policy_violations = []
+    combination_risks: list[str] = field(default_factory=list)
+    policy_violations: list[str] = field(default_factory=list)  # PostHog-specific coding policies
 
     @property
     def max_score(self) -> int:

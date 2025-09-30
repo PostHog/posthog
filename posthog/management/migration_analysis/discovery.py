@@ -132,7 +132,7 @@ class MigrationDiscovery:
         *,
         skip_invalid: bool = False,
         fail_on_ci: bool = True,
-    ) -> list[tuple[MigrationInfo, object]]:
+    ) -> list[tuple[MigrationInfo, Migration]]:
         """
         Process a list of migration paths into loaded migration objects.
 
@@ -142,7 +142,7 @@ class MigrationDiscovery:
             fail_on_ci: If True and in CI, exit on any error
 
         Returns:
-            List of (MigrationInfo, migration_object) tuples
+            List of (MigrationInfo, Migration) tuples
         """
         results: list[tuple[MigrationInfo, Migration]] = []
         loader = MigrationLoader(None)  # Reuse loader for efficiency
