@@ -127,10 +127,10 @@ export function SampledSessionsModal(): JSX.Element {
     ]
 
     return (
-        <LemonModal isOpen={isOpen} onClose={closeModal} title={`Sampled sessions - ${variant}`} width={720}>
+        <LemonModal isOpen={isOpen} onClose={closeModal} title={`Sampled persons - ${variant}`} width={720}>
             <div className="space-y-4">
                 <div className="text">
-                    Users in <strong>{variant}</strong> with <strong>{stepName}</strong> as their last funnel step.
+                    Persons in <strong>{variant}</strong> with <strong>{stepName}</strong> as their last funnel step.
                 </div>
                 <div className="mt-2">
                     <LemonTable
@@ -143,8 +143,8 @@ export function SampledSessionsModal(): JSX.Element {
                 </div>
 
                 <div className="text-xs text-muted border-t pt-2">
-                    <strong>Note:</strong> This shows a sample of up to 100 sessions per step. Session recordings are
-                    only available for sessions that have been captured and not deleted.
+                    <strong>Note:</strong> This shows a sample of up to 100 users per step. Session recordings are only
+                    available for sessions that have been captured and not deleted.
                 </div>
             </div>
         </LemonModal>
