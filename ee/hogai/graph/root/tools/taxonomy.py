@@ -3,6 +3,7 @@ from typing import Literal, Union
 from pydantic import BaseModel, Field
 
 from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
+from ee.hogai.tool import MaxTool
 from ee.hogai.utils.helpers import format_events_yaml
 
 
@@ -61,16 +62,19 @@ class ReadActionSamplePropertyValues(BaseModel):
     property_name: str = Field(description="Verified property name of an action.")
 
 
+ReadTaxonomyQuery = Union[
+    ReadEvents,
+    ReadEventProperties,
+    ReadEventSamplePropertyValues,
+    ReadEntityProperties,
+    ReadEntitySamplePropertyValues,
+    ReadActionProperties,
+    ReadActionSamplePropertyValues,
+]
+
+
 class ReadTaxonomy(BaseModel):
-    query: Union[
-        ReadEvents,
-        ReadEventProperties,
-        ReadEventSamplePropertyValues,
-        ReadEntityProperties,
-        ReadEntitySamplePropertyValues,
-        ReadActionProperties,
-        ReadActionSamplePropertyValues,
-    ] = Field(..., discriminator="kind")
+    query: ReadTaxonomyQuery = Field(..., discriminator="kind")
 
 
 READ_TAXONOMY_TOOL_DESCRIPTION = """
@@ -80,30 +84,32 @@ Each event, action, and entity has its own data schema. You must verify that spe
 """.strip()
 
 
-class ReadTaxonomyTool(BaseModel):
+class ReadTaxonomyTool(MaxTool):
     name: Literal["ReadTaxonomy"] = "ReadTaxonomy"
-    description = READ_TAXONOMY_TOOL_DESCRIPTION
-    root_system_prompt_template = (
+    description: str = READ_TAXONOMY_TOOL_DESCRIPTION
+    root_system_prompt_template: str = (
         "Explores the user's events, actions, properties, and property values (i.e. taxonomy)."
     )
-    thinking_message = "Searching the taxonomy"
-    args: ReadTaxonomy
+    thinking_message: str = "Searching the taxonomy"
+    args_schema: type[BaseModel] = ReadTaxonomy
 
-    def _run_impl(self, args: ReadTaxonomy) -> str:
+    def _run_impl(self, query: ReadTaxonomyQuery) -> tuple[str, str]:
         toolkit = TaxonomyAgentToolkit(self._team)
-        match args.query:
+        match query:
             case ReadEvents():
-                return format_events_yaml([], self._team)
+                res = format_events_yaml([], self._team)
             case ReadEventProperties() as schema:
-                return toolkit.retrieve_event_or_action_properties(schema.event_name)
+                res = toolkit.retrieve_event_or_action_properties(schema.event_name)
             case ReadEventSamplePropertyValues() as schema:
-                return toolkit.retrieve_event_or_action_property_values(schema.event_name, schema.property_name)
+                res = toolkit.retrieve_event_or_action_property_values(schema.event_name, schema.property_name)
             case ReadActionProperties() as schema:
-                return toolkit.retrieve_event_or_action_properties(schema.action_id)
+                res = toolkit.retrieve_event_or_action_properties(schema.action_id)
             case ReadActionSamplePropertyValues() as schema:
-                return toolkit.retrieve_event_or_action_property_values(schema.action_id, schema.property_name)
+                res = toolkit.retrieve_event_or_action_property_values(schema.action_id, schema.property_name)
             case ReadEntityProperties() as schema:
-                return toolkit.retrieve_entity_properties(schema.entity)
+                res = toolkit.retrieve_entity_properties(schema.entity)
             case ReadEntitySamplePropertyValues() as schema:
-                return toolkit.retrieve_entity_property_values(schema.entity, schema.property_name)
-        raise ValueError(f"Invalid query: {args.query}")
+                res = toolkit.retrieve_entity_property_values(schema.entity, schema.property_name)
+            case _:
+                raise ValueError(f"Invalid query: {query.query}")
+        return res, res

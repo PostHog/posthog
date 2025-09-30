@@ -67,6 +67,7 @@ from .prompts import (
     SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT,
     SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT,
 )
+from .tools.taxonomy import ReadTaxonomyTool
 
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
@@ -267,6 +268,7 @@ class RootNode(AssistantNode):
             return base_model
 
         from ee.hogai.tool import (
+            MaxTool,
             create_and_query_insight,
             create_dashboard,
             get_contextual_tool_class,
@@ -275,7 +277,9 @@ class RootNode(AssistantNode):
             session_summarization,
         )
 
-        available_tools: list[type[BaseModel]] = []
+        available_tools: list[type[BaseModel] | MaxTool] = [
+            ReadTaxonomyTool(team=self._team, user=self._user, show_tool_call_message=False),
+        ]
         # Check if insight search is enabled for the user
         if self._has_insight_search_feature_flag():
             available_tools.append(search_insights)
