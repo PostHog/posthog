@@ -65,12 +65,23 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
         filters: [
             DEFAULT_PLAYLIST_FILTERS as SavedSessionRecordingPlaylistsFilters | Record<string, any>,
             {
-                setSavedPlaylistsFilters: (state, { filters }) =>
-                    objectClean({
+                setSavedPlaylistsFilters: (state, { filters }) => {
+                    const merged = {
                         ...state,
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
-                    }),
+                    }
+
+                    const cleaned = Object.fromEntries(
+                        Object.entries(merged).filter(
+                            ([key, value]) =>
+                                key === 'page' ||
+                                DEFAULT_PLAYLIST_FILTERS[key as keyof typeof DEFAULT_PLAYLIST_FILTERS] !== value
+                        )
+                    )
+
+                    return objectClean(cleaned)
+                },
             },
         ],
         loadPlaylistsFailed: [
@@ -82,15 +93,10 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
             },
         ],
     })),
-    loaders(({ values, actions, props }) => ({
+    loaders(({ values, actions }) => ({
         playlists: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadPlaylists: async (_, breakpoint) => {
-                // We do not need to call it on the Home tab anymore
-                if (props.tab && props.tab === ReplayTabs.Home) {
-                    return { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult
-                }
-
                 if (values.playlists.filters !== null) {
                     await breakpoint(300)
                 }
