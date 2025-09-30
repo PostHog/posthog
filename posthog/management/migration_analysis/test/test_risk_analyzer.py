@@ -289,54 +289,71 @@ class TestCreateModelOperations:
         self.analyzer = RiskAnalyzer()
 
     def test_create_model_with_uuid(self):
-        op = create_mock_operation(
-            migrations.CreateModel,
-            name="TestModel",
-            fields=[
-                ("id", models.UUIDField(primary_key=True)),
-                ("name", models.CharField(max_length=100)),
-            ],
-        )
+        """CreateModel with UUID is safe and has no policy violations."""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.CreateModel,
+                name="TestModel",
+                fields=[
+                    ("id", models.UUIDField(primary_key=True)),
+                    ("name", models.CharField(max_length=100)),
+                ],
+            )
+        ]
 
-        risk = self.analyzer.analyze_operation(op)
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_test.py")
 
-        assert risk.score == 0
-        assert risk.level == RiskLevel.SAFE
-        assert not risk.is_policy_violation
+        assert migration_risk.level == RiskLevel.SAFE
+        assert len(migration_risk.policy_violations) == 0
 
     def test_create_model_with_autofield(self):
-        op = create_mock_operation(
-            migrations.CreateModel,
-            name="TestModel",
-            fields=[
-                ("id", models.AutoField(primary_key=True)),
-                ("name", models.CharField(max_length=100)),
-            ],
-        )
+        """CreateModel with AutoField violates UUID policy."""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.CreateModel,
+                name="TestModel",
+                fields=[
+                    ("id", models.AutoField(primary_key=True)),
+                    ("name", models.CharField(max_length=100)),
+                ],
+            )
+        ]
 
-        risk = self.analyzer.analyze_operation(op)
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_test.py")
 
-        assert risk.score == 4
-        assert risk.level == RiskLevel.BLOCKED
-        assert risk.is_policy_violation
-        assert "UUIDModel" in risk.reason
+        assert migration_risk.level == RiskLevel.BLOCKED  # Policy violations boost to blocked
+        assert len(migration_risk.policy_violations) == 1
+        assert "UUIDModel" in migration_risk.policy_violations[0]
+        assert "AutoField" in migration_risk.policy_violations[0]
 
     def test_create_model_with_bigautofield(self):
-        op = create_mock_operation(
-            migrations.CreateModel,
-            name="TestModel",
-            fields=[
-                ("id", models.BigAutoField(primary_key=True)),
-                ("name", models.CharField(max_length=100)),
-            ],
-        )
+        """CreateModel with BigAutoField violates UUID policy."""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.CreateModel,
+                name="TestModel",
+                fields=[
+                    ("id", models.BigAutoField(primary_key=True)),
+                    ("name", models.CharField(max_length=100)),
+                ],
+            )
+        ]
 
-        risk = self.analyzer.analyze_operation(op)
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_test.py")
 
-        assert risk.score == 4
-        assert risk.level == RiskLevel.BLOCKED
-        assert risk.is_policy_violation
-        assert "UUIDModel" in risk.reason
+        assert migration_risk.level == RiskLevel.BLOCKED
+        assert len(migration_risk.policy_violations) == 1
+        assert "UUIDModel" in migration_risk.policy_violations[0]
+        assert "BigAutoField" in migration_risk.policy_violations[0]
 
 
 class TestCombinationRisks:

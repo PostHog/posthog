@@ -279,19 +279,6 @@ class CreateModelAnalyzer(OperationAnalyzer):
     default_score = 0
 
     def analyze(self, op) -> OperationRisk:
-        # Check for integer ID (PostHog policy: use UUIDs)
-        for field_name, field in op.fields:
-            if field_name == "id":
-                field_type = field.__class__.__name__
-                if field_type in ["AutoField", "BigAutoField"]:
-                    return OperationRisk(
-                        type=self.operation_type,
-                        score=4,
-                        reason="PostHog policy: New models must use UUIDModel (UUID primary key) instead of integer IDs",
-                        details={"model": op.name, "field_type": field_type},
-                        is_policy_violation=True,
-                    )
-
         return OperationRisk(
             type=self.operation_type,
             score=0,

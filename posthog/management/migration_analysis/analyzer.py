@@ -19,6 +19,7 @@ from posthog.management.migration_analysis.operations import (
     RunSQLAnalyzer,
     SeparateDatabaseAndStateAnalyzer,
 )
+from posthog.management.migration_analysis.policies import POSTHOG_POLICIES
 from posthog.management.migration_analysis.utils import OperationCategorizer
 
 
@@ -62,12 +63,16 @@ class RiskAnalyzer:
         # Check for dangerous operation combinations
         combination_risks = self.check_operation_combinations(migration, operation_risks)
 
+        # Check PostHog policies
+        policy_violations = self.check_policies(migration)
+
         return MigrationRisk(
             path=path,
             app=migration.app_label,
             name=migration.name,
             operations=operation_risks,
             combination_risks=combination_risks,
+            policy_violations=policy_violations,
         )
 
     def analyze_operation(self, op) -> OperationRisk:
@@ -139,3 +144,17 @@ class RiskAnalyzer:
             return []
 
         return ["⚠️  INFO: Migration is marked atomic=False. Ensure data migrations handle failures correctly."]
+
+    def check_policies(self, migration) -> list[str]:
+        """Check migration against PostHog coding policies."""
+        violations = []
+
+        for policy in POSTHOG_POLICIES:
+            # Check each operation
+            for op in migration.operations:
+                violations.extend(policy.check_operation(op))
+
+            # Check migration-level policies
+            violations.extend(policy.check_migration(migration))
+
+        return violations
