@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from rest_framework import status
 
+from posthog.schema import NamedQueryLastExecutionTimesRequest
+
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.named_query import NamedQuery
 from posthog.models.team import Team
@@ -580,7 +582,7 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_last_execution_times_empty_names(self):
         """Test getting last execution times with empty names list."""
-        data = {"names": []}
+        data = NamedQueryLastExecutionTimesRequest(names=[]).model_dump()
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/named_query/last_execution_times/", data, format="json"
