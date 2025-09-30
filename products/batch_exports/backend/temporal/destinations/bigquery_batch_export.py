@@ -784,7 +784,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> BatchEx
                 update_key = ["end_timestamp"]
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
+        attempt = activity.info().attempt
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
         with bigquery_client(inputs) as bq_client:
             async with bq_client.managed_table(
@@ -1069,7 +1070,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         merge_settings = _get_merge_settings(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
+        attempt = activity.info().attempt
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
         with bigquery_client(inputs) as bq_client:
             async with bq_client.managed_table(
@@ -1173,7 +1175,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
                     maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
         except OverBillingLimitError:

@@ -1,10 +1,11 @@
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -24,6 +25,7 @@ export function WebVitals(props: {
     query: WebVitalsQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `WebVitals.${uniqueNode++}`)
@@ -36,6 +38,8 @@ export function WebVitals(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
+
+    useAttachedLogic(logic, props.attachTo)
 
     const { webVitalsPercentile, webVitalsTab, webVitalsMetricQuery } = useValues(webAnalyticsLogic)
     const { setWebVitalsTab } = useActions(webAnalyticsLogic)

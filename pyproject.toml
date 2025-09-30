@@ -14,6 +14,7 @@ dependencies = [
     "brotli==1.1.0",
     "celery==5.3.4",
     "celery-redbeat==2.1.1",
+    "certifi==2025.8.3",
     "clickhouse-connect==0.8.17",
     "clickhouse-driver==0.2.9",
     "clickhouse-pool==0.5.3",
@@ -164,6 +165,10 @@ dependencies = [
     "pydantic-avro>=0.9.0",
     "playwright>=1.54.0",
     "linkedin-api-client>=0.3.0",
+    "aiobotocore>=2.7.0",
+    "runloop-api-client>=0.60.0",
+    "databricks-sql-connector~=4.1.2",
+    "databricks-sdk~=0.66.0",
 ]
 
 [dependency-groups]
@@ -176,6 +181,7 @@ dev = [
     "braintrust-langchain==0.0.4",
     "dagster-dg-cli>=1.10.18",
     "datamodel-code-generator==0.28.5",
+    "debugpy>=1.8.0",
     "deepdiff>=8.5.0",
     "django-linear-migrations==2.16.*",
     "django-stubs~=5.1.3",
@@ -216,6 +222,7 @@ dev = [
     "syrupy~=4.9.1",
     "tach~=0.20.0",
     "types-aioboto3[s3]>=14.3.0",
+    "types-aiobotocore>=2.22.0",
     "types-boto3[essential]==1.37.6",
     "types-freezegun==1.1.10",
     "types-markdown==3.3.9",

@@ -561,8 +561,11 @@ class SessionRecordingViewSet(
                         e, distinct_id=user_distinct_id or "unknown", properties={"while": "setting tracing attributes"}
                     )
 
+                # we don't want to pass add_events_to_property_queries into the model validation
+                params = request.GET.dict()
+                allow_event_property_expansion = params.pop("add_events_to_property_queries", "0") == "1"
                 with tracer.start_as_current_span("convert_filters"):
-                    query = filter_from_params_to_query(request.GET.dict())
+                    query = filter_from_params_to_query(params)
 
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
@@ -571,7 +574,12 @@ class SessionRecordingViewSet(
 
                 self._maybe_report_recording_list_filters_changed(request, team=self.team)
                 with tracer.start_as_current_span("query_for_recordings"):
-                    query_results = list_recordings_from_query(query, cast(User, request.user), team=self.team)
+                    query_results = list_recordings_from_query(
+                        query,
+                        cast(User, request.user),
+                        team=self.team,
+                        allow_event_property_expansion=allow_event_property_expansion,
+                    )
 
                 with tracer.start_as_current_span("make_response"):
                     response = list_recordings_response(
@@ -592,9 +600,13 @@ class SessionRecordingViewSet(
             posthoganalytics.capture_exception(
                 e,
                 distinct_id=user_distinct_id,
-                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
+                properties={
+                    "replay_feature": "listing_recordings",
+                    "unfiltered_query": request.GET.dict(),
+                    "error_should_alert": True,
+                },
             )
-            return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
+            return Response({"error": "An internal server error occurred. Please try again later."}, status=500)
 
     @extend_schema(
         exclude=True,
@@ -1483,51 +1495,10 @@ class SessionRecordingViewSet(
 
         return Response(response_data)
 
-    @extend_schema(
-        exclude=True,
-        description="Find recordings with similar event sequences to the given recording. This is in development and likely to change, you should not depend on this API.",
-    )
-    @action(methods=["GET"], detail=True, url_path="analyze/similar")
-    def similar_recordings(self, request: request.Request, **kwargs) -> Response:
-        """Find recordings with similar event sequences to the given recording."""
-        timer = ServerTimingsGathered()
-        tag_queries(product=Product.REPLAY)
-        recording = self.get_object()
-
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
-
-        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
-            raise exceptions.NotFound("Recording not found")
-
-        # Find recordings with similar event sequences using ClickHouse
-        with timer("get_similar_recordings"):
-            similar_recordings = SessionReplayEvents().get_similar_recordings(
-                session_id=str(recording.session_id), team=self.team, limit=10, similarity_range=0.9
-            )
-
-        recordings = []
-        recording_ids = []
-        for rec in similar_recordings:
-            recording_instance = SessionRecording.get_or_build(session_id=rec["session_id"], team=self.team)
-            recordings.append(recording_instance)
-            recording_ids.append(recording_instance.session_id)
-
-        # Filter out recordings that have been viewed by the current user
-        with timer("filter_viewed_recordings"):
-            viewed_recordings = current_user_viewed(recording_ids, cast(User, request.user), self.team)
-            unviewed_recordings = [rec for rec in recordings if rec.session_id not in viewed_recordings]
-
-        response = Response(
-            {"count": len(unviewed_recordings), "results": [rec.session_id for rec in unviewed_recordings]}
-        )
-        response.headers["Server-Timing"] = timer.to_header_string()
-        return response
-
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
-    query: RecordingsQuery, user: User | None, team: Team
+    query: RecordingsQuery, user: User | None, team: Team, allow_event_property_expansion: bool = False
 ) -> tuple[list[SessionRecording], bool, str]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
@@ -1574,6 +1545,7 @@ def list_recordings_from_query(
                 query=query,
                 team=team,
                 hogql_query_modifiers=None,
+                allow_event_property_expansion=allow_event_property_expansion,
             ).run()
 
         with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):

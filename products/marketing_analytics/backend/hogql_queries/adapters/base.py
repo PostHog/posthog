@@ -55,6 +55,24 @@ class LinkedinAdsConfig(BaseMarketingConfig):
 
 
 @dataclass
+class RedditAdsConfig(BaseMarketingConfig):
+    """Configuration for Reddit Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+    source_id: str
+
+
+@dataclass
+class MetaAdsConfig(BaseMarketingConfig):
+    """Configuration for Meta Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+    source_id: str
+
+
+@dataclass
 class ValidationResult:
     """Result of source validation"""
 

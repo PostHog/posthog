@@ -1,49 +1,55 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconSearch, IconSidePanel } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+
+import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
+import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Link } from 'lib/lemon-ui/Link'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
+import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
-import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { maxLogic } from 'scenes/max/maxLogic'
+import { NEW_TAB_CATEGORY_ITEMS, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { SidePanelTab } from '~/types'
 
 export const scene: SceneExport = {
     component: NewTabScene,
     logic: newTabSceneLogic,
 }
 
-const generateHash = (string: string): number => {
-    let hash = 0
-    for (const char of string) {
-        hash = (hash << 5) - hash + char.charCodeAt(0)
-        hash |= 0 // Convert to 32bit integer
+const getCategoryDisplayName = (category: string): string => {
+    const displayNames: Record<string, string> = {
+        'create-new': 'Create new',
+        apps: 'Apps',
+        'data-management': 'Data management',
+        recents: 'Recents',
     }
-    return Math.abs(hash)
+    return displayNames[category] || category
 }
 
-export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    const { filteredItemsGrid, search, selectedItem, focused } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch, selectNext, selectPrevious, onFocus, onBlur, onSubmit } = useActions(newTabSceneLogic({ tabId }))
-
-    // pastel palette (cycle through)
-    const swatches = [
-        'bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-sky-100',
-        'bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-100',
-        'bg-violet-500/10 text-violet-700 dark:bg-violet-500/20 dark:text-violet-100',
-        'bg-amber-500/10 text-amber-700 dark:bg-amber-500/20 dark:text-amber-100',
-        'bg-pink-500/10 text-pink-700 dark:bg-pink-500/20 dark:text-pink-100',
-        'bg-stone-500/10 text-stone-700 dark:bg-stone-500/20 dark:text-stone-100',
-    ]
-    const darkSwatches = [
-        'bg-sky-800/80 text-sky-300 dark:bg-sky-300/80 dark:text-sky-700',
-        'bg-emerald-800/80 text-emerald-300 dark:bg-emerald-300/80 dark:text-emerald-700',
-        'bg-violet-800/80 text-violet-300 dark:bg-violet-300/80 dark:text-violet-700',
-        'bg-amber-800/80 text-amber-300 dark:bg-amber-300/80 dark:text-amber-700',
-        'bg-pink-800/80 text-pink-300 dark:bg-pink-300/80 dark:text-pink-700',
-        'bg-stone-800/80 text-stone-300 dark:bg-stone-300/80 dark:text-stone-700',
-    ]
+export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
+    const inputRef = useRef<HTMLInputElement>(null)
+    const listboxRef = useRef<ListBoxHandle>(null)
+    const { filteredItemsGrid, search, selectedItem, categories, selectedCategory, isSearching } = useValues(
+        newTabSceneLogic({ tabId })
+    )
+    const { mobileLayout } = useValues(navigationLogic)
+    const { setQuestion, focusInput } = useActions(maxLogic)
+    const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { showSceneDashboardChoiceModal } = useActions(
+        sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
+    )
 
     // scroll it to view
     useEffect(() => {
@@ -54,91 +60,216 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     }, [selectedItem])
 
     return (
-        <div className="w-full py-24">
-            <div className="flex gap-2 max-w-[800px] px-8 m-auto mt-2 mb-12">
-                <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            onSubmit()
-                        }
-                        if (e.key === 'Tab') {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            if (e.shiftKey) {
-                                selectPrevious()
-                            } else {
-                                selectNext()
-                            }
-                        }
-                    }}
-                    onFocus={onFocus}
-                    onBlur={onBlur}
-                    autoFocus
-                    placeholder="Type to filter, then press ENTER to run and (shift+)tab to move."
-                    className="flex-1 px-4 py-3 rounded-lg border border-border dark:border-border-dark bg-white dark:bg-gray-900 text-primary dark:text-primary-dark text-base focus:ring-2 focus:ring-red dark:focus:ring-yellow focus:border-transparent transition-all"
-                />
-                <LemonButton
-                    type="primary"
-                    disabledReason={
-                        !search.trim()
-                            ? 'Please write a filter'
-                            : Object.keys(filteredItemsGrid).length === 0
-                              ? 'No results'
-                              : ''
-                    }
-                    onClick={onSubmit}
-                >
-                    Take me there
-                </LemonButton>
-            </div>
-
-            {filteredItemsGrid.map(({ category, types }) => (
-                <div className="w-full overflow-auto p-4 px-12 max-w-[880px] m-auto" key={category}>
-                    <div className="px-2 py-8 text-center">
-                        {search ? <SearchHighlightMultiple string={category} substring={search} /> : category}
-                    </div>
-                    <div
-                        className="grid gap-12"
-                        style={{
-                            gridTemplateColumns: 'repeat(auto-fit, minmax(7rem, 1fr))',
-                        }}
-                    >
-                        {types.map((qt) => (
-                            <div key={qt.name} className="text-center m-auto">
-                                <Link
-                                    to={qt.href}
-                                    className={cn(
-                                        'group flex flex-col items-center text-center cursor-pointer select-none focus:outline-none',
-                                        focused && selectedItem?.type === qt ? 'underline selected-new-tab-item' : ''
-                                    )}
-                                >
-                                    <div
-                                        className={`flex items-center justify-center w-16 h-16 rounded-xl shadow-sm group-hover:shadow-md transition ${
-                                            focused && selectedItem?.type === qt
-                                                ? darkSwatches[generateHash(qt.name) % darkSwatches.length]
-                                                : swatches[generateHash(qt.name) % swatches.length]
-                                        }`}
+        <ListBox
+            ref={listboxRef}
+            className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
+            virtualFocus
+            autoSelectFirst
+        >
+            <div className="flex flex-col gap-4">
+                <div className="px-1 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
+                    <ListBox.Item asChild virtualFocusIgnore>
+                        <LemonInput
+                            inputRef={inputRef}
+                            value={search}
+                            onChange={(value) => setSearch(value)}
+                            prefix={<IconSearch />}
+                            className="w-full"
+                            placeholder="Search..."
+                            autoFocus
+                            allowClear
+                        />
+                    </ListBox.Item>
+                    <div className="mx-1.5">
+                        <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
+                            <span>
+                                <span className="text-tertiary">Try:</span>
+                                <ListBox.Item asChild>
+                                    <ButtonPrimitive
+                                        size="xxs"
+                                        className="text-xs"
+                                        onClick={() => setSearch('New SQL query')}
                                     >
-                                        <span className="text-2xl font-semibold">{qt.icon ?? qt.name[0]}</span>
-                                    </div>
-                                    <span className="mt-2 w-full text-xs font-medium truncate px-1 text-primary">
-                                        {search ? (
-                                            <SearchHighlightMultiple string={qt.name} substring={search} />
-                                        ) : (
-                                            qt.name
-                                        )}
-                                    </span>
-                                </Link>
-                            </div>
-                        ))}
+                                        New SQL query
+                                    </ButtonPrimitive>
+                                </ListBox.Item>
+                                <span className="text-tertiary">or</span>
+                                <ListBox.Item asChild>
+                                    <ButtonPrimitive
+                                        size="xxs"
+                                        className="text-xs"
+                                        onClick={() => setSearch('Experiment')}
+                                    >
+                                        Experiment
+                                    </ButtonPrimitive>
+                                </ListBox.Item>
+                            </span>
+                            <span className="text-primary flex gap-1 items-center">
+                                {/* if filtered results lenght is 0, this will be the first to focus */}
+                                <ListBox.Item asChild focusFirst={filteredItemsGrid.length === 0}>
+                                    <ButtonPrimitive
+                                        size="xxs"
+                                        onClick={() => {
+                                            openSidePanel(SidePanelTab.Max)
+                                            setSearch('')
+                                            setQuestion(search)
+                                            focusInput()
+                                        }}
+                                        className="text-xs"
+                                        tooltip="Hit enter to open Max!"
+                                    >
+                                        Ask Max!
+                                        <IconSidePanel />
+                                    </ButtonPrimitive>
+                                </ListBox.Item>
+                            </span>
+                        </div>
                     </div>
                 </div>
-            ))}
-        </div>
+                <TabsPrimitive
+                    value={selectedCategory}
+                    onValueChange={(value) => setSelectedCategory(value as NEW_TAB_CATEGORY_ITEMS)}
+                >
+                    <TabsPrimitiveList className="border-b">
+                        <div className="max-w-[1200px] mx-auto w-full px-1 @lg/main-content:px-8 flex">
+                            {categories.map((category) => (
+                                <TabsPrimitiveTrigger
+                                    value={category.key}
+                                    className="px-2 py-1 cursor-pointer"
+                                    key={category.key}
+                                    onClick={() => {
+                                        if (!mobileLayout) {
+                                            // If not mobile, we want to re-focus the input if we trigger the tabs (which filter)
+                                            inputRef.current?.focus()
+                                            // Reset listbox focus on first item
+                                            listboxRef.current?.focusFirstItem()
+                                        }
+                                    }}
+                                >
+                                    {category.label}
+                                </TabsPrimitiveTrigger>
+                            ))}
+                            {source === 'homepage' ? (
+                                <>
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="small"
+                                        data-attr="project-home-customize-homepage"
+                                        className="ml-auto"
+                                        onClick={showSceneDashboardChoiceModal}
+                                    >
+                                        Customize homepage
+                                    </LemonButton>
+                                    <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
+                                </>
+                            ) : null}
+                        </div>
+                    </TabsPrimitiveList>
+                </TabsPrimitive>
+            </div>
+
+            <ScrollableShadows
+                direction="vertical"
+                className="flex flex-col gap-4 overflow-auto h-full"
+                innerClassName="pt-6"
+                styledScrollbars
+            >
+                <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-3 @lg/main-content:px-8">
+                    {filteredItemsGrid.length === 0 ? (
+                        <div className="flex flex-col gap-4">
+                            {selectedCategory === 'recents' ? (
+                                <div className="flex flex-col gap-2 text-center py-8">
+                                    <h3 className="text-lg font-medium text-muted">Search for project items</h3>
+                                    <p className="text-muted">
+                                        Try searching for cohorts, actions, experiments, dashboards, and more...
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="flex gap-1 items-center">
+                                    No results found,{' '}
+                                    <ListBox.Item asChild className="list-none">
+                                        <ButtonPrimitive size="sm" onClick={() => setSearch('')}>
+                                            Clear search
+                                        </ButtonPrimitive>{' '}
+                                    </ListBox.Item>
+                                    or{' '}
+                                    <ListBox.Item asChild>
+                                        <ButtonPrimitive size="sm" onClick={() => openSidePanel(SidePanelTab.Max)}>
+                                            Ask Max!
+                                        </ButtonPrimitive>
+                                    </ListBox.Item>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4 group/colorful-product-icons colorful-product-icons-true">
+                            {filteredItemsGrid.map(({ category, types }, columnIndex) => (
+                                <div
+                                    className={cn('mb-8', {
+                                        'col-span-4': selectedCategory !== 'all',
+                                    })}
+                                    key={category}
+                                >
+                                    <div className="mb-4">
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="mb-0 text-lg font-medium text-muted">
+                                                {search ? (
+                                                    <SearchHighlightMultiple
+                                                        string={getCategoryDisplayName(category)}
+                                                        substring={search}
+                                                    />
+                                                ) : (
+                                                    getCategoryDisplayName(category)
+                                                )}
+                                            </h3>
+                                            {category === 'recents' && isSearching && <Spinner size="small" />}
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col gap-2">
+                                        {category === 'recents' && types.length === 0 ? (
+                                            // Special handling for empty project items
+                                            <div className="flex flex-col gap-2 text-tertiary text-balance">
+                                                {isSearching ? 'Searching...' : 'No results found'}
+                                            </div>
+                                        ) : (
+                                            types.map((qt, index) => (
+                                                // If we have filtered results set virtual focus to first item
+                                                <ListBox.Item
+                                                    key={index}
+                                                    asChild
+                                                    focusFirst={filteredItemsGrid.length > 0 && index === 0}
+                                                    row={index}
+                                                    column={columnIndex}
+                                                >
+                                                    <Link
+                                                        to={qt.href}
+                                                        className={cn('w-full @sm/main-content:w-auto')}
+                                                        buttonProps={{
+                                                            size: 'base',
+                                                        }}
+                                                    >
+                                                        <span className="text-sm">{qt.icon ?? qt.name[0]}</span>
+                                                        <span className="text-sm truncate text-primary">
+                                                            {search ? (
+                                                                <SearchHighlightMultiple
+                                                                    string={qt.name}
+                                                                    substring={search}
+                                                                />
+                                                            ) : (
+                                                                qt.name
+                                                            )}
+                                                        </span>
+                                                    </Link>
+                                                </ListBox.Item>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </ScrollableShadows>
+        </ListBox>
     )
 }

@@ -1,6 +1,6 @@
 import { BreakPointFunction, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
@@ -15,6 +15,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import {
     UnexpectedNeverError,
     getDefaultInterval,
@@ -595,6 +597,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         key: Scene.WebAnalytics,
                         name: `Web analytics`,
                         path: urls.webAnalytics(),
+                        iconType: 'web_analytics',
                     },
                 ]
             },
@@ -2195,7 +2198,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         actions.loadShouldShowGeoIPQueries()
     }),
 
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const stateToUrl = (): string => {
             const searchParams = { ...router.values.searchParams }
             const urlParams = new URLSearchParams(searchParams)
@@ -2317,7 +2320,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         const toAction = (
             { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {

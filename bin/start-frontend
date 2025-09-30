@@ -9,4 +9,4 @@ set -e
 export DEBUG=0
 
 pnpm --filter=@posthog/frontend... install
-bin/turbo --filter=@posthog/frontend start
+bin/turbo --filter=@posthog/frontend start-vite

@@ -19,6 +19,7 @@ import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
+import { isOkResult } from '../../src/ingestion/pipelines/results'
 import { ClickHouseEvent, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
@@ -110,9 +111,11 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
-        const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
+        const runner = new EventPipelineRunner(hub, pluginEvent, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(pluginEvent, team)
-        await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
+        if (isOkResult(res)) {
+            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.value.ackPromises ?? [])
+        }
         await groupStoreForBatch.flush()
     }
 
@@ -219,9 +222,11 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
-        const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
+        const runner = new EventPipelineRunner(hub, event, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(event, team)
-        await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
+        if (isOkResult(res)) {
+            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.value.ackPromises ?? [])
+        }
         await groupStoreForBatch.flush()
     }
 

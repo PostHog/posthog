@@ -35,7 +35,7 @@ export const messageChannelLogic = kea<messageChannelLogicType>([
             ({ integration }): boolean => {
                 switch (integration?.kind) {
                     case 'email':
-                        return integration.config.mailjet_verified === true
+                        return integration.config.verified === true
                     default:
                         return true
                 }

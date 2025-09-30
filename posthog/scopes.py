@@ -29,6 +29,7 @@ APIScopeObject = Literal[
     "hog_function",
     "insight",
     "link",
+    "named_query",
     "notebook",
     "organization",
     "organization_member",
@@ -38,6 +39,7 @@ APIScopeObject = Literal[
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints
+    "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
@@ -48,7 +50,8 @@ APIScopeObject = Literal[
     "webhook",
     "warehouse_view",
     "warehouse_table",
-    "logs",  # logs product
+    "logs",  # logs product,
+    "task",
 ]
 
 APIScopeActions = Literal[

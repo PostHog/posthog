@@ -1,6 +1,8 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -104,6 +106,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setMRRMode: (mrrMode: MRRMode) => ({ mrrMode }),
         setInsightsDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setTopCustomersDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
+        setBreakdownProperties: (breakdownProperties: RevenueAnalyticsBreakdown[]) => ({ breakdownProperties }),
         addBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
         removeBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
     }),
@@ -142,6 +145,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 removeBreakdown: (state, { breakdown }) => {
                     return state.filter((b) => b.property !== breakdown.property || b.type !== breakdown.type)
                 },
+                setBreakdownProperties: (_, { breakdownProperties }) => breakdownProperties,
             },
         ],
         mrrMode: [
@@ -182,6 +186,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                     key: 'RevenueAnalytics',
                     name: 'Revenue analytics',
                     path: urls.revenueAnalytics(),
+                    iconType: 'revenue_analytics',
                 },
             ],
         ],
@@ -276,13 +281,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             },
         ],
     }),
-    actionToUrl(() => ({
+    tabAwareActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }): string =>
             setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
         setRevenueAnalyticsFilters: ({ revenueAnalyticsFilters }): string =>
             setQueryParams({ filters: JSON.stringify(revenueAnalyticsFilters) }),
     })),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.revenueAnalytics()]: (_, { filters, date_from, date_to }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||
