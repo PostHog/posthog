@@ -24,6 +24,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.delete_recordings.metrics import get_block_deleted_counter, get_block_loaded_counter
 from posthog.temporal.delete_recordings.types import (
     DeleteRecordingBlocksInput,
     DeleteRecordingError,
@@ -88,6 +89,7 @@ async def load_recording_blocks(input: RecordingInput) -> list[RecordingBlock]:
         blocks: list[RecordingBlock] = build_block_list(input.session_id, input.team_id, block_listing)
 
         logger.info(f"Successfully loaded {len(blocks)} blocks")
+        get_block_loaded_counter().add(len(blocks))
         return blocks
 
 
@@ -100,8 +102,12 @@ async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
         logger = LOGGER.bind()
         logger.info("Deleting recording blocks")
         async with session_recording_v2_object_storage.async_client() as storage:
+            block_deleted_counter = get_block_deleted_counter()
+
             for block in input.blocks:
                 await storage.delete_block(block.url)
+                block_deleted_counter.add(1)
+
         logger.info(f"Successfully deleted {len(input.blocks)} blocks")
 
 

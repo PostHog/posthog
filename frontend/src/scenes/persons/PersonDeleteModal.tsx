@@ -36,12 +36,14 @@ export function PersonDeleteModal(): JSX.Element | null {
                         checked={alsoDeleteEvents}
                         className="mt-3"
                         label="Also delete all corresponding events."
+                        data-attr="delete-person-with-events"
                     />
                     <LemonCheckbox
                         onChange={setAlsoDeleteRecordings}
                         checked={alsoDeleteRecordings}
                         className="mt-3"
                         label="Also delete all corresponding recordings."
+                        data-attr="delete-person-with-recordings"
                     />
                 </div>
                 {(alsoDeleteEvents || alsoDeleteRecordings) && (
@@ -74,7 +76,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                 )}
             </div>
             <div className="flex justify-end gap-2 mt-4">
-                <LemonButton type="secondary" onClick={handleClose}>
+                <LemonButton type="secondary" onClick={handleClose} data-attr="delete-person-cancel">
                     Cancel
                 </LemonButton>
                 <LemonButton
@@ -88,6 +90,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                     onClick={() =>
                         deletePerson(personDeleteModal as PersonType, alsoDeleteEvents, alsoDeleteRecordings)
                     }
+                    data-attr="delete-person"
                 >
                     Delete person
                 </LemonButton>
