@@ -191,7 +191,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Database' ? 'Close database' : 'Open database',
+            tooltip:
+                isLayoutPanelVisible && activePanelIdentifier === 'Database'
+                    ? 'Close data warehouse'
+                    : 'Open data warehouse',
             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
         },
         {
