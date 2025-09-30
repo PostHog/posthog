@@ -21,15 +21,13 @@ describe('LLM Analytics utils', () => {
         const message = {
             role: 'assistant',
         }
-        // When no defaultRole is provided, it defaults to 'user'
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'user',
                 content: JSON.stringify(message),
             },
         ])
 
-        // When 'assistant' is provided as defaultRole, it uses that
         expect(normalizeMessage(message, 'assistant')).toEqual([
             {
                 role: 'assistant',
@@ -104,15 +102,13 @@ describe('LLM Analytics utils', () => {
     })
 
     it('normalizeOutputMessage: parses a string message', () => {
-        // When no defaultRole is provided, it defaults to 'user'
-        expect(normalizeMessage('foo')).toEqual([
+        expect(normalizeMessage('foo', 'user')).toEqual([
             {
                 role: 'user',
                 content: 'foo',
             },
         ])
 
-        // When 'assistant' is provided as defaultRole, it uses that
         expect(normalizeMessage('foo', 'assistant')).toEqual([
             {
                 role: 'assistant',
@@ -208,7 +204,7 @@ describe('LLM Analytics utils', () => {
             ],
         }
 
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'user',
                 content: 'foo',
@@ -231,7 +227,7 @@ describe('LLM Analytics utils', () => {
                 },
             ],
         }
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'user',
                 content: 'foo',
@@ -601,6 +597,47 @@ describe('LLM Analytics utils', () => {
                 const result = normalizeMessages(emptyResponse, 'assistant')
 
                 expect(result).toHaveLength(0)
+            })
+        })
+
+        describe('Role normalization', () => {
+            it('should preserve system role in array-based content', () => {
+                const systemMessage = {
+                    role: 'system',
+                    content: [{ type: 'text', text: 'You are a helpful assistant.' }],
+                }
+
+                const result = normalizeMessage(systemMessage)
+
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('system')
+                expect(result[0].content).toEqual([{ type: 'text', text: 'You are a helpful assistant.' }])
+            })
+
+            it('should preserve system role in string content', () => {
+                const systemMessage = {
+                    role: 'system',
+                    content: 'You are a helpful assistant.',
+                }
+
+                const result = normalizeMessage(systemMessage)
+
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('system')
+                expect(result[0].content).toBe('You are a helpful assistant.')
+            })
+
+            it('should map known provider roles', () => {
+                const humanMessage = {
+                    role: 'human',
+                    content: 'Hello',
+                }
+
+                const result = normalizeMessage(humanMessage)
+
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('user')
+                expect(result[0].content).toBe('Hello')
             })
         })
     })
