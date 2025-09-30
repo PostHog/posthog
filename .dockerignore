@@ -6,6 +6,10 @@
 !common/esbuilder
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
+!common/storybook/.storybook
+!common/storybook/babel.config.js
+!common/storybook/webpack.config.js
+!common/storybook/package.json
 !common/tailwind
 !dags
 !ee
