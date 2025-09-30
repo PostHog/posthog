@@ -480,7 +480,10 @@ def _recalculate_cohortpeople_for_team_hogql(
         result, query_stats = run_cohort_query(execute_query)
 
         history.finished_at = timezone.now()
-        history.count = result
+        if isinstance(result, list) and len(result) == 0:
+            history.count = 0
+        else:
+            history.count = result
 
         history.add_query_info(
             query=recalculate_cohortpeople_sql,
@@ -492,7 +495,7 @@ def _recalculate_cohortpeople_for_team_hogql(
         )
 
         history.save(update_fields=["finished_at", "count", "queries"])
-        return result
+        return history.count
 
     except Exception as e:
         history.finished_at = timezone.now()
