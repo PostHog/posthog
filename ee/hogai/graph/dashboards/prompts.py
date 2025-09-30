@@ -17,7 +17,7 @@ DASHBOARD_EDIT_SUCCESS_MESSAGE_TEMPLATE = """
 **Dashboard Edited**
 
 The dashboard [{dashboard_name}]({dashboard_url}) was edited successfully.
-The dashboard now has {insight_count} new insight{insight_plural} added to it.
+The dashboard now has {insight_count} insight{insight_plural} added to it.
 
 **Added insights**
 {insights_list}

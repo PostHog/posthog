@@ -295,7 +295,9 @@ class DashboardCreationNode(AssistantNode):
 
             # Add insights to the dashboard via DashboardTile
             all_insights = list(Insight.objects.filter(id__in=insights, team=self._team))
-            current_insight_ids = list(dashboard.insights.all().values_list("id", flat=True)) if dashboard_id else []
+            current_insight_ids = (
+                list(dashboard.insights.all().values_list("id", flat=True)) if dashboard_id is not None else []
+            )
             tiles_to_create = [
                 DashboardTile(
                     dashboard=dashboard,
