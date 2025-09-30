@@ -13,7 +13,7 @@ import {
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
@@ -28,9 +28,7 @@ export function SessionReplayMenuItems({
     MenuSeparator = DropdownMenuSeparator,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
-    const { savedFilters, savedFiltersLoading } = useValues(
-        savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    )
+    const { savedFilters, savedFiltersLoading } = useValues(sessionRecordingSavedFiltersLogic({ tab: ReplayTabs.Home }))
     const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLElement>): void {

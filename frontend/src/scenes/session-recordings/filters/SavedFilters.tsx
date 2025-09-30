@@ -28,8 +28,8 @@ import {
     SessionRecordingPlaylistType,
 } from '~/types'
 
+import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
-import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { SavedFiltersEmptyState, SavedFiltersLoadingState } from './SavedFiltersStates'
 
 export function isPlaylistRecordingsCounts(x: unknown): x is PlaylistRecordingsCounts {
@@ -121,17 +121,16 @@ export function SavedFilters({
 }: {
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
-    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    const { savedFilters, paginationSavedFilters, savedFiltersSearch, savedFiltersLoading } =
-        useValues(savedFiltersLogic)
-    const { deletePlaylist, setSavedFiltersSearch, setAppliedSavedFilter } = useActions(savedFiltersLogic)
+    const savedFiltersLogic = sessionRecordingSavedFiltersLogic({ tab: ReplayTabs.Home })
+    const { filters, savedFilters, paginationSavedFilters, savedFiltersLoading } = useValues(savedFiltersLogic)
+    const { deletePlaylist, setSavedPlaylistsFilters, setAppliedSavedFilter } = useActions(savedFiltersLogic)
     const { setActiveFilterTab } = useActions(playlistLogic)
 
-    if (savedFiltersLoading && !savedFiltersSearch) {
+    if (savedFiltersLoading && !filters.search) {
         return <SavedFiltersLoadingState />
     }
 
-    if (savedFilters.results?.length === 0 && !savedFiltersSearch) {
+    if (savedFilters.results?.length === 0 && !filters.search) {
         return <SavedFiltersEmptyState />
     }
 
@@ -140,7 +139,9 @@ export function SavedFilters({
             title: 'Name',
             dataIndex: 'name',
             render: function Render(name, { short_id, derived_name }) {
-                const filter = savedFilters.results.find((filter) => filter.short_id === short_id)
+                const filter = savedFilters.results.find(
+                    (filter: SessionRecordingPlaylistType) => filter.short_id === short_id
+                )
                 return (
                     <>
                         <div
@@ -219,8 +220,8 @@ export function SavedFilters({
                 className="mb-2"
                 type="search"
                 placeholder="Search for saved filters"
-                onChange={setSavedFiltersSearch}
-                value={savedFiltersSearch}
+                onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
+                value={filters.search || ''}
                 stopPropagation={true}
             />
             <LemonTable

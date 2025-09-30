@@ -4,8 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { PaginatedResponse } from 'lib/api'
-import { dayjs } from 'lib/dayjs'
+import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { objectClean, objectsEqual, toParams } from 'lib/utils'
@@ -13,29 +12,17 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
+import {
+    ReplayTabs,
+    SavedSessionRecordingPlaylistsFilters,
+    SavedSessionRecordingPlaylistsResult,
+    SessionRecordingPlaylistType,
+} from '~/types'
 
 import { createPlaylist, deletePlaylist } from '../playlist/playlistUtils'
 import type { sessionRecordingCollectionsLogicType } from './sessionRecordingCollectionsLogicType'
 
 export const PLAYLISTS_PER_PAGE = 30
-
-export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
-    count: number
-    /** not in the API response */
-    filters?: SavedSessionRecordingPlaylistsFilters | null
-}
-
-export interface SavedSessionRecordingPlaylistsFilters {
-    order: string
-    search: string
-    createdBy: number | 'All users'
-    dateFrom: string | dayjs.Dayjs | undefined | null
-    dateTo: string | dayjs.Dayjs | undefined | null
-    page: number
-    pinned: boolean
-    type?: 'collection' | 'saved_filters'
-}
 
 export const DEFAULT_PLAYLIST_FILTERS = {
     createdBy: 'All users',
