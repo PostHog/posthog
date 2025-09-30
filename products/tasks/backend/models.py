@@ -470,8 +470,10 @@ class SandboxSnapshot(models.Model):
 
     integration = models.ForeignKey(
         Integration,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="snapshots",
+        null=True,
+        blank=True,
     )
 
     external_id = models.CharField(max_length=255, blank=True, help_text="Snapshot ID from external provider.")
