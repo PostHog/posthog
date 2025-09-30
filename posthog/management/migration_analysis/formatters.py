@@ -41,10 +41,7 @@ class ConsoleTreeFormatter(RiskFormatter):
         blocked = [r for r in results if r.level == RiskLevel.BLOCKED]
 
         lines = []
-        lines.append("\n" + "=" * 80)
-        lines.append("Migration Risk Report")
-        lines.append("=" * 80)
-        lines.append(f"\nSummary: {len(safe)} Safe | {len(review)} Needs Review | {len(blocked)} Blocked\n")
+        lines.append(f"**Summary:** {len(safe)} Safe | {len(review)} Needs Review | {len(blocked)} Blocked\n")
 
         if blocked:
             lines.append(self._format_section(RiskLevel.BLOCKED, blocked))
@@ -66,8 +63,8 @@ class ConsoleTreeFormatter(RiskFormatter):
     def _format_section(self, level: RiskLevel, risks: list[MigrationRisk]) -> str:
         """Format a risk level section."""
         lines = []
-        color, icon = self.LEVEL_STYLES[level]
-        lines.append(f"\n{color}{icon} {level.category.upper()}{self.COLOR_RESET}\n")
+        _, icon = self.LEVEL_STYLES[level]
+        lines.append(f"## {icon} {level.category}\n")
 
         for risk in risks:
             lines.append(self.format_migration(risk))
@@ -161,10 +158,7 @@ class ConsoleTreeFormatter(RiskFormatter):
     def _format_guidance(self, guidance_map: dict[str, str]) -> str:
         """Format guidance section."""
         lines = []
-        lines.append("\n" + "=" * 80)
-        lines.append("📚 HOW TO DEPLOY THESE CHANGES SAFELY")
-        lines.append("=" * 80)
-        lines.append("")
+        lines.append("\n## 📚 How to Deploy These Changes Safely\n")
 
         for op_type, guidance in sorted(guidance_map.items()):
             lines.append(f"### {op_type}")
