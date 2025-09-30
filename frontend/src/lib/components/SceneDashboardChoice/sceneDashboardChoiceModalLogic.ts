@@ -80,7 +80,7 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
             // TODO needs to report scene and dashboard
             if (props.scene === Scene.ProjectHomepage) {
                 // TODO be able to save individual or team level home dashboard
-                actions.updateCurrentTeam({ primary_dashboard: dashboardId ?? undefined })
+                actions.updateCurrentTeam({ primary_dashboard: dashboardId ?? null })
                 posthog.capture('primary dashboard changed')
             } else {
                 actions.setUserScenePersonalisation(props.scene, dashboardId ?? 0)
