@@ -817,7 +817,7 @@ export function isExternalLink(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^(https?:|mailto:)/
+    const regexp = /^(https?:|mailto:|\/api\/)/
     return !!input.trim().match(regexp)
 }
 

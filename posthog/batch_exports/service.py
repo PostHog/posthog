@@ -88,6 +88,7 @@ class BaseBatchExportInputs:
         interval: The range of data we are exporting.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
+        integration_id: The ID of the integration that contains the credentials for the destination.
     """
 
     batch_export_id: str
@@ -102,6 +103,7 @@ class BaseBatchExportInputs:
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+    integration_id: int | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
@@ -229,13 +231,13 @@ class BigQueryBatchExportInputs(BaseBatchExportInputs):
 
 @dataclass(kw_only=True)
 class DatabricksBatchExportInputs(BaseBatchExportInputs):
-    """Inputs for Databricks export workflow."""
+    """Inputs for Databricks export workflow.
 
-    server_hostname: str
+    NOTE: we store config related to the Databricks instance in the integration model instead.
+    (including sensitive config such as client ID and client secret)
+    """
+
     http_path: str
-    # TODO - store these in the integration model instead
-    client_id: str
-    client_secret: str
     catalog: str
     schema: str
     table_name: str
@@ -697,6 +699,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     # This assignment should be removed after updating all existing exports to use
                     # `batch_export_model` instead.
                     batch_export_schema=None,
+                    integration_id=batch_export.destination.integration_id,
                     **destination_config,
                 )
             ),

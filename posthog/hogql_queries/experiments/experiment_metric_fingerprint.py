@@ -11,6 +11,7 @@ import hashlib
 from copy import deepcopy
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 METRIC_FIELDS_TO_IGNORE: set[str] = {
     "uuid",
@@ -40,14 +41,16 @@ def compute_metric_fingerprint(
         clean_metric.pop(field, None)
 
     # Convert datetime to ISO string for JSON serialization
-    start_date_str = start_date.isoformat() if isinstance(start_date, datetime) else start_date
+    # Always use UTC to ensure consistent fingerprints regardless of user timezone
+    if isinstance(start_date, datetime):
+        start_date_str = start_date.astimezone(ZoneInfo("UTC")).isoformat()
+    else:
+        start_date_str = start_date
 
     fingerprint_data = {
         "metric": clean_metric,
-        "experiment": {
-            "start_date": start_date_str,
-            "stats_config": stats_config,
-        },
+        "start_date": start_date_str,
+        "stats_config": stats_config,
     }
 
     if exposure_criteria:

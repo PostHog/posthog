@@ -348,7 +348,7 @@ export const personsLogic = kea<personsLogicType>([
             ],
         ],
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
-        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.PERSON_FEED_CANVAS]],
+        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]],
         primaryDistinctId: [
             (s) => [s.person],
             (person): string | null => {

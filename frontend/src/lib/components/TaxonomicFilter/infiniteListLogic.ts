@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
@@ -481,4 +481,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             }
         },
     })),
+
+    beforeUnmount(() => {
+        const mountedInstanceCount = infiniteListLogic.findAllMounted().length
+        if (mountedInstanceCount === 1) {
+            // Clean up global API cache timers to prevent memory leaks
+            Object.values(apiCacheTimers).forEach((timerId) => {
+                window.clearTimeout(timerId)
+            })
+            apiCache = {}
+            apiCacheTimers = {}
+        }
+    }),
 ])
