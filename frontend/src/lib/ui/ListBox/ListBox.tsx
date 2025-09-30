@@ -56,8 +56,8 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
 ) {
     const containerRef = useRef<HTMLDivElement>(null)
     const focusableElements = useRef<HTMLElement[]>([])
-    const rows = useRef<Record<number, HTMLElement[]>>([])
-    const columnHeights = useRef<Record<number, number>>([])
+    const rows = useRef<HTMLElement[][]>([])
+    const columnHeights = useRef<number[]>([])
     const stickyRowRef = useRef<number | null>(null)
     const maxColumnIndexRef = useRef<number>(-1)
     const [virtualFocusedElement, setVirtualFocusedElement] = useState<HTMLElement | null>(null)
