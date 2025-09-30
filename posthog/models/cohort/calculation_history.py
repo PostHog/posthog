@@ -25,7 +25,7 @@ class CohortCalculationHistory(RootTeamMixin, models.Model):
     # ClickHouse query information (stored as array for future chunking support)
     queries = models.JSONField(
         blank=True,
-        default=list,
+        default=None,
         help_text="Array of query information (query, query_id, query_ms, memory_mb, read_rows, written_rows)",
     )
 
