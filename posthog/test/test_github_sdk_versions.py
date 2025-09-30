@@ -3,6 +3,7 @@ Tests for GitHub SDK versions API endpoint.
 Tests server-side caching, error handling, and all supported SDK types.
 """
 
+import re
 import json
 
 from unittest.mock import Mock, patch
@@ -364,8 +365,6 @@ class TestGitHubSDKVersionsHelperFunctions(TestCase):
             # PHP SDK format
             ("3.6.0 / 2025-04-30\n\n3.5.9 / 2025-04-20", r"^(\d+\.\d+\.\d+) /", ["3.6.0", "3.5.9"]),
         ]
-
-        import re
 
         for content, pattern, expected in test_cases:
             matches = re.findall(pattern, content, re.MULTILINE)

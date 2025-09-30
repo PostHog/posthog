@@ -95,7 +95,7 @@ describe('sidePanelSdkDoctorLogic', () => {
 
     describe('Time-Based Detection (Dual Check Logic)', () => {
         it('should mark version as "close enough" when recent but multiple releases behind', async () => {
-            // Test the dual check logic: releasesBehind >= 2 BUT released <48h ago
+            // Test the dual check logic: releasesBehind > 2 BUT released <48h ago
             const mockEvents = mockWebSDKEvents('1.258.0', 'current')
 
             await expectLogic(logic, () => {

@@ -485,9 +485,9 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 <div>
                                     <p className="font-semibold">Feature flag(s) called before any other events</p>
                                     <p className="text-sm mt-1">
-                                        Ooops. It looks you're calling feature flags before any other events have been
-                                        captured in the session. This can cause flags to return incorrect values, make
-                                        experiment results inaccurate, and cause inconsistent user experiences.
+                                        Ooops. It looks like you're calling feature flags before any other events have
+                                        been captured in the session. This can cause flags to return incorrect values,
+                                        make experiment results inaccurate, and cause inconsistent user experiences.
                                     </p>
                                     <p className="text-sm mt-1">
                                         To fix this: Use bootstrapping to make flags available instantly, or use{' '}
