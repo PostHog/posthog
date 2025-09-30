@@ -210,8 +210,8 @@ def get_api_personal_rate_limiter():
         __API_CONCURRENT_QUERY_PER_TEAM = RateLimit(
             max_concurrency=3,
             applicable=__applicable,
-            limit_name="api_per_org",
-            get_task_name=lambda *args, **kwargs: f"api:query:per-org:{kwargs.get('org_id')}",
+            limit_name="api_per_team",
+            get_task_name=lambda *args, **kwargs: f"api:query:per-team:{kwargs.get('team_id')}",
             get_task_id=lambda *args, **kwargs: (
                 current_task.request.id if current_task else (kwargs.get("task_id") or generate_short_id())
             ),
