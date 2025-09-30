@@ -62,6 +62,14 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
                 setAppliedSavedFilter: (_, { appliedSavedFilter }) => appliedSavedFilter,
             },
         ],
+        loadSavedFiltersFailed: [
+            false,
+            {
+                loadSavedFilters: () => false,
+                loadSavedFiltersSuccess: () => false,
+                loadSavedFiltersFailure: () => true,
+            },
+        ],
     })),
     loaders(({ values, actions }) => ({
         savedFilters: {
