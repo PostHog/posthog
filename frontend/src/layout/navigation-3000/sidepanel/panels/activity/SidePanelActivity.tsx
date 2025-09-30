@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconNotification } from '@posthog/icons'
+import { IconList, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOption, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
@@ -13,6 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -20,6 +21,7 @@ import {
     sidePanelActivityLogic,
 } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ActivityScope, AvailableFeature } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
@@ -44,15 +46,17 @@ export const SidePanelActivity = (): JSX.Element => {
         allActivity,
         allActivityResponseLoading,
         allActivityHasNext,
-        filters,
-        filtersForCurrentPage,
+        activeFilters,
+        contextFromPage,
         visibleActivityScopes,
     } = useValues(sidePanelActivityLogic)
-    const { setActiveTab, maybeLoadOlderActivity, setFilters } = useActions(sidePanelActivityLogic)
+    const { setActiveTab, maybeLoadOlderActivity, setActiveFilters } = useActions(sidePanelActivityLogic)
 
     const { hasNotifications, notifications, importantChangesLoading, hasUnread } =
         useValues(sidePanelNotificationsLogic)
     const { markAllAsRead, loadImportantChanges } = useActions(sidePanelNotificationsLogic)
+
+    const { closeSidePanel } = useActions(sidePanelStateLogic)
 
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -80,21 +84,29 @@ export const SidePanelActivity = (): JSX.Element => {
         lastScrollPositionRef.current = e.currentTarget.scrollTop
     }
 
-    const scopeMenuOptions: LemonSelectOption<ActivityScope | null>[] = [
-        { value: null, label: 'All activity' },
-        ...visibleActivityScopes.map((x) => ({
-            value: x,
-            label: humanizeScope(x),
-        })),
-    ]
+    const hasItemContext = Boolean(contextFromPage?.scope && contextFromPage?.item_id)
+    const hasListContext = Boolean(contextFromPage?.scope && !contextFromPage?.item_id)
+    const hasAnyContext = hasItemContext || hasListContext
 
-    const activeScopeMenuOption = filters?.scope ? filters.scope + `${filters.item_id ?? ''}` : null
+    const scopeMenuOptions: LemonSelectOption<ActivityScope | null>[] = hasAnyContext
+        ? []
+        : visibleActivityScopes.map((x) => ({
+              value: x,
+              label: humanizeScope(x),
+          }))
 
-    // Add a special option for the current page context if we have one
-    if (filtersForCurrentPage?.scope && filtersForCurrentPage?.item_id) {
+    const activeScopeMenuOption = activeFilters?.scope ? activeFilters.scope + `${activeFilters.item_id ?? ''}` : null
+
+    // Add the current page context option
+    if (hasItemContext && contextFromPage?.scope) {
         scopeMenuOptions.unshift({
-            value: `${filtersForCurrentPage.scope}${filtersForCurrentPage.item_id ?? ''}` as any,
-            label: `This ${humanizeScope(filtersForCurrentPage.scope, true)}`,
+            value: `${contextFromPage.scope}${contextFromPage.item_id ?? ''}` as any,
+            label: `This ${humanizeScope(contextFromPage.scope, true)}`,
+        })
+    } else if (hasListContext && contextFromPage?.scope) {
+        scopeMenuOptions.unshift({
+            value: `${contextFromPage.scope}` as any,
+            label: `All ${humanizeScope(contextFromPage.scope)}`,
         })
     }
 
@@ -151,35 +163,35 @@ export const SidePanelActivity = (): JSX.Element => {
                                 ) : null}
                             </div>
                         </div>
-                    ) : activeTab === SidePanelActivityTab.All ? (
+                    ) : activeTab === SidePanelActivityTab.All && hasAnyContext ? (
                         <div className="flex items-center justify-between gap-2 px-2 pb-2 deprecated-space-y-2 shrink-0">
                             <div className="flex items-center gap-2">
                                 {allActivityResponseLoading ? <Spinner textColored /> : null}
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <span>Filter for activity on:</span>
+                                <span>Activity on:</span>
                                 <LemonSelect
                                     size="small"
                                     options={scopeMenuOptions}
-                                    placeholder="All activity"
                                     value={(activeScopeMenuOption as ActivityScope) ?? undefined}
                                     onChange={(value) =>
-                                        setFilters({
-                                            ...filters,
+                                        setActiveFilters({
+                                            ...activeFilters,
                                             scope: value ?? undefined,
                                             item_id: undefined,
                                         })
                                     }
+                                    disabledReason=""
                                     dropdownMatchSelectWidth={false}
                                 />
 
                                 <span>by</span>
                                 <MemberSelect
-                                    value={filters?.user ?? null}
+                                    value={activeFilters?.user ?? null}
                                     onChange={(user) =>
-                                        setFilters({
-                                            ...filters,
+                                        setActiveFilters({
+                                            ...activeFilters,
                                             user: user?.id ?? undefined,
                                         })
                                     }
@@ -205,45 +217,80 @@ export const SidePanelActivity = (): JSX.Element => {
                                     )}
                                 </>
                             ) : activeTab === SidePanelActivityTab.All ? (
-                                <>
-                                    {allActivityResponseLoading && !allActivity.length ? (
-                                        <LemonSkeleton className="h-12 my-2" repeat={10} fade />
-                                    ) : allActivity.length ? (
-                                        <>
-                                            {allActivity.map((logItem, index) => (
-                                                <ActivityLogRow logItem={logItem} key={index} />
-                                            ))}
+                                hasAnyContext ? (
+                                    <>
+                                        {allActivityResponseLoading && !allActivity.length ? (
+                                            <LemonSkeleton className="h-12 my-2" repeat={10} fade />
+                                        ) : allActivity.length ? (
+                                            <>
+                                                {allActivity.map((logItem, index) => (
+                                                    <ActivityLogRow logItem={logItem} key={index} />
+                                                ))}
 
-                                            <div className="flex items-center justify-center h-10 gap-2 m-4 text-secondary">
-                                                {allActivityResponseLoading ? (
-                                                    <>
-                                                        <Spinner textColored /> Loading older activity
-                                                    </>
-                                                ) : allActivityHasNext ? (
+                                                <div className="flex items-center justify-center h-10 gap-2 m-4 text-secondary">
+                                                    {allActivityResponseLoading ? (
+                                                        <>
+                                                            <Spinner textColored /> Loading older activity
+                                                        </>
+                                                    ) : allActivityHasNext ? (
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            fullWidth
+                                                            center
+                                                            onClick={() => maybeLoadOlderActivity()}
+                                                        >
+                                                            Load more
+                                                        </LemonButton>
+                                                    ) : (
+                                                        'No more results'
+                                                    )}
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="flex flex-col items-center gap-2 p-6 text-center border border-dashed rounded">
+                                                <span>No activity yet</span>
+                                                {activeFilters?.user ? (
                                                     <LemonButton
                                                         type="secondary"
-                                                        fullWidth
-                                                        center
-                                                        onClick={() => maybeLoadOlderActivity()}
+                                                        onClick={() =>
+                                                            setActiveFilters({
+                                                                ...activeFilters,
+                                                                user: undefined,
+                                                            })
+                                                        }
                                                     >
-                                                        Load more
+                                                        Clear user filter
                                                     </LemonButton>
-                                                ) : (
-                                                    'No more results'
-                                                )}
+                                                ) : null}
                                             </div>
-                                        </>
-                                    ) : (
-                                        <div className="flex flex-col items-center gap-2 p-6 text-center border border-dashed rounded">
-                                            <span>No activity yet</span>
-                                            {filters ? (
-                                                <LemonButton type="secondary" onClick={() => setFilters(null)}>
-                                                    Clear filters
-                                                </LemonButton>
-                                            ) : null}
+                                        )}
+                                    </>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center gap-3 p-6 text-center h-full">
+                                        <IconList className="text-5xl text-muted" />
+                                        <div>
+                                            <div className="font-semibold mb-1">Activity is context-aware</div>
+                                            <div className="text-xs text-muted-alt">
+                                                Navigate to a page like dashboards or a specific dashboard to see
+                                                activity in this panel
+                                            </div>
                                         </div>
-                                    )}
-                                </>
+                                        <div className="flex items-center gap-2 text-xs text-muted-alt">
+                                            <div className="border-t flex-1" />
+                                            <span>or</span>
+                                            <div className="border-t flex-1" />
+                                        </div>
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            to={urls.advancedActivityLogs()}
+                                            data-attr="browse-all-activity-logs"
+                                            onClick={() => closeSidePanel()}
+                                        >
+                                            Browse all activity logs
+                                        </LemonButton>
+                                    </div>
+                                )
                             ) : activeTab === SidePanelActivityTab.Metalytics ? (
                                 <SidePanelActivityMetalytics />
                             ) : activeTab === SidePanelActivityTab.Subscriptions ? (
