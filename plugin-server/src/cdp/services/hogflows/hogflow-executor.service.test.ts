@@ -1018,7 +1018,6 @@ postHogCapture({
                 expect(result.finished).toBe(true)
                 expect(result.error).toBeUndefined()
 
-                // Verify that capturedPostHogEvents are collected (the fix)
                 expect(result.capturedPostHogEvents).toBeDefined()
                 expect(result.capturedPostHogEvents).toHaveLength(1)
                 expect(result.capturedPostHogEvents[0]).toMatchObject({
@@ -1088,8 +1087,6 @@ postHogCapture({
                 expect(result.finished).toBe(true)
                 expect(result.error).toBeUndefined()
 
-                // Should collect events from both functions
-                expect(result.capturedPostHogEvents).toBeDefined()
                 expect(result.capturedPostHogEvents).toHaveLength(2)
                 expect(result.capturedPostHogEvents[0]).toMatchObject({
                     event: 'custom_event',
