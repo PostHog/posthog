@@ -56,6 +56,7 @@ class TracesQueryRunnerV2(AnalyticsQueryRunner[TracesQueryResponse]):
     query: TracesQuery
     cached_response: CachedTracesQueryResponse
     paginator: HogQLHasMorePaginator
+    _trace_ids: list[str] | None = None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -133,12 +134,15 @@ class TracesQueryRunnerV2(AnalyticsQueryRunner[TracesQueryResponse]):
                 **self.paginator.response_params(),
             )
 
+        # Store trace_ids for use in to_query
+        self._trace_ids = trace_ids
+
         # Create a narrowed date range if we have timestamps
         narrowed_date_range = self._create_narrowed_date_range(min_timestamp, max_timestamp)
 
         with self.timings.measure("traces_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
-                query=self.to_query(trace_ids),
+                query=self._to_query_with_trace_ids(trace_ids),
                 placeholders={
                     "filter_conditions": self._get_where_clause(date_range=narrowed_date_range),
                 },
@@ -161,7 +165,17 @@ class TracesQueryRunnerV2(AnalyticsQueryRunner[TracesQueryResponse]):
             **self.paginator.response_params(),
         )
 
-    def to_query(self, trace_ids: list[str]):
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Public method matching the base class signature."""
+        if self._trace_ids is None:
+            # If called before _calculate, run the trace_ids query
+            trace_ids, _, _ = self._get_trace_ids()
+            self._trace_ids = trace_ids if trace_ids else []
+
+        return self._to_query_with_trace_ids(self._trace_ids)
+
+    def _to_query_with_trace_ids(self, trace_ids: list[str]) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Internal method that builds the query with specific trace IDs."""
         # Separate query to build the trace IDs tuple for the IN clause
         # Without using a tuple, the data skipping index is not used
         trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
