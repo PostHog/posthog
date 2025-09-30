@@ -50,7 +50,8 @@ APIScopeObject = Literal[
     "webhook",
     "warehouse_view",
     "warehouse_table",
-    "logs",  # logs product
+    "logs",  # logs product,
+    "task",
 ]
 
 APIScopeActions = Literal[
