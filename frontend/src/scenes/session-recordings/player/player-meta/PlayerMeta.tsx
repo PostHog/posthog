@@ -13,7 +13,6 @@ import { isObject } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
-import { PlayerMetaTopSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     SessionRecordingPlayerMode,
@@ -150,7 +149,7 @@ export function PlayerMeta(): JSX.Element {
         <DraggableToNotebook href={urls.replaySingle(logicProps.sessionRecordingId)} onlyWithModifierKey>
             <div
                 ref={ref}
-                className={clsx('PlayerMeta', {
+                className={clsx('PlayerMeta relative', {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
@@ -183,7 +182,6 @@ export function PlayerMeta(): JSX.Element {
                     {!isCinemaMode && <PlayerMetaLinks size={size} />}
                     <PlayerPersonMeta />
                 </div>
-                {!isCinemaMode && <PlayerMetaTopSettings size={size} />}
             </div>
         </DraggableToNotebook>
     )

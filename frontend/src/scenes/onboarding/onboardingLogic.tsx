@@ -159,11 +159,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                                 ?.breadcrumbsName ??
                             availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.name,
                         path: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.url,
+                        iconType: 'action',
                     },
                     {
                         key: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.scene,
                         name: stepKeyToTitle(stepKey),
                         path: urls.onboarding(productKey ?? '', stepKey),
+                        iconType: 'action',
                     },
                 ]
             },
@@ -316,7 +318,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
 
             if (values.isFirstProductOnboarding && !values.modalMode) {
-                actions.openSidePanel(SidePanelTab.Activation)
+                // Because the side panel opening has its own actionToUrl,
+                // we delay opening it to avoid a race condition with the updateCurrentTeamSuccess redirect
+                setTimeout(() => {
+                    actions.openSidePanel(SidePanelTab.Activation)
+                }, 100)
             }
         },
         skipOnboarding: () => {

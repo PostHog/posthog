@@ -28,6 +28,7 @@ DEFAULT_DISTINCT_ID_FIELD = "distinct_id"
 
 # CTE names
 CAMPAIGN_COST_CTE_NAME = "campaign_costs"
+UNIFIED_CONVERSION_GOALS_CTE_ALIAS = "ucg"
 
 # Prefixes for table names
 CONVERSION_GOAL_PREFIX_ABBREVIATION = "cg_"
@@ -146,7 +147,7 @@ MARKETING_ANALYTICS_SCHEMA = {
 }
 
 # Valid native marketing sources
-VALID_NATIVE_MARKETING_SOURCES = ["GoogleAds", "LinkedinAds"]
+VALID_NATIVE_MARKETING_SOURCES = ["GoogleAds", "LinkedinAds", "RedditAds", "MetaAds"]
 
 # Valid non-native marketing sources (managed external sources like BigQuery)
 VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
@@ -158,6 +159,8 @@ VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", 
 NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
     "GoogleAds": ["campaign", "campaign_stats"],
     "LinkedinAds": ["campaigns", "campaign_stats"],
+    "RedditAds": ["campaigns", "campaign_report"],
+    "MetaAds": ["campaigns", "campaign_stats"],
 }
 
 # Table pattern matching for native sources. TODO: find a better way to get the table names from the source.
@@ -168,6 +171,16 @@ TABLE_PATTERNS = {
         "stats_table_keywords": ["campaign_stats"],
     },
     "LinkedinAds": {
+        "campaign_table_keywords": ["campaigns"],
+        "campaign_table_exclusions": ["stats"],
+        "stats_table_keywords": ["campaign_stats"],
+    },
+    "RedditAds": {
+        "campaign_table_keywords": ["campaigns"],
+        "campaign_table_exclusions": ["report"],
+        "stats_table_keywords": ["campaign_report"],
+    },
+    "MetaAds": {
         "campaign_table_keywords": ["campaigns"],
         "campaign_table_exclusions": ["stats"],
         "stats_table_keywords": ["campaign_stats"],

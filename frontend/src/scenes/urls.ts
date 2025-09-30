@@ -9,6 +9,7 @@ import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, ProductKey
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import type { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
+import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
@@ -46,24 +47,31 @@ export const urls = {
     revenueSettings: (): string => '/data-management/revenue',
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (query?: string, view_id?: string, insightShortId?: string, draftId?: string): string => {
+    sqlEditor: (
+        query?: string,
+        view_id?: string,
+        insightShortId?: string,
+        draftId?: string,
+        outputTab?: OutputTab
+    ): string => {
+        const params = new URLSearchParams()
+
         if (query) {
-            return `/sql?open_query=${encodeURIComponent(query)}`
+            params.set('open_query', query)
+        } else if (view_id) {
+            params.set('open_view', view_id)
+        } else if (insightShortId) {
+            params.set('open_insight', insightShortId)
+        } else if (draftId) {
+            params.set('open_draft', draftId)
         }
 
-        if (view_id) {
-            return `/sql?open_view=${view_id}`
+        if (outputTab) {
+            params.set('output_tab', outputTab)
         }
 
-        if (insightShortId) {
-            return `/sql?open_insight=${insightShortId}`
-        }
-
-        if (draftId) {
-            return `/sql?open_draft=${draftId}`
-        }
-
-        return '/sql'
+        const queryString = params.toString()
+        return `/sql${queryString ? `?${queryString}` : ''}`
     },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
@@ -99,7 +107,7 @@ export const urls = {
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
     organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
         combineUrl(`/organization/billing/${section}`).url,
-    advancedActivityLogs: (): string => '/advanced-activity-logs',
+    advancedActivityLogs: (): string => '/activity-logs',
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',

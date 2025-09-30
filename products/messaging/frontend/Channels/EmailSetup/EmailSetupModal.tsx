@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconCheckCircle, IconCopy, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconCopy, IconQuestion, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonModal, LemonSelect, Spinner, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
@@ -20,6 +21,18 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
         modalContent = (
             <Form logic={emailSetupModalLogic} formKey="emailSender">
                 <div className="space-y-4">
+                    <FlaggedFeature flag="messaging-ses">
+                        {/* NOTE: We probably dont want to actually give the options - this is just for our own testing */}
+                        <LemonField name="provider" label="Provider">
+                            <LemonSelect
+                                options={[
+                                    { value: 'ses', label: 'AWS SES' },
+                                    { value: 'mailjet', label: 'Mailjet' },
+                                    { value: 'maildev', label: 'Maildev' },
+                                ]}
+                            />
+                        </LemonField>
+                    </FlaggedFeature>
                     <LemonField name="name" label="Name">
                         <LemonInput type="text" placeholder="John Doe" disabled={integrationLoading} />
                     </LemonField>
@@ -44,8 +57,8 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
         modalContent = (
             <div className="space-y-2 max-w-[60rem]">
                 <p className="text-sm text-muted">
-                    These DNS records verify ownership of your domain. This ensures your emails are delivered to inboxes
-                    and not marked as spam.
+                    These DNS records are required to verify ownership of your domain. They also ensure your emails are
+                    delivered to inboxes and not marked as spam.
                 </p>
                 <p className="mb-2 font-semibold">Note: It can take up to 48 hours for DNS changes to propagate.</p>
                 <div className="overflow-x-auto">
@@ -97,10 +110,16 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                             <div className="flex gap-1 items-center">
                                                 <IconWarning className="size-6 text-warning" /> Not present
                                             </div>
-                                        ) : (
+                                        ) : record.status === 'success' ? (
                                             <div className="flex gap-1 items-center">
                                                 <IconCheckCircle className="size-6 text-success" /> Verified
                                             </div>
+                                        ) : (
+                                            <Tooltip title="We are unable to verify this record at the moment">
+                                                <div className="flex gap-1 items-center">
+                                                    <IconQuestion className="size-6 text-muted" /> Unknown
+                                                </div>
+                                            </Tooltip>
                                         )}
                                     </td>
                                 </tr>

@@ -25,49 +25,8 @@ export const kafkaBrokerAuthFailures = new Counter({
     labelNames: ['broker_id', 'broker_name', 'consumer_group'],
 })
 
-export const kafkaPartitionFetchErrors = new Counter({
-    name: 'kafka_partition_fetch_errors_total',
-    help: 'Total number of partition fetch errors',
-    labelNames: ['broker_id', 'topic', 'partition', 'fetch_state', 'consumer_group'],
-})
-
 // interfaces pulled from here:
 // https://docs.confluent.io/platform/current/clients/librdkafka/html/md_STATISTICS.html
-export interface PartitionData {
-    topic: string
-    partition: number
-    leader: number
-    desired: boolean
-    unknown: boolean
-    msgq_cnt: number
-    msgq_bytes: number
-    xmit_msgq_cnt: number
-    xmit_msgq_bytes: number
-    fetchq_cnt: number
-    fetchq_size: number
-    fetch_state: string
-    query_offset: number
-    next_offset: number
-    app_offset: number
-    stored_offset: number
-    committed_offset: number
-    eof_offset: number
-    lo_offset: number
-    hi_offset: number
-    ls_offset: number
-    consumer_lag: number
-    consumer_lag_stored: number
-    txmsgs: number
-    txbytes: number
-    rxmsgs: number
-    rxbytes: number
-    msgs: number
-    rx_ver_drops: number
-    msgs_inflight: number
-    next_ack_seq: number
-    next_err_seq: number
-    acked_msgid: number
-}
 
 export interface BrokerStats {
     name: string
@@ -187,35 +146,6 @@ export function parseBrokerStatistics(stats: any): Map<string, BrokerStats> {
     return brokerStats
 }
 
-export function parsePartitionStatistics(
-    stats: any
-): Array<{ topicName: string; partitionId: string; partitionData: PartitionData }> {
-    const partitionStats: Array<{ topicName: string; partitionId: string; partitionData: PartitionData }> = []
-
-    if (!stats.topics) {
-        return partitionStats
-    }
-
-    for (const [topicName, topic] of Object.entries(stats.topics)) {
-        if (typeof topic === 'object' && topic !== null) {
-            const topicData = topic as any
-            if (topicData.partitions) {
-                for (const [partitionId, partition] of Object.entries(topicData.partitions)) {
-                    if (typeof partition === 'object' && partition !== null) {
-                        partitionStats.push({
-                            topicName,
-                            partitionId,
-                            partitionData: partition as PartitionData,
-                        })
-                    }
-                }
-            }
-        }
-    }
-
-    return partitionStats
-}
-
 export function trackBrokerMetrics(
     brokerStats: Map<string, BrokerStats>,
     consumerGroup: string,
@@ -271,18 +201,6 @@ export function trackBrokerMetrics(
             })
         }
 
-        // communication errors
-        if (stats.txerrs > 0 || stats.rxerrs > 0) {
-            logger.warn('Broker communication errors', {
-                ...labels,
-                consumer_id: consumerId,
-                txerrs: stats.txerrs,
-                rxerrs: stats.rxerrs,
-                txretries: stats.txretries,
-                req_timeouts: stats.req_timeouts,
-            })
-        }
-
         // request timeouts
         if (stats.req_timeouts > 0) {
             logger.warn('Broker request timeouts', {
@@ -293,35 +211,5 @@ export function trackBrokerMetrics(
                 waitresp_msg_cnt: stats.waitresp_msg_cnt,
             })
         }
-    }
-}
-
-export function trackPartitionMetrics(
-    topicName: string,
-    partitionId: string,
-    partitionData: PartitionData,
-    consumerGroup: string,
-    consumerId: string
-): void {
-    if (partitionData.fetch_state === 'stopped' || partitionData.fetch_state === 'stopping') {
-        kafkaPartitionFetchErrors.inc({
-            broker_id: String(partitionData.leader),
-            topic: topicName,
-            partition: partitionId,
-            fetch_state: String(partitionData.fetch_state || 'unknown'),
-            consumer_group: consumerGroup,
-        })
-
-        logger.warn('Partition fetching stopped or stopping...', {
-            topic: topicName,
-            partition: partitionId,
-            consumer_group: consumerGroup,
-            consumer_id: consumerId,
-            fetch_state: partitionData.fetch_state,
-            consumer_lag: partitionData.consumer_lag,
-            leader_broker: partitionData.leader,
-            msgq_cnt: partitionData.msgq_cnt,
-            fetchq_cnt: partitionData.fetchq_cnt,
-        })
     }
 }

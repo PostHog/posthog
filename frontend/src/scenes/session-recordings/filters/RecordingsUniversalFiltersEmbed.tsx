@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { IconArrowRight, IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
@@ -15,7 +16,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -34,16 +34,15 @@ import {
     AccessControlResourceType,
     PropertyOperator,
     RecordingUniversalFilters,
-    ReplayTabs,
     SidePanelTab,
     UniversalFiltersGroup,
 } from '~/types'
 
+import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
 import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
-import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
@@ -224,9 +223,8 @@ export const RecordingsUniversalFiltersEmbed = ({
         taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
-    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    const { savedFilters, appliedSavedFilter } = useValues(savedFiltersLogic)
-    const { loadSavedFilters, setAppliedSavedFilter } = useActions(savedFiltersLogic)
+    const { savedFilters, appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
+    const { loadSavedFilters, setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
 
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 
@@ -474,23 +472,22 @@ export const RecordingsUniversalFiltersEmbed = ({
                                     Update "{appliedSavedFilter.name || 'Unnamed'}"
                                 </LemonButton>
                             ) : (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => setIsSaveFiltersModalOpen(true)}
-                                    disabledReason={(totalFiltersCount ?? 0) === 0 ? 'No filters applied' : undefined}
-                                    tooltip="Save filters for later"
-                                    accessControl={{
-                                        resourceType: AccessControlResourceType.SessionRecording,
-                                        minAccessLevel: AccessControlLevel.Editor,
-                                        userAccessLevel:
-                                            getAppContext()?.resource_access_control?.[
-                                                AccessControlResourceType.SessionRecording
-                                            ],
-                                    }}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.SessionRecording}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Add to "Saved filters"
-                                </LemonButton>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => setIsSaveFiltersModalOpen(true)}
+                                        disabledReason={
+                                            (totalFiltersCount ?? 0) === 0 ? 'No filters applied' : undefined
+                                        }
+                                        tooltip="Save filters for later"
+                                    >
+                                        Add to "Saved filters"
+                                    </LemonButton>
+                                </AccessControlAction>
                             )}
                         </div>
                         <LemonButton

@@ -5,12 +5,10 @@ import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner
 
 import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { getAppContext } from 'lib/utils/getAppContext'
+import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
-import { ReplayTabs } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
@@ -188,7 +186,7 @@ function NewCollectionModal(): JSX.Element {
         useValues(sessionRecordingsPlaylistLogic)
     const { setIsNewCollectionDialogOpen, setNewCollectionName, handleCreateNewCollectionBulkAdd } =
         useActions(sessionRecordingsPlaylistLogic)
-    const { loadPlaylists } = useActions(savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }))
+    const { loadPlaylists } = useActions(sessionRecordingCollectionsLogic)
 
     const handleClose = (): void => {
         setIsNewCollectionDialogOpen(false)
@@ -244,9 +242,7 @@ export function SessionRecordingsPlaylistTopSettings({
 }): JSX.Element {
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
-    const { playlists, playlistsLoading } = useValues(
-        savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
-    )
+    const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
     const { selectedRecordingsIds, sessionRecordings, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
     const {
         handleBulkAddToPlaylist,
@@ -263,7 +259,6 @@ export function SessionRecordingsPlaylistTopSettings({
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
-        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
         AccessControlLevel.Editor
     )
 

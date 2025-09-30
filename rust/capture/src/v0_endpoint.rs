@@ -436,9 +436,9 @@ pub fn process_single_event(
     })?;
 
     // Compute the actual event timestamp using our timestamp parsing logic
-    let sent_at_utc = context
-        .sent_at
-        .map(|sa| DateTime::from_timestamp(sa.unix_timestamp(), 0).unwrap_or_default());
+    let sent_at_utc = context.sent_at.map(|sa| {
+        DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond()).unwrap_or_default()
+    });
     let ignore_sent_at = event
         .properties
         .get("$ignore_sent_at")
@@ -458,6 +458,7 @@ pub fn process_single_event(
         data_type,
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
+        event_name: event.event.clone(),
     };
 
     let event = CapturedEvent {
@@ -560,9 +561,9 @@ pub async fn process_replay_events<'a>(
     Span::current().record("request_id", &context.request_id);
 
     // Compute the actual event timestamp using our timestamp parsing logic from the first event
-    let sent_at_utc = context
-        .sent_at
-        .map(|sa| DateTime::from_timestamp(sa.unix_timestamp(), 0).unwrap_or_default());
+    let sent_at_utc = context.sent_at.map(|sa| {
+        DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond()).unwrap_or_default()
+    });
     let ignore_sent_at = events[0]
         .properties
         .get("$ignore_sent_at")
@@ -648,6 +649,7 @@ pub async fn process_replay_events<'a>(
         data_type: DataType::SnapshotMain,
         session_id: Some(session_id_str.to_string()),
         computed_timestamp: Some(computed_timestamp), // Use computed event timestamp
+        event_name: "$snapshot_items".to_string(),
     };
 
     let event = CapturedEvent {
