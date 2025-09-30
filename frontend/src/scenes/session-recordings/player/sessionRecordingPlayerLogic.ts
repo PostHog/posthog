@@ -104,8 +104,7 @@ export enum SessionRecordingPlayerMode {
     Video = 'video',
 }
 
-const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
-export const [ModesThatCanHavePlayerControllerButtons] = ModesThatCanBeMarkedViewed
+const ModesWithInteractions = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
     playerKey: string
@@ -973,7 +972,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (logicProps, isCommenting, showingClipParams): boolean => {
                 return (
                     !!logicProps.mode &&
-                    ModesThatCanHavePlayerControllerButtons.includes(logicProps.mode) &&
+                    ModesWithInteractions.includes(logicProps.mode) &&
                     !isCommenting &&
                     !showingClipParams
                 )
@@ -1328,7 +1327,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (
                 props.playerKey?.startsWith('file-') ||
                 values.wasMarkedViewed ||
-                (props.mode && !ModesThatCanBeMarkedViewed.includes(props.mode))
+                (props.mode && !ModesWithInteractions.includes(props.mode))
             ) {
                 return
             }
