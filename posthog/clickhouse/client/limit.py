@@ -185,19 +185,17 @@ __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG: Optional[RateLimit] = None
 __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 
 
-def get_api_personal_rate_limiter():
+def get_api_team_rate_limiter():
     global __API_CONCURRENT_QUERY_PER_TEAM
 
     def __applicable(
         *args,
-        org_id: Optional[str] = None,
         team_id: Optional[int] = None,
         is_api: Optional[bool] = None,
         **kwargs,
     ) -> bool:
         return bool(
             not TEST
-            and org_id
             and is_api
             and team_id
             and (
