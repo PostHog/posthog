@@ -12,7 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ReplayTabs } from '~/types'
 
-describe('savedSessionRecordingPlaylistsLogic', () => {
+describe('sessionRecordingCollectionsLogic', () => {
     let logic: ReturnType<typeof sessionRecordingCollectionsLogic.build>
     const mockPlaylistsResponse = {
         count: 1,
