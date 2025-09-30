@@ -1,5 +1,6 @@
 import { actions, kea, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -23,7 +24,12 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
             person,
             callback,
         }),
-        deletePerson: (person: PersonType, deleteEvents: boolean) => ({ person, deleteEvents }),
+        deletePerson: (person: PersonType, deleteEvents: boolean, deleteRecordings: boolean) => ({
+            person,
+            deleteEvents,
+            deleteRecordings,
+        }),
+        setDeleteConfirmationText: (deleteConfirmationText: string) => ({ deleteConfirmationText }),
     }),
     reducers({
         personDeleteModal: [
@@ -38,14 +44,31 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
                 showPersonDeleteModal: (_, { callback }) => callback ?? null,
             },
         ],
+        deleteConfirmationText: [
+            '',
+            {
+                setDeleteConfirmationText: (_, { deleteConfirmationText }) => deleteConfirmationText,
+            },
+        ],
     }),
     loaders(({ actions, values }) => ({
         deletedPerson: [
             null as PersonType | null,
             {
-                deletePerson: async ({ person, deleteEvents }) => {
-                    const params = deleteEvents ? { delete_events: true } : {}
+                deletePerson: async ({ person, deleteEvents, deleteRecordings }) => {
+                    const params: Record<string, boolean> = {}
+
+                    if (deleteEvents) {
+                        params.delete_events = true
+                    }
+
+                    if (deleteRecordings) {
+                        params.delete_recordings = true
+                    }
+
                     await api.delete(`api/person/${person.id}?${toParams(params)}`)
+                    posthog.capture('delete person', params)
+
                     lemonToast.success(
                         <>
                             The person <strong>{asDisplay(person)}</strong> was removed from the project.
