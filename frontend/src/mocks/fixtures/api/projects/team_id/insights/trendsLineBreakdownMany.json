@@ -2502,7 +2502,6 @@
         }
     },
     "is_sample": false,
-    "effective_privilege_level": 37,
     "timezone": "US/Pacific",
     "is_cached": true,
     "query_status": null,

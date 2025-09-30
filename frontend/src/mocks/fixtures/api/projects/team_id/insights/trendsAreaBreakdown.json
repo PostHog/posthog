@@ -1782,7 +1782,6 @@
         "email": "test@posthog.com"
     },
     "is_sample": false,
-    "effective_privilege_level": 37,
     "timezone": "UTC",
     "tags": [],
     "query": {

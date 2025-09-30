@@ -210,7 +210,6 @@
                     "email": "test@posthog.com"
                 },
                 "is_sample": false,
-                "effective_privilege_level": 37,
                 "timezone": null,
                 "tags": []
             },
@@ -783,7 +782,6 @@
                     "email": "test@posthog.com"
                 },
                 "is_sample": false,
-                "effective_privilege_level": 37,
                 "timezone": null,
                 "tags": []
             },
@@ -956,7 +954,6 @@
                     "email": "test@posthog.com"
                 },
                 "is_sample": false,
-                "effective_privilege_level": 37,
                 "timezone": null,
                 "tags": []
             },
@@ -1387,7 +1384,6 @@
                     "email": "test@posthog.com"
                 },
                 "is_sample": false,
-                "effective_privilege_level": 37,
                 "timezone": null,
                 "tags": []
             },
@@ -1497,7 +1493,6 @@
                     "email": "test@posthog.com"
                 },
                 "is_sample": false,
-                "effective_privilege_level": 37,
                 "timezone": null,
                 "tags": []
             },
@@ -4634,7 +4629,6 @@
                     "email": "test@posthog.com"
                 },
                 "is_sample": false,
-                "effective_privilege_level": 37,
                 "timezone": null,
                 "tags": []
             },
@@ -4651,7 +4645,5 @@
             "refresh_attempt": 0
         }
     ],
-    "restriction_level": 21,
-    "effective_privilege_level": 37,
     "tags": []
 }

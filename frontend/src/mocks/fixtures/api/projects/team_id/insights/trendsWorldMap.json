@@ -134,7 +134,6 @@
         "email": "michael@example.com"
     },
     "is_sample": false,
-    "effective_privilege_level": 37,
     "query": {
         "kind": "InsightVizNode",
         "source": {
