@@ -1,5 +1,6 @@
 import { actions, kea, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -66,6 +67,8 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
                     }
 
                     await api.delete(`api/person/${person.id}?${toParams(params)}`)
+                    posthog.capture('delete person', params)
+
                     lemonToast.success(
                         <>
                             The person <strong>{asDisplay(person)}</strong> was removed from the project.
