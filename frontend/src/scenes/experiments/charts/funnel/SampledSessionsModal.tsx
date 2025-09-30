@@ -16,10 +16,45 @@ import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 
+const getEventsUrl = (key: string, value: string): string => {
+    const eventsQuery = getDefaultEventsSceneQuery([
+        {
+            type: PropertyFilterType.EventMetadata,
+            key: key,
+            value: [value],
+            operator: PropertyOperator.Exact,
+        },
+    ])
+    // Override the default time range to 90 days
+    if ('after' in eventsQuery.source) {
+        eventsQuery.source.after = '-90d'
+    }
+    return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
+}
+
+const getLinkTextAndUrl = (session: SessionData): { text: string; url: string } => {
+    if (session.session_id) {
+        return {
+            text: session.session_id,
+            url: getEventsUrl('$session_id', session.session_id),
+        }
+    } else if (session.person_id) {
+        return {
+            text: session.person_id,
+            url: getEventsUrl('person_id', session.person_id),
+        }
+    }
+    return {
+        text: session.event_uuid,
+        url: getEventsUrl('uuid', session.event_uuid),
+    }
+}
+
 export function SampledSessionsModal(): JSX.Element {
     const { isOpen, modalData, recordingAvailability, recordingAvailabilityLoading } =
         useValues(sampledSessionsModalLogic)
     const { closeModal } = useActions(sampledSessionsModalLogic)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     if (!modalData) {
         return <></>
@@ -28,7 +63,7 @@ export function SampledSessionsModal(): JSX.Element {
     const { sessionData, stepName, variant } = modalData
 
     const openSessionRecording = (sessionId: string, eventUuid: string): void => {
-        sessionPlayerModalLogic.actions.openSessionPlayer({
+        openSessionPlayer({
             id: sessionId,
             matching_events: [
                 {
@@ -37,40 +72,6 @@ export function SampledSessionsModal(): JSX.Element {
                 },
             ],
         })
-    }
-
-    const getEventsUrl = (key: string, value: string): string => {
-        const eventsQuery = getDefaultEventsSceneQuery([
-            {
-                type: PropertyFilterType.EventMetadata,
-                key: key,
-                value: [value],
-                operator: PropertyOperator.Exact,
-            },
-        ])
-        // Override the default time range to 90 days
-        if ('after' in eventsQuery.source) {
-            eventsQuery.source.after = '-90d'
-        }
-        return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
-    }
-
-    const getLinkTextAndUrl = (session: SessionData): { text: string; url: string } => {
-        if (session.session_id) {
-            return {
-                text: session.session_id,
-                url: getEventsUrl('$session_id', session.session_id),
-            }
-        } else if (session.person_id) {
-            return {
-                text: session.person_id,
-                url: getEventsUrl('person_id', session.person_id),
-            }
-        }
-        return {
-            text: session.event_uuid,
-            url: getEventsUrl('uuid', session.event_uuid),
-        }
     }
 
     const columns: LemonTableColumns<SessionData> = [
