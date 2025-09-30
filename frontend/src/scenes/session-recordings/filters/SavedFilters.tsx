@@ -73,10 +73,10 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
                                 </p>
                             )
                         ) : (
-                            <p>No results found for this playlist.</p>
+                            <p>No results found for this saved filter.</p>
                         )
                     ) : (
-                        <p>Counts have not yet been calculated for this playlist.</p>
+                        <p>Counts have not yet been calculated for this saved filter.</p>
                     )}
                     {lastRefreshedAt ? (
                         <div className="text-xs items-center flex flex-row gap-x-1">

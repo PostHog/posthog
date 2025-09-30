@@ -72,10 +72,10 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
                                 <p>You have watched all of the {totalPinnedCount} recordings in this collection.</p>
                             )
                         ) : (
-                            <p>No results found for this playlist.</p>
+                            <p>No results found for this collection.</p>
                         )
                     ) : (
-                        <p>Counts have not yet been calculated for this playlist.</p>
+                        <p>Counts have not yet been calculated for this collection.</p>
                     )}
                 </div>
             )

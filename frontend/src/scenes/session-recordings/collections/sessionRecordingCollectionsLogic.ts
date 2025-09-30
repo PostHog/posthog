@@ -135,8 +135,10 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
             },
             deletePlaylist: async ({ playlist }) => {
                 await deletePlaylist(playlist, () => actions.loadPlaylists())
-                values.playlists.results = values.playlists.results.filter((x) => x.short_id !== playlist.short_id)
-                return values.playlists
+                return {
+                    ...values.playlists,
+                    results: values.playlists.results.filter((x) => x.short_id !== playlist.short_id),
+                }
             },
 
             duplicatePlaylist: async ({ playlist }, breakpoint) => {
@@ -155,9 +157,7 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
 
                 lemonToast.success('Playlist duplicated successfully')
 
-                values.playlists.results = [newPlaylist, ...values.playlists.results]
-
-                return values.playlists
+                return { ...values.playlists, results: [newPlaylist, ...values.playlists.results] }
             },
         },
     })),
@@ -172,7 +172,6 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
             (s) => [s.filters],
             (filters): Sorting | null => {
                 if (!filters.order) {
-                    // Sync with `cleanFilters` function
                     return {
                         columnKey: 'last_modified_at',
                         order: -1,
