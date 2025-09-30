@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { Link, lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getISOWeekString, inStorybook, inStorybookTestRunner } from 'lib/utils'
@@ -91,9 +91,14 @@ export function loadPostHogJS(): void {
                     <span>We couldn't load our internal feature flags.</span>
                     <span>
                         This could be due to the presence of adblockers running in your browser or due to a network
-                        issue (e.g. slow wifi). This might affect the usability of the PostHog platform since some
-                        features might not be available. Note: This does NOT mean your PostHog feature flags are
-                        affected - you can avoid this issue for your own flags by using a reverse proxy.
+                        issue (e.g. slow wifi). Some features may not be available.
+                    </span>
+                    <span className="italic">
+                        Note: If you use feature flags for your app, you can avoid this issue for your users by using a{' '}
+                        <Link to="https://posthog.com/docs/advanced/proxy" target="_blank">
+                            reverse proxy
+                        </Link>
+                        .
                     </span>
                 </div>,
                 {
