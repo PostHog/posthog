@@ -11614,6 +11614,9 @@
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -11651,6 +11654,9 @@
         "ExperimentMeanMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
                 "lower_bound_percentile": {
                     "type": "number"
                 },
@@ -11728,6 +11734,9 @@
         "ExperimentMetricOutlierHandling": {
             "additionalProperties": false,
             "properties": {
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
                 "lower_bound_percentile": {
                     "type": "number"
                 },

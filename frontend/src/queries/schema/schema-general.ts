@@ -2575,6 +2575,7 @@ export interface ExperimentMetricBaseProperties extends Node {
 export type ExperimentMetricOutlierHandling = {
     lower_bound_percentile?: number
     upper_bound_percentile?: number
+    ignore_zeros?: boolean
 }
 
 export interface ExperimentDataWarehouseNode extends EntityNode {
