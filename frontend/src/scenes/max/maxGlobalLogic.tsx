@@ -7,11 +7,9 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { routes, sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { productConfiguration } from '~/products'
 import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 import { SidePanelTab } from '~/types'
 
@@ -22,7 +20,7 @@ import { maxLogic } from './maxLogic'
 /**
  * Build available pages context with descriptions for the navigate tool
  */
-function buildAvailablePagesContext(): string {
+function buildSceneDescriptionsContext(): string {
     const pageEntries: string[] = []
 
     // Get all navigate URL keys from urls object that are functions
@@ -30,35 +28,28 @@ function buildAvailablePagesContext(): string {
 
     for (const urlKey of navigateUrlKeys) {
         try {
-            // Call the URL function to get the actual URL path
+            // Call the URL function with nothing to get the base URL route
             const urlPath = urls[urlKey as keyof typeof urls]()
-
             // Look up the Scene enum from the routes mapping
             const routeInfo = routes[urlPath]
             if (!routeInfo) {
                 continue
             }
-
-            const [sceneOrString] = routeInfo
-
-            // Get the scene configuration
-            const config = sceneConfigurations[sceneOrString] || productConfiguration[sceneOrString]
-            if (!config?.name) {
-                continue
-            }
-
-            // Find tools available on this scene (only if it's a proper Scene enum value)
-            const scene = typeof sceneOrString === 'string' ? Scene[sceneOrString as keyof typeof Scene] : sceneOrString
+            const [sceneKey] = routeInfo
+            const sceneConfig = sceneConfigurations[sceneKey]
+            // Find tools available on this scene
             const availableTools = Object.entries(TOOL_DEFINITIONS)
-                .filter(([_, toolDef]) => toolDef.product === scene)
+                .filter(([_, toolDef]) => toolDef.product === sceneKey)
                 .map(([_, toolDef]) => toolDef.name)
-
-            let entry = `- **${urlKey}** (${config.name})`
-            if (config.description) {
-                entry += `: ${config.description}`
+            if (!sceneConfig.description && !availableTools.length) {
+                continue // No extra details, and the key itself is already included in the navigate tool's definition
+            }
+            let entry = `- **${urlKey}**`
+            if (sceneConfig.description) {
+                entry += `: ${sceneConfig.description}`
             }
             if (availableTools.length > 0) {
-                entry += ` [Tools: ${availableTools.join(', ')}]`
+                entry += ` [tools: ${availableTools.join(', ')}]`
             }
             pageEntries.push(entry)
         } catch {
@@ -77,7 +68,7 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         name: TOOL_DEFINITIONS['navigate'].name,
         description: TOOL_DEFINITIONS['navigate'].description,
         icon: <IconCompass />,
-        context: { current_page: location.pathname, available_pages: buildAvailablePagesContext() },
+        context: { current_page: location.pathname, scene_descriptions: buildSceneDescriptionsContext() },
         callback: async (toolOutput) => {
             const { page_key: pageKey } = toolOutput
             if (!(pageKey in urls)) {
@@ -174,7 +165,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             // Update navigation tool with the current page
             actions.registerTool({
                 ...values.toolMap.navigate,
-                context: { current_page: pathname, available_pages: buildAvailablePagesContext() },
+                context: { current_page: pathname, scene_descriptions: buildSceneDescriptionsContext() },
             })
         },
     })),

@@ -281,9 +281,9 @@ class NavigateTool(MaxTool):
     )
     root_system_prompt_template: str = (
         "You're currently on the {current_page} page. "
-        "You can navigate to one of the available pages using the 'navigate' tool.\n\n"
-        "Available pages:\n{available_pages}\n\n"
-        "Some of these pages have tools that you can use to get more information or perform actions. "
+        "You can navigate around the PostHog app using the 'navigate' tool.\n\n"
+        "Some of the pages in the app have helpful descriptions. Some have tools that you can use. See the following list:\n"
+        "{scene_descriptions}\n"
         "After navigating to a new page, you'll have access to that page's specific tools."
     )
     thinking_message: str = "Navigating"
