@@ -9,7 +9,7 @@ describe('LLM Analytics utils', () => {
             role: 'assistant',
             content: 'Hello, world!',
         }
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'assistant',
                 content: 'Hello, world!',
@@ -59,7 +59,7 @@ describe('LLM Analytics utils', () => {
                 },
             ],
         }
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'assistant',
                 content: '',
@@ -92,7 +92,7 @@ describe('LLM Analytics utils', () => {
             tool_call_id: '456',
         }
 
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'tool',
                 content: 'response',
@@ -255,7 +255,7 @@ describe('LLM Analytics utils', () => {
             ],
         }
 
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'assistant')).toEqual([
             {
                 role: 'assistant',
                 content: [
@@ -514,7 +514,7 @@ describe('LLM Analytics utils', () => {
 
         describe('normalizeMessage', () => {
             it('should handle LiteLLM choice format', () => {
-                const result = normalizeMessage(litellmChoice)
+                const result = normalizeMessage(litellmChoice, 'user')
 
                 expect(result).toHaveLength(1)
                 expect(result[0]).toMatchObject({
@@ -545,7 +545,7 @@ describe('LLM Analytics utils', () => {
                     },
                 }
 
-                const result = normalizeMessage(choiceWithTools)
+                const result = normalizeMessage(choiceWithTools, 'user')
 
                 expect(result).toHaveLength(1)
                 expect(result[0].role).toBe('assistant')
@@ -607,7 +607,7 @@ describe('LLM Analytics utils', () => {
                     content: [{ type: 'text', text: 'You are a helpful assistant.' }],
                 }
 
-                const result = normalizeMessage(systemMessage)
+                const result = normalizeMessage(systemMessage, 'user')
 
                 expect(result).toHaveLength(1)
                 expect(result[0].role).toBe('system')
@@ -620,7 +620,7 @@ describe('LLM Analytics utils', () => {
                     content: 'You are a helpful assistant.',
                 }
 
-                const result = normalizeMessage(systemMessage)
+                const result = normalizeMessage(systemMessage, 'user')
 
                 expect(result).toHaveLength(1)
                 expect(result[0].role).toBe('system')
@@ -633,7 +633,7 @@ describe('LLM Analytics utils', () => {
                     content: 'Hello',
                 }
 
-                const result = normalizeMessage(humanMessage)
+                const result = normalizeMessage(humanMessage, 'user')
 
                 expect(result).toHaveLength(1)
                 expect(result[0].role).toBe('user')
