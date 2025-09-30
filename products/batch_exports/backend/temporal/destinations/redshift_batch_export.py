@@ -969,6 +969,8 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
+            batch_export_id=inputs.batch_export_id,
+            destination_default_fields=redshift_default_fields(),
         )
 
         if (
