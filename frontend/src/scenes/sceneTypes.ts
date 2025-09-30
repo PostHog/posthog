@@ -20,6 +20,7 @@ export enum Scene {
     BillingSection = 'BillingSection',
     Canvas = 'Canvas',
     Cohort = 'Cohort',
+    CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',

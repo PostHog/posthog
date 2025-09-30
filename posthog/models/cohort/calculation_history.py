@@ -1,9 +1,9 @@
-from typing import Optional
+from typing import Optional, Union
 
 from django.db import models
 from django.utils import timezone
 
-from posthog.models.utils import RootTeamManager, RootTeamMixin
+from posthog.models.utils import RootTeamMixin
 
 
 class CohortCalculationHistory(RootTeamMixin, models.Model):
@@ -31,8 +31,6 @@ class CohortCalculationHistory(RootTeamMixin, models.Model):
 
     # Error handling
     error = models.TextField(null=True, blank=True, help_text="Error message if calculation failed")
-
-    objects = RootTeamManager()
 
     class Meta:
         db_table = "posthog_cohortcalculationhistory"
@@ -71,7 +69,7 @@ class CohortCalculationHistory(RootTeamMixin, models.Model):
         written_rows: Optional[int] = None,
     ) -> None:
         """Add query information to the queries array"""
-        query_info = {}
+        query_info: dict[str, Union[str, int]] = {}
         if query is not None:
             query_info["query"] = query
         if query_id is not None:
