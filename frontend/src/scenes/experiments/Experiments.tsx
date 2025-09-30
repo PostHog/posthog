@@ -352,28 +352,38 @@ const ExperimentsTable = ({
         <SceneContent>
             {match(tab)
                 .with(ExperimentsTabs.All, () => (
-                    <ProductIntroduction
-                        productName="Experiments"
-                        productKey={ProductKey.EXPERIMENTS}
-                        thingName="experiment"
-                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                        docsURL="https://posthog.com/docs/experiments"
-                        action={() => router.actions.push(urls.experiment('new'))}
-                        isEmpty={shouldShowEmptyState}
-                        customHog={ExperimentsHog}
-                        className="my-0"
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Experiment}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <ProductIntroduction
+                            productName="Experiments"
+                            productKey={ProductKey.EXPERIMENTS}
+                            thingName="experiment"
+                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                            docsURL="https://posthog.com/docs/experiments"
+                            action={() => router.actions.push(urls.experiment('new'))}
+                            isEmpty={shouldShowEmptyState}
+                            customHog={ExperimentsHog}
+                            className="my-0"
+                        />
+                    </AccessControlAction>
                 ))
                 .with(ExperimentsTabs.Archived, () => (
-                    <ProductIntroduction
-                        productName="Experiments"
-                        productKey={ProductKey.EXPERIMENTS}
-                        thingName="archived experiment"
-                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                        docsURL="https://posthog.com/docs/experiments"
-                        isEmpty={shouldShowEmptyState}
-                        className="my-0"
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Experiment}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <ProductIntroduction
+                            productName="Experiments"
+                            productKey={ProductKey.EXPERIMENTS}
+                            thingName="archived experiment"
+                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                            docsURL="https://posthog.com/docs/experiments"
+                            isEmpty={shouldShowEmptyState}
+                            className="my-0"
+                        />
+                    </AccessControlAction>
                 ))
                 .otherwise(() => null)}
             <ExperimentsTableFilters tab={tab} filters={filters} onFiltersChange={setExperimentsFilters} />

@@ -14,7 +14,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlAction, userHasAccess } from 'lib/components/AccessControlAction'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -62,7 +62,11 @@ const ExperimentFormFields = (): JSX.Element => {
                 resourceType={{
                     type: 'experiment',
                 }}
-                canEdit
+                canEdit={userHasAccess(
+                    AccessControlResourceType.Experiment,
+                    AccessControlLevel.Editor,
+                    experiment.user_access_level
+                )}
                 onNameChange={(name) => {
                     setExperiment({ name })
                 }}
