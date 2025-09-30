@@ -7,7 +7,7 @@ import { SyncMoreNotice } from './SyncMoreNotice'
 
 export function DatabaseTree(): JSX.Element {
     return (
-        <PanelLayoutPanel searchField={<DatabaseSearchField placeholder="Search database" />}>
+        <PanelLayoutPanel searchField={<DatabaseSearchField placeholder="Search warehouse" />}>
             <QueryDatabase />
             <SyncMoreNotice />
             <ViewLinkModal />

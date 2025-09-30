@@ -183,7 +183,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Database',
-            label: 'Database',
+            label: 'Data warehouse',
             icon: <IconDatabaseBolt />,
             onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
