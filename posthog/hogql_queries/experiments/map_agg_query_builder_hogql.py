@@ -58,16 +58,12 @@ class MapAggregationQueryBuilderHogQL:
         """
         Main entry point. Returns complete query built from HogQL with placeholders.
         """
-        timezone = self.team.timezone or "UTC"
-        date_from = self.date_range_query.date_from()
-        date_to = self.date_range_query.date_to()
-
         # Get metric source details
         math_type = getattr(self.metric.source, "math", ExperimentMetricMathType.TOTAL)
 
         # Build the query with placeholders
         query = parse_select(
-            f"""
+            """
             SELECT
                 metric_events.variant AS variant,
                 count(metric_events.entity_id) AS num_users,
@@ -80,20 +76,20 @@ class MapAggregationQueryBuilderHogQL:
                     events_enriched.exposure_event_uuid AS exposure_event_uuid,
                     events_enriched.exposure_session_id AS exposure_session_id,
                     arrayFilter(x -> x.1 >= events_enriched.first_exposure_time, events_enriched.metric_events_array) AS metric_after_exposure,
-                    {{value_agg}} AS value
+                    {value_agg} AS value
                 FROM (
                     SELECT
-                        {{entity_key}} AS entity_id,
-                        {{variant_expr}} AS variant,
-                        minIf(toTimeZone(timestamp, '{timezone}'), {{exposure_predicate}}) AS first_exposure_time,
-                        argMinIf(uuid, toTimeZone(timestamp, '{timezone}'), {{exposure_predicate}}) AS exposure_event_uuid,
-                        argMinIf(`$session_id`, toTimeZone(timestamp, '{timezone}'), {{exposure_predicate}}) AS exposure_session_id,
+                        {entity_key} AS entity_id,
+                        {variant_expr} AS variant,
+                        minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
+                        argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
+                        argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id,
                         groupArrayIf(
-                            tuple(toTimeZone(timestamp, '{timezone}'), {{value_expr}}),
-                            {{metric_predicate}}
+                            tuple(timestamp, {value_expr}),
+                            {metric_predicate}
                         ) AS metric_events_array
                     FROM events
-                    WHERE ({{exposure_predicate}} OR {{metric_predicate}})
+                    WHERE ({exposure_predicate} OR {metric_predicate})
                     GROUP BY entity_id
                 ) AS events_enriched
                 WHERE events_enriched.first_exposure_time IS NOT NULL
@@ -103,8 +99,8 @@ class MapAggregationQueryBuilderHogQL:
             placeholders={
                 "entity_key": parse_expr(self.entity_key),
                 "variant_expr": self._build_variant_expr(),
-                "exposure_predicate": self._build_exposure_predicate(timezone, date_from, date_to),
-                "metric_predicate": self._build_metric_predicate(timezone, date_from, date_to),
+                "exposure_predicate": self._build_exposure_predicate(),
+                "metric_predicate": self._build_metric_predicate(),
                 "value_expr": self._build_value_expr(math_type),
                 "value_agg": self._build_value_aggregation_expr(math_type),
             },
@@ -124,11 +120,7 @@ class MapAggregationQueryBuilderHogQL:
                 "argMinIf({variant_property}, timestamp, {exposure_predicate})",
                 placeholders={
                     "variant_property": variant_property,
-                    "exposure_predicate": self._build_exposure_predicate(
-                        self.team.timezone or "UTC",
-                        self.date_range_query.date_from(),
-                        self.date_range_query.date_to(),
-                    ),
+                    "exposure_predicate": self._build_exposure_predicate(),
                 },
             )
         else:
@@ -136,23 +128,31 @@ class MapAggregationQueryBuilderHogQL:
                 "if(uniqExactIf({variant_property}, {exposure_predicate}) > 1, {multiple_key}, anyIf({variant_property}, {exposure_predicate}))",
                 placeholders={
                     "variant_property": variant_property,
-                    "exposure_predicate": self._build_exposure_predicate(
-                        self.team.timezone or "UTC",
-                        self.date_range_query.date_from(),
-                        self.date_range_query.date_to(),
-                    ),
+                    "exposure_predicate": self._build_exposure_predicate(),
                     "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                 },
             )
 
-    def _build_exposure_predicate(self, timezone: str, date_from, date_to) -> ast.Expr:
+    def _build_exposure_predicate(self) -> ast.Expr:
         """
         Builds the exposure predicate as an AST expression.
         """
         predicates = [
-            parse_expr(f"toTimeZone(timestamp, '{timezone}') >= toDateTime('{date_from}', '{timezone}')"),
-            parse_expr(f"toTimeZone(timestamp, '{timezone}') <= toDateTime('{date_to}', '{timezone}')"),
-            parse_expr(f"event = '{self.exposure_event}'"),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=self.date_range_query.date_from_as_hogql(),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=self.date_range_query.date_to_as_hogql(),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=self.exposure_event),
+            ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.In,
                 left=ast.Field(chain=["properties", self.feature_flag_variant_property]),
@@ -171,7 +171,7 @@ class MapAggregationQueryBuilderHogQL:
 
         return ast.And(exprs=predicates) if len(predicates) > 1 else predicates[0]
 
-    def _build_metric_predicate(self, timezone: str, date_from, date_to) -> ast.Expr:
+    def _build_metric_predicate(self) -> ast.Expr:
         """
         Builds the metric predicate as an AST expression.
         """
@@ -183,18 +183,39 @@ class MapAggregationQueryBuilderHogQL:
                 self.metric.conversion_window,
                 self.metric.conversion_window_unit,
             )
-            time_upper_bound = parse_expr(
-                f"toTimeZone(timestamp, '{timezone}') < toDateTime('{date_to}', '{timezone}') + INTERVAL {conversion_window_seconds} SECOND"
+            time_upper_bound = ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Call(
+                    name="plus",
+                    args=[
+                        self.date_range_query.date_to_as_hogql(),
+                        ast.Call(
+                            name="toIntervalSecond",
+                            args=[ast.Constant(value=conversion_window_seconds)],
+                        ),
+                    ],
+                ),
             )
         else:
-            time_upper_bound = parse_expr(
-                f"toTimeZone(timestamp, '{timezone}') < toDateTime('{date_to}', '{timezone}')"
+            time_upper_bound = ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=self.date_range_query.date_to_as_hogql(),
             )
 
         predicates = [
-            parse_expr(f"toTimeZone(timestamp, '{timezone}') >= toDateTime('{date_from}', '{timezone}')"),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=self.date_range_query.date_from_as_hogql(),
+            ),
             time_upper_bound,
-            parse_expr(f"event = '{event_name}'"),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=event_name),
+            ),
         ]
 
         return ast.And(exprs=predicates)
