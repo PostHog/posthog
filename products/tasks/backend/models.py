@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.utils import UUIDModel
 
 from products.tasks.backend.agents import get_agent_by_id
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowTemplate
@@ -458,15 +459,13 @@ class TaskProgress(models.Model):
         return 0
 
 
-class SandboxSnapshot(models.Model):
+class SandboxSnapshot(UUIDModel):
     """Tracks sandbox snapshots used for sandbox environments in tasks."""
 
     class Status(models.TextChoices):
         IN_PROGRESS = "in_progress", "In Progress"
         COMPLETE = "complete", "Complete"
         ERROR = "error", "Error"
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     integration = models.ForeignKey(
         Integration,
@@ -476,7 +475,9 @@ class SandboxSnapshot(models.Model):
         blank=True,
     )
 
-    external_id = models.CharField(max_length=255, blank=True, help_text="Snapshot ID from external provider.")
+    external_id = models.CharField(
+        max_length=255, blank=True, help_text="Snapshot ID from external provider.", unique=True
+    )
 
     repos = ArrayField(
         models.CharField(max_length=255),
