@@ -16667,6 +16667,19 @@
             "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
             "type": "string"
         },
+        "NamedQueryLastExecutionTimesRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["names"],
+            "type": "object"
+        },
         "NamedQueryRequest": {
             "additionalProperties": false,
             "properties": {

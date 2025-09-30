@@ -1891,6 +1891,13 @@ class MultipleBreakdownType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
 
 
+class NamedQueryLastExecutionTimesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    names: list[str]
+
+
 class NodeKind(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
