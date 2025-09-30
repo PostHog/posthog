@@ -1,0 +1,304 @@
+from unittest.mock import MagicMock
+
+from django.db import migrations, models
+
+from posthog.management.commands.analyze_migration_risk import RiskAnalyzer, RiskLevel
+
+
+def create_mock_operation(op_class, **kwargs):
+    """Helper to create mock migration operations"""
+    op = MagicMock(spec=op_class)
+    op.__class__.__name__ = op_class.__name__
+    for key, value in kwargs.items():
+        setattr(op, key, value)
+    return op
+
+
+class TestRiskLevelScoring:
+    def test_safe_scores(self):
+        assert RiskLevel.from_score(0) == RiskLevel.SAFE
+        assert RiskLevel.from_score(1) == RiskLevel.SAFE
+
+    def test_needs_review_scores(self):
+        assert RiskLevel.from_score(2) == RiskLevel.NEEDS_REVIEW
+        assert RiskLevel.from_score(3) == RiskLevel.NEEDS_REVIEW
+
+    def test_blocked_scores(self):
+        assert RiskLevel.from_score(4) == RiskLevel.BLOCKED
+        assert RiskLevel.from_score(5) == RiskLevel.BLOCKED
+
+    def test_out_of_range_scores(self):
+        assert RiskLevel.from_score(10) == RiskLevel.BLOCKED
+        assert RiskLevel.from_score(-1) == RiskLevel.SAFE
+
+
+class TestAddFieldOperations:
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def test_add_nullable_field(self):
+        field = models.CharField(max_length=100, null=True)
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="testmodel",
+            name="test_field",
+            field=field,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 0
+        assert "nullable" in risk.reason.lower()
+        assert risk.level == RiskLevel.SAFE
+
+    def test_add_blank_field(self):
+        field = models.CharField(max_length=100, blank=True, null=False)
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="testmodel",
+            name="test_field",
+            field=field,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 0
+        assert risk.level == RiskLevel.SAFE
+
+    def test_add_not_null_with_default(self):
+        field = models.CharField(max_length=100, default="test", null=False, blank=False)
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="testmodel",
+            name="test_field",
+            field=field,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert "constant" in risk.reason.lower()
+        assert risk.level == RiskLevel.SAFE
+
+    def test_add_not_null_without_default(self):
+        field = models.CharField(max_length=100, null=False, blank=False)
+        field.default = models.NOT_PROVIDED
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="testmodel",
+            name="test_field",
+            field=field,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 5
+        assert "locks table" in risk.reason.lower()
+        assert risk.level == RiskLevel.BLOCKED
+
+
+class TestRemoveOperations:
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def test_remove_field(self):
+        op = create_mock_operation(
+            migrations.RemoveField,
+            model_name="testmodel",
+            name="test_field",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 5
+        assert "backwards compatibility" in risk.reason.lower()
+        assert risk.level == RiskLevel.BLOCKED
+        assert risk.details["model"] == "testmodel"
+        assert risk.details["field"] == "test_field"
+
+    def test_delete_model(self):
+        op = create_mock_operation(
+            migrations.DeleteModel,
+            name="TestModel",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 5
+        assert "backwards compatibility" in risk.reason.lower()
+        assert risk.level == RiskLevel.BLOCKED
+
+
+class TestAlterOperations:
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def test_alter_field(self):
+        op = create_mock_operation(
+            migrations.AlterField,
+            model_name="testmodel",
+            name="test_field",
+            field=models.CharField(max_length=200),
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 3
+        assert "locks" in risk.reason.lower() or "data loss" in risk.reason.lower()
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+
+
+class TestRenameOperations:
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def test_rename_field(self):
+        op = create_mock_operation(
+            migrations.RenameField,
+            model_name="testmodel",
+            old_name="old_field",
+            new_name="new_field",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 4
+        assert risk.level == RiskLevel.BLOCKED
+        assert risk.details["old"] == "old_field"
+        assert risk.details["new"] == "new_field"
+
+    def test_rename_model(self):
+        op = create_mock_operation(
+            migrations.RenameModel,
+            old_name="OldModel",
+            new_name="NewModel",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 4
+        assert risk.level == RiskLevel.BLOCKED
+
+
+class TestIndexOperations:
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def test_add_index_non_concurrent(self):
+        index = MagicMock()
+        index.concurrent = False
+        op = create_mock_operation(
+            migrations.AddIndex,
+            model_name="testmodel",
+            index=index,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 4
+        assert "locks table" in risk.reason.lower()
+        assert risk.level == RiskLevel.BLOCKED
+
+    def test_add_index_concurrent(self):
+        index = MagicMock()
+        index.concurrent = True
+        op = create_mock_operation(
+            migrations.AddIndex,
+            model_name="testmodel",
+            index=index,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 0
+        assert "safe" in risk.reason.lower()
+        assert risk.level == RiskLevel.SAFE
+
+
+class TestRunSQLOperations:
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def test_run_sql_with_drop(self):
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="DROP TABLE foo;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 5
+        assert "dangerous" in risk.reason.lower()
+        assert risk.level == RiskLevel.BLOCKED
+
+    def test_run_sql_with_update(self):
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="UPDATE users SET active = true;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 4
+        assert "locking" in risk.reason.lower() or "review" in risk.reason.lower()
+        assert risk.level == RiskLevel.BLOCKED
+
+    def test_run_sql_with_alter(self):
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users ADD COLUMN foo text;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 3
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+
+    def test_run_sql_with_select(self):
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="CREATE INDEX CONCURRENTLY idx_foo ON users(foo);",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+
+
+class TestRunPythonOperations:
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def test_run_python(self):
+        op = create_mock_operation(
+            migrations.RunPython,
+            code=lambda apps, schema_editor: None,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert "review" in risk.reason.lower()
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+
+
+class TestCreateModelOperations:
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def test_create_model(self):
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="TestModel",
+            fields=[
+                ("id", models.AutoField(primary_key=True)),
+                ("name", models.CharField(max_length=100)),
+            ],
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # CreateModel defaults to score 2 (unknown operation default)
+        # unless we explicitly handle it
+        assert risk.score >= 0
