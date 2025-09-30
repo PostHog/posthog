@@ -62,7 +62,10 @@ class TestSingleSessionSummary(BaseTest):
         self.assertEqual(summary.summary, self.summary_data)
         self.assertEqual(summary.exception_event_ids, self.exception_event_ids)
         self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication"})
-        self.assertEqual(summary.run_metadata, {"model_used": "gpt-4", "visual_confirmation": False})
+        self.assertEqual(
+            summary.run_metadata,
+            {"model_used": "gpt-4", "visual_confirmation": False, "visual_confirmation_results": None},
+        )
         self.assertEqual(summary.created_by, self.user)
         self.assertEqual(summary.team_id, self.team.id)
 
@@ -228,7 +231,10 @@ class TestSingleSessionSummary(BaseTest):
             session_id="session-with-gpt5",
         )
         assert gpt5_summary is not None
-        self.assertEqual(gpt5_summary.run_metadata, {"model_used": "gpt-5", "visual_confirmation": True})
+        self.assertEqual(
+            gpt5_summary.run_metadata,
+            {"model_used": "gpt-5", "visual_confirmation": True, "visual_confirmation_results": None},
+        )
 
         # Verify Claude metadata
         claude_summary = SingleSessionSummary.objects.get_summary(
@@ -236,7 +242,10 @@ class TestSingleSessionSummary(BaseTest):
             session_id="session-with-claude",
         )
         assert claude_summary is not None
-        self.assertEqual(claude_summary.run_metadata, {"model_used": "claude-4-1-opus", "visual_confirmation": False})
+        self.assertEqual(
+            claude_summary.run_metadata,
+            {"model_used": "claude-4-1-opus", "visual_confirmation": False, "visual_confirmation_results": None},
+        )
 
         # Verify None metadata
         no_metadata_summary = SingleSessionSummary.objects.get_summary(
