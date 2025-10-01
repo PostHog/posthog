@@ -17,7 +17,11 @@ export const calculateOutputCost = (event: PluginEvent, cost: ModelRow): string 
 
     let outputTokens = event.properties['$ai_output_tokens'] || 0
 
-    if (event.properties['$ai_reasoning_tokens'] && mustAddReasoningCost(event.properties['$ai_model'])) {
+    if (
+        event.properties['$ai_reasoning_tokens'] &&
+        event.properties['$ai_model'] &&
+        mustAddReasoningCost(event.properties['$ai_model'])
+    ) {
         outputTokens = bigDecimal.add(outputTokens, event.properties['$ai_reasoning_tokens'])
     }
 
