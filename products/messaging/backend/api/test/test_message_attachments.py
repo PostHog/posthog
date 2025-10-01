@@ -16,9 +16,7 @@ class TestMessageAttachmentsAPI(APIBaseTest):
             "test.svg", b'<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>', content_type="image/svg+xml"
         )
         response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_attachments/upload",
-            {"file": test_file},
-            format="multipart",
+            f"/api/environments/{self.team.id}/messaging_attachments/upload", {"file": test_file}, format="multipart"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("file_url", response.json())
@@ -38,29 +36,19 @@ class TestMessageAttachmentsAPI(APIBaseTest):
     @patch("products.messaging.backend.api.message_attachments.object_storage")
     def test_upload_file_too_large(self, mock_storage):
         test_file = SimpleUploadedFile(
-            "big.svg",
-            b'<svg viewBox="0 0 1 1">' + b"0" * (MAX_FILE_SIZE + 1) + b"</svg>",
-            content_type="image/svg+xml",
+            "big.svg", b'<svg viewBox="0 0 1 1">' + b"0" * (MAX_FILE_SIZE + 1) + b"</svg>", content_type="image/svg+xml"
         )
         response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_attachments/upload",
-            {"file": test_file},
-            format="multipart",
+            f"/api/environments/{self.team.id}/messaging_attachments/upload", {"file": test_file}, format="multipart"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("File too large", response.json())
 
     @patch("products.messaging.backend.api.messaging_attachments.object_storage")
     def test_upload_disallowed_extension(self, mock_storage):
-        test_file = SimpleUploadedFile(
-            "test.exe",
-            b"hello world",
-            content_type="application/octet-stream",
-        )
+        test_file = SimpleUploadedFile("test.exe", b"hello world", content_type="application/octet-stream")
         response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_attachments/upload/",
-            {"file": test_file},
-            format="multipart",
+            f"/api/environments/{self.team.id}/messaging_attachments/upload/", {"file": test_file}, format="multipart"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Invalid file type", response.json())
@@ -68,14 +56,10 @@ class TestMessageAttachmentsAPI(APIBaseTest):
     @patch("products.messaging.backend.api.message_attachments.object_storage")
     def test_upload_disallowed_mime_type(self, mock_storage):
         test_file = SimpleUploadedFile(
-            "test.svg",
-            b'<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>',
-            content_type="application/x-msdownload",
+            "test.svg", b'<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>', content_type="application/x-msdownload"
         )
         response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_attachments/upload/",
-            {"file": test_file},
-            format="multipart",
+            f"/api/environments/{self.team.id}/messaging_attachments/upload/", {"file": test_file}, format="multipart"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Invalid MIME type", response.json())
@@ -85,9 +69,7 @@ class TestMessageAttachmentsAPI(APIBaseTest):
         mock_storage.write.side_effect = Exception("Storage error!")
         test_file = SimpleUploadedFile("test.txt", b"hello world", content_type="text/plain")
         response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_attachments/upload/",
-            {"file": test_file},
-            format="multipart",
+            f"/api/environments/{self.team.id}/messaging_attachments/upload/", {"file": test_file}, format="multipart"
         )
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertIn("error", response.json())
@@ -95,9 +77,7 @@ class TestMessageAttachmentsAPI(APIBaseTest):
     @patch("products.messaging.backend.api.message_attachments.object_storage")
     def test_upload_missing_file(self):
         response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_attachments/upload/",
-            {},
-            format="multipart",
+            f"/api/environments/{self.team.id}/messaging_attachments/upload/", {}, format="multipart"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Missing file", response.json())
