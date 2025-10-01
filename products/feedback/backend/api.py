@@ -89,6 +89,9 @@ class FeedbackItemTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = FeedbackItemTopic.objects.all()
     serializer_class = FeedbackItemTopicSerializer
 
+    def perform_create(self, serializer):
+        serializer.save(team_id=self.team_id)
+
 
 class PublicFeedbackItemViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "feedback_item"

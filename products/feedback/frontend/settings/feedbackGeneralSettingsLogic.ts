@@ -13,15 +13,21 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
         loadFeedbackTopics: true,
         loadFeedbackCategories: true,
         loadFeedbackStatuses: true,
+        createFeedbackTopic: (name: string) => ({ name }),
     }),
 
-    loaders(() => ({
+    loaders(({ actions }) => ({
         feedbackTopics: [
             [] as FeedbackItemTopic[],
             {
                 loadFeedbackTopics: async () => {
                     const response = await api.feedback.topics.list()
                     return response.results
+                },
+                createFeedbackTopic: async ({ name }) => {
+                    const newTopic = await api.feedback.topics.create({ name })
+                    actions.loadFeedbackTopics()
+                    return [newTopic]
                 },
             },
         ],
