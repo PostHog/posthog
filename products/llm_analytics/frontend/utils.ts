@@ -255,19 +255,25 @@ export function isLiteLLMResponse(input: unknown): input is LiteLLMResponse {
     )
 }
 
+export const roleMap: Record<string, string> = {
+    user: 'user',
+    human: 'user',
+
+    assistant: 'assistant',
+    model: 'assistant',
+    ai: 'assistant',
+    bot: 'assistant',
+
+    system: 'system',
+    instructions: 'system',
+}
+
 export function normalizeRole(rawRole: unknown, fallback: string): string {
     if (typeof rawRole !== 'string') {
         return fallback
     }
-
-    const roleMap: Record<string, string> = {
-        human: 'user',
-        ai: 'assistant',
-        bot: 'assistant',
-    }
-
     const lowercased = rawRole.toLowerCase()
-    return roleMap[lowercased] || rawRole
+    return roleMap[lowercased] || lowercased
 }
 
 /**
