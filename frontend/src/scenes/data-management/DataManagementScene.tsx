@@ -204,13 +204,16 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.tab],
             (tab: DataManagementTab): SidePanelSceneContext | null => {
-                if (tab === DataManagementTab.EventDefinitions) {
+                const tabToScopeMap: Partial<Record<DataManagementTab, ActivityScope>> = {
+                    [DataManagementTab.EventDefinitions]: ActivityScope.EVENT_DEFINITION,
+                    [DataManagementTab.PropertyDefinitions]: ActivityScope.PROPERTY_DEFINITION,
+                    [DataManagementTab.Actions]: ActivityScope.ACTION,
+                }
+
+                const currentScope = tabToScopeMap[tab]
+                if (currentScope) {
                     return {
-                        activity_scope: ActivityScope.EVENT_DEFINITION,
-                    }
-                } else if (tab === DataManagementTab.PropertyDefinitions) {
-                    return {
-                        activity_scope: ActivityScope.PROPERTY_DEFINITION,
+                        activity_scope: currentScope,
                     }
                 }
                 return null

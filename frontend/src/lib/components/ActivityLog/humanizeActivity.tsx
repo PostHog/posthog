@@ -125,11 +125,7 @@ export function userNameForLogItem(logItem: ActivityLogItem): string {
     return logItem.user ? fullName(logItem.user) : 'A user'
 }
 
-const NO_PLURAL_SCOPES: ActivityScope[] = [
-    ActivityScope.DATA_MANAGEMENT,
-    ActivityScope.EVENT_DEFINITION,
-    ActivityScope.PROPERTY_DEFINITION,
-]
+const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
 
 const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plural: string }>> = {
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },

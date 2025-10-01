@@ -72,7 +72,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data management',
-        activityScope: ActivityScope.DATA_MANAGEMENT,
         defaultDocsPath: '/docs/data',
     },
 
