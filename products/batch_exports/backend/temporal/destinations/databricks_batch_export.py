@@ -967,7 +967,9 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 )
 
                 transformer: TransformerProtocol = ParquetStreamTransformer(
-                    schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=()),
+                    schema=cast_record_batch_schema_json_columns(
+                        record_batch_schema, json_columns=known_variant_columns
+                    ),
                     compression="zstd",
                     include_inserted_at=False,
                 )
