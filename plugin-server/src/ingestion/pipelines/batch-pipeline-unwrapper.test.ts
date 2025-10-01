@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { logger } from '../../utils/logger'
 import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
 import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
-import { createContext, createNewBatchPipeline } from './helpers'
+import { DefaultContext, createContext, createNewBatchPipeline } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
 
 // Mock the logger
@@ -36,7 +36,7 @@ describe('BatchPipelineUnwrapper', () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test1' }), { message }),
                 createContext(ok({ message, processed: 'test2' }), { message }),
             ]
@@ -65,7 +65,7 @@ describe('BatchPipelineUnwrapper', () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(drop('dropped'), { message }),
                 createContext(dlq('failed', new Error('test')), { message }),
             ]
@@ -88,7 +88,7 @@ describe('BatchPipelineUnwrapper', () => {
             const message4 = { ...message, offset: 4 } as Message
             const message5 = { ...message, offset: 5 } as Message
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'success1' }), { message }),
                 createContext(drop('dropped item'), { message: message2 }),
                 createContext(ok({ message, processed: 'success2' }), { message: message3 }),
@@ -110,7 +110,7 @@ describe('BatchPipelineUnwrapper', () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, value: 'string-value' }), { message }),
                 createContext(ok({ message, value: 42 }), { message }),
                 createContext(drop('dropped'), { message }),
@@ -137,7 +137,7 @@ describe('BatchPipelineUnwrapper', () => {
             const sideEffect1 = Promise.resolve('effect1')
             const sideEffect2 = Promise.resolve('effect2')
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test1' }), { message, sideEffects: [sideEffect1] }),
                 createContext(ok({ message, processed: 'test2' }), { message, sideEffects: [sideEffect2] }),
             ]
@@ -162,7 +162,7 @@ describe('BatchPipelineUnwrapper', () => {
             const sideEffect2 = Promise.resolve('effect2')
             const sideEffect3 = Promise.resolve('effect3')
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'success' }), { message, sideEffects: [sideEffect1] }),
                 createContext(drop('dropped'), { message, sideEffects: [sideEffect2] }),
                 createContext(dlq('failed', new Error('test')), { message, sideEffects: [sideEffect3] }),
@@ -185,7 +185,7 @@ describe('BatchPipelineUnwrapper', () => {
             const sideEffect2 = Promise.resolve('effect2')
             const sideEffect3 = Promise.resolve('effect3')
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test' }), {
                     message,
                     sideEffects: [sideEffect1, sideEffect2, sideEffect3],
@@ -205,7 +205,7 @@ describe('BatchPipelineUnwrapper', () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test1' }), { message }),
                 createContext(ok({ message, processed: 'test2' }), { message }),
                 createContext(drop('dropped'), { message }),
@@ -225,7 +225,7 @@ describe('BatchPipelineUnwrapper', () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test' }), { message, sideEffects: [] }),
             ]
 
@@ -243,7 +243,7 @@ describe('BatchPipelineUnwrapper', () => {
             const feedSpy = jest.spyOn(batchPipeline, 'feed')
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test' }), { message }),
             ]
 
@@ -282,7 +282,7 @@ describe('BatchPipelineUnwrapper', () => {
                 },
             }
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok(complexValue), { message }),
             ]
 
@@ -297,7 +297,7 @@ describe('BatchPipelineUnwrapper', () => {
             const batchPipeline = createNewBatchPipeline<{ message: Message }>()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, value: 'first' }), { message }),
                 createContext(drop('dropped'), { message }),
                 createContext(ok({ message, value: 'second' }), { message }),

@@ -72,7 +72,7 @@ describe('SideEffectHandlingPipeline', () => {
 
             const result = await pipeline.next()
 
-            expect(result).toEqual([{ result: ok({ message }), context: { message, sideEffects: [] } }])
+            expect(result).toEqual([{ result: ok({ message }), context: { message, sideEffects: [], warnings: [] } }])
             expect(mockPromiseScheduler.schedule).not.toHaveBeenCalled()
         })
 
