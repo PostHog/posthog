@@ -2,7 +2,7 @@ import { ingestionOverflowingMessagesTotal } from '../../main/ingestion-queues/b
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { ok, redirect } from '../pipelines/results'
-import { SyncProcessingStep } from '../pipelines/steps'
+import { ProcessingStep } from '../pipelines/steps'
 
 export type ForceOverflowDecision = {
     shouldRedirect: boolean
@@ -37,17 +37,17 @@ function applyForceOverflowRestrictions(
 export function createApplyForceOverflowRestrictionsStep<T extends { headers: EventHeaders }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,
     overflowConfig: OverflowConfig
-): SyncProcessingStep<T, T> {
-    return function applyForceOverflowRestrictionsStep(input) {
+): ProcessingStep<T, T> {
+    return async function applyForceOverflowRestrictionsStep(input) {
         const { headers } = input
 
         if (!overflowConfig.overflowEnabled) {
-            return ok(input)
+            return Promise.resolve(ok(input))
         }
 
         const forceOverflowDecision = applyForceOverflowRestrictions(eventIngestionRestrictionManager, headers)
         if (!forceOverflowDecision.shouldRedirect) {
-            return ok(input)
+            return Promise.resolve(ok(input))
         }
 
         ingestionOverflowingMessagesTotal.inc()
@@ -56,11 +56,13 @@ export function createApplyForceOverflowRestrictionsStep<T extends { headers: Ev
             forceOverflowDecision.preservePartitionLocality !== undefined
                 ? forceOverflowDecision.preservePartitionLocality
                 : overflowConfig.preservePartitionLocality
-        return redirect(
-            'Event redirected to overflow due to force overflow restrictions',
-            overflowConfig.overflowTopic,
-            preservePartitionLocality,
-            false
+        return Promise.resolve(
+            redirect(
+                'Event redirected to overflow due to force overflow restrictions',
+                overflowConfig.overflowTopic,
+                preservePartitionLocality,
+                false
+            )
         )
     }
 }
