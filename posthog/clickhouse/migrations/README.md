@@ -80,7 +80,7 @@ Example PR for non-sharded table: https://github.com/PostHog/posthog/pull/38890/
 
 **How and why?**
 
-Our main cluster (`posthog`) nodes where overwhelmed with ingestion and sometimes the query load
+Our main cluster (`posthog`) nodes were overwhelmed with ingestion and sometimes the query load
 was interfering with ingestion. This was causing delays and at the end incidents.
 
 We added new nodes that are not part of our regular cluster setup, we run them on Kubernetes.
