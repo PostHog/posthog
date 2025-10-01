@@ -246,6 +246,7 @@ export type AssistantContextualTool =
     | 'create_dashboard'
     | 'ReadTaxonomy'
     | 'Search'
+    | 'ReadData'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

@@ -790,7 +790,8 @@
                 "session_summarization",
                 "create_dashboard",
                 "ReadTaxonomy",
-                "Search"
+                "Search",
+                "ReadData"
             ],
             "type": "string"
         },
