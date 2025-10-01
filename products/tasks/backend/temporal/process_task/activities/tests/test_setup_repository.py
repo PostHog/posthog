@@ -41,16 +41,15 @@ class TestSetupRepositoryActivity:
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
             ) as mock_get_token:
-                mock_get_token.return_value = ""  # Public repo doesn't need auth
+                mock_get_token.return_value = ""
                 await activity_environment.run(clone_repository, clone_input)
 
-            # Check that node_modules doesn't exist before setup
             check_before = await sandbox.execute(
                 "ls -la /tmp/workspace/repos/posthog/posthog-js/ | grep node_modules || echo 'no node_modules'"
             )
             assert "no node_modules" in check_before.stdout
 
-            # Mock the _get_setup_command inside the setup_repository activity to just run pnpm install
+            # We mock the _get_setup_command inside the setup_repository activity to just run pnpm install for the test, instead of using the coding agent
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.setup_repository.SandboxAgent._get_setup_command"
             ) as mock_setup_cmd:
@@ -65,7 +64,6 @@ class TestSetupRepositoryActivity:
 
                 assert result is not None
 
-            # Verify node_modules exists after setup
             check_after = await sandbox.execute(
                 "ls -la /tmp/workspace/repos/posthog/posthog-js/ | grep node_modules || echo 'no node_modules'"
             )
@@ -88,7 +86,6 @@ class TestSetupRepositoryActivity:
         try:
             sandbox = await SandboxEnvironment.create(config)
 
-            # Try to setup without cloning first
             setup_input = SetupRepositoryInput(
                 sandbox_id=sandbox.id,
                 repository="PostHog/posthog-js",

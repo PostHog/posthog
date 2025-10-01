@@ -15,12 +15,8 @@ from products.tasks.backend.temporal.process_task.utils import get_sandbox_name_
 
 from .constants import BASE_SNAPSHOT
 
-# Skip all sandbox tests if RUNLOOP_API_KEY is not set
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("RUNLOOP_API_KEY"), reason="RUNLOOP_API_KEY environment variable not set"
-)
 
-
+@pytest.mark.skipif(not os.environ.get("RUNLOOP_API_KEY"), reason="RUNLOOP_API_KEY environment variable not set")
 class TestGetSandboxForSetupActivity:
     """Test suite for the get_sandbox_for_setup activity."""
 

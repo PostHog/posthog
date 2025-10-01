@@ -222,6 +222,13 @@ class SandboxEnvironment:
             raise RuntimeError(f"Failed to initiate snapshot: {e}")
 
     @staticmethod
+    async def delete_snapshot(external_id: str) -> None:
+        client = get_runloop_client()
+        logger.info(f"Deleting snapshot {external_id}")
+        await client.devboxes.disk_snapshots.delete(external_id)
+        logger.info(f"Deleted snapshot {external_id}")
+
+    @staticmethod
     async def get_snapshot_status(external_id: str) -> SandboxEnvironmentSnapshotStatus:
         try:
             client = get_runloop_client()

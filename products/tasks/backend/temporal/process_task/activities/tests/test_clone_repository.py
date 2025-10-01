@@ -37,7 +37,7 @@ class TestCloneRepositoryActivity:
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
             ) as mock_get_token:
-                mock_get_token.return_value = ""  # Public repo doesn't need auth
+                mock_get_token.return_value = ""
 
                 result = await activity_environment.run(clone_repository, input_data)
 
@@ -88,7 +88,7 @@ class TestCloneRepositoryActivity:
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
             ) as mock_get_token:
-                mock_get_token.return_value = ""  # Public repo doesn't need auth
+                mock_get_token.return_value = ""
 
                 # First clone
                 result1 = await activity_environment.run(clone_repository, input_data)
