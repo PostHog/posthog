@@ -44,11 +44,25 @@ export function HogFunctionList({
     hideFeedback = false,
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
-    const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
-        hogFunctionsListLogic(props)
-    )
-    const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
-        useActions(hogFunctionsListLogic(props))
+    const {
+        loading,
+        paginatedHogFunctions,
+        filters,
+        hogFunctions,
+        hiddenHogFunctions,
+        hasMoreToLoad,
+        displayCount,
+        filteredHogFunctions,
+    } = useValues(hogFunctionsListLogic(props))
+    const {
+        loadHogFunctions,
+        setFilters,
+        resetFilters,
+        toggleEnabled,
+        deleteHogFunction,
+        setReorderModalOpen,
+        loadMoreHogFunctions,
+    } = useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
@@ -237,7 +251,7 @@ export function HogFunctionList({
 
             <BindLogic logic={hogFunctionsListLogic} props={props}>
                 <LemonTable
-                    dataSource={filteredHogFunctions}
+                    dataSource={paginatedHogFunctions}
                     size="small"
                     loading={loading}
                     columns={columns}
@@ -252,19 +266,28 @@ export function HogFunctionList({
                         )
                     }
                     footer={
-                        hiddenHogFunctions.length > 0 && (
-                            <div className="p-3 text-secondary">
-                                {hiddenHogFunctions.length} hidden.{' '}
-                                <Link
-                                    onClick={() => {
-                                        resetFilters()
-                                        setFilters({ showPaused: true })
-                                    }}
-                                >
-                                    Show all
-                                </Link>
-                            </div>
-                        )
+                        <>
+                            {hasMoreToLoad && (
+                                <div className="p-3 text-center border-t">
+                                    <LemonButton onClick={loadMoreHogFunctions} loading={loading} size="small">
+                                        Load more ({displayCount} of {filteredHogFunctions.length} shown)
+                                    </LemonButton>
+                                </div>
+                            )}
+                            {hiddenHogFunctions.length > 0 && (
+                                <div className="p-3 text-secondary">
+                                    {hiddenHogFunctions.length} hidden.{' '}
+                                    <Link
+                                        onClick={() => {
+                                            resetFilters()
+                                            setFilters({ showPaused: true })
+                                        }}
+                                    >
+                                        Show all
+                                    </Link>
+                                </div>
+                            )}
+                        </>
                     }
                 />
                 <HogFunctionOrderModal />

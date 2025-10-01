@@ -72,6 +72,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         addHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         setReorderModalOpen: (open: boolean) => ({ open }),
         saveHogFunctionOrder: (newOrders: Record<string, number>) => ({ newOrders }),
+        loadMoreHogFunctions: true,
     }),
     reducers(() => ({
         filters: [
@@ -88,6 +89,14 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             false as boolean,
             {
                 setReorderModalOpen: (_, { open }) => open,
+            },
+        ],
+        displayCount: [
+            5 as number,
+            {
+                loadMoreHogFunctions: (state) => state + 20,
+                resetFilters: () => 5,
+                setFilters: () => 5, // Reset to first page when filters change
             },
         ],
     })),
@@ -185,6 +194,20 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     }
                     return true
                 })
+            },
+        ],
+
+        paginatedHogFunctions: [
+            (s) => [s.filteredHogFunctions, s.displayCount],
+            (filteredHogFunctions, displayCount): HogFunctionType[] => {
+                return filteredHogFunctions.slice(0, displayCount)
+            },
+        ],
+
+        hasMoreToLoad: [
+            (s) => [s.filteredHogFunctions, s.displayCount],
+            (filteredHogFunctions, displayCount): boolean => {
+                return filteredHogFunctions.length > displayCount
             },
         ],
 
