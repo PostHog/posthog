@@ -3,11 +3,17 @@ export enum FeedbackStatus {
     Hidden = 'hidden',
 }
 
+export enum FeedbackType {
+    Question = 'question',
+    Feedback = 'feedback',
+    Bug = 'bug',
+}
+
 export interface FeedbackItem {
     id: string
     user: string
     message: string
-    type: 'question' | 'feature request' | 'bug'
+    type: FeedbackType
     timestamp: string
     status: FeedbackStatus
 }
