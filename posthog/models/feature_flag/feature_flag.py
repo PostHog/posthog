@@ -406,6 +406,18 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             new_variants = variant_data.get("variants", [])
             new_payloads = variant_data.get("payloads", {})
 
+            # Validate variant rollout percentages before proceeding
+            if new_variants:
+                total_rollout = sum(variant.get("rollout_percentage", 0) for variant in new_variants)
+                if total_rollout != 100:
+                    raise ValueError(f"Invalid variant rollout percentages: sum is {total_rollout}, must be 100")
+
+            # Validate payload keys match variant keys
+            variant_keys = {v.get("key") for v in new_variants}
+            payload_keys = set(new_payloads.keys()) if new_payloads else set()
+            if payload_keys and payload_keys != variant_keys:
+                raise ValueError(f"Payload keys {payload_keys} don't match variant keys {variant_keys}")
+
             updated_multivariate = current_filters.get("multivariate", {})
             updated_multivariate["variants"] = new_variants
 

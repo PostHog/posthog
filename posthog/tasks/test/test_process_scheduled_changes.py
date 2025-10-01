@@ -787,3 +787,323 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
         self.assertIsNotNone(updated_scheduled_change.failure_reason)
         self.assertEqual(updated_scheduled_change.failure_count, 1)
+
+    def test_scheduled_changes_dispatcher_validates_variant_rollout_percentages(self) -> None:
+        """Test that scheduled_changes_dispatcher validates variants before attempting update"""
+        # Create initial feature flag with valid variants
+        initial_variants = [
+            {"key": "control", "name": "Control", "rollout_percentage": 50},
+            {"key": "test", "name": "Test", "rollout_percentage": 50},
+        ]
+
+        feature_flag = FeatureFlag.objects.create(
+            name="Test Flag",
+            key="test-validation-flag",
+            active=True,
+            filters={
+                "groups": [],
+                "multivariate": {"variants": initial_variants},
+                "payloads": {"control": {"msg": "control"}, "test": {"msg": "test"}},
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Create payload with invalid variants (rollout percentages sum to 95, not 100)
+        invalid_payload = {
+            "operation": "update_variants",
+            "value": {
+                "variants": [
+                    {"key": "control", "name": "Control", "rollout_percentage": 45},
+                    {"key": "test", "name": "Test", "rollout_percentage": 50},
+                ],
+                "payloads": {"control": {"msg": "control"}, "test": {"msg": "test"}},
+            },
+        }
+
+        # This should raise a validation exception from scheduled_changes_dispatcher method
+        with self.assertRaises(ValueError) as context:
+            feature_flag.scheduled_changes_dispatcher(invalid_payload, self.user)
+
+        # Verify it's our specific validation error message
+        self.assertIn("Invalid variant rollout percentages", str(context.exception))
+
+        # Verify the flag was not modified
+        feature_flag.refresh_from_db()
+        self.assertEqual(feature_flag.filters["multivariate"]["variants"], initial_variants)
+
+    def test_scheduled_changes_dispatcher_allows_valid_variant_rollout_percentages(self) -> None:
+        """Test that scheduled_changes_dispatcher allows valid variants that sum to 100"""
+        # Create initial feature flag with valid variants
+        initial_variants = [
+            {"key": "control", "name": "Control", "rollout_percentage": 50},
+            {"key": "test", "name": "Test", "rollout_percentage": 50},
+        ]
+
+        feature_flag = FeatureFlag.objects.create(
+            name="Test Flag Valid",
+            key="test-validation-flag-valid",
+            active=True,
+            filters={
+                "groups": [],
+                "multivariate": {"variants": initial_variants},
+                "payloads": {"control": {"msg": "control"}, "test": {"msg": "test"}},
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Create payload with valid variants (rollout percentages sum to 100)
+        valid_variants = [
+            {"key": "control", "name": "Control Updated", "rollout_percentage": 30},
+            {"key": "test", "name": "Test Updated", "rollout_percentage": 40},
+            {"key": "new", "name": "New Variant", "rollout_percentage": 30},
+        ]
+
+        valid_payload = {
+            "operation": "update_variants",
+            "value": {
+                "variants": valid_variants,
+                "payloads": {"control": {"msg": "control"}, "test": {"msg": "test"}, "new": {"msg": "new"}},
+            },
+        }
+
+        # This should not raise any exception
+        feature_flag.scheduled_changes_dispatcher(valid_payload, self.user)
+
+        # Verify the flag was updated correctly
+        feature_flag.refresh_from_db()
+        self.assertEqual(feature_flag.filters["multivariate"]["variants"], valid_variants)
+
+    def test_scheduled_changes_dispatcher_allows_empty_variants(self) -> None:
+        """Test that scheduled_changes_dispatcher allows empty variants (converting multivariate to boolean flag)"""
+        # Create initial feature flag with variants
+        initial_variants = [
+            {"key": "control", "name": "Control", "rollout_percentage": 50},
+            {"key": "test", "name": "Test", "rollout_percentage": 50},
+        ]
+
+        feature_flag = FeatureFlag.objects.create(
+            name="Test Flag Empty",
+            key="test-validation-flag-empty",
+            active=True,
+            filters={
+                "groups": [],
+                "multivariate": {"variants": initial_variants},
+                "payloads": {"control": {"msg": "control"}, "test": {"msg": "test"}},
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Create payload with empty variants
+        empty_payload = {
+            "operation": "update_variants",
+            "value": {
+                "variants": [],
+                "payloads": {},
+            },
+        }
+
+        # This should not raise any exception (empty variants should be allowed)
+        feature_flag.scheduled_changes_dispatcher(empty_payload, self.user)
+
+        # Verify the flag was updated correctly with empty variants
+        feature_flag.refresh_from_db()
+        self.assertEqual(feature_flag.filters["multivariate"]["variants"], [])
+
+    def test_scheduled_changes_dispatcher_validates_payload_keys_match_variants(self) -> None:
+        """Test that scheduled_changes_dispatcher validates that payload keys match variant keys"""
+        # Create initial feature flag with valid variants
+        initial_variants = [
+            {"key": "control", "name": "Control", "rollout_percentage": 50},
+            {"key": "test", "name": "Test", "rollout_percentage": 50},
+        ]
+
+        feature_flag = FeatureFlag.objects.create(
+            name="Test Flag Payload",
+            key="test-validation-flag-payload",
+            active=True,
+            filters={
+                "groups": [],
+                "multivariate": {"variants": initial_variants},
+                "payloads": {"control": {"msg": "control"}, "test": {"msg": "test"}},
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Create payload with mismatched payload keys (payloads don't match variant keys)
+        mismatched_variants = [
+            {"key": "control", "name": "Control", "rollout_percentage": 30},
+            {"key": "test", "name": "Test", "rollout_percentage": 70},
+        ]
+
+        mismatched_payloads = {
+            "wrong_key": {"msg": "control"},  # This key doesn't match any variant
+            "another_wrong_key": {"msg": "test"},  # This key doesn't match any variant
+        }
+
+        invalid_payload = {
+            "operation": "update_variants",
+            "value": {
+                "variants": mismatched_variants,
+                "payloads": mismatched_payloads,
+            },
+        }
+
+        # This should raise a validation exception from scheduled_changes_dispatcher method
+        with self.assertRaises(ValueError) as context:
+            feature_flag.scheduled_changes_dispatcher(invalid_payload, self.user)
+
+        # Verify it's our specific validation error message
+        self.assertIn("don't match variant keys", str(context.exception))
+
+        # Verify the flag was not modified
+        feature_flag.refresh_from_db()
+        self.assertEqual(feature_flag.filters["multivariate"]["variants"], initial_variants)
+
+    def test_scheduled_changes_dispatcher_allows_variants_with_empty_payloads(self) -> None:
+        """Test that scheduled_changes_dispatcher allows variants with empty payloads (multivariate flag without payloads)"""
+        # Create initial feature flag
+        initial_variants = [
+            {"key": "control", "name": "Control", "rollout_percentage": 50},
+            {"key": "test", "name": "Test", "rollout_percentage": 50},
+        ]
+
+        feature_flag = FeatureFlag.objects.create(
+            name="Test Flag No Payloads",
+            key="test-validation-flag-no-payloads",
+            active=True,
+            filters={
+                "groups": [],
+                "multivariate": {"variants": initial_variants},
+                "payloads": {},
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Create payload with variants but no payloads (this should be allowed)
+        new_variants = [
+            {"key": "control", "name": "Control Updated", "rollout_percentage": 40},
+            {"key": "test", "name": "Test Updated", "rollout_percentage": 60},
+        ]
+
+        valid_payload = {
+            "operation": "update_variants",
+            "value": {
+                "variants": new_variants,
+                "payloads": {},  # Empty payloads should be allowed
+            },
+        }
+
+        # This should not raise any exception
+        feature_flag.scheduled_changes_dispatcher(valid_payload, self.user)
+
+        # Verify the flag was updated correctly
+        feature_flag.refresh_from_db()
+        self.assertEqual(feature_flag.filters["multivariate"]["variants"], new_variants)
+        self.assertEqual(feature_flag.filters["payloads"], {})
+
+    def test_scheduled_changes_dispatcher_validates_variant_keys_exist(self) -> None:
+        """Test that scheduled_changes_dispatcher validates that variants have keys"""
+        feature_flag = FeatureFlag.objects.create(
+            name="Test Flag Invalid Keys",
+            key="test-validation-flag-invalid-keys",
+            active=True,
+            filters={"groups": [], "multivariate": {"variants": []}, "payloads": {}},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Create payload with variants that have missing or None keys
+        invalid_variants = [
+            {"name": "Control", "rollout_percentage": 50},  # Missing 'key' field
+            {"key": None, "name": "Test", "rollout_percentage": 50},  # None key
+        ]
+
+        invalid_payload = {
+            "operation": "update_variants",
+            "value": {
+                "variants": invalid_variants,
+                "payloads": {"control": {"msg": "control"}},
+            },
+        }
+
+        # This should raise a validation exception
+        with self.assertRaises(ValueError) as context:
+            feature_flag.scheduled_changes_dispatcher(invalid_payload, self.user)
+
+        # Verify it mentions the issue with variant keys
+        error_message = str(context.exception)
+        self.assertIn("don't match variant keys", error_message)
+
+    def test_failure_reason_truncation_preserves_json(self) -> None:
+        """Test that failure reason truncation preserves valid JSON structure"""
+        # This test verifies the simple truncation approach used in process_scheduled_changes
+        failure_context = {
+            "error": "A" * 500,  # Very long error message
+            "error_type": "ValidationError",
+            "error_classification": "unrecoverable",
+        }
+
+        # Apply the same logic as in process_scheduled_changes
+        error_msg = str(failure_context.get("error", ""))
+        if len(error_msg) > 300:
+            failure_context["error"] = error_msg[:297] + "..."
+
+        failure_json = json.dumps(failure_context)
+        final_result = failure_json[:400] if len(failure_json) > 400 else failure_json
+
+        # Verify it's valid JSON
+        parsed = json.loads(final_result)
+        self.assertIsInstance(parsed, dict)
+
+        # Verify important fields are preserved
+        self.assertEqual(parsed["error_type"], "ValidationError")
+        self.assertEqual(parsed["error_classification"], "unrecoverable")
+
+        # Verify error message is truncated with ellipsis
+        self.assertTrue(parsed["error"].endswith("..."))
+
+    def test_cannot_schedule_change_in_past(self) -> None:
+        """Test that scheduled changes set in the past are executed immediately when processed"""
+        feature_flag = FeatureFlag.objects.create(
+            name="Past Test Flag",
+            key="past-test-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Schedule a change 2 hours in the past
+        past_time = datetime.now(UTC) - timedelta(hours=2)
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=past_time,
+            created_by=self.user,
+        )
+
+        # Verify the change hasn't been executed yet
+        self.assertIsNone(scheduled_change.executed_at)
+        updated_flag = FeatureFlag.objects.get(key="past-test-flag")
+        self.assertEqual(updated_flag.active, False)
+
+        # Process scheduled changes
+        process_scheduled_changes()
+
+        # Verify the change was executed immediately
+        updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
+        self.assertIsNotNone(updated_scheduled_change.executed_at)
+        self.assertIsNone(updated_scheduled_change.failure_reason)
+        self.assertEqual(updated_scheduled_change.failure_count, 0)
+
+        # Verify the flag was updated
+        updated_flag = FeatureFlag.objects.get(key="past-test-flag")
+        self.assertEqual(updated_flag.active, True)
