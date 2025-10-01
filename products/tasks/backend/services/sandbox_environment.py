@@ -3,6 +3,7 @@ import logging
 from enum import Enum
 from typing import Optional
 
+from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 from runloop_api_client import (
     AsyncRunloop,
@@ -65,7 +66,6 @@ def get_runloop_client() -> AsyncRunloop:
 
 TEMPLATE_TO_BLUEPRINT_NAME = {
     SandboxEnvironmentTemplate.DEFAULT_BASE: "sandbox-base-1",
-    SandboxEnvironmentTemplate.DEFAULT_BASE: "bpt_318UuXYGZbyYyl12hArAL",
 }
 
 BLUEPRINT_NAME_TO_TEMPLATE = {v: k for k, v in TEMPLATE_TO_BLUEPRINT_NAME.items()}
@@ -100,7 +100,7 @@ class SandboxEnvironment:
         snapshot_external_id = None
 
         if config.snapshot_id:
-            snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
+            snapshot = await sync_to_async(SandboxSnapshot.objects.get)(external_id=config.snapshot_id)
 
             if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                 snapshot_external_id = snapshot.external_id
@@ -254,3 +254,7 @@ class SandboxEnvironment:
     @property
     def is_running(self) -> bool:
         return self.status == SandboxEnvironmentStatus.RUNNING
+
+    @property
+    def name(self) -> str:
+        return self.config.name
