@@ -6,6 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
+from posthog.hogql.database.schema.util.uuid import uuid_uint128_expr_to_timestamp_expr
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression, is_time_or_interval_constant
@@ -338,34 +339,12 @@ class SessionMinTimestampWhereClauseExtractorV1(SessionMinTimestampWhereClauseEx
 
 
 class SessionMinTimestampWhereClauseExtractorV2(SessionMinTimestampWhereClauseExtractor):
-    timestamp_field = ast.Call(
-        name="fromUnixTimestamp",
-        args=[
-            ast.Call(
-                name="intDiv",
-                args=[
-                    ast.Call(
-                        name="_toUInt64",
-                        args=[
-                            ast.Call(
-                                name="bitShiftRight",
-                                args=[ast.Field(chain=["raw_sessions", "session_id_v7"]), ast.Constant(value=80)],
-                            )
-                        ],
-                    ),
-                    ast.Constant(value=1000),
-                ],
-            )
-        ],
-    )
+    timestamp_field = uuid_uint128_expr_to_timestamp_expr(ast.Field(chain=["raw_sessions", "session_id_v7"]))
     time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
 
 
 class SessionMinTimestampWhereClauseExtractorV3(SessionMinTimestampWhereClauseExtractor):
-    timestamp_field = ast.Call(
-        name="UUIDv7ToDateTime",
-        args=[ast.Field(chain=["raw_sessions_v3", "session_id_v7"])],
-    )
+    timestamp_field = uuid_uint128_expr_to_timestamp_expr(ast.Field(chain=["raw_sessions_v3", "session_id_v7"]))
     time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
 
 

@@ -87,6 +87,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "session_id_v7": StringDatabaseField(name="session_id_v7"),
     "id": StringDatabaseField(name="id"),
+    "session_id": StringDatabaseField(name="id"),
     # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
     "session_id": StringDatabaseField(name="session_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
