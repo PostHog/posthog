@@ -397,7 +397,23 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage
+  FROM system.query_log
+  WHERE query NOT LIKE '%query_log%'
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type = 'QueryFinish'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.1
+  '''
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -405,9 +421,8 @@
     AND version = 0
   '''
 # ---
-# name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.1
+# name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.2
   '''
-  /* cohort_calculation: */
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
