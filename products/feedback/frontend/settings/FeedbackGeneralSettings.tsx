@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { FeedbackPreview } from './FeedbackPreview'
@@ -9,7 +9,7 @@ import { feedbackGeneralSettingsLogic } from './feedbackGeneralSettingsLogic'
 
 export function FeedbackGeneralSettings(): JSX.Element {
     const { feedbackCategories, feedbackTopics, feedbackStatuses } = useValues(feedbackGeneralSettingsLogic)
-    const { createFeedbackTopic } = useActions(feedbackGeneralSettingsLogic)
+    const { createFeedbackTopic, deleteFeedbackTopic } = useActions(feedbackGeneralSettingsLogic)
 
     const [isAddTopicModalOpen, setIsAddTopicModalOpen] = useState(false)
     const [newTopicName, setNewTopicName] = useState('')
@@ -46,8 +46,18 @@ export function FeedbackGeneralSettings(): JSX.Element {
                             </LemonButton>
                         </div>
                         {feedbackTopics.map((topic) => (
-                            <div key={topic.id} className="border rounded p-2 bg-surface-primary">
+                            <div
+                                key={topic.id}
+                                className="border rounded p-2 bg-surface-primary flex items-center justify-between"
+                            >
                                 <div className="font-medium">{topic.name}</div>
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    size="small"
+                                    status="danger"
+                                    onClick={() => deleteFeedbackTopic(topic.id)}
+                                    tooltip="Delete topic"
+                                />
                             </div>
                         ))}
                     </div>

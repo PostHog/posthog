@@ -1531,6 +1531,10 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('feedback_statuses')
     }
 
+    public feedbackItemTopic(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.feedbackItemTopics(teamId).addPathComponent(id)
+    }
+
     public feedbackItemTopics(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('feedback_topics')
     }
@@ -4221,6 +4225,15 @@ const api = {
         topics: {
             async list(): Promise<CountedPaginatedResponse<FeedbackItemTopic>> {
                 return await new ApiRequest().feedbackItemTopics().get()
+            },
+            async create(data: Partial<FeedbackItemTopic>): Promise<FeedbackItemTopic> {
+                return await new ApiRequest().feedbackItemTopics().create({ data })
+            },
+            async update(id: string, data: Partial<FeedbackItemTopic>): Promise<FeedbackItemTopic> {
+                return await new ApiRequest().feedbackItemTopic(id).update({ data })
+            },
+            async delete(id: string): Promise<void> {
+                return await new ApiRequest().feedbackItemTopic(id).delete()
             },
         },
     },

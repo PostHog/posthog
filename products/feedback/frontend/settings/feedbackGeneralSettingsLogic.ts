@@ -1,4 +1,4 @@
-import { actions, events, kea, path } from 'kea'
+import { actions, events, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -13,21 +13,18 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
         loadFeedbackTopics: true,
         loadFeedbackCategories: true,
         loadFeedbackStatuses: true,
+
         createFeedbackTopic: (name: string) => ({ name }),
+        deleteFeedbackTopic: (id: string) => ({ id }),
     }),
 
-    loaders(({ actions }) => ({
+    loaders(() => ({
         feedbackTopics: [
             [] as FeedbackItemTopic[],
             {
                 loadFeedbackTopics: async () => {
                     const response = await api.feedback.topics.list()
                     return response.results
-                },
-                createFeedbackTopic: async ({ name }) => {
-                    const newTopic = await api.feedback.topics.create({ name })
-                    actions.loadFeedbackTopics()
-                    return [newTopic]
                 },
             },
         ],
@@ -49,6 +46,17 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
                 },
             },
         ],
+    })),
+
+    listeners(({ actions }) => ({
+        createFeedbackTopic: async ({ name }) => {
+            await api.feedback.topics.create({ name })
+            actions.loadFeedbackTopics()
+        },
+        deleteFeedbackTopic: async ({ id }) => {
+            await api.feedback.topics.delete(id)
+            actions.loadFeedbackTopics()
+        },
     })),
 
     events(({ actions }) => ({
