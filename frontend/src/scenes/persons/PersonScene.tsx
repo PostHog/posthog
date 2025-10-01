@@ -6,7 +6,6 @@ import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } fro
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -134,53 +133,10 @@ export function PersonScene(): JSX.Element | null {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
     }
 
-    const url = urls.personByDistinctId(urlId || person.distinct_ids[0] || String(person.id))
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <SceneContent>
-            <PageHeader
-                notebookProps={
-                    url
-                        ? {
-                              href: url,
-                          }
-                        : undefined
-                }
-                buttons={
-                    <div className="flex gap-2">
-                        <NotebookSelectButton
-                            resource={{
-                                type: NotebookNodeType.Person,
-                                attrs: { id: person?.distinct_ids[0] },
-                            }}
-                            type="secondary"
-                        />
-                        {user?.is_staff && <OpenInAdminPanelButton />}
-                        <LemonButton
-                            onClick={() => showPersonDeleteModal(person, () => loadPersons())}
-                            disabled={deletedPersonLoading}
-                            loading={deletedPersonLoading}
-                            type="secondary"
-                            status="danger"
-                            data-attr="delete-person"
-                        >
-                            Delete person
-                        </LemonButton>
-
-                        {person.distinct_ids.length > 1 && (
-                            <LemonButton
-                                onClick={() => setSplitMergeModalShown(true)}
-                                data-attr="merge-person-button"
-                                type="secondary"
-                            >
-                                Split IDs
-                            </LemonButton>
-                        )}
-                    </div>
-                }
-            />
-
             <SceneTitleSection
                 name="Person"
                 resourceType={{
@@ -192,6 +148,41 @@ export function PersonScene(): JSX.Element | null {
                     path: urls.persons(),
                     key: 'people',
                 }}
+                actions={
+                    <>
+                        <NotebookSelectButton
+                            resource={{
+                                type: NotebookNodeType.Person,
+                                attrs: { id: person?.distinct_ids[0] },
+                            }}
+                            type="secondary"
+                            size="small"
+                        />
+                        {user?.is_staff && <OpenInAdminPanelButton />}
+                        <LemonButton
+                            onClick={() => showPersonDeleteModal(person, () => loadPersons())}
+                            disabled={deletedPersonLoading}
+                            loading={deletedPersonLoading}
+                            type="secondary"
+                            status="danger"
+                            data-attr="delete-person"
+                            size="small"
+                        >
+                            Delete person
+                        </LemonButton>
+
+                        {person.distinct_ids.length > 1 && (
+                            <LemonButton
+                                onClick={() => setSplitMergeModalShown(true)}
+                                data-attr="merge-person-button"
+                                type="secondary"
+                                size="small"
+                            >
+                                Split IDs
+                            </LemonButton>
+                        )}
+                    </>
+                }
             />
             <SceneDivider />
 

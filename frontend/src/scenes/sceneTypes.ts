@@ -1,5 +1,6 @@
 import { LogicWrapper } from 'kea'
 
+import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SettingSectionId } from './settings/types'
@@ -123,8 +124,9 @@ export enum Scene {
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
+export type SceneProps = Record<string, any>
 
-export interface SceneExport<T = {}> {
+export interface SceneExport<T = SceneProps> {
     /** component to render for this scene */
     component: SceneComponent<T>
     /** logic to mount for this scene */
@@ -136,8 +138,6 @@ export interface SceneExport<T = {}> {
     /** when was the scene last touched, unix timestamp for sortability */
     lastTouch?: number
 }
-
-type SceneProps = Record<string, any>
 
 // KLUDGE: LoadedScene is used in a logic and therefore cannot accept generics
 // we use an untyped SceneProps to satisfy the types
@@ -155,6 +155,7 @@ export interface SceneTab {
     title: string
     active: boolean
     customTitle?: string
+    iconType: FileSystemIconType | 'loading' | 'blank'
 
     sceneId?: string
     sceneKey?: string
@@ -205,6 +206,8 @@ export interface SceneConfig {
     defaultDocsPath?: string | (() => string) | (() => Promise<string>)
     /** Component import, used only in manifests */
     import?: () => Promise<any>
+    /** Custom icon for the tabs */
+    iconType?: FileSystemIconType
 }
 
 // Map scenes to their access control resource types

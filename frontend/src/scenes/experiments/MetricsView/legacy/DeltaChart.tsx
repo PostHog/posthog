@@ -555,6 +555,7 @@ export function DeltaChart({
     const metricTitlePanel = (
         <MetricHeader
             displayOrder={displayOrder}
+            experiment={experiment}
             metric={metric}
             metricType={metricType}
             isPrimaryMetric={!isSecondary}

@@ -79,7 +79,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
-        setQuery: setSourceQuery,
+        setQuery: (setter) => setSourceQuery(setter(sourceQuery)),
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {

@@ -104,7 +104,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self,
         team: Team,
         query: RecordingsQuery,
-        hogql_query_modifiers: Optional[HogQLQueryModifiers],
+        hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
         allow_event_property_expansion: bool = False,
         **_,
     ):

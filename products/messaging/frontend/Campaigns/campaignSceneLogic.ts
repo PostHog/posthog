@@ -39,10 +39,12 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
                         key: [Scene.Messaging, 'campaigns'],
                         name: 'Campaigns',
                         path: urls.messaging('campaigns'),
+                        iconType: 'messaging',
                     },
                     {
                         key: Scene.MessagingCampaign,
                         name: id == 'new' ? 'New campaign' : 'Manage campaign',
+                        iconType: 'messaging',
                     },
                 ]
             },

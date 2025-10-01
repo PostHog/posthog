@@ -1,5 +1,5 @@
 import { LogicWrapper } from 'kea'
-import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
+import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
 import { ReactNode } from 'react'
 import { Layout } from 'react-grid-layout'
 
@@ -9,6 +9,7 @@ import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
 
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
+import { PaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -16,8 +17,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
-    DashboardPrivilegeLevel,
-    DashboardRestrictionLevel,
     ENTITY_MATCH_TYPE,
     FunnelLayout,
     OrganizationMembershipLevel,
@@ -58,6 +57,7 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InsightQueryNode,
     InsightVizNode,
     MarketingAnalyticsConfig,
     Node,
@@ -197,7 +197,6 @@ export enum AvailableFeature {
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
-    DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
     AUTOMATIC_PROVISIONING = 'automatic_provisioning',
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
@@ -231,7 +230,6 @@ export enum ProductKey {
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
     SITE_APPS = 'site_apps',
-    DATA_PIPELINES = 'data_pipelines',
     GROUP_ANALYTICS = 'group_analytics',
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
@@ -501,20 +499,8 @@ export interface OrganizationMemberScopedApiKeysResponse {
     }[]
 }
 
-export interface ExplicitTeamMemberType extends BaseMemberType {
-    /** Level at which the user explicitly is in the project. */
-    level: TeamMembershipLevel
-    /** Level at which the user is in the organization. */
-    parent_level: OrganizationMembershipLevel
-    /** Effective level of the user within the project, which may be higher than parent level, but not lower. */
-    effective_level: OrganizationMembershipLevel
-}
-
-export type EitherMemberType = OrganizationMemberType | ExplicitTeamMemberType
-
 /**
- * While OrganizationMemberType and ExplicitTeamMemberType refer to actual Django models,
- * this interface is only used in the frontend for fusing the data from these models together.
+ * This interface is only used in the frontend for fusing organization member data.
  */
 export interface FusedTeamMemberType extends BaseMemberType {
     /**
@@ -574,8 +560,6 @@ export interface TeamBasicType extends WithAccessControl {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
-    /** Whether the project is private. */
-    access_control: boolean
 }
 
 export interface CorrelationConfigType {
@@ -661,7 +645,7 @@ export interface TeamType extends TeamBasicType {
     person_display_name_properties: string[]
     has_group_types: boolean
     group_types: GroupType[]
-    primary_dashboard: number // Dashboard shown on the project homepage
+    primary_dashboard: number | null // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
@@ -1086,7 +1070,6 @@ export type EncodedRecordingSnapshot = {
 // we have a strongly typed way to do it
 export const SnapshotSourceType = {
     blob: 'blob',
-    realtime: 'realtime',
     file: 'file',
     blob_v2: 'blob_v2',
 } as const
@@ -1618,6 +1601,23 @@ export interface SessionRecordingPlaylistType {
     _create_in_folder?: string | null
 }
 
+export interface SavedSessionRecordingPlaylistsFilters {
+    order: string
+    search: string
+    createdBy: number | 'All users'
+    dateFrom: string | dayjs.Dayjs | undefined | null
+    dateTo: string | dayjs.Dayjs | undefined | null
+    page: number
+    pinned: boolean
+    type?: 'collection' | 'saved_filters'
+}
+
+export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
+    count: number
+    /** not in the API response */
+    filters?: SavedSessionRecordingPlaylistsFilters | null
+}
+
 export interface SessionRecordingSegmentType {
     start_time: string
     end_time: string
@@ -2091,8 +2091,6 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
-    effective_restriction_level: DashboardRestrictionLevel
-    effective_privilege_level: DashboardPrivilegeLevel
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
@@ -2114,7 +2112,7 @@ export interface QueryEndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
-    query: HogQLQuery
+    query: HogQLQuery | InsightQueryNode
     parameters: Record<string, any>
     is_active: boolean
     endpoint_path: string
@@ -2138,10 +2136,6 @@ export interface DashboardBasicType extends WithAccessControl {
     is_shared: boolean
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate'
-    restriction_level: DashboardRestrictionLevel
-    effective_restriction_level: DashboardRestrictionLevel
-    effective_privilege_level: DashboardPrivilegeLevel
-    access_control_version: 'v1' | 'v2'
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -2213,19 +2207,6 @@ export interface DashboardTemplateVariableType {
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
-
-/** Explicit dashboard collaborator, based on DashboardPrivilege. */
-export interface DashboardCollaboratorType {
-    id: string
-    dashboard_id: DashboardType['id']
-    user: UserBasicType
-    level: DashboardPrivilegeLevel
-    added_at: string
-    updated_at: string
-}
-
-/** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
-export type FusedDashboardCollaboratorType = Pick<DashboardCollaboratorType, 'user' | 'level'>
 
 export interface OrganizationInviteType {
     id: string
@@ -2422,7 +2403,11 @@ export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'>
 
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
+    // TODO: remove this as ActionsBar was meant to be for unstacked bar charts
+    // but with current logic for all insights with this setting saved in the query
+    // we still show them stacked bars
     ActionsBar = 'ActionsBar',
+    ActionsUnstackedBar = 'ActionsUnstackedBar',
     ActionsStackedBar = 'ActionsStackedBar',
     ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
@@ -3056,6 +3041,16 @@ export enum SurveyPartialResponses {
     No = 'false',
 }
 
+export interface SurveyEventsWithProperties {
+    name: string
+    propertyFilters?: {
+        [propertyName: string]: {
+            values: string[]
+            operator: PropertyMatchType
+        }
+    }
+}
+
 export interface SurveyDisplayConditions {
     url?: string
     selector?: string
@@ -3072,9 +3067,7 @@ export interface SurveyDisplayConditions {
     } | null
     events: {
         repeatedActivation?: boolean
-        values: {
-            name: string
-        }[]
+        values: SurveyEventsWithProperties[]
     } | null
 }
 
@@ -3423,6 +3416,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     id: number | null
     created_by: UserBasicType | null
     created_at: string | null
+    updated_at: string | null
     version: number | null
     last_modified_by: UserBasicType | null
     is_simple_flag: boolean
@@ -3613,8 +3607,10 @@ export interface PreflightStatus {
             client_id?: string
         }
     }
-    /** Whether PostHog is running in DEBUG mode. */
+    /** Whether PostHog is running in settings.DEBUG or settings.E2E_TESTING. */
     is_debug?: boolean
+    /** Whether PostHog is running with settings.TEST. */
+    is_test?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
     site_url?: string
@@ -4029,6 +4025,7 @@ interface BreadcrumbBase {
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
     /** Whether to show a custom popover for the project */
     isPopoverProject?: boolean
+    iconType?: FileSystemIconType | 'blank' | 'loading'
 }
 export interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
@@ -4369,12 +4366,22 @@ export interface LinearTeamType {
     name: string
 }
 
+export interface SharePasswordType {
+    id: string
+    created_at: string
+    note: string
+    created_by_email: string
+    is_active: boolean
+    password?: string
+}
+
 export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
     password_required: boolean
     settings?: SharingConfigurationSettings
+    share_passwords?: SharePasswordType[]
 }
 
 export enum ExporterFormat {
@@ -4468,22 +4475,12 @@ export enum Resource {
     FEATURE_FLAGS = 'feature flags',
 }
 
-export enum AccessLevel {
-    READ = 21,
-    WRITE = 37,
-}
-
 export interface RoleType {
     id: string
     name: string
-    feature_flags_access_level: AccessLevel
     members: RoleMemberType[]
     created_at: string
     created_by: UserBasicType | null
-}
-
-export interface RolesListParams {
-    feature_flags_access_level?: AccessLevel
 }
 
 export interface RoleMemberType {
@@ -4514,6 +4511,7 @@ export type APIScopeObject =
     | 'group'
     | 'hog_function'
     | 'insight'
+    | 'integration'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -4528,6 +4526,7 @@ export type APIScopeObject =
     | 'sharing_configuration'
     | 'subscription'
     | 'survey'
+    | 'task'
     | 'user'
     | 'webhook'
     | 'warehouse_view'
@@ -4592,25 +4591,6 @@ export type AccessControlResponseType = {
     user_access_level: AccessControlLevel
     default_access_level: AccessControlLevel
     user_can_edit_access_levels: boolean
-}
-
-// TODO: To be deprecated
-export interface FeatureFlagAssociatedRoleType {
-    id: string
-    feature_flag: FeatureFlagType | null
-    role: RoleType
-    updated_at: string
-    added_at: string
-}
-// TODO: To be deprecated
-
-export interface OrganizationResourcePermissionType {
-    id: string
-    resource: Resource
-    access_level: AccessLevel
-    created_at: string
-    updated_at: string
-    created_by: UserBaseType | null
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>

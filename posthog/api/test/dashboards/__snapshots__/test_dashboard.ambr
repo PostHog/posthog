@@ -3253,6 +3253,32 @@
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.32
   '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."resource" = 'dashboard'
+          AND "ee_accesscontrol"."resource_id" IS NOT NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'dashboard'
+             AND "ee_accesscontrol"."resource_id" IS NOT NULL
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
+  '''
+# ---
+# name: TestDashboard.test_listing_dashboards_is_not_nplus1.33
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -3260,7 +3286,7 @@
          AND NOT ("posthog_dashboard"."deleted"))
   '''
 # ---
-# name: TestDashboard.test_listing_dashboards_is_not_nplus1.33
+# name: TestDashboard.test_listing_dashboards_is_not_nplus1.34
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -3319,7 +3345,7 @@
   LIMIT 300
   '''
 # ---
-# name: TestDashboard.test_listing_dashboards_is_not_nplus1.34
+# name: TestDashboard.test_listing_dashboards_is_not_nplus1.35
   '''
   SELECT "posthog_sharingconfiguration"."id",
          "posthog_sharingconfiguration"."team_id",
@@ -3340,7 +3366,7 @@
                                                           5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_listing_dashboards_is_not_nplus1.35
+# name: TestDashboard.test_listing_dashboards_is_not_nplus1.36
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",

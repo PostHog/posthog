@@ -133,6 +133,12 @@ export function getFormattedDate(input?: string | number, options?: FormattedDat
         return pluralize(input as number, interval ?? 'day')
     }
 
+    // Handle retention graph labels like "Day 0", "Week 12", etc.
+    // retention tooltips don't show the date/header, so we don't need to format it
+    if (typeof input === 'string' && /^(Day|Week|Month|Hour) \d+$/.test(input)) {
+        return input
+    }
+
     const day = dayjs.tz(input, timezone)
     if (input === undefined || !day.isValid()) {
         return String(input)

@@ -28,10 +28,10 @@ export const optOutListLogic = kea<optOutListLogicType>([
     key((props) => props.category?.id || '$all'),
     path(['products', 'messaging', 'frontend', 'OptOuts', 'optOutListLogic']),
     props({} as OptOutListLogicProps),
-    connect({
+    connect(() => ({
         values: [optOutSceneLogic, ['preferencesUrlLoading']],
         actions: [optOutSceneLogic, ['openPreferencesPage']],
-    }),
+    })),
     actions({
         loadUnsubscribeLink: true,
         setPersonsModalOpen: (open: boolean) => ({ open }),

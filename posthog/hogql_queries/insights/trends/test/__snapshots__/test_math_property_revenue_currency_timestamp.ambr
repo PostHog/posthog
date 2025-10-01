@@ -40,7 +40,7 @@
        (SELECT sum(if(equals(e.currency_code, 'USD'), toDecimal64(e.revenue_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', e.currency_code, toDate(coalesce(toString(e.timestamp_date32), '1970-01-01')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(e.revenue_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', e.currency_code, toDate(coalesce(toString(e.timestamp_date32), '1970-01-01')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(coalesce(toString(e.timestamp_date32), '1970-01-01')), toDecimal64(0, 10)))))) AS total,
                toStartOfDay(toDateTime(e.timestamp_date32, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.trends.datawarehouse.timestamp_handling/posthog_test_date32_timestamp_table/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `currency_code` String, `revenue_amount` Float64, `timestamp_date32` Date32') AS e
-        WHERE and(greaterOrEquals(toDateTime(e.timestamp_date32, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toDateTime(e.timestamp_date32, 'UTC'), assumeNotNull(toDateTime('2023-01-05 23:59:59', 'UTC'))))
+        WHERE and(ifNull(greaterOrEquals(toDateTime(e.timestamp_date32, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toDateTime(e.timestamp_date32, 'UTC'), assumeNotNull(toDateTime('2023-01-05 23:59:59', 'UTC'))), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)

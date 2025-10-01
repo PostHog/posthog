@@ -171,11 +171,6 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                             {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
                             {showFilters && <HogFunctionFilters />}
                             {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
-                            {templateInfo && (
-                                <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">
-                                    {templateInfo}
-                                </div>
-                            )}
                         </div>
 
                         <div className="deprecated-space-y-4 flex-2 min-w-100">

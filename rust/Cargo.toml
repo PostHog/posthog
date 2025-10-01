@@ -7,13 +7,19 @@ members = [
     "capture",
     "common/alloc",
     "common/cookieless",
+    "common/database",
     "common/dns",
     "common/health",
+    "common/kafka",
     "common/limiters",
     "common/metrics",
+    "common/redis",
+    "common/s3",
+    "common/serve_metrics",
     "common/symbol_data",
     "common/types",
-    "common-compression",
+    "common/compression",
+    "common/hypercache",
     "feature-flags",
     "hook-api",
     "hook-common",
@@ -23,6 +29,7 @@ members = [
     "cyclotron-node",
     "cyclotron-janitor",
     "cymbal",
+    "et-embedding-worker",
     "common/geoip",
     "common/hogvm",
     "log-capture",
@@ -92,7 +99,7 @@ time = { version = "0.3.36", features = [
     "parsing",
     "serde",
 ] }
-thiserror = { version = "1.0" }
+thiserror = { version = "2.0" }
 tokio = { version = "1.34.0", features = ["full"] }
 tower = { version = "0.4.13", features = ["default", "limit"] }
 tower-http = { version = "0.5.2", features = ["cors", "limit", "trace"] }

@@ -5,6 +5,8 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import React from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { RecordingSegment } from '~/types'
 
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
@@ -77,6 +79,8 @@ export function Seekbar(): JSX.Element {
         }
     }, [sliderRef.current, thumbRef.current, sessionRecordingId]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const allowPreviewScrubbing = useFeatureFlag('SEEKBAR_PREVIEW_SCRUBBING')
+
     return (
         <div className="flex flex-col items-end h-8 mx-4 mt-2" data-attr="rrweb-controller">
             <PlayerSeekbarTicks
@@ -109,7 +113,7 @@ export function Seekbar(): JSX.Element {
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 
-                    {hasSnapshots ? (
+                    {hasSnapshots && allowPreviewScrubbing ? (
                         <PlayerSeekbarPreview
                             minMs={0}
                             maxMs={sessionPlayerData.durationMs}

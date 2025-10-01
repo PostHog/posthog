@@ -518,7 +518,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 feature_flag_variants: [
                                     ...updatedRolloutPercentageVariants,
                                     {
-                                        key: `test_group_${state.parameters.feature_flag_variants.length}`,
+                                        key: `test-${state.parameters.feature_flag_variants.length}`,
                                         rollout_percentage: newRolloutPercentages[newRolloutPercentages.length - 1],
                                     },
                                 ],
@@ -1515,10 +1515,12 @@ export const experimentLogic = kea<experimentLogicType>([
                         key: Scene.Experiments,
                         name: 'Experiments',
                         path: urls.experiments(),
+                        iconType: 'experiment',
                     },
                     {
                         key: [Scene.Experiment, experimentId],
                         name: experiment?.name || '',
+                        iconType: 'experiment',
                     },
                 ]
             },

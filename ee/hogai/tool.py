@@ -178,12 +178,14 @@ class MaxTool(AssistantContextMixin, BaseTool):
     """The message shown to let the user know this tool is being used. One sentence, no punctuation.
     For example, "Updating filters"
     """
+
     root_system_prompt_template: str = "No context provided for this tool."
     """The template for context associated with this tool, that will be injected into the root node's system prompt.
     Use this if you need to strongly steer the root node in deciding _when_ and _whether_ to use the tool.
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
+
     show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
     _context: dict[str, Any]

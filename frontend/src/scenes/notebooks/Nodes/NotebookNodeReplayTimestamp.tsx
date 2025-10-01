@@ -6,7 +6,6 @@ import { useMemo } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
@@ -100,17 +99,4 @@ export const NotebookNodeReplayTimestamp = Node.create({
 
 export function formatTimestamp(time: number): string {
     return dayjs.duration(time, 'milliseconds').format('HH:mm:ss').replace(/^00:/, '').trim()
-}
-
-export function buildTimestampCommentContent(attrs: NotebookNodeReplayTimestampAttrs): JSONContent {
-    return {
-        type: 'paragraph',
-        content: [
-            {
-                type: NotebookNodeType.ReplayTimestamp,
-                attrs,
-            },
-            { type: 'text', text: ' ' },
-        ],
-    }
 }

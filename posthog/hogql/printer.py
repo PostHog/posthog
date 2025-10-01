@@ -38,11 +38,11 @@ from posthog.hogql.functions import (
     find_hogql_function,
     find_hogql_posthog_function,
 )
+from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
     is_allowed_parametric_function,
-    validate_function_args,
 )
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.resolver import resolve_types
@@ -1845,26 +1845,30 @@ class _Printer(Visitor[str]):
     def _get_week_start_day(self) -> WeekStartDay:
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
+    def _is_type_nullable(self, node_type: ast.Type) -> Optional[bool]:
+        if isinstance(node_type, ast.PropertyType):
+            return True
+        elif isinstance(node_type, ast.ConstantType):
+            return node_type.nullable
+        elif isinstance(node_type, ast.CallType):
+            return node_type.return_type.nullable
+        elif isinstance(node_type, ast.FieldType):
+            return node_type.is_nullable(self.context)
+        return None
+
     def _is_nullable(self, node: ast.Expr) -> bool:
-        if node.type and not node.type.nullable:
-            return False
         if isinstance(node, ast.Constant):
             return node.value is None
-        elif isinstance(node.type, ast.PropertyType):
-            return True
-        elif isinstance(node.type, ast.ConstantType):
-            return node.type.nullable
-        elif isinstance(node.type, ast.CallType):
-            return node.type.return_type.nullable
-        elif isinstance(node.type, ast.FieldType):
-            return node.type.is_nullable(self.context)
+        elif node.type and (nullable := self._is_type_nullable(node.type)) is not None:
+            return nullable
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
-        elif isinstance(node.type, ast.FieldAliasType):
-            if (field_type := resolve_field_type(node)) and isinstance(field_type, ast.FieldType):
-                return field_type.is_nullable(self.context)
-
-        # we don't know if it's nullable, so we assume it can be
+        elif (
+            isinstance(node.type, ast.FieldAliasType)
+            and (field_type := resolve_field_type(node))
+            and (nullable := self._is_type_nullable(field_type)) is not None
+        ):
+            return nullable
         return True
 
     def _print_settings(self, settings):

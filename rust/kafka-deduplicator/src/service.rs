@@ -198,7 +198,7 @@ impl KafkaDeduplicatorService {
                             } else {
                                 // Explicitly report unhealthy when a worker dies
                                 checkpoint_health_handle.report_status(health::ComponentStatus::Unhealthy).await;
-                                error!("Checkpoint manager is unhealthy - checkpont and/or cleanup loops died");
+                                error!("Checkpoint manager is unhealthy - checkpoint and/or cleanup loops died");
                             }
                         }
                     }
@@ -208,10 +208,10 @@ impl KafkaDeduplicatorService {
         }
 
         info!(
-            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?}, cleanup interval = {:?})",
+            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?}, checkpoint_cleanup interval = {:?})",
             self.checkpoint_manager.as_ref().unwrap().export_enabled(),
             self.config.checkpoint_interval(),
-            self.config.cleanup_interval(),
+            self.config.checkpoint_cleanup_interval(),
         );
 
         // Spawn task to report processor pool health

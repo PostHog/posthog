@@ -2,21 +2,23 @@ import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '
 import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
+import React, { useEffect, useRef, useState } from 'react'
 
-import { IconPlus, IconSearch, IconShare, IconX } from '@posthog/icons'
+import { IconPlus, IconSearch, IconX } from '@posthog/icons'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { HoverCard, HoverCardContent, HoverCardTrigger } from 'lib/ui/HoverCard/HoverCard'
 import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -76,8 +78,10 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 onClick={toggleSearchBar}
                                 data-attr="tree-navbar-search-button"
                                 size="sm"
+                                aria-label="Search (Command + K) or Commands (Command + Shift + K)"
+                                aria-describedby="search-tooltip"
                                 tooltip={
-                                    <div className="flex flex-col gap-0.5">
+                                    <div className="flex flex-col gap-0.5" id="search-tooltip">
                                         <span>
                                             For search, press <KeyboardShortcut command k />
                                         </span>
@@ -90,7 +94,17 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 <IconSearch className="text-secondary size-4" />
                             </ButtonPrimitive>
                         </div>
-                        <div className="scene-tab-row flex flex-row flex-1 min-w-0 gap-1">
+                        <div
+                            className="scene-tab-row grid min-w-0 gap-1"
+                            style={{
+                                gridTemplateColumns:
+                                    tabs.length === 1
+                                        ? '250px'
+                                        : tabs.length === 2
+                                          ? 'repeat(2, 250px)'
+                                          : `repeat(${tabs.length}, minmax(40px, 250px))`,
+                            }}
+                        >
                             {tabs.map((tab) => (
                                 <SortableSceneTab key={tab.id} tab={tab} />
                             ))}
@@ -132,44 +146,9 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
     }
 
     return (
-        <div
-            ref={setNodeRef}
-            style={style}
-            {...attributes}
-            {...listeners}
-            className="grow-0 shrink basis-auto min-w-[40px] max-w-[200px]"
-        >
+        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
             <SceneTabContextMenu tab={tab}>
-                <HoverCard>
-                    <HoverCardTrigger>
-                        <SceneTabComponent tab={tab} isDragging={isDragging} />
-                    </HoverCardTrigger>
-                    <HoverCardContent
-                        className="break-words"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                    >
-                        <ButtonPrimitive
-                            iconOnly
-                            size="xs"
-                            tooltip="Copy tab URL for sharing"
-                            className="text-primary float-right"
-                            onClick={() => {
-                                try {
-                                    navigator.clipboard.writeText(
-                                        `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
-                                    )
-                                    lemonToast.success('URL copied to clipboard')
-                                } catch (error) {
-                                    lemonToast.error(`Failed to copy URL to clipboard ${error}`)
-                                }
-                            }}
-                        >
-                            <IconShare />
-                        </ButtonPrimitive>
-                        <span className="text-primary text-sm font-semibold">{tab.title}</span>
-                    </HoverCardContent>
-                </HoverCard>
+                <SceneTabComponent tab={tab} isDragging={isDragging} />
             </SceneTabContextMenu>
         </div>
     )
@@ -182,8 +161,32 @@ interface SceneTabProps {
 }
 
 function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
+    const inputRef = useRef<HTMLInputElement>(null)
     const canRemoveTab = true
-    const { clickOnTab, removeTab, renameTab } = useActions(sceneLogic)
+    const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
+    const { editingTabId } = useValues(sceneLogic)
+    const [editValue, setEditValue] = useState('')
+
+    const isEditing = editingTabId === tab.id
+
+    useEffect(() => {
+        if (isEditing && editValue === '') {
+            setEditValue(tab.customTitle || tab.title)
+        }
+    }, [isEditing, tab.customTitle, tab.title, editValue])
+
+    useEffect(() => {
+        if (isEditing && inputRef.current) {
+            // bring the tab into focus
+            // oxlint-disable-next-line exhaustive-deps
+            clickOnTab(tab)
+            // focus the input with delay to ensure the tab input is rendered
+            setTimeout(() => {
+                inputRef.current?.focus()
+            }, 100)
+        }
+    }, [isEditing, tab, clickOnTab])
+
     return (
         <Link
             onClick={(e) => {
@@ -203,8 +206,9 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             onDoubleClick={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
-                if (!isDragging) {
-                    renameTab(tab)
+                if (!isDragging && !isEditing) {
+                    startTabEdit(tab)
+                    setEditValue(tab.customTitle || tab.title)
                 }
             }}
             to={isDragging ? undefined : `${tab.pathname}${tab.search}${tab.hash}`}
@@ -218,15 +222,42 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 'focus:outline-none',
                 className
             )}
+            tooltip={tab.customTitle || tab.title}
         >
-            <div
-                className={cn(
-                    'scene-tab-title flex-grow text-left max-w-[200px] truncate',
-                    tab.customTitle && 'italic'
-                )}
-            >
-                {tab.customTitle || tab.title}
-            </div>
+            {tab.iconType === 'blank' ? (
+                <></>
+            ) : tab.iconType === 'loading' ? (
+                <Spinner />
+            ) : (
+                iconForType(tab.iconType as FileSystemIconType)
+            )}
+            {isEditing ? (
+                <input
+                    ref={inputRef}
+                    className="scene-tab-title flex-grow text-left bg-primary border-none outline-1 text-primary z-10"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={() => {
+                        saveTabEdit(tab, editValue)
+                        endTabEdit()
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                            endTabEdit()
+                            setEditValue('')
+                        } else if (e.key === 'Enter') {
+                            saveTabEdit(tab, editValue)
+                            endTabEdit()
+                        }
+                    }}
+                    autoFocus
+                    onFocus={(e) => e.target.select()}
+                />
+            ) : (
+                <div className={cn('scene-tab-title flex-grow text-left truncate', tab.customTitle && 'italic')}>
+                    {tab.customTitle || tab.title}
+                </div>
+            )}
             {canRemoveTab && (
                 <ButtonPrimitive
                     onClick={(e) => {

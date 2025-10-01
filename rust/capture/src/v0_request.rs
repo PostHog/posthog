@@ -420,6 +420,7 @@ pub struct ProcessedEventMetadata {
     pub data_type: DataType,
     pub session_id: Option<String>,
     pub computed_timestamp: Option<chrono::DateTime<chrono::Utc>>,
+    pub event_name: String,
 }
 
 #[cfg(test)]

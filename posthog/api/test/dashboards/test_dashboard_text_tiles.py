@@ -225,3 +225,45 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "soy texto",
             "i am a third text",
         ]
+
+    def test_cannot_create_text_tile_with_body_over_4000_characters(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        # Test with exactly 4000 characters (should work)
+        valid_text = "a" * 4000
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"text": {"body": valid_text}}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Test with 4001 characters (should fail)
+        invalid_text = "a" * 4001
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"text": {"body": invalid_text}}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertEqual(response_data["type"], "validation_error")
+        self.assertEqual(response_data["code"], "max_length")
+        self.assertEqual(response_data["detail"], "Text body cannot exceed 4000 characters")
+        self.assertEqual(response_data["attr"], "text__body")
+
+    def test_cannot_update_text_tile_with_body_over_4000_characters(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello world")
+
+        tile = dashboard_json["tiles"][0]
+        invalid_text = "b" * 4001
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile["id"], "text": {**tile["text"], "body": invalid_text}}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertEqual(response_data["type"], "validation_error")
+        self.assertEqual(response_data["code"], "max_length")
+        self.assertEqual(response_data["detail"], "Text body cannot exceed 4000 characters")
+        self.assertEqual(response_data["attr"], "text__body")

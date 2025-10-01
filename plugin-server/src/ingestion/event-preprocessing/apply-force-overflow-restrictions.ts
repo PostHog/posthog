@@ -1,8 +1,8 @@
 import { ingestionOverflowingMessagesTotal } from '../../main/ingestion-queues/batch-processing/metrics'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
-import { redirect, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncPreprocessingStep } from '../processing-pipeline'
+import { ok, redirect } from '../pipelines/results'
+import { ProcessingStep } from '../pipelines/steps'
 
 export type ForceOverflowDecision = {
     shouldRedirect: boolean
@@ -37,17 +37,17 @@ function applyForceOverflowRestrictions(
 export function createApplyForceOverflowRestrictionsStep<T extends { headers: EventHeaders }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,
     overflowConfig: OverflowConfig
-): SyncPreprocessingStep<T, T> {
-    return (input) => {
+): ProcessingStep<T, T> {
+    return async function applyForceOverflowRestrictionsStep(input) {
         const { headers } = input
 
         if (!overflowConfig.overflowEnabled) {
-            return success(input)
+            return Promise.resolve(ok(input))
         }
 
         const forceOverflowDecision = applyForceOverflowRestrictions(eventIngestionRestrictionManager, headers)
         if (!forceOverflowDecision.shouldRedirect) {
-            return success(input)
+            return Promise.resolve(ok(input))
         }
 
         ingestionOverflowingMessagesTotal.inc()
@@ -56,11 +56,13 @@ export function createApplyForceOverflowRestrictionsStep<T extends { headers: Ev
             forceOverflowDecision.preservePartitionLocality !== undefined
                 ? forceOverflowDecision.preservePartitionLocality
                 : overflowConfig.preservePartitionLocality
-        return redirect(
-            'Event redirected to overflow due to force overflow restrictions',
-            overflowConfig.overflowTopic,
-            preservePartitionLocality,
-            false
+        return Promise.resolve(
+            redirect(
+                'Event redirected to overflow due to force overflow restrictions',
+                overflowConfig.overflowTopic,
+                preservePartitionLocality,
+                false
+            )
         )
     }
 }
