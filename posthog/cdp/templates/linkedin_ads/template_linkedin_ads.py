@@ -15,7 +15,7 @@ let body := {
     'conversion': f'urn:lla:llaPartnerConversion:{inputs.conversionRuleId}',
     'conversionHappenedAt': inputs.conversionDateTime,
     'user': {
-        'userIds': [],
+        'userIds': []
      },
     'eventId' : inputs.eventId
 }
@@ -36,7 +36,7 @@ for (let key, value in inputs.userInfo) {
         userInfo[key] := value
     }
 }
-if (length(keys(body.user.userInfo)) >= 1) {
+if (length(keys(userInfo)) >= 1) {
     body.user['userInfo'] := userInfo
 }
 
