@@ -1,13 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconPencil, IconPlus } from '@posthog/icons'
+import { IconBolt, IconCheck, IconPencil, IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { colorForString } from 'lib/utils'
 
 import { featureFlagEvaluationTagsLogic } from './featureFlagEvaluationTagsLogic'
@@ -104,19 +105,29 @@ export function FeatureFlagEvaluationTags({
                     </div>
                 )}
 
-                <div className="flex gap-2">
-                    <LemonButton size="small" type="primary" onClick={handleSave} loading={featureFlagLoading}>
-                        Save
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
+                <div className="flex gap-1">
+                    <ButtonPrimitive
+                        type="button"
+                        variant="outline"
+                        onClick={handleSave}
+                        disabled={featureFlagLoading}
+                        tooltip="Save tags"
+                        aria-label="Save tags"
+                    >
+                        <IconCheck />
+                    </ButtonPrimitive>
+                    <ButtonPrimitive
+                        type="button"
+                        variant="outline"
                         onClick={() => {
                             setEditingTags(false)
                             setShowEvaluationOptions(false)
                         }}
+                        tooltip="Cancel editing"
+                        aria-label="Cancel editing"
                     >
-                        Cancel
-                    </LemonButton>
+                        <IconX />
+                    </ButtonPrimitive>
                 </div>
             </div>
         )
@@ -146,7 +157,7 @@ export function FeatureFlagEvaluationTags({
                     data-attr="button-edit-tags"
                     icon={tags.length > 0 ? <IconPencil /> : <IconPlus />}
                     className="border border-dashed cursor-pointer"
-                    size="small"
+                    size="medium"
                 >
                     {tags.length > 0 ? 'Edit' : 'Add tags'}
                 </LemonTag>
