@@ -67,7 +67,7 @@ from .prompts import (
     SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT,
     SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT,
 )
-from .tools.taxonomy import ReadTaxonomyTool
+from .tools.read_taxonomy import ReadTaxonomyTool
 
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
