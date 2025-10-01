@@ -199,7 +199,7 @@ const RelatedIssues = (): JSX.Element => {
                             className="flex items-center justify-between p-2 border rounded hover:bg-gray-50"
                         >
                             <Link to={urls.errorTrackingIssue(relatedIssue.id)} className="flex-1 min-w-0">
-                                <div className="font-medium text-sm">{relatedIssue.title}</div>
+                                <div className="font-medium text-sm truncate">{relatedIssue.title}</div>
                                 {relatedIssue.description && (
                                     <div className="text-xs text-gray-600 truncate">{relatedIssue.description}</div>
                                 )}
