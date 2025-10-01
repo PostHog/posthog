@@ -2,6 +2,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from posthog.models import OrganizationMembership
+from posthog.sync import database_sync_to_async
+
+from ee.hogai.graph.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.tool import MaxTool
 
 READ_DATA_PROMPT = """
@@ -22,6 +26,17 @@ If the user wants to reduce their spending, always call this tool to get suggest
 If an insight shows zero data, it could mean either the query is looking at the wrong data or there was a temporary data collection issue. You can investigate potential dips in usage/captured data using the billing tool.
 """.strip()
 
+BILLING_INSUFFICIENT_ACCESS_PROMPT = """
+The user does not have admin access to view detailed billing information. They would need to contact an organization admin for billing details.
+Suggest the user to contact the admins.
+""".strip()
+
+INVALID_KIND_PROMPT = """
+<system_reminder>
+Invalid kind. You must use "datawarehouse_schema" or "billing_info".
+</system_reminder>
+""".strip()
+
 ReadDataKind = Literal["datawarehouse_schema", "billing_info"]
 
 
@@ -29,7 +44,7 @@ class ReadDataToolArgs(BaseModel):
     kind: ReadDataKind
 
 
-class ReadDataTool(MaxTool):
+class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     name: Literal["ReadData"] = "ReadData"
     description: str = READ_DATA_PROMPT
     thinking_message: str = "Reading your PostHog data"
@@ -37,5 +52,24 @@ class ReadDataTool(MaxTool):
     args_schema: type[BaseModel] = ReadDataToolArgs
     show_tool_call_message: bool = False
 
-    async def _arun_impl(self, kind: ReadDataKind) -> tuple[str, Any]:
-        return "ReadData tool executed", ReadDataToolArgs(kind=kind)
+    async def _arun_impl(self, kind: ReadDataKind) -> tuple[str, dict[str, Any] | None]:
+        match kind:
+            case "billing_info":
+                has_access = await self._check_user_has_billing_access()
+                if not has_access:
+                    return BILLING_INSUFFICIENT_ACCESS_PROMPT, None
+                return "", ReadDataToolArgs(kind=kind).model_dump()
+            case "datawarehouse_schema":
+                return await self._serialize_database_schema(), None
+            case _:
+                return INVALID_KIND_PROMPT, None  # type: ignore
+
+    @database_sync_to_async
+    def _check_user_has_billing_access(self) -> bool:
+        """
+        Check if the user has access to the billing tool.
+        """
+        return self._user.organization_memberships.get(organization=self._team.organization).level in (
+            OrganizationMembership.Level.ADMIN,
+            OrganizationMembership.Level.OWNER,
+        )

@@ -12,6 +12,7 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
+    MaxBillingContext,
     MaxInsightContext,
     MaxUIContext,
     RetentionQuery,
@@ -53,6 +54,11 @@ SUPPORTED_QUERY_MODEL_BY_KIND: dict[str, type[AnyAssistantSupportedQuery]] = {
 class AssistantContextManager(AssistantContextMixin):
     """Manager that provides context formatting capabilities."""
 
+    def __init__(self, team: Team, user: User, config: RunnableConfig):
+        self._team = team
+        self._user = user
+        self._config = config
+
     async def aget_state_messages_with_context(self, state: BaseStateWithMessages) -> Sequence[AssistantMessageUnion]:
         if context_prompts := await self._get_context_prompts(state):
             # Insert context messages BEFORE the start human message, so they're properly cached and the context is retained.
@@ -85,10 +91,14 @@ class AssistantContextManager(AssistantContextMixin):
 
         return contextual_tools
 
-    def __init__(self, team: Team, user: User, config: RunnableConfig):
-        self._team = team
-        self._user = user
-        self._config = config
+    def get_billing_context(self) -> MaxBillingContext | None:
+        """
+        Extracts the billing context from the runnable config.
+        """
+        billing_context = (self._config.get("configurable") or {}).get("billing_context")
+        if not billing_context:
+            return None
+        return MaxBillingContext.model_validate(billing_context)
 
     async def _format_ui_context(self, ui_context: MaxUIContext | None) -> str | None:
         """

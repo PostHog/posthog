@@ -14,6 +14,7 @@ from posthog.models import Team, User
 
 import products
 
+from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import InsightQuery
@@ -191,6 +192,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
     _context: dict[str, Any]
     _config: RunnableConfig
     _state: AssistantState
+    _context_manager: AssistantContextManager
 
     # DEPRECATED: Use `_arun_impl` instead
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
@@ -201,11 +203,21 @@ class MaxTool(AssistantContextMixin, BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
 
-    def __init__(self, *, team: Team, user: User, state: AssistantState | None = None, **kwargs):
+    def __init__(
+        self,
+        *,
+        team: Team,
+        user: User,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._team = team
         self._user = user
         self._state = state if state else AssistantState(messages=[])
+        self._config = config if config else RunnableConfig(configurable={})
+        self._context_manager = AssistantContextManager(team, user, self._config)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -242,9 +254,11 @@ class MaxTool(AssistantContextMixin, BaseTool):
         self._team = config["configurable"]["team"]
         self._user = config["configurable"]["user"]
         self._config = {
+            **config,
             "recursion_limit": 48,
             "callbacks": config.get("callbacks", []),
             "configurable": {
+                **(config.get("configurable") or {}),
                 "thread_id": config["configurable"].get("thread_id"),
                 "trace_id": config["configurable"].get("trace_id"),
                 "distinct_id": config["configurable"].get("distinct_id"),
@@ -252,6 +266,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
                 "user": self._user,
             },
         }
+        self._context_manager = AssistantContextManager(self._team, self._user, self._config)
 
     @property
     def context(self) -> dict:

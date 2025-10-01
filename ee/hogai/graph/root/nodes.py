@@ -65,7 +65,7 @@ from .prompts import (
     SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT,
     SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT,
 )
-from .tools import ReadTaxonomyTool, SearchTool, SearchToolArgs
+from .tools import ReadDataTool, ReadTaxonomyTool, SearchTool
 
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
@@ -155,11 +155,7 @@ class RootNode(AssistantNode):
         # Mark the longest default prefix as cacheable
         add_cache_control(system_prompts[-1])
 
-        message = await self._get_model(
-            state,
-            config,
-            extra_tools=["retrieve_billing_information"] if should_add_billing_tool else [],
-        ).ainvoke(
+        message = await self._get_model(state, config).ainvoke(
             system_prompts + history,
             config,
         )
@@ -217,10 +213,7 @@ class RootNode(AssistantNode):
 
         return should_add_billing_tool, prompt
 
-    def _get_model(self, state: AssistantState, config: RunnableConfig, extra_tools: list[str] | None = None):
-        if extra_tools is None:
-            extra_tools = []
-
+    def _get_model(self, state: AssistantState, config: RunnableConfig):
         base_model = MaxChatAnthropic(
             model="claude-sonnet-4-5",
             streaming=True,
@@ -246,10 +239,12 @@ class RootNode(AssistantNode):
             session_summarization,
         )
 
-        available_tools: list[type[BaseModel] | MaxTool] = [
-            ReadTaxonomyTool(team=self._team, user=self._user, show_tool_call_message=False),
-            SearchTool(team=self._team, user=self._user, show_tool_call_message=False),
-        ]
+        available_tools: list[type[BaseModel] | MaxTool] = []
+
+        # Add the basic toolkit
+        toolkit = [ReadTaxonomyTool, SearchTool, ReadDataTool]
+        for tool in toolkit:
+            available_tools.append(tool(team=self._team, user=self._user, state=state, config=config))
 
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
@@ -266,12 +261,7 @@ class RootNode(AssistantNode):
             ToolClass = get_contextual_tool_class(tool_name)
             if ToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
-            available_tools.append(ToolClass(team=self._team, user=self._user))  # type: ignore
-
-        if "retrieve_billing_information" in extra_tools:
-            from ee.hogai.tool import retrieve_billing_information
-
-            available_tools.append(retrieve_billing_information)
+            available_tools.append(ToolClass(team=self._team, user=self._user, state=state, config=config))  # type: ignore
 
         return base_model.bind_tools(available_tools, parallel_tool_calls=False)
 
@@ -505,11 +495,6 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_plan=tool_call.args["query_description"],
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif tool_call.name == "retrieve_billing_information":
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                root_tool_calls_count=tool_call_count + 1,
-            )
         elif tool_call.name == "session_summarization":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
@@ -550,13 +535,13 @@ class RootNodeTools(AssistantNode):
             if (
                 isinstance(result, LangchainToolMessage)
                 and result.name == "Search"
-                and isinstance(result.artifact, SearchToolArgs)
+                and isinstance(result.artifact, dict)
             ):
-                match result.artifact.kind:
+                match result.artifact.get("kind"):
                     case "insights":
                         return PartialAssistantState(
                             root_tool_call_id=tool_call.id,
-                            search_insights_query=result.artifact.query,
+                            search_insights_query=result.artifact.get("query"),
                             root_tool_calls_count=tool_call_count + 1,
                         )
                     case "docs":
@@ -564,6 +549,17 @@ class RootNodeTools(AssistantNode):
                             root_tool_call_id=tool_call.id,
                             root_tool_calls_count=tool_call_count + 1,
                         )
+
+            if (
+                isinstance(result, LangchainToolMessage)
+                and result.name == "ReadData"
+                and isinstance(result.artifact, dict)
+                and result.artifact.get("kind") == "billing_info"
+            ):
+                return PartialAssistantState(
+                    root_tool_call_id=tool_call.id,
+                    root_tool_calls_count=tool_call_count + 1,
+                )
 
             # If this is a navigation tool call, pause the graph execution
             # so that the frontend can re-initialise Max with a new set of contextual tools.
@@ -617,7 +613,7 @@ class RootNodeTools(AssistantNode):
             if tool_calls and len(tool_calls) > 0:
                 tool_call = tool_calls[0]
                 tool_call_name = tool_call.name
-                if tool_call_name == "retrieve_billing_information":
+                if tool_call_name == "ReadData" and tool_call.args.get("kind") == "billing_info":
                     return "billing"
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"
