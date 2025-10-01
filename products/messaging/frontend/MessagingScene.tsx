@@ -172,7 +172,7 @@ export function MessagingScene(): JSX.Element {
             key: 'opt-outs',
             content: <OptOutScene />,
         },
-    ].filter(Boolean)
+    ].filter(Boolean) as LemonTab<MessagingSceneTab>[]
 
     return (
         <SceneContent className="messaging">
