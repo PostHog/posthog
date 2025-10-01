@@ -119,16 +119,18 @@ jobs:
                   python-version: 3.11.13
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Install SAML (python3-saml) dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - name: Install uv
+              id: setup-uv
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   version: 0.7.8
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
@@ -551,18 +553,19 @@ jobs:
                   python-version: ${{ matrix.python-version }}
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Install SAML (python3-saml) dependencies
-              if: ${{ needs.changes.outputs.backend == 'true' }}
-              shell: bash
-              run: |
-                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - name: Install uv
               if: ${{ needs.changes.outputs.backend == 'true' }}
+              id: setup-uv-tests
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   version: 0.7.8
+
+            - name: Install SAML (python3-saml) dependencies
+              if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
+              shell: bash
+              run: |
+                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Determine if hogql-parser has changed compared to master
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -830,16 +833,19 @@ jobs:
                   python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Install SAML (python3-saml) dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - name: Install uv
+              id: setup-uv-async
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   version: 0.7.8
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv-async.outputs.cache-hit != 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
             - name: Install python dependencies
               shell: bash
               run: |
