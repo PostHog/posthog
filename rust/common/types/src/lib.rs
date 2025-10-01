@@ -26,3 +26,6 @@ pub use person::PersonId;
 
 // Groups
 pub use group::GroupType;
+
+// Error tracking types are exported directly
+pub mod error_tracking;
