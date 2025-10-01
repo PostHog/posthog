@@ -27,6 +27,7 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../components/Assi
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
 import { ExternalReferences } from '../../components/ExternalReferences'
 import { StatusIndicator } from '../../components/Indicators'
+import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { IssueTasks } from '../../components/IssueTasks'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
@@ -171,12 +172,19 @@ const IssueExternalReference = (): JSX.Element => {
 }
 
 const RelatedIssues = (): JSX.Element => {
-    const { relatedIssues, relatedIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, relatedIssues, relatedIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadRelatedIssues } = useActions(errorTrackingIssueSceneLogic)
+    const { mergeInto } = useActions(issueActionsLogic)
 
     useEffect(() => {
         loadRelatedIssues()
     }, [loadRelatedIssues])
+
+    const handleMerge = (relatedIssueId: string): void => {
+        if (issue) {
+            mergeInto(issue.id, [relatedIssueId])
+        }
+    }
 
     return (
         <ScenePanelLabel title="Related issues">
@@ -184,17 +192,29 @@ const RelatedIssues = (): JSX.Element => {
                 <Spinner />
             ) : relatedIssues.length > 0 ? (
                 <div className="flex flex-col gap-1">
-                    {relatedIssues.map((relatedIssue) => (
-                        <Link
+                    {relatedIssues.map((relatedIssue: any) => (
+                        <div
                             key={relatedIssue.id}
-                            to={urls.errorTrackingIssue(relatedIssue.id)}
-                            className="block p-2 border rounded hover:bg-gray-50"
+                            className="flex items-center justify-between p-2 border rounded hover:bg-gray-50"
                         >
-                            <div className="font-medium text-sm">{relatedIssue.title}</div>
-                            {relatedIssue.description && (
-                                <div className="text-xs text-gray-600 truncate">{relatedIssue.description}</div>
-                            )}
-                        </Link>
+                            <Link to={urls.errorTrackingIssue(relatedIssue.id)} className="flex-1 min-w-0">
+                                <div className="font-medium text-sm">{relatedIssue.title}</div>
+                                {relatedIssue.description && (
+                                    <div className="text-xs text-gray-600 truncate">{relatedIssue.description}</div>
+                                )}
+                            </Link>
+                            <ButtonPrimitive
+                                size="xs"
+                                variant="outline"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    handleMerge(relatedIssue.id)
+                                }}
+                                className="ml-2 shrink-0"
+                            >
+                                Merge
+                            </ButtonPrimitive>
+                        </div>
                     ))}
                 </div>
             ) : (
