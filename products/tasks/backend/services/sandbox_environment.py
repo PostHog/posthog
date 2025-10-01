@@ -55,6 +55,7 @@ class SandboxEnvironmentConfig(BaseModel):
     environment_variables: Optional[dict[str, str]] = None
     entrypoint: Optional[str] = None
     snapshot_id: Optional[str] = None
+    ttl_seconds: int = 60 * 30  # 30 minutes
 
 
 def get_runloop_client() -> AsyncRunloop:
@@ -111,6 +112,9 @@ class SandboxEnvironment:
                 name=config.name,
                 environment_variables=config.environment_variables or {},
                 entrypoint=config.entrypoint,
+                launch_parameters={
+                    "keep_alive_time_seconds": config.ttl_seconds,
+                },
                 **(
                     {"snapshot_id": snapshot_external_id}
                     if snapshot_external_id

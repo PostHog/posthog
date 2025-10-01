@@ -57,7 +57,7 @@ class SandboxAgent:
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
-        org, repo = repository.split("/")
+        org, repo = repository.lower().split("/")
         repo_url = f"https://x-access-token:{github_token}@github.com/{repository}.git"
         target_path = f"/tmp/workspace/repos/{org}/{repo}"
 
@@ -77,7 +77,7 @@ class SandboxAgent:
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
-        org, repo = repository.split("/")
+        org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         check_result = await self.sandbox.execute(f"test -d {repo_path} && echo 'exists' || echo 'missing'")
@@ -93,7 +93,7 @@ class SandboxAgent:
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
-        org, repo = repository.split("/")
+        org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         command = f"cd {repo_path} && {self._get_task_command(task_id)}"
@@ -102,15 +102,12 @@ class SandboxAgent:
         return await self.sandbox.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
 
     def _get_task_command(self, task_id: str) -> str:
-        """Get the command to execute a task."""
         return f"npx @posthog/code-agent --task-id {task_id}"
 
     def _get_setup_command(self, repo_path: str) -> str:
-        """Get the command to setup a repository."""
         return f"npx @posthog/code-agent --prompt '{SETUP_REPOSITORY_PROMPT.format(repository=repo_path)}'"
 
     async def destroy(self) -> None:
-        """Destroy the underlying sandbox."""
         await self.sandbox.destroy()
 
     async def __aenter__(self):

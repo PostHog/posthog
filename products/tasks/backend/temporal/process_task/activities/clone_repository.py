@@ -27,4 +27,4 @@ async def clone_repository(input: CloneRepositoryInput) -> str:
     if result.exit_code != 0:
         raise RuntimeError(f"Failed to clone repository: {result.stderr}")
 
-    return result.stdout
+    return result.stderr  # Note: git clone output is in stderr
