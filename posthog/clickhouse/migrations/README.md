@@ -55,7 +55,7 @@ In the vast majority of cases, just follow the [previous](#when-to-run-a-migrati
 
 ### The ON CLUSTER clause
 
-**Do not use the `ON CLUSTER` clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the `ON CLUSTER` clause make the DDL statement run on nodes specified for the default cluster, and that does not include the coordinator.
+**Do not use the `ON CLUSTER` clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the `ON CLUSTER` clause makes the DDL statement run on nodes specified for the default cluster, and that does not include the coordinator.
 This may cause lot of troubles and block migrations.
 
 The `ON CLUSTER` clause is used to specify the cluster to run the DDL statement on. By default, the `posthog` cluster is used. That cluster only includes the data nodes.
