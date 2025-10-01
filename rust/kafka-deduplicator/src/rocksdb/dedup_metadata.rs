@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use common_types::RawEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use uuid::Uuid;
 
 use crate::utils::timestamp::parse_timestamp;
 
@@ -226,7 +227,7 @@ impl EventSimilarity {
                 .unwrap_or_else(|| "<none>".to_string())
         };
 
-        // Compare top-level fields (excluding properties and uuid which we expect to differ)
+        // Compare top-level fields (including uuid for proper OnlyUuidDifferent detection)
         total_fields += 1;
         if original.event == new.event {
             matching_fields += 1;
@@ -299,6 +300,22 @@ impl EventSimilarity {
                 DedupFieldName::SetOnce,
                 format_map_opt(&original.set_once),
                 format_map_opt(&new.set_once),
+            ));
+        }
+
+        // Compare UUID
+        total_fields += 1;
+        if original.uuid == new.uuid {
+            matching_fields += 1;
+        } else {
+            let format_uuid = |opt: &Option<Uuid>| {
+                opt.map(|u| u.to_string())
+                    .unwrap_or_else(|| "<none>".to_string())
+            };
+            different_fields.push((
+                DedupFieldName::Uuid,
+                format_uuid(&original.uuid),
+                format_uuid(&new.uuid),
             ));
         }
 
