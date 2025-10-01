@@ -470,6 +470,8 @@ class ExperimentQueryRunner(QueryRunner):
         Branches to map aggregation implementation if enabled, otherwise uses legacy approach.
         """
         if self.is_map_aggregation_supported:
+            # Already asserted, but needed here to make mypy happy
+            assert isinstance(self.metric, ExperimentMeanMetric)
             builder = ExperimentQueryBuilder(
                 experiment=self.experiment,
                 team=self.team,
