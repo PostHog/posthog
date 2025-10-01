@@ -228,6 +228,7 @@ describe('getViewRecordingFilters', () => {
         created_at: null,
         created_by: null,
         updated_at: null,
+        user_access_level: AccessControlLevel.Editor,
     }
 
     it('adds exposure criteria if present', () => {

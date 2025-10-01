@@ -248,15 +248,9 @@ const ExperimentsTable = ({
                                 <LemonButton to={urls.experiment(`${experiment.id}`)} size="small" fullWidth>
                                     View
                                 </LemonButton>
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.Experiment}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={experiment.user_access_level}
-                                >
-                                    <LemonButton onClick={() => openDuplicateModal(experiment)} size="small" fullWidth>
-                                        Duplicate
-                                    </LemonButton>
-                                </AccessControlAction>
+                                <LemonButton onClick={() => openDuplicateModal(experiment)} size="small" fullWidth>
+                                    Duplicate
+                                </LemonButton>
                                 <ExperimentSurveyButton experiment={experiment} />
                                 {!experiment.archived &&
                                     experiment?.end_date &&
