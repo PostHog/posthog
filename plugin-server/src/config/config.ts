@@ -207,6 +207,14 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
+
+        // Heap dump configuration
+        HEAP_DUMP_ENABLED: false,
+        HEAP_DUMP_S3_BUCKET: '',
+        HEAP_DUMP_S3_PREFIX: 'heap-dumps',
+        HEAP_DUMP_S3_ENDPOINT: '',
+        HEAP_DUMP_S3_REGION: '',
+
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
@@ -318,6 +326,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Messaging
         MAILJET_PUBLIC_KEY: '',
         MAILJET_SECRET_KEY: '',
+
+        // SES
+        SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
+        SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
+        SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
+        SES_REGION: 'us-east-1',
     }
 }
 

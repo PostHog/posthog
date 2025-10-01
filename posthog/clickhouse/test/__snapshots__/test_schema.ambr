@@ -1050,7 +1050,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
-  Order By (team_id, group_type_index, group_key)
+  ORDER BY (team_id, group_type_index, group_key)
   
   
   '''
@@ -1059,7 +1059,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS groups_mv ON CLUSTER 'posthog'
-  TO posthog_test.groups
+  TO writable_groups
   AS SELECT
   group_type_index,
   group_key,
@@ -1068,7 +1068,7 @@
   group_properties,
   _timestamp,
   _offset
-  FROM posthog_test.kafka_groups
+  FROM kafka_groups
   
   '''
 # ---
@@ -1812,7 +1812,7 @@
       , INDEX kafka_timestamp_minmax_person _timestamp TYPE minmax GRANULARITY 3
       
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person', '{replica}-{shard}', version)
-  Order By (team_id, id)
+  ORDER BY (team_id, id)
   
   
   '''
@@ -1846,7 +1846,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id2_mv ON CLUSTER 'posthog'
-  TO posthog_test.person_distinct_id2
+  TO writable_person_distinct_id2
   AS SELECT
   team_id,
   distinct_id,
@@ -1856,7 +1856,7 @@
   _timestamp,
   _offset,
   _partition
-  FROM posthog_test.kafka_person_distinct_id2
+  FROM kafka_person_distinct_id2
   
   '''
 # ---
@@ -1925,7 +1925,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_overrides_mv ON CLUSTER 'posthog'
-  TO posthog_test.person_distinct_id_overrides
+  TO writable_person_distinct_id_overrides
   AS SELECT
   team_id,
   distinct_id,
@@ -1935,7 +1935,7 @@
   _timestamp,
   _offset,
   _partition
-  FROM posthog_test.kafka_person_distinct_id_overrides
+  FROM kafka_person_distinct_id_overrides
   WHERE version > 0 -- only store updated rows, not newly inserted ones
   
   '''
@@ -1944,7 +1944,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_mv ON CLUSTER 'posthog'
-  TO posthog_test.person
+  TO writable_person
   AS SELECT
   id,
   created_at,
@@ -1955,7 +1955,7 @@
   version,
   _timestamp,
   _offset
-  FROM posthog_test.kafka_person
+  FROM kafka_person
   
   '''
 # ---
@@ -2112,7 +2112,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS plugin_log_entries_mv ON CLUSTER 'posthog'
-  TO posthog_test.plugin_log_entries
+  TO writable_plugin_log_entries
   AS SELECT
   id,
   team_id,
@@ -2125,7 +2125,7 @@
   instance_id,
   _timestamp,
   _offset
-  FROM posthog_test.kafka_plugin_log_entries
+  FROM kafka_plugin_log_entries
   
   '''
 # ---
@@ -2161,6 +2161,7 @@
       query_kind                            LowCardinality(String),
   
       exception_code                        Int32,
+      exception_name                        String ALIAS errorCodeToName(exception_code),
       exception                             String,
       stack_trace                           String,
   
@@ -2553,6 +2554,7 @@
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
+      distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
@@ -2633,7 +2635,7 @@
       SELECT
           team_id,
           `$session_id`,
-          distinct_id,
+          distinct_id AS _distinct_id,
           person_id,
           timestamp,
           inserted_at,
@@ -2758,15 +2760,16 @@
           properties_group_feature_flags
       FROM posthog_test.sharded_events
       WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
-      AND TRUE
+      AND True
   )
   
   SELECT
      team_id,
       toUUID(`$session_id`) as session_id_v7,
   
-      initializeAggregation('argMaxState', distinct_id, timestamp) as distinct_id,
+      initializeAggregation('argMaxState', _distinct_id, timestamp) as distinct_id,
       initializeAggregation('argMaxState', person_id, timestamp) as person_id,
+      initializeAggregation('groupUniqArrayState', _distinct_id) as distinct_ids,
   
       timestamp AS min_timestamp,
       timestamp AS max_timestamp,
@@ -3601,6 +3604,7 @@
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
+      distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
@@ -4484,6 +4488,7 @@
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
+      distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
@@ -4935,7 +4940,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
-  Order By (team_id, group_type_index, group_key)
+  ORDER BY (team_id, group_type_index, group_key)
   SETTINGS storage_policy = 'hot_to_cold'
   
   '''
@@ -4995,7 +5000,7 @@
       , INDEX kafka_timestamp_minmax_person _timestamp TYPE minmax GRANULARITY 3
       
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person', '{replica}-{shard}', version)
-  Order By (team_id, id)
+  ORDER BY (team_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
   '''
@@ -5231,6 +5236,7 @@
       query_kind                            LowCardinality(String),
   
       exception_code                        Int32,
+      exception_name                        String ALIAS errorCodeToName(exception_code),
       exception                             String,
       stack_trace                           String,
   
@@ -5721,6 +5727,7 @@
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
+      distinct_ids AggregateFunction(groupUniqArray, String),
   
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
