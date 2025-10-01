@@ -56,10 +56,9 @@ def run_sql_with_exceptions(
     node_roles = node_roles or [NodeRole.DATA]
 
     if settings.E2E_TESTING or settings.DEBUG:
-        # In E2E tests and debug mode, we run migrations on data nodes
-        # because we don't have different ClickHouse topologies yet in Docker,
-        # and this is the only type we are using right now
-        node_roles = [NodeRole.DATA]
+        # In E2E tests and debug mode, we run migrations on ALL nodes
+        # because we don't have different ClickHouse topologies yet in Docker
+        node_roles = [NodeRole.ALL]
 
     def run_migration():
         if "ON CLUSTER" in sql:
@@ -70,7 +69,7 @@ def run_sql_with_exceptions(
         query = Query(sql)
         if sharded:
             assert (
-                NodeRole.DATA in node_roles and len(node_roles) == 1
+                NodeRole.DATA in node_roles and len(node_roles) == 1 and not (settings.E2E_TESTING or settings.DEBUG)
             ), "When running migrations on sharded tables, the node_role must be NodeRole.DATA"
             return cluster.map_one_host_per_shard(query).result()
         elif is_alter_on_replicated_table:
