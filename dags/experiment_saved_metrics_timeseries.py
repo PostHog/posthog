@@ -27,7 +27,10 @@ from dags.common import JobOwners
 # =============================================================================
 
 # Create dynamic partitions definition for saved metric combinations
-experiment_saved_metrics_partitions_def = dagster.DynamicPartitionsDefinition(name="experiment_saved_metrics")
+EXPERIMENT_SAVED_METRICS_PARTITIONS_NAME = "experiment_saved_metrics"
+experiment_saved_metrics_partitions_def = dagster.DynamicPartitionsDefinition(
+    name=EXPERIMENT_SAVED_METRICS_PARTITIONS_NAME
+)
 
 # =============================================================================
 # Asset
@@ -284,7 +287,7 @@ def experiment_saved_metrics_timeseries_discovery_sensor(context: dagster.Sensor
         ]
 
         # Check which partitions are new
-        existing_partitions = set(context.instance.get_dynamic_partitions(experiment_saved_metrics_partitions_def.name))
+        existing_partitions = set(context.instance.get_dynamic_partitions(EXPERIMENT_SAVED_METRICS_PARTITIONS_NAME))
         new_partitions = [key for key in current_partition_keys if key not in existing_partitions]
 
         # Build response
@@ -332,9 +335,7 @@ def experiment_saved_metrics_timeseries_refresh_schedule(context: dagster.Schedu
     This schedule runs daily and reprocesses all known experiment-saved metric combinations.
     """
     try:
-        existing_partitions = list(
-            context.instance.get_dynamic_partitions(experiment_saved_metrics_partitions_def.name)
-        )
+        existing_partitions = list(context.instance.get_dynamic_partitions(EXPERIMENT_SAVED_METRICS_PARTITIONS_NAME))
 
         if not existing_partitions:
             return dagster.SkipReason("No experiment saved metrics partitions exist")
