@@ -1,5 +1,4 @@
 from posthog import settings
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
@@ -93,7 +92,7 @@ KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE = f"kafka_{ERROR_TRACKING_FING
 ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV = f"{ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE}_mv"
 
 ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     model_name LowCardinality(String),
@@ -110,7 +109,7 @@ def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_ENGINE():
     return ReplacingMergeTree(ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE, ver="inserted_at")
 
 
-def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(on_cluster=True):
+def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL():
     return (
         ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_BASE_SQL
         + """
@@ -119,7 +118,6 @@ def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(on_cluster=True):
     """
     ).format(
         table_name=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_ENGINE(),
         extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -131,7 +129,6 @@ def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(on_cluster=True):
 def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE_SQL():
     return ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=Distributed(
             data_table=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
             cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
@@ -140,10 +137,9 @@ def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE_SQL():
     )
 
 
-def KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(on_cluster=True):
+def KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL():
     return ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name=KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(
             KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS, group="clickhouse-error-tracking-fingerprint-embeddings"
         ),
@@ -152,10 +148,10 @@ def KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(on_cluster=True):
 
 
 def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV_SQL(
-    on_cluster=True, target_table=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE
+    target_table=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE,
 ):
     return """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
 TO {target_table}
 AS SELECT
 team_id,
@@ -170,7 +166,6 @@ _partition
 FROM {database}.{kafka_table}
 """.format(
         mv_name=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         target_table=target_table,
         kafka_table=KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
         database=CLICKHOUSE_DATABASE,
