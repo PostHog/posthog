@@ -53,6 +53,9 @@ class OperationCategorizer:
         self.ddl_ops: list[tuple[int, object]] = []
         self.schema_ops: list[tuple[int, object]] = []
         self.runsql_ops: list[tuple[int, object]] = []
+        self.runpython_ops: list[tuple[int, object]] = []
+        self.addindex_ops: list[tuple[int, object]] = []
+        self.high_risk_ops: list[tuple[int, object]] = []
         self._categorize()
 
     def _categorize(self):
@@ -60,8 +63,16 @@ class OperationCategorizer:
         for idx, op_risk in enumerate(self.operation_risks):
             if op_risk.type == "RunSQL":
                 self._categorize_runsql(idx, op_risk)
+            elif op_risk.type == "RunPython":
+                self.runpython_ops.append((idx, op_risk))
+            elif op_risk.type == "AddIndex":
+                self.addindex_ops.append((idx, op_risk))
             elif op_risk.type in self.SCHEMA_OPERATIONS:
                 self.schema_ops.append((idx, op_risk))
+
+            # Track high-risk operations (score 4+)
+            if op_risk.score >= 4:
+                self.high_risk_ops.append((idx, op_risk))
 
     def _categorize_runsql(self, idx, op_risk):
         """Categorize a RunSQL operation as DML or DDL."""
@@ -93,6 +104,18 @@ class OperationCategorizer:
     @property
     def has_schema_changes(self) -> bool:
         return len(self.schema_ops) > 0
+
+    @property
+    def has_runpython(self) -> bool:
+        return len(self.runpython_ops) > 0
+
+    @property
+    def has_multiple_indexes(self) -> bool:
+        return len(self.addindex_ops) > 1
+
+    @property
+    def has_multiple_high_risk(self) -> bool:
+        return len(self.high_risk_ops) > 1
 
     def format_operation_refs(self, ops: list[tuple[int, object]]) -> str:
         """Format operation references like '#3 RunSQL, #5 AddField'."""

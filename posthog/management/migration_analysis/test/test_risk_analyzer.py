@@ -466,3 +466,59 @@ class TestCombinationRisks:
         assert len(migration_risk.combination_risks) > 0
         assert migration_risk.max_score >= 4  # Should be blocked
         assert migration_risk.level == RiskLevel.BLOCKED
+
+    def test_runpython_with_schema_changes(self):
+        """RunPython mixed with schema changes should trigger warning"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_test"
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="test", name="new_field", field=models.CharField(null=True)
+            ),
+            create_mock_operation(migrations.RunPython, code=lambda apps, schema_editor: None),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_test.py")
+
+        assert len(migration_risk.combination_risks) > 0
+        assert any("RunPython" in warning for warning in migration_risk.combination_risks)
+
+    def test_multiple_high_risk_operations(self):
+        """Multiple high-risk operations should trigger warning"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_test"
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(migrations.RemoveField, model_name="test", name="old_field"),
+            create_mock_operation(migrations.RenameField, model_name="test", old_name="foo", new_name="bar"),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_test.py")
+
+        assert len(migration_risk.combination_risks) > 0
+        assert any("Multiple high-risk" in warning for warning in migration_risk.combination_risks)
+
+    def test_multiple_index_creations(self):
+        """Multiple index creations should trigger warning"""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test"
+        mock_migration.name = "0001_test"
+        mock_migration.atomic = True
+
+        index1 = MagicMock()
+        index1.concurrent = True
+        index2 = MagicMock()
+        index2.concurrent = True
+
+        mock_migration.operations = [
+            create_mock_operation(migrations.AddIndex, model_name="test", index=index1),
+            create_mock_operation(migrations.AddIndex, model_name="test", index=index2),
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_test.py")
+
+        assert len(migration_risk.combination_risks) > 0
+        assert any("Multiple index" in warning for warning in migration_risk.combination_risks)

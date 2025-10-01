@@ -113,7 +113,10 @@ class RiskAnalyzer:
 
         warnings = []
         warnings.extend(self._check_dml_with_schema_changes(categorizer))
+        warnings.extend(self._check_runpython_with_schema_changes(categorizer))
         warnings.extend(self._check_ddl_isolation(categorizer, operation_risks))
+        warnings.extend(self._check_multiple_high_risk_ops(categorizer))
+        warnings.extend(self._check_multiple_indexes(categorizer))
         warnings.extend(self._check_non_atomic_runsql(migration, categorizer))
 
         return warnings
@@ -133,6 +136,21 @@ class RiskAnalyzer:
             "Split into separate migrations: 1) schema changes, 2) data migration."
         ]
 
+    def _check_runpython_with_schema_changes(self, categorizer: OperationCategorizer) -> list[str]:
+        """Check for RunPython operations mixed with schema changes."""
+        if not (categorizer.has_runpython and categorizer.has_schema_changes):
+            return []
+
+        runpython_refs = categorizer.format_operation_refs(categorizer.runpython_ops)
+        schema_refs = categorizer.format_operation_refs(categorizer.schema_ops)
+
+        return [
+            f"⚠️  WARNING: {runpython_refs} + {schema_refs}    "
+            "RunPython data migration combined with schema changes. "
+            "Data migrations can hold locks during execution, especially on large tables. "
+            "Split into separate migrations: 1) schema changes, 2) data migration."
+        ]
+
     def _check_ddl_isolation(self, categorizer: OperationCategorizer, operation_risks: list) -> list[str]:
         """Check if DDL operations should be isolated."""
         if not categorizer.has_ddl or len(operation_risks) <= 1:
@@ -144,6 +162,32 @@ class RiskAnalyzer:
             f"⚠️  WARNING: {ddl_refs} mixed with other operations    "
             "RunSQL with DDL (CREATE INDEX/ALTER TABLE) should be isolated in their own migration "
             "to avoid lock conflicts."
+        ]
+
+    def _check_multiple_high_risk_ops(self, categorizer: OperationCategorizer) -> list[str]:
+        """Check for multiple high-risk operations in one migration."""
+        if not categorizer.has_multiple_high_risk:
+            return []
+
+        high_risk_refs = categorizer.format_operation_refs(categorizer.high_risk_ops)
+
+        return [
+            f"⚠️  WARNING: Multiple high-risk operations in one migration: {high_risk_refs}    "
+            "Each high-risk operation (score 4+) should be isolated to make rollback easier and reduce deployment risk. "
+            "Consider splitting into separate migrations."
+        ]
+
+    def _check_multiple_indexes(self, categorizer: OperationCategorizer) -> list[str]:
+        """Check for multiple index creations in one migration."""
+        if not categorizer.has_multiple_indexes:
+            return []
+
+        index_refs = categorizer.format_operation_refs(categorizer.addindex_ops)
+
+        return [
+            f"⚠️  WARNING: Multiple index creations in one migration: {index_refs}    "
+            "Creating multiple indexes can cause I/O overload and extended lock times. "
+            "Consider splitting into separate migrations to reduce system load."
         ]
 
     def _check_non_atomic_runsql(self, migration, categorizer: OperationCategorizer) -> list[str]:
