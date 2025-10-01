@@ -93,7 +93,7 @@ RootTool = Union[type[BaseModel], "MaxTool"]
 
 
 class RootNode(AssistantNode):
-    MAX_TOOL_CALLS = 4
+    MAX_TOOL_CALLS = 24
     """
     Determines the maximum number of tool calls allowed in a single generation.
     """
