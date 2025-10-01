@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
@@ -64,8 +65,6 @@ export function EditSubscription({
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations } = useValues(integrationsLogic)
-    // TODO: Fix this so that we use the appropriate config...
-    const firstSlackIntegration = slackIntegrations?.[0]
 
     const emailDisabled = !preflight?.email_service_available
 
@@ -205,7 +204,7 @@ export function EditSubscription({
 
                         {subscription.target_type === 'slack' ? (
                             <>
-                                {!firstSlackIntegration ? (
+                                {!slackIntegrations?.length ? (
                                     <>
                                         <LemonBanner type="info">
                                             <div className="flex justify-between gap-2">
@@ -247,13 +246,48 @@ export function EditSubscription({
                                                 </>
                                             }
                                         >
-                                            {({ value, onChange }) => (
-                                                <SlackChannelPicker
-                                                    value={value}
-                                                    onChange={onChange}
-                                                    integration={firstSlackIntegration}
-                                                />
-                                            )}
+                                            {({ value, onChange }) => {
+                                                const [rawIntegrationId, rawChannelId] = value?.split('|') || []
+                                                const integrationId =
+                                                    rawIntegrationId === 'undefined'
+                                                        ? undefined
+                                                        : parseInt(rawIntegrationId)
+                                                const channelId =
+                                                    rawChannelId === 'undefined' ? undefined : rawChannelId
+
+                                                const handleChange = (
+                                                    value: string | number | null,
+                                                    type: 'integration' | 'channel'
+                                                ): void => {
+                                                    if (type === 'integration') {
+                                                        onChange(`${value}|${channelId}`)
+                                                    } else {
+                                                        onChange(`${integrationId}|${value}`)
+                                                    }
+                                                }
+
+                                                return (
+                                                    <>
+                                                        <IntegrationChoice
+                                                            value={integrationId}
+                                                            onChange={(value) => handleChange(value, 'integration')}
+                                                            integration="slack"
+                                                            redirectUrl={window.location.pathname}
+                                                        />
+                                                        {integrationId ? (
+                                                            <SlackChannelPicker
+                                                                value={channelId ?? null}
+                                                                onChange={(value) => handleChange(value, 'channel')}
+                                                                integration={slackIntegrations[0]}
+                                                            />
+                                                        ) : (
+                                                            <div className="p-2 h-10 italic rounded border border-dashed text-secondary">
+                                                                Configure Slack to continue
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )
+                                            }}
                                         </LemonField>
                                     </>
                                 )}
