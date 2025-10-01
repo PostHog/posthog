@@ -32,27 +32,10 @@ export function FeatureFlagEvaluationTags({
 }: FeatureFlagEvaluationTagsProps): JSX.Element {
     const logic = featureFlagEvaluationTagsLogic({ tags, evaluationTags })
     const { editingTags, showEvaluationOptions, selectedTags, selectedEvaluationTags } = useValues(logic)
-    const {
-        setEditingTags,
-        setShowEvaluationOptions,
-        setSelectedTags,
-        setSelectedEvaluationTags,
-        updatePropsAndReset,
-    } = useActions(logic)
+    const { setEditingTags, setShowEvaluationOptions, setSelectedTags, setSelectedEvaluationTags } = useActions(logic)
 
     const { saveFeatureFlag } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
-
-    // Keep selections fresh when props change while not editing
-    // Check if props have changed and update logic accordingly
-    const currentTagsString = selectedTags.join(',')
-    const currentEvalTagsString = selectedEvaluationTags.join(',')
-    const propsTagsString = tags.join(',')
-    const propsEvalTagsString = evaluationTags.join(',')
-
-    if (!editingTags && (currentTagsString !== propsTagsString || currentEvalTagsString !== propsEvalTagsString)) {
-        updatePropsAndReset(tags, evaluationTags)
-    }
 
     const handleSave = (): void => {
         if (onChange) {

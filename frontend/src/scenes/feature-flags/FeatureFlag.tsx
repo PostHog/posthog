@@ -646,17 +646,40 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <ScenePanel>
                             <ScenePanelInfoSection>
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
-                                    <SceneTags
-                                        onSave={(tags) => {
-                                            const updatedFlag = { ...featureFlag, tags }
-                                            updateFlag(updatedFlag)
-                                            saveFeatureFlag(updatedFlag)
-                                        }}
-                                        canEdit
-                                        tags={featureFlag.tags}
-                                        tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
-                                        dataAttrKey={RESOURCE_TYPE}
-                                    />
+                                    <>
+                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                            <FeatureFlagEvaluationTags
+                                                tags={featureFlag.tags}
+                                                evaluationTags={featureFlag.evaluation_tags || []}
+                                                onChange={(updatedTags, updatedEvaluationTags) => {
+                                                    const updatedFlag = {
+                                                        ...featureFlag,
+                                                        tags: updatedTags,
+                                                        evaluation_tags: updatedEvaluationTags,
+                                                    }
+                                                    updateFlag(updatedFlag)
+                                                    saveFeatureFlag(updatedFlag)
+                                                }}
+                                                tagsAvailable={tags.filter(
+                                                    (tag: string) => !featureFlag.tags?.includes(tag)
+                                                )}
+                                            />
+                                        ) : (
+                                            <SceneTags
+                                                onSave={(tags) => {
+                                                    const updatedFlag = { ...featureFlag, tags }
+                                                    updateFlag(updatedFlag)
+                                                    saveFeatureFlag(updatedFlag)
+                                                }}
+                                                canEdit
+                                                tags={featureFlag.tags}
+                                                tagsAvailable={tags.filter(
+                                                    (tag: string) => !featureFlag.tags?.includes(tag)
+                                                )}
+                                                dataAttrKey={RESOURCE_TYPE}
+                                            />
+                                        )}
+                                    </>
                                 )}
 
                                 <SceneFile dataAttrKey={RESOURCE_TYPE} />

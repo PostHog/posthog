@@ -61,7 +61,7 @@ export function NavPanelAdvertisementContent({ payload }: { payload: Payload }):
                 payload,
             })
         }
-    }, [])
+    }, [payload.product_key, payload.header, payload, product, hidden])
 
     if (hidden || (!product && !payload.header)) {
         return null

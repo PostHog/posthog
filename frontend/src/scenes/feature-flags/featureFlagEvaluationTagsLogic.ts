@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, props, reducers } from 'kea'
+import { actions, events, kea, listeners, path, props, reducers } from 'kea'
 
 import type { featureFlagEvaluationTagsLogicType } from './featureFlagEvaluationTagsLogicType'
 
@@ -16,7 +16,6 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
         setSelectedTags: (tags: string[]) => ({ tags }),
         setSelectedEvaluationTags: (evaluationTags: string[]) => ({ evaluationTags }),
         resetSelectionsToProps: true,
-        updatePropsAndReset: (newTags: string[], newEvaluationTags: string[]) => ({ newTags, newEvaluationTags }),
     }),
     reducers(({ props }) => ({
         editingTags: [false as boolean, { setEditingTags: (_, { editing }) => editing }],
@@ -42,18 +41,19 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
                 actions.setShowEvaluationOptions(false)
             }
         },
-        // setEditingTags: ({ editing }) => {
-        //     // When entering edit mode, seed selections from latest props
-        //     if (editing) {
-        //         actions.setSelectedTags([...(props.tags || [])])
-        //         actions.setSelectedEvaluationTags([...(props.evaluationTags || [])])
-        //     }
-        // },
-        updatePropsAndReset: ({ newTags, newEvaluationTags }) => {
-            // Update the props and reset selections if not currently editing
+    })),
+    events(({ actions, values }) => ({
+        propsChanged: (previousProps, nextProps) => {
+            // When props change and we're not editing, sync the selections
             if (!values.editingTags) {
-                actions.setSelectedTags([...newTags])
-                actions.setSelectedEvaluationTags([...newEvaluationTags])
+                const propsChanged =
+                    previousProps.tags.join(',') !== nextProps.tags.join(',') ||
+                    previousProps.evaluationTags.join(',') !== nextProps.evaluationTags.join(',')
+
+                if (propsChanged) {
+                    actions.setSelectedTags([...nextProps.tags])
+                    actions.setSelectedEvaluationTags([...nextProps.evaluationTags])
+                }
             }
         },
     })),
