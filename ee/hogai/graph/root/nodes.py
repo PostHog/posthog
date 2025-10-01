@@ -1,7 +1,7 @@
 import json
 import asyncio
 from collections.abc import Sequence
-from typing import Literal, Optional, TypeVar, cast
+from typing import TYPE_CHECKING, Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
 import posthoganalytics
@@ -68,6 +68,9 @@ from .tools import (
     session_summarization,
 )
 
+if TYPE_CHECKING:
+    pass
+
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
 
@@ -86,6 +89,8 @@ RouteName = Literal[
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
+
+RootTool = type[BaseModel] | "MaxTool"
 
 
 class RootNode(AssistantNode):
@@ -204,13 +209,14 @@ class RootNode(AssistantNode):
         return new_window_id
 
     def _get_estimated_tokens(self, message: AssistantMessageUnion) -> int:
+        char_count = 0
         if isinstance(message, HumanMessage):
-            return len(message.content)
+            char_count = len(message.content)
         if isinstance(message, AssistantMessage):
-            return len(message.content) + sum(len(json.dumps(m.args)) for m in message.tool_calls or [])
+            char_count = len(message.content) + sum(len(json.dumps(m.args)) for m in message.tool_calls or [])
         if isinstance(message, AssistantToolCallMessage):
-            return len(message.content)
-        return 0
+            char_count = len(message.content)
+        return round(char_count / 4)
 
     def _is_first_turn(self, state: AssistantState) -> bool:
         last_message = state.messages[-1]
@@ -261,7 +267,7 @@ class RootNode(AssistantNode):
         )
         return prompt
 
-    def _get_model(self, state: AssistantState, tools: list[type[BaseModel]]):
+    def _get_model(self, state: AssistantState, tools: list[RootTool]):
         base_model = MaxChatAnthropic(
             model="claude-sonnet-4-5",
             streaming=True,
@@ -281,7 +287,7 @@ class RootNode(AssistantNode):
 
         return base_model.bind_tools(tools, parallel_tool_calls=False)
 
-    async def _get_tools(self, state: AssistantState, config: RunnableConfig) -> list[type[BaseModel]]:
+    async def _get_tools(self, state: AssistantState, config: RunnableConfig) -> list[RootTool]:
         from ee.hogai.tool import MaxTool, get_contextual_tool_class
 
         available_tools: list[type[BaseModel] | MaxTool] = []
@@ -361,7 +367,7 @@ class RootNode(AssistantNode):
         return tool_calls_count is not None and tool_calls_count >= self.MAX_TOOL_CALLS
 
     async def _should_summarize_conversation(
-        self, state: AssistantState, tools: list[type[BaseModel]], messages: list[BaseMessage]
+        self, state: AssistantState, tools: list[RootTool], messages: list[BaseMessage]
     ) -> bool:
         # Avoid summarizing the conversation if there is only two human messages.
         human_messages = [message for message in messages if isinstance(message, LangchainHumanMessage)]
@@ -371,9 +377,7 @@ class RootNode(AssistantNode):
         token_count = await self._get_token_count(state, messages, tools)
         return token_count > self.CONVERSATION_WINDOW_SIZE
 
-    async def _get_token_count(
-        self, state: AssistantState, messages: list[BaseMessage], tools: list[type[BaseModel]]
-    ) -> int:
+    async def _get_token_count(self, state: AssistantState, messages: list[BaseMessage], tools: list[RootTool]) -> int:
         # Contains an async method in get_num_tokens_from_messages
         model = self._get_model(state, tools)
         return await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
