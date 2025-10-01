@@ -669,6 +669,29 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(16, 2) // (40*0.2*0.5) + (60*0.2) = 4 + 12 = 16
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 2) // 50 * 0.2 = 10
         })
+
+        it('matches provider when provider name appears anywhere in model string', () => {
+            event.properties!.$ai_provider = 'gateway'
+            event.properties!.$ai_model = 'some-prefix-anthropic-claude-2'
+            event.properties!.$ai_input_tokens = 3815
+            event.properties!.$ai_output_tokens = 460
+            event.properties!.$ai_cache_creation_input_tokens = 84329
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('claude-sonnet-4')
+
+            // Cache creation: 84329 * 0.000003 * 1.25 = 0.31623375
+            // Regular input: 3815 * 0.000003 = 0.011445
+            // Total input: 0.31623375 + 0.011445 = 0.32767875
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.327679, 5)
+
+            // Output: 460 * 0.000015 = 0.0069
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0069, 4)
+
+            // Total: 0.327679 + 0.0069 = 0.334579
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.334579, 5)
+        })
     })
 
     describe('gemini 2.5 pro preview', () => {

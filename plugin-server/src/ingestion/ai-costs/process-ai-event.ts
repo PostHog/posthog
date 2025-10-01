@@ -357,7 +357,5 @@ const matchProvider = (event: PluginEvent, provider: string): boolean => {
     const { $ai_provider: eventProvider, $ai_model: eventModel } = event.properties
     const normalizedProvider = provider.toLowerCase()
 
-    return (
-        eventProvider?.toLowerCase() === normalizedProvider || eventModel?.toLowerCase().startsWith(normalizedProvider)
-    )
+    return eventProvider?.toLowerCase() === normalizedProvider || eventModel?.toLowerCase().includes(normalizedProvider)
 }
