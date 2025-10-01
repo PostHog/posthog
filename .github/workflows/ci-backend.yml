@@ -96,8 +96,6 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
-                        - 'rust/persons-migrator/persons_migrations/*.sql'
-                        - 'products/**/migrations/*.py'
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
 
