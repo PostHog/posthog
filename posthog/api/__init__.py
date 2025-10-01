@@ -29,6 +29,7 @@ import products.feedback.backend.api as feedback
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.feedback.backend.api import PublicFeedbackItemViewSet
 from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, LLMProxyViewSet
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
@@ -110,6 +111,7 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
+router.register(r"feedback_items", PublicFeedbackItemViewSet)
 router.register(r"oauth_application/metadata", OAuthApplicationPublicMetadataViewSet, "oauth_application_metadata")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")

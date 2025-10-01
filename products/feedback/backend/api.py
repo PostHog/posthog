@@ -1,11 +1,21 @@
+from django.conf import settings
+
 import structlog
-from rest_framework import serializers, viewsets
+from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
+from posthog.models.team import Team
+from posthog.models.utils import uuid7
+from posthog.storage import object_storage
 
 from products.feedback.backend.models import FeedbackItem
 
 logger = structlog.get_logger(__name__)
+
+FIVE_HUNDRED_MEGABYTES = 1024 * 1024 * 500
 
 
 class FeedbackItemSerializer(serializers.ModelSerializer):
@@ -19,3 +29,45 @@ class FeedbackItemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "feedback_item"
     queryset = FeedbackItem.objects.all()
     serializer_class = FeedbackItemSerializer
+
+
+class PublicFeedbackItemViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
+    scope_object = "feedback_item"
+    authentication_classes = []
+    permission_classes = []
+    queryset = FeedbackItem.objects.all()
+    serializer_class = FeedbackItemSerializer
+
+    def get_team(self):
+        token = self.request.GET.get("token")
+
+        if not token:
+            raise ValidationError("Missing required token")
+
+        team = Team.objects.get_team_from_cache_or_token(token)
+        if not team:
+            raise ValidationError("Invalid token")
+
+        return team
+
+    def safely_get_queryset(self, queryset):
+        team = self.get_team()
+        return queryset.filter(team=team)
+
+    def perform_create(self, serializer):
+        team = self.get_team()
+        serializer.save(team=team)
+
+    @action(methods=["POST"], detail=False)
+    def attach(self, request, **kwargs):
+        file_key = generate_feedback_item_attachment_file_key()
+        presigned_url = object_storage.get_presigned_post(
+            file_key=file_key,
+            conditions=[["content-length-range", 0, FIVE_HUNDRED_MEGABYTES]],
+        )
+
+        return Response({"presigned_url": presigned_url}, status=status.HTTP_201_CREATED)
+
+
+def generate_feedback_item_attachment_file_key():
+    return f"{settings.OBJECT_STORAGE_FEEDBACK_ITEM_ATTACHMENTS_FOLDER}/{str(uuid7())}"
