@@ -232,7 +232,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
             },
             user=self._user,
             team=self._team,
-        ).bind_tools([{"type": "web_search"}])  # We should use web_search once LangChain supports it
+        ).bind_tools([{"type": "web_search"}])
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
