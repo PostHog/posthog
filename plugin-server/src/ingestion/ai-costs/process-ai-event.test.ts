@@ -672,7 +672,7 @@ describe('processAiEvent()', () => {
 
         it('matches provider when provider name appears anywhere in model string', () => {
             event.properties!.$ai_provider = 'gateway'
-            event.properties!.$ai_model = 'some-prefix-anthropic-claude-2'
+            event.properties!.$ai_model = 'some-prefix-anthropic-claude-sonnet-4'
             event.properties!.$ai_input_tokens = 3815
             event.properties!.$ai_output_tokens = 460
             event.properties!.$ai_cache_creation_input_tokens = 84329

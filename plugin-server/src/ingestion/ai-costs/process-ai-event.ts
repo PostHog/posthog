@@ -3,14 +3,13 @@ import bigDecimal from 'js-big-decimal'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
+import { calculateInputCost } from './input-costs'
+import { calculateOutputCost } from './output-costs'
 import { backupCostsByModel, primaryCostsList } from './providers'
 import { ModelRow } from './providers/types'
 
 // Work around for new gemini models that require special cost calculations
 const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
-
-// Models where reasoning is charged separately as output tokens
-const REASONING_COST_MODELS = [/^gemini-2.5-/]
 
 export enum CostModelSource {
     Primary = 'primary',
@@ -75,78 +74,6 @@ export const processAiEvent = (event: PluginEvent): PluginEvent => {
     event = extractCoreModelParams(event)
 
     return event
-}
-
-const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
-    if (!event.properties) {
-        return '0'
-    }
-
-    if (matchProvider(event, 'openai')) {
-        const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
-        const inputTokens = event.properties['$ai_input_tokens'] || 0
-        const regularTokens = bigDecimal.subtract(inputTokens, cacheReadTokens)
-
-        // Use actual cache read cost if available, otherwise fall back to 0.5 multiplier
-        const cacheReadCost =
-            cost.cost.cache_read_token !== undefined
-                ? bigDecimal.multiply(cost.cost.cache_read_token, cacheReadTokens)
-                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.5), cacheReadTokens)
-
-        const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTokens)
-
-        return bigDecimal.add(cacheReadCost, regularCost)
-    } else if (matchProvider(event, 'anthropic')) {
-        const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
-        const cacheWriteTokens = event.properties['$ai_cache_creation_input_tokens'] || 0
-        const inputTokens = event.properties['$ai_input_tokens'] || 0
-
-        // Use actual cache costs if available, otherwise fall back to multipliers
-        const writeCost =
-            cost.cost.cache_write_token !== undefined
-                ? bigDecimal.multiply(cost.cost.cache_write_token, cacheWriteTokens)
-                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 1.25), cacheWriteTokens)
-
-        const cacheReadCost =
-            cost.cost.cache_read_token !== undefined
-                ? bigDecimal.multiply(cost.cost.cache_read_token, cacheReadTokens)
-                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cacheReadTokens)
-
-        const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
-        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, inputTokens)
-
-        return bigDecimal.add(totalCacheCost, uncachedCost)
-    } else if (matchProvider(event, 'gemini')) {
-        const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
-        const inputTokens = event.properties['$ai_input_tokens'] || 0
-        const regularTokens = bigDecimal.subtract(inputTokens, cacheReadTokens)
-
-        // Use actual cache read cost if available, otherwise fall back to 0.25 multiplier
-        const cacheReadCost =
-            cost.cost.cache_read_token !== undefined
-                ? bigDecimal.multiply(cost.cost.cache_read_token, cacheReadTokens)
-                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.25), cacheReadTokens)
-
-        const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTokens)
-
-        return bigDecimal.add(cacheReadCost, regularCost)
-    }
-
-    return bigDecimal.multiply(cost.cost.prompt_token, event.properties['$ai_input_tokens'] || 0)
-}
-
-const calculateOutputCost = (event: PluginEvent, cost: ModelRow) => {
-    if (!event.properties) {
-        return '0'
-    }
-
-    let outputTokens = event.properties['$ai_output_tokens'] || 0
-
-    if (event.properties['$ai_reasoning_tokens'] && mustAddReasoningCost(event.properties['$ai_model'])) {
-        outputTokens = bigDecimal.add(outputTokens, event.properties['$ai_reasoning_tokens'])
-    }
-
-    return bigDecimal.multiply(cost.cost.completion_token, outputTokens)
 }
 
 const processCost = (event: PluginEvent) => {
@@ -343,19 +270,4 @@ const getNewModelName = (properties: Properties): string => {
     }
 
     return model
-}
-
-const mustAddReasoningCost = (model: string): boolean => {
-    return REASONING_COST_MODELS.some((candidate) => candidate.test(model.toLowerCase()))
-}
-
-const matchProvider = (event: PluginEvent, provider: string): boolean => {
-    if (!event.properties) {
-        return false
-    }
-
-    const { $ai_provider: eventProvider, $ai_model: eventModel } = event.properties
-    const normalizedProvider = provider.toLowerCase()
-
-    return eventProvider?.toLowerCase() === normalizedProvider || eventModel?.toLowerCase().includes(normalizedProvider)
 }
