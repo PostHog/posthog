@@ -292,6 +292,23 @@ class EventViewSet(
             result = execute_hogql_query(query, team=team)
             return response.Response([{"name": event[0]} for event in result.results])
         elif key:
+            # Check if this property is hidden (enterprise feature)
+            try:
+                from ee.models.property_definition import EnterprisePropertyDefinition
+
+                hidden_property_exists = EnterprisePropertyDefinition.objects.filter(
+                    team=team,
+                    name=key,
+                    type=1,  # PropertyDefinition.Type.EVENT
+                    hidden=True,
+                ).exists()
+                if hidden_property_exists:
+                    # Return empty result if property is hidden
+                    return response.Response([])
+            except ImportError:
+                # Enterprise features not available, continue normally
+                pass
+
             date_from = relative_date_parse("-7d", team.timezone_info).strftime("%Y-%m-%d 00:00:00")
             date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
 

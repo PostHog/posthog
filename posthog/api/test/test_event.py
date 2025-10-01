@@ -22,7 +22,7 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from rest_framework import status
 
-from posthog.models import Action, Element, Organization, Person, User
+from posthog.models import Action, Element, Organization, Person, PropertyDefinition, User
 from posthog.models.cohort import Cohort
 from posthog.models.event.query_event_list import insight_query_with_columns
 from posthog.test.test_journeys import journeys_for
@@ -435,6 +435,79 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=qw&event_name=404_i_dont_exist"
             ).json()
             self.assertEqual(response, [])
+
+    @freeze_time("2020-01-20 20:00:00")
+    @also_test_with_materialized_columns(["test_prop"])
+    @snapshot_clickhouse_queries
+    def test_event_property_values_without_hidden_properties(self):
+        # Create events with properties first
+        _create_event(
+            distinct_id="bla",
+            event="test event",
+            team=self.team,
+            properties={"test_prop": "visible_value"},
+        )
+        _create_event(
+            distinct_id="bla",
+            event="test event",
+            team=self.team,
+            properties={"test_prop": "hidden_value"},
+        )
+        _create_event(
+            distinct_id="bla",
+            event="test event",
+            team=self.team,
+            properties={"test_prop": "another_visible"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=test_prop").json()
+
+        # When property is not hidden, all values should be returned
+        keys = [resp["name"] for resp in response]
+        self.assertIn("visible_value", keys)
+        self.assertIn("hidden_value", keys)
+        self.assertIn("another_visible", keys)
+        self.assertEqual(len(response), 3)
+
+    @freeze_time("2020-01-20 20:00:00")
+    @also_test_with_materialized_columns(["hidden_prop", "visible_prop"])
+    @snapshot_clickhouse_queries
+    def test_event_property_values_with_hidden_properties(self):
+        # Create events with both hidden and visible properties
+        _create_event(
+            distinct_id="bla",
+            event="test event",
+            team=self.team,
+            properties={"hidden_prop": "should_not_appear", "visible_prop": "should_appear"},
+        )
+        _create_event(
+            distinct_id="bla",
+            event="test event",
+            team=self.team,
+            properties={"hidden_prop": "also_hidden", "visible_prop": "also_visible"},
+        )
+
+        # Try to import enterprise model, skip test if not available
+        try:
+            from ee.models.property_definition import EnterprisePropertyDefinition
+
+            # Create hidden property definition - this should hide all values for this property
+            EnterprisePropertyDefinition.objects.create(
+                team=self.team, name="hidden_prop", type=PropertyDefinition.Type.EVENT, hidden=True
+            )
+        except ImportError:
+            self.skipTest("Enterprise features not available")
+
+        # Test hidden property returns no values
+        hidden_response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=hidden_prop").json()
+        self.assertEqual(len(hidden_response), 0)
+
+        # Test visible property still returns values
+        visible_response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=visible_prop").json()
+        self.assertEqual(len(visible_response), 2)
+        visible_keys = [resp["name"] for resp in visible_response]
+        self.assertIn("should_appear", visible_keys)
+        self.assertIn("also_visible", visible_keys)
 
     def test_property_values_with_property_filters(self):
         with freeze_time("2020-01-20 20:00:00"):
