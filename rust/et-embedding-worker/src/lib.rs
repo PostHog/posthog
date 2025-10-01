@@ -93,7 +93,7 @@ pub async fn generate_embedding(
 fn generate_text_representation(fingerprint: &NewFingerprintEvent) -> String {
     let mut text_parts = Vec::new();
 
-    for exception in fingerprint.exception_list() {
+    for exception in &fingerprint.exception_list {
         // Add exception type and value
         text_parts.push(format!(
             "{}: {}",
