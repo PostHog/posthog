@@ -2,7 +2,7 @@ import json
 import uuid
 import urllib
 from datetime import datetime
-from typing import Any, List, Optional, Union  # noqa: UP035
+from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
 
 from django.db.models.query import Prefetch
 from django.utils import timezone
@@ -288,7 +288,15 @@ class EventViewSet(
             )
 
     @tracer.start_as_current_span("events_api_event_property_values")
-    def _event_property_values(self, event_names, is_column, key, team, items, value) -> response.Response:
+    def _event_property_values(
+        self,
+        event_names: list[str],
+        is_column: bool,
+        key: str,
+        team: Team,
+        items: Iterator[tuple[str, str]],
+        value: str | None,
+    ) -> response.Response:
         date_from = relative_date_parse("-7d", team.timezone_info).strftime("%Y-%m-%d 00:00:00")
         date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
         chain: list[str | int] = [key] if is_column else ["properties", key]
@@ -372,7 +380,7 @@ class EventViewSet(
         return response.Response([{"name": convert_property_value(value)} for value in flatten(values)])
 
     @tracer.start_as_current_span("events_api_is_property_hidden")
-    def _is_property_hidden(self, key, team):
+    def _is_property_hidden(self, key: str, team: Team) -> bool:
         property_is_hidden = False
         try:
             from ee.models.property_definition import EnterprisePropertyDefinition
