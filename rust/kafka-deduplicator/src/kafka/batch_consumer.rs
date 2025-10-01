@@ -58,6 +58,12 @@ where
         commit_interval: Duration,
     ) -> Result<Self> {
         let consumer_ctx = BatchConsumerContext::new(rebalance_handler);
+
+        // TODO: when we transition off stateful consumer, we must ensure we update the
+        // incoming production-env ClientConfig to set:
+        // - auto-store of offsets to DISABLED (we handle this directly after each batch in code)
+        // - auto-commit ENABLED or DISABLED (if enabled, we can remove the manual commit
+        //                                    operation in the batch consumer loop!)
         let consumer: StreamConsumer<BatchConsumerContext> = config
             .create_with_context(consumer_ctx)
             .context("Failed to create Kafka consumer")?;
