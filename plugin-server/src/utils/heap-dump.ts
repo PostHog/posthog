@@ -50,6 +50,9 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
     const podName = process.env.POD_NAME || `pid-${process.pid}`
     const filename = `heapdump-${podName}-${timestamp}.heapsnapshot`
 
+    // Set a timeout for the entire operation (30 minutes for large heap dumps)
+    const UPLOAD_TIMEOUT_MS = 30 * 60 * 1000
+
     try {
         const startTime = Date.now()
         const memoryBefore = process.memoryUsage()
@@ -58,14 +61,24 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
             filename,
             bucket: s3Bucket,
             memoryUsage: memoryBefore,
+            timeout: `${UPLOAD_TIMEOUT_MS / 1000}s`,
         })
 
         // Create heap snapshot
+        logger.info('📸 Creating heap snapshot...')
         const snapshot = v8.getHeapSnapshot()
+        logger.info('📸 Heap snapshot created, preparing S3 upload')
 
         // Stream directly to S3
         const date = new Date().toISOString().split('T')[0]
         const s3Key = `${s3Prefix}/${date}/${filename}`
+
+        logger.info('📸 Initializing S3 upload', {
+            bucket: s3Bucket,
+            key: s3Key,
+            partSize: '5MB',
+            queueSize: 4,
+        })
 
         const upload = new Upload({
             client: s3Client,
@@ -80,10 +93,49 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
                     timestamp: new Date().toISOString(),
                 },
             },
+            // Add multipart upload configuration for better handling of large files
+            partSize: 5 * 1024 * 1024, // 5MB chunks
+            queueSize: 4, // Parallel uploads
+        })
+
+        // Add progress tracking
+        let lastProgressLog = Date.now()
+        let progressCount = 0
+        upload.on('httpUploadProgress', (progress) => {
+            progressCount++
+            const now = Date.now()
+            const loaded = progress.loaded || 0
+            const total = progress.total || 0
+            const percentage = total > 0 ? Math.round((loaded / total) * 100) : 0
+
+            // Log first progress event immediately, then every 5 seconds
+            if (progressCount === 1 || now - lastProgressLog > 5000) {
+                lastProgressLog = now
+                logger.info('📸 Heap dump upload progress', {
+                    filename,
+                    s3Key,
+                    loaded,
+                    total,
+                    percentage: `${percentage}%`,
+                    duration: `${now - startTime}ms`,
+                    progressCount,
+                })
+            }
         })
 
         try {
-            const result = await upload.done()
+            // Create a timeout promise
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => {
+                    reject(new Error(`Heap dump upload timed out after ${UPLOAD_TIMEOUT_MS / 1000} seconds`))
+                }, UPLOAD_TIMEOUT_MS)
+            })
+
+            // Race between upload and timeout
+            const result = (await Promise.race([upload.done(), timeoutPromise])) as Awaited<
+                ReturnType<typeof upload.done>
+            >
+
             const duration = Date.now() - startTime
             const memoryAfter = process.memoryUsage()
 
@@ -100,8 +152,12 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
             })
         } catch (uploadError) {
             const duration = Date.now() - startTime
+            const errorMessage = uploadError instanceof Error ? uploadError.message : String(uploadError)
+            const errorStack = uploadError instanceof Error ? uploadError.stack : undefined
+
             logger.error('❌ S3 upload failed during heap dump', {
-                error: uploadError,
+                error: errorMessage,
+                errorStack,
                 filename,
                 s3Key,
                 bucket: s3Bucket,
