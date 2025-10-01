@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
@@ -49,7 +50,7 @@ ORDER BY (team_id, app_source, app_source_id, instance_id, {APP_METRICS2_TIMESTA
 )
 
 DISTRIBUTED_APP_METRICS2_TABLE_SQL = (
-    lambda: f"""
+    lambda on: f"""
 CREATE TABLE IF NOT EXISTS app_metrics2 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     {BASE_APP_METRICS2_COLUMNS}
@@ -60,8 +61,8 @@ ENGINE={Distributed(data_table="sharded_app_metrics2", sharding_key="rand()")}
 )
 
 KAFKA_APP_METRICS2_TABLE_SQL = (
-    lambda: f"""
-CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+    lambda on_cluster=True: f"""
+CREATE TABLE IF NOT EXISTS kafka_app_metrics2 {ON_CLUSTER_CLAUSE(on_cluster)}
 (
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
@@ -77,8 +78,8 @@ ENGINE={kafka_engine(topic=KAFKA_APP_METRICS2)}
 )
 
 APP_METRICS2_MV_TABLE_SQL = (
-    lambda: f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+    lambda on_cluster=True: f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv {ON_CLUSTER_CLAUSE(on_cluster)}
 TO {settings.CLICKHOUSE_DATABASE}.sharded_app_metrics2
 AS SELECT
 team_id,
