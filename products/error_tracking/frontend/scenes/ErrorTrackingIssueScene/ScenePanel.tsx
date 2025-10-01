@@ -35,6 +35,12 @@ import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 const RESOURCE_TYPE = 'issue'
 
+interface RelatedIssue {
+    id: string
+    title: string
+    description?: string
+}
+
 export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
@@ -196,7 +202,7 @@ const RelatedIssues = (): JSX.Element => {
                 <Spinner />
             ) : relatedIssues.length > 0 ? (
                 <div className="flex flex-col gap-1">
-                    {relatedIssues.map((relatedIssue: any) => {
+                    {relatedIssues.map((relatedIssue: RelatedIssue) => {
                         // const relatedRuntime = getRuntimeFromLib(relatedIssue.library)
                         return (
                             <div
