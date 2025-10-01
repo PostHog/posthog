@@ -25,6 +25,7 @@ from posthog.warehouse.api.lineage import LineageViewSet
 import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
+import products.feedback.backend.api as feedback
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
@@ -206,6 +207,12 @@ project_features_router = projects_router.register(
     r"early_access_feature",
     early_access_feature.EarlyAccessFeatureViewSet,
     "project_early_access_feature",
+    ["project_id"],
+)
+project_features_router = projects_router.register(
+    r"feedback_items",
+    feedback.FeedbackItemViewSet,
+    "project_feedback_items",
     ["project_id"],
 )
 
