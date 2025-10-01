@@ -53,8 +53,6 @@ impl BatchConsumerContext {
                         partitions.len()
                     );
 
-                    // TODO(eli): replace in-flight tracker here
-
                     // Create TopicPartitionList for handler
                     let mut tpl = TopicPartitionList::new();
                     for partition in &partitions {
@@ -71,8 +69,6 @@ impl BatchConsumerContext {
                         "Rebalance worker: processing assignment for {} partitions",
                         partitions.len()
                     );
-
-                    // TODO(eli): replace in-flight tracker here
 
                     // Create TopicPartitionList for handler
                     let mut tpl = TopicPartitionList::new();
@@ -116,8 +112,6 @@ impl ConsumerContext for BatchConsumerContext {
                     .into_iter()
                     .map(Partition::from)
                     .collect();
-
-                // TODO(eli): rethink fencing operation without in-flight tracker
 
                 // Send revocation event to async worker
                 if let Err(e) = self.rebalance_tx.send(RebalanceEvent::Revoke(partitions)) {

@@ -126,6 +126,12 @@ where
                 }
 
                 // Commit offsets periodically that we store after each batch
+                // NOTE: this replicates stateful consumer direct commit handling
+                // since I assume we will initially share a ClientConfig used by
+                // stateful now when we transition. However, we can configure
+                // rdkafka internal client to *autocommit but manually store* offsets
+                // and keep the store-after-batch-created logic, and remove this manual
+                // commit operation entirely once we transition to batch consumer
                 _ = commit_interval.tick() => {
                     let _ = Self::commit_offsets(&consumer);
                 }
