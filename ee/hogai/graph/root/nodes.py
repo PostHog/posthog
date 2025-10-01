@@ -66,7 +66,7 @@ from .prompts import (
     SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT,
     SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT,
 )
-from .tools import ReadDataTool, ReadTaxonomyTool, SearchTool
+from .tools import NavigateTool, ReadDataTool, ReadTaxonomyTool, SearchTool
 
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
@@ -243,7 +243,7 @@ class RootNode(AssistantNode):
         available_tools: list[type[BaseModel] | MaxTool] = []
 
         # Add the basic toolkit
-        toolkit = [ReadTaxonomyTool, SearchTool, ReadDataTool, TodoWriteTool]
+        toolkit = [ReadTaxonomyTool, SearchTool, ReadDataTool, TodoWriteTool, NavigateTool]
         for tool in toolkit:
             available_tools.append(tool(team=self._team, user=self._user, state=state, config=config))
 
