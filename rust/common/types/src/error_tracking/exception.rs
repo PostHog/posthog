@@ -6,6 +6,6 @@ use crate::error_tracking::FrameData;
 pub struct ExceptionData {
     pub exception_type: String,
     pub exception_value: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub frames: Vec<FrameData>,
 }

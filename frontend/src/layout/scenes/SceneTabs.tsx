@@ -177,15 +177,11 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
 
     useEffect(() => {
         if (isEditing && inputRef.current) {
-            // bring the tab into focus
-            // oxlint-disable-next-line exhaustive-deps
-            clickOnTab(tab)
-            // focus the input with delay to ensure the tab input is rendered
             setTimeout(() => {
                 inputRef.current?.focus()
             }, 100)
         }
-    }, [isEditing, tab, clickOnTab])
+    }, [isEditing])
 
     return (
         <Link
@@ -250,6 +246,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                             endTabEdit()
                         }
                     }}
+                    autoComplete="off"
                     autoFocus
                     onFocus={(e) => e.target.select()}
                 />
