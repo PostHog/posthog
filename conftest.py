@@ -1,25 +1,18 @@
-def pytest_load_initial_conftests(early_config, parser, args):
+import pytest
+
+from django.db import connection
+
+
+@pytest.fixture(scope="session")
+def django_db_setup(django_db_setup, django_db_blocker):
     """
-    Patch Django's migrate command to create PostgreSQL extensions.
+    Create PostgreSQL extensions for xdist worker databases.
 
-    This runs very early in pytest startup, before any database setup.
-    When --nomigrations is used with pytest-xdist, each worker creates its own
-    test database (e.g., test_posthog_gw0), but migrations don't run, so
-    extensions like ltree and pg_trgm aren't created.
-
-    This matches the approach in posthog/management/commands/setup_test_environment.py
+    With --nomigrations and xdist, each worker creates its own test database
+    (e.g., test_posthog_gw0), but extensions aren't created since migrations
+    don't run. This fixture runs once per worker to create the extensions.
     """
-    from django.core.management.commands import migrate
-
-    class MigrateSilentCommand(migrate.Command):
-        def handle(self, *args, **kwargs):
-            from django.db import connection
-
-            # Create extensions before table creation (matches setup_test_environment.py)
-            with connection.cursor() as cursor:
-                cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-                cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
-
-            return super().handle(*args, **kwargs)
-
-    migrate.Command = MigrateSilentCommand  # type: ignore
+    with django_db_blocker.unblock():
+        with connection.cursor() as cursor:
+            cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+            cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
