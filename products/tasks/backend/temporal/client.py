@@ -6,13 +6,9 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.constants import TASKS_TASK_QUEUE
 from posthog.temporal.common.client import async_connect
 
-from .inputs import TaskProcessingInputs
-
 
 async def _execute_task_processing_workflow(task_id: str, team_id: int, user_id: Optional[int] = None) -> str:
     """Execute the task processing workflow asynchronously."""
-
-    inputs = TaskProcessingInputs(task_id=task_id, team_id=team_id, user_id=user_id)
 
     # Create unique workflow ID based on task and timestamp
     import time
@@ -29,8 +25,8 @@ async def _execute_task_processing_workflow(task_id: str, team_id: int, user_id:
     retry_policy = RetryPolicy(maximum_attempts=3)
 
     result = await client.execute_workflow(
-        "process-task-workflow-agnostic",
-        inputs,
+        "process-task",
+        task_id,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         task_queue=TASKS_TASK_QUEUE,
