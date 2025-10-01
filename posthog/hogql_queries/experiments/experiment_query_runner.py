@@ -35,11 +35,11 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_winsorized_metric_values_query,
 )
 from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
+from posthog.hogql_queries.experiments.experiment_query_builder import ExperimentQueryBuilder
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
 )
-from posthog.hogql_queries.experiments.map_agg_query_builder_hogql import MapAggregationQueryBuilderHogQL
 from posthog.hogql_queries.experiments.utils import (
     get_bayesian_experiment_result,
     get_experiment_stats_method,
@@ -470,7 +470,7 @@ class ExperimentQueryRunner(QueryRunner):
         Branches to map aggregation implementation if enabled, otherwise uses legacy approach.
         """
         if self.is_map_aggregation_supported:
-            builder = MapAggregationQueryBuilderHogQL(
+            builder = ExperimentQueryBuilder(
                 experiment=self.experiment,
                 team=self.team,
                 metric=self.metric,
