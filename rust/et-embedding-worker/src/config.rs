@@ -42,7 +42,11 @@ pub struct Config {
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         // Our consumer is used in a transaction, so we disable offset commits.
-        ConsumerConfig::set_defaults("error-tracking-rs", "exceptions_ingestion", false);
+        ConsumerConfig::set_defaults(
+            "et-embedding-worker",
+            "error_tracking_new_fingerprints",
+            false,
+        );
 
         Self::init_from_env()
     }
