@@ -31,7 +31,7 @@ pub async fn handle_batch(
     results.into_iter().collect()
 }
 
-const OPENAI_EMBEDDING_MODEL: &str = "text-embedding-3-small";
+const OPENAI_EMBEDDING_MODEL: &str = "text-embedding-3-large";
 const EMBEDDING_VERSION: i64 = 1;
 
 #[derive(Serialize)]
