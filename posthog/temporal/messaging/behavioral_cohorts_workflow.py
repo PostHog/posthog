@@ -98,6 +98,9 @@ async def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -
         f"Fetching unique conditions page from ClickHouse (offset={inputs.offset}, page_size={inputs.page_size})"
     )
 
+    # Send heartbeat at start
+    temporalio.activity.heartbeat()
+
     # Basic validation for reasonable bounds
     if not isinstance(inputs.days, int) or inputs.days < 0 or inputs.days > 365:
         raise ValueError(f"Invalid days value: {inputs.days}")
@@ -121,10 +124,7 @@ async def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -
 
     # Calculate effective limit for this page
     if inputs.limit:
-        remaining = inputs.limit - inputs.offset
-        if remaining <= 0:
-            return ConditionsPageResult(conditions=[], has_more=False, total_fetched=0)
-        current_limit = min(inputs.page_size, remaining)
+        current_limit = inputs.limit
     else:
         current_limit = inputs.page_size
 
@@ -208,13 +208,19 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
             query = """
                 SELECT
                     person_id
-                FROM behavioral_cohorts_matches
-                WHERE
-                    team_id = %(team_id)s
-                    AND cohort_id = %(cohort_id)s
-                    AND condition = %(condition)s
-                    AND date >= now() - toIntervalDay(%(days)s)
-                    AND matches >= %(min_matches)s
+                FROM (
+                    SELECT
+                        person_id,
+                        SUM(matches) as total_matches
+                    FROM behavioral_cohorts_matches
+                    WHERE
+                        team_id = %(team_id)s
+                        AND cohort_id = %(cohort_id)s
+                        AND condition = %(condition)s
+                        AND date >= now() - toIntervalDay(%(days)s)
+                    GROUP BY person_id
+                    HAVING total_matches >= %(min_matches)s
+                )
                 LIMIT 100000
             """
 
@@ -307,48 +313,32 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
 
         # Use provided offset if this is a child workflow
         offset = inputs.offset or 0
-        page_size = inputs.conditions_page_size
 
-        # Step 1: Fetch all conditions for this workflow's range
-        all_conditions: list[dict[str, Any]] = []
+        # Step 1: Fetch all conditions for this workflow's range in one go
         conditions_limit = inputs.limit  # This workflow's assigned range
-
         workflow_logger.info(f"Fetching conditions starting at offset={offset}, limit={conditions_limit}")
 
-        while True:
-            # Calculate page limit
-            if conditions_limit:
-                remaining = conditions_limit - len(all_conditions)
-                if remaining <= 0:
-                    break
-                current_page_size = min(page_size, remaining)
-            else:
-                current_page_size = page_size
+        # Fetch all conditions for this child workflow at once
+        page_inputs = GetConditionsPageInputs(
+            team_id=inputs.team_id,
+            cohort_id=inputs.cohort_id,
+            condition=inputs.condition,
+            days=inputs.days,
+            limit=conditions_limit,
+            offset=offset,
+            page_size=conditions_limit or 10000,  # Fetch all at once
+        )
 
-            # Fetch one page of conditions
-            page_inputs = GetConditionsPageInputs(
-                team_id=inputs.team_id,
-                cohort_id=inputs.cohort_id,
-                condition=inputs.condition,
-                days=inputs.days,
-                limit=None,  # Don't pass limit to activity, handle it here
-                offset=offset,
-                page_size=current_page_size,
-            )
+        page_result = await temporalio.workflow.execute_activity(
+            get_unique_conditions_page_activity,
+            page_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            heartbeat_timeout=dt.timedelta(minutes=2),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+        )
 
-            page_result = await temporalio.workflow.execute_activity(
-                get_unique_conditions_page_activity,
-                page_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-            )
-
-            all_conditions.extend(page_result.conditions)
-            workflow_logger.info(f"Fetched {len(page_result.conditions)} conditions (total: {len(all_conditions)})")
-
-            if not page_result.has_more or (conditions_limit and len(all_conditions) >= conditions_limit):
-                break
-            offset += len(page_result.conditions)
+        all_conditions: list[dict[str, Any]] = page_result.conditions
+        workflow_logger.info(f"Fetched {len(all_conditions)} conditions for this child workflow")
 
         if not all_conditions:
             workflow_logger.warning("No conditions found for this workflow's range")
@@ -375,7 +365,7 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
             process_condition_batch_activity,
             batch_inputs,
             start_to_close_timeout=dt.timedelta(minutes=30),
-            heartbeat_timeout=dt.timedelta(minutes=2),
+            heartbeat_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=3,
                 initial_interval=dt.timedelta(seconds=5),

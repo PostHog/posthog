@@ -25,7 +25,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.utils import get_instance_realm
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
 
 MOCK_GITLAB_SSO_RESPONSE = {
     "access_token": "123",
@@ -716,15 +716,13 @@ class TestSignupAPI(APIBaseTest):
         new_project = Team.objects.create(organization=new_org, name="My First Project")
 
         if use_invite:
-            private_project: Team = Team.objects.create(
-                organization=new_org, name="Private Project", access_control=True
-            )
+            private_project: Team = Team.objects.create(organization=new_org, name="Private Project")
             invite = OrganizationInvite.objects.create(
                 target_email="jane@hogflix.posthog.com",
                 organization=new_org,
                 first_name="Jane",
                 level=OrganizationMembership.Level.MEMBER,
-                private_project_access=[{"id": private_project.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                private_project_access=[{"id": private_project.id, "level": "admin"}],
             )
             if expired_invite:
                 invite.created_at = timezone.now() - timedelta(days=30)  # Set invite to 30 days old
@@ -771,10 +769,15 @@ class TestSignupAPI(APIBaseTest):
             # make sure user has access to the private project specified in the invite
             self.assertTrue(teams.filter(pk=private_project.pk).exists())
             org_membership = OrganizationMembership.objects.get(organization=new_org, user=user)
-            explicit_team_membership = ExplicitTeamMembership.objects.get(
-                team=private_project, parent_membership=org_membership
-            )
-            assert explicit_team_membership.level == ExplicitTeamMembership.Level.ADMIN
+            # Check access control instead of explicit team membership
+            access_control_exists = AccessControl.objects.filter(
+                team=private_project,
+                resource="project",
+                resource_id=str(private_project.id),
+                organization_member=org_membership,
+                access_level="admin",
+            ).exists()
+            assert access_control_exists
 
         if expired_invite:
             # Check that the user was still created and added to the organization
@@ -1306,8 +1309,13 @@ class TestInviteSignupAPI(APIBaseTest):
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
         ]
         self.organization.save()
-        self.team.access_control = True
-        self.team.save()
+
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="none",
+            resource="project",
+            resource_id=str(self.team.id),
+        )
 
         response = self.client.post(
             f"/api/signup/{invite.id}/",
@@ -1325,12 +1333,27 @@ class TestInviteSignupAPI(APIBaseTest):
 
     def test_api_invite_sign_up_where_default_project_is_private(self):
         self.client.logout()
-        self.team.access_control = True
-        self.team.save()
-        team = Team.objects.create(name="Public project", organization=self.organization, access_control=False)
+
+        # Create a separate organization with advanced permissions enabled
+        organization = Organization.objects.create(name="Test Organization")
+        organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+        ]
+        organization.save()
+
+        # Create private team (restricted)
+        private_team = Team.objects.create(name="Default project", organization=organization)
+        AccessControl.objects.create(
+            team=private_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(private_team.id),
+        )
+        # Create unrestricted team (no access control = default member access)
+        team_2 = Team.objects.create(name="Public project", organization=organization)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+privatepublic@posthog.com",
-            organization=self.organization,
+            organization=organization,
         )
         response = self.client.post(
             f"/api/signup/{invite.id}/",
@@ -1339,9 +1362,9 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
         self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(user.organization, self.organization)
-        self.assertEqual(user.current_team, team)
-        self.assertEqual(user.team, team)
+        self.assertEqual(user.organization, organization)
+        self.assertEqual(user.current_team, team_2)
+        self.assertEqual(user.team, team_2)
 
     def test_api_invite_signup_invite_has_private_project_access(self):
         self.client.logout()
@@ -1349,14 +1372,18 @@ class TestInviteSignupAPI(APIBaseTest):
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
         ]
         self.organization.save()
-        private_project = Team.objects.create(
-            name="Private project", organization=self.organization, access_control=True
+        private_project = Team.objects.create(name="Private project", organization=self.organization)
+        AccessControl.objects.create(
+            team=private_project,
+            access_level="none",
+            resource="project",
+            resource_id=str(private_project.id),
         )
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+privatepublic@posthog.com",
             level=OrganizationMembership.Level.MEMBER,
             organization=self.organization,
-            private_project_access=[{"id": private_project.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            private_project_access=[{"id": private_project.id, "level": "admin"}],
         )
         response = self.client.post(
             f"/api/signup/{invite.id}/",
@@ -1370,10 +1397,13 @@ class TestInviteSignupAPI(APIBaseTest):
         # user should have access to the private project
         self.assertTrue(teams.filter(pk=private_project.pk).exists())
         org_membership = OrganizationMembership.objects.get(organization=self.organization, user=user)
-        explicit_team_membership = ExplicitTeamMembership.objects.get(
-            team=private_project, parent_membership=org_membership
+        access_control = AccessControl.objects.get(
+            team=private_project,
+            resource="project",
+            resource_id=str(private_project.id),
+            organization_member=org_membership,
         )
-        assert explicit_team_membership.level == ExplicitTeamMembership.Level.ADMIN
+        assert access_control.access_level == "admin"
         self.assertEqual(teams.count(), 2)
 
     def test_api_invite_signup_private_project_access_team_no_longer_exists(self):
@@ -1382,14 +1412,18 @@ class TestInviteSignupAPI(APIBaseTest):
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
         ]
         self.organization.save()
-        private_project = Team.objects.create(
-            name="Private project", organization=self.organization, access_control=True
+        private_project = Team.objects.create(name="Private project", organization=self.organization)
+        AccessControl.objects.create(
+            team=private_project,
+            access_level="none",
+            resource="project",
+            resource_id=str(private_project.id),
         )
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+privatepublic@posthog.com",
             level=OrganizationMembership.Level.MEMBER,
             organization=self.organization,
-            private_project_access=[{"id": private_project.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            private_project_access=[{"id": private_project.id, "level": "admin"}],
         )
         private_project.delete()
         assert not Team.objects.filter(pk=private_project.pk).exists()

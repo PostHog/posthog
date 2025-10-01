@@ -106,6 +106,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setMRRMode: (mrrMode: MRRMode) => ({ mrrMode }),
         setInsightsDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setTopCustomersDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
+        setBreakdownProperties: (breakdownProperties: RevenueAnalyticsBreakdown[]) => ({ breakdownProperties }),
         addBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
         removeBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
     }),
@@ -144,6 +145,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 removeBreakdown: (state, { breakdown }) => {
                     return state.filter((b) => b.property !== breakdown.property || b.type !== breakdown.type)
                 },
+                setBreakdownProperties: (_, { breakdownProperties }) => breakdownProperties,
             },
         ],
         mrrMode: [
@@ -184,6 +186,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                     key: 'RevenueAnalytics',
                     name: 'Revenue analytics',
                     path: urls.revenueAnalytics(),
+                    iconType: 'revenue_analytics',
                 },
             ],
         ],

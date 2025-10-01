@@ -30,6 +30,7 @@ export type SettingSectionId =
     | 'environment-crm'
     | 'environment-max'
     | 'environment-integrations'
+    | 'environment-activity-logs'
     | 'environment-access-control'
     | 'environment-danger-zone'
     | 'project-details'
@@ -174,6 +175,12 @@ export type Setting = {
      * can check if a team should have access to a setting and return false if not
      */
     allowForTeam?: (team: TeamType | TeamPublicType | null) => boolean
+
+    /**
+     * If true, this setting will be hidden when viewing all settings (no specific section selected),
+     * but will still appear when viewing its specific section directly
+     */
+    hideWhenNoSection?: boolean
 }
 
 export interface SettingSection extends Pick<Setting, 'flag'> {

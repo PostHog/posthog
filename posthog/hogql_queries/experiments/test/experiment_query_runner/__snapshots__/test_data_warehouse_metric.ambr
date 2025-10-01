@@ -8,11 +8,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -56,11 +60,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -104,11 +112,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -152,11 +164,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -200,11 +216,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -248,11 +268,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -296,11 +320,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -344,11 +372,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -392,11 +424,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -440,11 +476,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT events.`$group_0` AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
@@ -481,11 +521,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -539,11 +583,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -587,11 +635,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -635,11 +687,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -683,11 +739,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -731,11 +791,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -772,15 +836,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM person_static_cohort
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.1
-  '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
          sum(metric_events.value) AS total_sum,
@@ -788,11 +843,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -830,7 +889,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.2
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -839,11 +898,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -898,11 +961,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -950,11 +1017,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -998,11 +1069,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -1054,11 +1129,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -1102,11 +1181,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -1150,11 +1233,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
         LEFT OUTER JOIN
@@ -1198,11 +1285,15 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
+            any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+            any(exposures.exposure_session_id) AS exposure_session_id,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
                events__person.properties___email AS exposure_identifier
         FROM events
         LEFT OUTER JOIN

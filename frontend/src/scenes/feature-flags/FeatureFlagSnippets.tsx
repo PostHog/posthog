@@ -484,6 +484,31 @@ if (${conditional}) {
     )
 }
 
+export function JavaSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+    const distinctId = 'user distinct id'
+    let snippet = ''
+    if (payload) {
+        snippet = `postHog.getFeatureFlagPayload("${distinctId}", "${flagKey}")`
+    } else if (multivariant) {
+        snippet = `Object flagValue = postHog.getFeatureFlag("${distinctId}", "${flagKey}");
+if ("example-variant".equals(flagValue)) {
+    // Do something differently for this user
+}`
+    } else {
+        snippet = `if (postHog.isFeatureEnabled("${distinctId}", "${flagKey}")) {
+    // Do something differently for this user
+}`
+    }
+
+    return (
+        <>
+            <CodeSnippet language={Language.Java} wrap>
+                {snippet}
+            </CodeSnippet>
+        </>
+    )
+}
+
 export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'PostHog.'
 
