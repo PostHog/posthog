@@ -443,7 +443,7 @@ class SessionReplayEvents:
         format: Optional[str] = None,
     ):
         """
-        Helper function to build a query for listing all session IDs for a given distinct ID
+        Helper function to build a query for listing all session IDs for a given set of distinct IDs
         """
         query = """
                 SELECT

@@ -132,6 +132,7 @@ async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[
             "ttl_days": 365,
         }
 
+        logger.info("Querying ClickHouse")
         raw_response: bytes = b""
         async with get_client() as client:
             async with client.aget_query(
