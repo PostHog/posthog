@@ -95,7 +95,7 @@ export function FeatureFlagEvaluationTags({
                                     key={tag}
                                     checked={selectedEvaluationTags.includes(tag)}
                                     onChange={() => toggleEvaluationTag(tag)}
-                                    label={<span className="text-sm">Use "{tag}" as evaluation environment</span>}
+                                    label={<span className="text-sm">Use "{tag}" as evaluation tag</span>}
                                 />
                             ))}
                         </div>
@@ -128,12 +128,7 @@ export function FeatureFlagEvaluationTags({
                 tags.map((tag) => {
                     const isEvaluationTag = evaluationTags.includes(tag)
                     return (
-                        <Tooltip
-                            key={tag}
-                            title={
-                                isEvaluationTag ? 'This tag acts as an evaluation environment constraint' : undefined
-                            }
-                        >
+                        <Tooltip key={tag} title={isEvaluationTag ? 'This tag acts as an evaluation tag' : undefined}>
                             <LemonTag
                                 type={isEvaluationTag ? 'success' : colorForString(tag)}
                                 icon={isEvaluationTag ? <IconBolt /> : undefined}
