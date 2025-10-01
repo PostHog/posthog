@@ -180,9 +180,10 @@ const RelatedIssues = (): JSX.Element => {
         loadRelatedIssues()
     }, [loadRelatedIssues])
 
-    const handleMerge = (relatedIssueId: string): void => {
+    const handleMerge = async (relatedIssueId: string): Promise<void> => {
         if (issue) {
-            mergeInto(issue.id, [relatedIssueId])
+            await mergeInto(issue.id, [relatedIssueId])
+            loadRelatedIssues()
         }
     }
 
