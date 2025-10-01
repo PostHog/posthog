@@ -34,6 +34,18 @@ impl NewFingerprintEvent {
             exception_list,
         }
     }
+
+    pub fn team_id(&self) -> i32 {
+        self.team_id
+    }
+
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+
+    pub fn exception_list(&self) -> &[ExceptionData] {
+        &self.exception_list
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,4 +55,22 @@ pub struct EmbeddingRecord {
     embedding_version: i64,
     fingerprint: String,
     embeddings: Vec<f64>,
+}
+
+impl EmbeddingRecord {
+    pub fn new(
+        team_id: i32,
+        model_name: String,
+        embedding_version: i64,
+        fingerprint: String,
+        embeddings: Vec<f64>,
+    ) -> Self {
+        Self {
+            team_id,
+            model_name,
+            embedding_version,
+            fingerprint,
+            embeddings,
+        }
+    }
 }
