@@ -20,6 +20,7 @@ import {
     PipelineEvent,
     PluginServerService,
     PluginsServerConfig,
+    Team,
 } from '../types'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { logger } from '../utils/logger'
@@ -54,7 +55,9 @@ import {
     createRetryingPipeline,
     createUnwrapper,
 } from './pipelines/helpers'
+import { IngestionWarningHandlingBatchPipeline } from './pipelines/ingestion-warning-handling-batch-pipeline'
 import { PipelineConfig, ResultHandlingPipeline } from './pipelines/result-handling-pipeline'
+import { isOkResult } from './pipelines/results'
 import { SideEffectHandlingPipeline } from './pipelines/side-effect-handling-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
@@ -125,8 +128,12 @@ export class IngestionConsumer {
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
 
-    private preprocessingPipeline!: BatchPipelineUnwrapper<{ message: Message }, PreprocessedEvent>
-    private perDistinctIdPipeline!: BatchPipeline<PreprocessedEventWithStores, void>
+    private preprocessingPipeline!: BatchPipelineUnwrapper<
+        { message: Message },
+        PreprocessedEvent,
+        { message: Message }
+    >
+    private perDistinctIdPipeline!: BatchPipeline<PreprocessedEventWithStores, void, { message: Message }>
 
     constructor(
         private hub: Hub,
@@ -232,7 +239,7 @@ export class IngestionConsumer {
             promiseScheduler: this.promiseScheduler,
         }
 
-        const preprocessingPipeline = createNewPipeline()
+        const beforeTeamPipeline = createNewPipeline<{ message: Message }, { message: Message }>()
             .pipe(createParseHeadersStep())
             .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
             .pipe(
@@ -245,12 +252,50 @@ export class IngestionConsumer {
             .pipe(createParseKafkaMessageStep())
             .pipe(createDropExceptionEventsStep())
             .pipe(createResolveTeamStep(this.hub))
-            .pipe(createValidateEventPropertiesStep(this.hub))
-            .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
-            .pipe(createValidateEventUuidStep(this.hub))
 
         const batchPipeline = createNewBatchPipeline()
-            .pipeConcurrently(preprocessingPipeline)
+            .pipeConcurrently(beforeTeamPipeline)
+            .branch(
+                (element) => {
+                    if (isOkResult(element.result)) {
+                        return {
+                            result: element.result,
+                            context: {
+                                ...element.context,
+                                team: element.result.value.eventWithTeam.team,
+                            },
+                        }
+                    }
+                    return null
+                },
+                new IngestionWarningHandlingBatchPipeline(
+                    this.kafkaProducer!,
+                    createNewBatchPipeline<
+                        {
+                            message: Message
+                            headers: EventHeaders
+                            event: IncomingEvent
+                            eventWithTeam: IncomingEventWithTeam
+                        },
+                        { message: Message; team: Team }
+                    >().pipeConcurrently(
+                        createNewPipeline<
+                            {
+                                message: Message
+                                headers: EventHeaders
+                                event: IncomingEvent
+                                eventWithTeam: IncomingEventWithTeam
+                            },
+                            { message: Message; team: Team }
+                        >()
+                            .pipe(createValidateEventPropertiesStep(this.hub))
+                            .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
+                            .pipe(createValidateEventUuidStep(this.hub))
+                    )
+                ),
+                createNewBatchPipeline()
+            )
+            .merge()
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(this.hub))
 
@@ -277,15 +322,19 @@ export class IngestionConsumer {
         })
 
         const eventProcessingPipeline = createRetryingPipeline(
-            createNewPipeline<PreprocessedEventWithStores>().pipe(eventPipelineStep).pipe(emitEventStep),
+            createNewPipeline<PreprocessedEventWithStores, { message: Message }>()
+                .pipe(eventPipelineStep)
+                .pipe(emitEventStep),
             {
                 tries: 3,
                 sleepMs: 100,
             }
         )
 
-        const perDistinctIdBatchPipeline =
-            createNewBatchPipeline<PreprocessedEventWithStores>().pipeSequentially(eventProcessingPipeline)
+        const perDistinctIdBatchPipeline = createNewBatchPipeline<
+            PreprocessedEventWithStores,
+            { message: Message }
+        >().pipeSequentially(eventProcessingPipeline)
 
         const resultHandlingPipeline = ResultHandlingPipeline.of(perDistinctIdBatchPipeline, pipelineConfig)
         this.perDistinctIdPipeline = new SideEffectHandlingPipeline(resultHandlingPipeline, this.promiseScheduler, {
