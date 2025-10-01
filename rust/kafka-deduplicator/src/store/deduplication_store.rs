@@ -236,7 +236,8 @@ impl DeduplicationStore {
 
             // Log the duplicate
             info!(
-                "Timestamp duplicate: {} for key {:?}, Similarity: {:.2}, Different fields: [{}], Different properties: [{}]",
+                "Timestamp {}: {} for key {:?}, Similarity: {:.2}, Different fields: [{}], Different properties: [{}]",
+                dedup_result,
                 metadata.get_metrics_summary(),
                 key,
                 similarity.overall_score,
@@ -391,7 +392,8 @@ impl DeduplicationStore {
 
             // Log the duplicate
             info!(
-                "UUID duplicate: {} for key {:?}, Similarity: {:.2}, Different fields: [{}], Different properties: [{}]",
+                "UUID {}: {} for key {:?}, Similarity: {:.2}, Different fields: [{}], Different properties: [{}]",
+                dedup_result,
                 metadata.get_metrics_summary(),
                 key,
                 similarity.overall_score,
