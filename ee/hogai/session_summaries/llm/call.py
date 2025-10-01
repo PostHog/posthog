@@ -43,13 +43,13 @@ def _get_default_posthog_client() -> Client:
 def get_openai_client() -> OpenAI:
     """Get configured OpenAI client or raise appropriate error."""
     client = _get_default_posthog_client()
-    return OpenAI(posthog_client=client, timeout=BASE_LLM_CALL_TIMEOUT_S)
+    return OpenAI(posthog_client=client, timeout=BASE_LLM_CALL_TIMEOUT_S, base_url=settings.OPENAI_BASE_URL)
 
 
 def get_async_openai_client() -> AsyncOpenAI:
     """Get configured OpenAI client or raise appropriate error."""
     client = _get_default_posthog_client()
-    return AsyncOpenAI(posthog_client=client, timeout=BASE_LLM_CALL_TIMEOUT_S)
+    return AsyncOpenAI(posthog_client=client, timeout=BASE_LLM_CALL_TIMEOUT_S, base_url=settings.OPENAI_BASE_URL)
 
 
 def _prepare_messages(
