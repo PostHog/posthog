@@ -3,6 +3,7 @@
 import sys
 
 from django.core.management.base import BaseCommand
+from django.db import migrations
 
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.formatters import ConsoleTreeFormatter
@@ -50,7 +51,7 @@ class Command(BaseCommand):
             if blocked:
                 sys.exit(1)
 
-    def check_batch_policies(self, migrations: list[tuple[str, object]]) -> list[str]:
+    def check_batch_policies(self, migrations: list[tuple[str, migrations.Migration]]) -> list[str]:
         """Check policies that apply to the batch of migrations."""
         # Count migrations per app
         app_counts: dict[str, int] = {}
@@ -61,7 +62,7 @@ class Command(BaseCommand):
         policy = SingleMigrationPolicy(app_counts)
         return policy.check_batch()
 
-    def get_unapplied_migrations(self) -> list[tuple[str, object]]:
+    def get_unapplied_migrations(self) -> list[tuple[str, "migrations.Migration"]]:
         """Get all unapplied migrations using Django's migration executor."""
         from django.db import connection
         from django.db.migrations.executor import MigrationExecutor
@@ -77,7 +78,7 @@ class Command(BaseCommand):
         # label is like "app_label.migration_name" for reporting
         return [(f"{migration.app_label}.{migration.name}", migration) for migration, backwards in plan]
 
-    def analyze_loaded_migrations(self, migrations: list[tuple[str, object]]) -> list[MigrationRisk]:
+    def analyze_loaded_migrations(self, migrations: list[tuple[str, migrations.Migration]]) -> list[MigrationRisk]:
         """Analyze a list of loaded migrations."""
         analyzer = RiskAnalyzer()
         results = []

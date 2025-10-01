@@ -225,8 +225,11 @@ jobs:
 
                   # Get risk analysis and post as separate comment
                   # This automatically detects all unapplied migrations (including third-party)
-                  # Note: --fail-on-blocked will exit with code 1 if blocked migrations found, failing this step
+                  set +e  # Don't exit immediately on error
                   RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null)
+                  EXIT_CODE=$?
+                  set -e  # Re-enable exit on error
+
                   if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
                     # Delete previous risk analysis comments
                     echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
@@ -248,6 +251,11 @@ jobs:
                       -H "Accept: application/vnd.github.v3+json" \
                       "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
                       -d "$RISK_COMMENT_JSON"
+                  fi
+
+                  # Fail the job if there were blocked migrations
+                  if [ $EXIT_CODE -ne 0 ]; then
+                    exit $EXIT_CODE
                   fi
 
             - name: Run migrations for this PR
