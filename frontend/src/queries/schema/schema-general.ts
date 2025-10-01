@@ -1550,6 +1550,10 @@ export interface NamedQueryRunRequest {
     query_override?: Record<string, any>
 }
 
+export interface NamedQueryLastExecutionTimesRequest {
+    names: string[]
+}
+
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
@@ -2575,6 +2579,7 @@ export interface ExperimentMetricBaseProperties extends Node {
 export type ExperimentMetricOutlierHandling = {
     lower_bound_percentile?: number
     upper_bound_percentile?: number
+    ignore_zeros?: boolean
 }
 
 export interface ExperimentDataWarehouseNode extends EntityNode {
