@@ -93,7 +93,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_issue_fingerprint_embeddings]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_embeddings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_embeddings
   (
       team_id Int64,
       model_name LowCardinality(String),
@@ -764,7 +764,7 @@
 # name: test_create_table_query[error_tracking_issue_fingerprint_embeddings]
   '''
   
-  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_embeddings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_embeddings
   (
       team_id Int64,
       model_name LowCardinality(String),
@@ -790,7 +790,7 @@
 # name: test_create_table_query[error_tracking_issue_fingerprint_embeddings_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_issue_fingerprint_embeddings_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_issue_fingerprint_embeddings_mv
   TO writable_error_tracking_issue_fingerprint_embeddings
   AS SELECT
   team_id,
@@ -1285,7 +1285,7 @@
 # name: test_create_table_query[kafka_error_tracking_issue_fingerprint_embeddings]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_embeddings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_embeddings
   (
       team_id Int64,
       model_name LowCardinality(String),
@@ -4890,7 +4890,7 @@
 # name: test_create_table_query_replicated_and_storage[error_tracking_issue_fingerprint_embeddings]
   '''
   
-  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_embeddings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_embeddings
   (
       team_id Int64,
       model_name LowCardinality(String),
