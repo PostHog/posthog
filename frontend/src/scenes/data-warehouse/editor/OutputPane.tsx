@@ -732,6 +732,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                 query={sourceQuery}
                 excludeDetail
                 title={error}
+                excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
                 fixWithAIComponent={
                     <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                 }
