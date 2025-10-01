@@ -23,6 +23,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.error_tracking import (
@@ -788,6 +789,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                     pass
 
             raise
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_uploaded",
+            distinct_id=request.user.pk,
+            groups=groups(self.team.organization, self.team),
+        )
 
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 
