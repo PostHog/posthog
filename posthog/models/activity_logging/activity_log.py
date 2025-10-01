@@ -415,7 +415,11 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "Action": [
         "bytecode",
         "bytecode_error",
-        "steps_json",
+        "is_calculating",
+        "last_calculated_at",
+        "embedding_last_synced_at",
+        "embedding_version",
+        "last_summarized_at",
     ],
     "ExternalDataSource": [
         "connection_id",
