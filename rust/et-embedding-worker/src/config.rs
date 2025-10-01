@@ -17,9 +17,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
-    #[envconfig(default = "error_tracking_new_fingerprints")]
-    pub input_topic: String,
-
     #[envconfig(default = "clickhouse_error_tracking_issue_fingerprint_embeddings")]
     pub output_topic: String,
 
