@@ -61,7 +61,11 @@ class RiskAnalyzer:
             operation_risks.append(risk)
 
             # Recursively analyze database_operations in SeparateDatabaseAndState
-            if op.__class__.__name__ == "SeparateDatabaseAndState" and hasattr(op, "database_operations"):
+            if (
+                op.__class__.__name__ == "SeparateDatabaseAndState"
+                and hasattr(op, "database_operations")
+                and op.database_operations
+            ):
                 parent_idx = len(operation_risks) - 1  # Index of the parent operation
                 for db_op in op.database_operations:
                     db_risk = self.analyze_operation(db_op)

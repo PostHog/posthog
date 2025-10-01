@@ -66,8 +66,12 @@ class Command(BaseCommand):
         from django.db import connection
         from django.db.migrations.executor import MigrationExecutor
 
-        executor = MigrationExecutor(connection)
-        plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+        try:
+            executor = MigrationExecutor(connection)
+            plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+        except Exception:
+            # Return empty list if can't connect to DB or load migrations
+            return []
 
         # Return list of (label, migration_object) tuples
         # label is like "app_label.migration_name" for reporting

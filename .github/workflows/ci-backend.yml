@@ -225,12 +225,8 @@ jobs:
 
                   # Get risk analysis and post as separate comment
                   # This automatically detects all unapplied migrations (including third-party)
-                  # Use --fail-on-blocked to also fail CI if blocked migrations are found
-                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null || echo "FAILED")
-                  if [ "$RISK_ANALYSIS" = "FAILED" ]; then
-                    echo "Migration risk analysis failed - blocked migrations found"
-                    exit 1
-                  fi
+                  # Note: --fail-on-blocked will exit with code 1 if blocked migrations found, failing this step
+                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null)
                   if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
                     # Delete previous risk analysis comments
                     echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
