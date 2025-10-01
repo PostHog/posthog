@@ -4,8 +4,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { FeedbackFilters } from '../../components/ListScene/FeedbackFilters'
-import { FeedbackList } from '../../components/ListScene/FeedbackList'
+import { FeedbackFilters } from '../../components/FeedbackListScene/FeedbackFilters'
+import { FeedbackList } from '../../components/FeedbackListScene/FeedbackList'
 
 export const scene: SceneExport = {
     component: FeedbackListScene,
