@@ -2538,6 +2538,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "et-embedding-worker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.5",
+ "common-alloc",
+ "common-kafka",
+ "common-metrics",
+ "common-types",
+ "envconfig",
+ "health",
+ "metrics",
+ "posthog-rs",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "etcetera"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
