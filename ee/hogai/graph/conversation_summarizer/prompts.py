@@ -64,12 +64,12 @@ Here's an example of how your output must be structured:
     - [Detailed non-tool use user message]
     - [...]
 
-7. Pending Tasks:
+6. Pending Tasks:
    - [Task 1]
    - [Task 2]
    - [...]
 
-8. Current Work:
+7. Current Work:
    [Precise description of current work]
 </summary>
 </example>
