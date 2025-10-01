@@ -246,8 +246,8 @@ def execute_process_query(
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
         manager.store_query_status(query_status)
+        cache_key = None
         try:
-            cache_key = None
             if query_status.results:
                 cache_key = query_status.results.get("cache_key")
                 if cache_key:
