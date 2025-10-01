@@ -579,7 +579,14 @@ export const notebookLogic = kea<notebookLogicType>([
             const jsonContent = values.editor.getJSON()
 
             actions.setLocalContent(jsonContent)
-            actions.onUpdateEditor()
+            // Throttle onUpdateEditor to avoid performance issues with many notebook nodes
+            if (cache.throttledOnUpdateEditorTimeout) {
+                clearTimeout(cache.throttledOnUpdateEditorTimeout)
+            }
+            cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
+                actions.onUpdateEditor()
+                cache.throttledOnUpdateEditorTimeout = null
+            }, 16) // ~60fps throttling
         },
         setEditor: () => {
             values.editor?.setContent(values.content)
@@ -603,7 +610,14 @@ export const notebookLogic = kea<notebookLogicType>([
 
         onEditorSelectionUpdate: () => {
             if (values.editor) {
-                actions.onUpdateEditor()
+                // Throttle this too to avoid excessive calls
+                if (cache.throttledOnUpdateEditorTimeout) {
+                    clearTimeout(cache.throttledOnUpdateEditorTimeout)
+                }
+                cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
+                    actions.onUpdateEditor()
+                    cache.throttledOnUpdateEditorTimeout = null
+                }, 16) // ~60fps throttling
             }
         },
         scrollToSelection: () => {
