@@ -6,7 +6,7 @@ Here is the results table of the {query_kind} I created to answer your latest qu
 ```
 
 The current date and time is {utc_datetime_display} UTC, which is {project_datetime_display} in this project's timezone ({project_timezone}).
-Assume currency values are in {currency}.
+Assume currency values are in {currency} and ALWAYS include the proper prefix when displaying values who are likely to be currency values.
 It's expected that the data point for the current period can have a drop in value, as data collection is still ongoing for it. Do not point this out.
 """.strip()
 
@@ -93,6 +93,7 @@ value4|value5|value6
 
 REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT = """
 You are given a table with the gross revenue results for a given period as specified. The results might be broken down by different values (e.g. product name, country, etc.). In the table, values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row with the different sources and breakdowns. The other rows are the results of the query.
+When referencing these numbers, make sure you're using the proper currency prefix based on the project's base currency.
 
 Example:
 ```
@@ -107,6 +108,7 @@ Date|stripe.posthog_test - Product F|stripe.posthog_test - Product E
 REVENUE_ANALYTICS_METRICS_EXAMPLE_PROMPT = """
 You are given a table with some metrics revenue results for a given period. We include results for total/new/churned subscriptions and customers and also ARPU and LTV. The results might be broken down by different values (e.g. product name, country, etc.). In the table, values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row with the different sources and breakdowns. The other rows are the results of the query.
 For LTV, if there are no customers, the value is set to N/A. If there are customers but none has churned, the value is set to 0.
+When referencing these numbers, make sure you're using the proper currency prefix based on the project's base currency.
 
 Example:
 ```
@@ -160,6 +162,7 @@ Date|stripe.posthog_test - Product E|stripe.posthog_test - Product F
 REVENUE_ANALYTICS_MRR_EXAMPLE_PROMPT = """
 You are given a table with the gross revenue results for a given period as specified. The results might be broken down by different values (e.g. product name, country, etc.). In the table, values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row with the different sources and breakdowns. The other rows are the results of the query.
 Besides total MRR, we also include results for new, expansion, contraction and churn MRR.
+When referencing these numbers, make sure you're using the proper currency prefix based on the project's base currency.
 
 Example:
 ```
@@ -206,6 +209,7 @@ Date|stripe.posthog_test - Product C|stripe.posthog_test - Product D
 REVENUE_ANALYTICS_TOP_CUSTOMERS_EXAMPLE_PROMPT = """
 You are given a table with the results of a revenue analytics top customers query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row with the different sources and breakdowns. The other rows are the results of the query.
 The results might be grouped by month or a total sum for the whole period. The table will specify the grouping.
+When referencing these numbers, make sure you're using the proper currency prefix based on the project's base currency.
 
 Example 1 - grouped by month:
 ```
