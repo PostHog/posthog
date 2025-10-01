@@ -1,24 +1,9 @@
 import { useValues } from 'kea'
 
-import { IconBug, IconQuestion } from '@posthog/icons'
 import { LemonBadge, LemonTag } from '@posthog/lemon-ui'
 
-import { IconFeedback } from '~/lib/lemon-ui/icons'
-
 import { feedbackItemSceneLogic } from '../../scenes/FeedbackItemScene/feedbackItemSceneLogic'
-import { FeedbackStatus, FeedbackType } from '../../types'
-
-const TYPE_COLORS: Record<FeedbackType, 'primary' | 'danger' | 'default'> = {
-    [FeedbackType.Bug]: 'danger',
-    [FeedbackType.Feedback]: 'primary',
-    [FeedbackType.Question]: 'default',
-}
-
-const TYPE_CONFIG: Record<FeedbackType, { label: string; icon: JSX.Element }> = {
-    [FeedbackType.Bug]: { label: 'Bug', icon: <IconBug /> },
-    [FeedbackType.Feedback]: { label: 'Feedback', icon: <IconFeedback /> },
-    [FeedbackType.Question]: { label: 'Question', icon: <IconQuestion /> },
-}
+import { FeedbackStatus } from '../../types'
 
 const STATUS_CONFIG: Record<FeedbackStatus, { label: string; color: 'success' | 'warning' }> = {
     [FeedbackStatus.Visible]: { label: 'Visible', color: 'success' },
@@ -31,11 +16,7 @@ export function FeedbackSummary(): JSX.Element {
     if (feedbackItemLoading) {
         return (
             <div className="border rounded-lg p-6 bg-surface">
-                <div className="animate-pulse space-y-4">
-                    <div className="h-4 bg-border rounded w-1/4" />
-                    <div className="h-8 bg-border rounded w-3/4" />
-                    <div className="h-24 bg-border rounded" />
-                </div>
+                <p className="text-muted m-0">Loading</p>
             </div>
         )
     }
@@ -53,8 +34,8 @@ export function FeedbackSummary(): JSX.Element {
             <div className="border-b p-6 bg-surface-secondary">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
-                        <LemonTag type={TYPE_COLORS[feedbackItem.type]} icon={TYPE_CONFIG[feedbackItem.type].icon}>
-                            {TYPE_CONFIG[feedbackItem.type].label}
+                        <LemonTag>
+                            <span className="capitalize">{feedbackItem.category}</span>
                         </LemonTag>
                         <div className="flex items-center gap-1.5">
                             <LemonBadge status={STATUS_CONFIG[feedbackItem.status].color} size="small" />
@@ -78,14 +59,18 @@ export function FeedbackSummary(): JSX.Element {
             </div>
 
             <div className="border-t p-6 bg-surface-secondary">
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-3 gap-6">
                     <div>
                         <h4 className="text-xs font-semibold text-muted mb-1">Feedback ID</h4>
                         <p className="text-sm m-0 font-mono">{feedbackItem.id}</p>
                     </div>
                     <div>
-                        <h4 className="text-xs font-semibold text-muted mb-1">Type</h4>
-                        <p className="text-sm m-0">{TYPE_CONFIG[feedbackItem.type].label}</p>
+                        <h4 className="text-xs font-semibold text-muted mb-1">Category</h4>
+                        <p className="text-sm m-0 capitalize">{feedbackItem.category}</p>
+                    </div>
+                    <div>
+                        <h4 className="text-xs font-semibold text-muted mb-1">Topic</h4>
+                        <p className="text-sm m-0">{feedbackItem.topic}</p>
                     </div>
                 </div>
             </div>

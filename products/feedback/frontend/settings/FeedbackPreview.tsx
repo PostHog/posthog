@@ -2,13 +2,14 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconUpload } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { feedbackGeneralSettingsLogic } from './feedbackGeneralSettingsLogic'
 
 export function FeedbackPreview(): JSX.Element {
-    const { feedbackCategories } = useValues(feedbackGeneralSettingsLogic)
+    const { feedbackCategories, feedbackTopics } = useValues(feedbackGeneralSettingsLogic)
     const [selectedCategory, setSelectedCategory] = useState<string>(feedbackCategories[0] || '')
+    const [selectedTopic, setSelectedTopic] = useState<string>(feedbackTopics[0] || '')
 
     return (
         <div className="border rounded-lg bg-surface-primary shadow-sm">
@@ -28,6 +29,19 @@ export function FeedbackPreview(): JSX.Element {
             )}
 
             <div className="p-4 flex flex-col gap-3">
+                {feedbackTopics.length > 0 && (
+                    <LemonSelect
+                        value={selectedTopic}
+                        onChange={(value) => setSelectedTopic(value || '')}
+                        options={feedbackTopics.map((topic) => ({
+                            value: topic,
+                            label: topic,
+                        }))}
+                        placeholder="Select topic"
+                        disabled
+                    />
+                )}
+
                 <textarea
                     placeholder="Type your feedback here..."
                     className="w-full min-h-24 p-3 border rounded resize-none focus:outline-none focus:ring-2 focus:ring-primary bg-surface-primary"

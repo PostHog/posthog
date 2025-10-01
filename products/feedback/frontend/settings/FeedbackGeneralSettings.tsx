@@ -8,16 +8,25 @@ import { FeedbackPreview } from './FeedbackPreview'
 import { feedbackGeneralSettingsLogic } from './feedbackGeneralSettingsLogic'
 
 export function FeedbackGeneralSettings(): JSX.Element {
-    const { feedbackCategories } = useValues(feedbackGeneralSettingsLogic)
-    const { addFeedbackCategory, removeFeedbackCategory } = useActions(feedbackGeneralSettingsLogic)
+    const { feedbackCategories, feedbackTopics } = useValues(feedbackGeneralSettingsLogic)
+    const { addFeedbackCategory, removeFeedbackCategory, addFeedbackTopic, removeFeedbackTopic } =
+        useActions(feedbackGeneralSettingsLogic)
 
-    const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+    const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false)
+    const [isAddTopicModalOpen, setIsAddTopicModalOpen] = useState(false)
     const [newCategoryName, setNewCategoryName] = useState('')
+    const [newTopicName, setNewTopicName] = useState('')
 
-    const handleAdd = (): void => {
+    const handleAddCategory = (): void => {
         addFeedbackCategory(newCategoryName)
         setNewCategoryName('')
-        setIsAddModalOpen(false)
+        setIsAddCategoryModalOpen(false)
+    }
+
+    const handleAddTopic = (): void => {
+        addFeedbackTopic(newTopicName)
+        setNewTopicName('')
+        setIsAddTopicModalOpen(false)
     }
 
     return (
@@ -31,7 +40,7 @@ export function FeedbackGeneralSettings(): JSX.Element {
                                 type="primary"
                                 icon={<IconPlus />}
                                 size="small"
-                                onClick={() => setIsAddModalOpen(true)}
+                                onClick={() => setIsAddCategoryModalOpen(true)}
                             >
                                 Add Category
                             </LemonButton>
@@ -51,6 +60,34 @@ export function FeedbackGeneralSettings(): JSX.Element {
                             </div>
                         ))}
                     </div>
+
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-semibold">Feedback topics</h3>
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlus />}
+                                size="small"
+                                onClick={() => setIsAddTopicModalOpen(true)}
+                            >
+                                Add Topic
+                            </LemonButton>
+                        </div>
+                        {feedbackTopics.map((topic, index) => (
+                            <div
+                                key={topic}
+                                className="border rounded p-2 bg-surface-primary flex items-center justify-between"
+                            >
+                                <div className="font-medium">{topic}</div>
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    size="xsmall"
+                                    status="danger"
+                                    onClick={() => removeFeedbackTopic(index)}
+                                />
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
                 <div className="flex flex-col gap-0">
@@ -61,20 +98,20 @@ export function FeedbackGeneralSettings(): JSX.Element {
             </div>
 
             <LemonModal
-                isOpen={isAddModalOpen}
+                isOpen={isAddCategoryModalOpen}
                 onClose={() => {
-                    setIsAddModalOpen(false)
+                    setIsAddCategoryModalOpen(false)
                     setNewCategoryName('')
                 }}
                 title="Add Feedback Category"
                 footer={
                     <>
-                        <LemonButton type="secondary" onClick={() => setIsAddModalOpen(false)}>
+                        <LemonButton type="secondary" onClick={() => setIsAddCategoryModalOpen(false)}>
                             Cancel
                         </LemonButton>
                         <LemonButton
                             type="primary"
-                            onClick={handleAdd}
+                            onClick={handleAddCategory}
                             disabledReason={!newCategoryName.trim() ? 'Enter a name' : undefined}
                         >
                             Add
@@ -89,7 +126,41 @@ export function FeedbackGeneralSettings(): JSX.Element {
                         onChange={setNewCategoryName}
                         placeholder="e.g., question, praise, complaint"
                         autoFocus
-                        onPressEnter={handleAdd}
+                        onPressEnter={handleAddCategory}
+                    />
+                </div>
+            </LemonModal>
+
+            <LemonModal
+                isOpen={isAddTopicModalOpen}
+                onClose={() => {
+                    setIsAddTopicModalOpen(false)
+                    setNewTopicName('')
+                }}
+                title="Add Feedback Topic"
+                footer={
+                    <>
+                        <LemonButton type="secondary" onClick={() => setIsAddTopicModalOpen(false)}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={handleAddTopic}
+                            disabledReason={!newTopicName.trim() ? 'Enter a name' : undefined}
+                        >
+                            Add
+                        </LemonButton>
+                    </>
+                }
+            >
+                <div className="flex flex-col gap-2">
+                    <p>Enter a name for the new feedback topic:</p>
+                    <LemonInput
+                        value={newTopicName}
+                        onChange={setNewTopicName}
+                        placeholder="e.g., Dashboard, Reports, Settings"
+                        autoFocus
+                        onPressEnter={handleAddTopic}
                     />
                 </div>
             </LemonModal>

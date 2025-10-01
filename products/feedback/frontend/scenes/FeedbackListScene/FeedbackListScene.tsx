@@ -30,7 +30,6 @@ const Header = (): JSX.Element => {
         <>
             <SceneTitleSection
                 name="Feedback"
-                description="See what your users like and don't like"
                 resourceType={{
                     type: 'feedback',
                 }}

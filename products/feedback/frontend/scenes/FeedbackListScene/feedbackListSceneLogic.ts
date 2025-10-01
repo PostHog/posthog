@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { MOCK_FEEDBACK_ITEMS } from '../../mocks'
-import { FeedbackItem, FeedbackStatus, FeedbackType } from '../../types'
+import { FeedbackItem, FeedbackStatus } from '../../types'
 import type { feedbackListSceneLogicType } from './feedbackListSceneLogicType'
 
 export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
@@ -12,7 +12,8 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
 
     actions({
         setStatusFilter: (status: FeedbackStatus | null) => ({ status }),
-        setTypeFilter: (type: FeedbackType | null) => ({ type }),
+        setCategoryFilter: (category: string | null) => ({ category }),
+        setTopicFilter: (topic: string | null) => ({ topic }),
 
         loadFeedbackItems: true,
         openFeedbackItem: (id: string) => ({ id }),
@@ -25,10 +26,16 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
                 setStatusFilter: (_, { status }) => status,
             },
         ],
-        typeFilter: [
-            null as FeedbackType | null,
+        categoryFilter: [
+            null as string | null,
             {
-                setTypeFilter: (_, { type }) => type,
+                setCategoryFilter: (_, { category }) => category,
+            },
+        ],
+        topicFilter: [
+            null as string | null,
+            {
+                setTopicFilter: (_, { topic }) => topic,
             },
         ],
     }),
@@ -40,35 +47,34 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
                 loadFeedbackItems: async () => {
                     await new Promise((resolve) => setTimeout(resolve, 1000))
 
-                    if (!values.statusFilter && !values.typeFilter) {
-                        return MOCK_FEEDBACK_ITEMS
-                    }
-
-                    if (values.statusFilter && values.typeFilter) {
-                        return MOCK_FEEDBACK_ITEMS.filter(
-                            (item) => item.status === values.statusFilter && item.type === values.typeFilter
-                        )
-                    }
+                    let filtered = MOCK_FEEDBACK_ITEMS
 
                     if (values.statusFilter) {
-                        return MOCK_FEEDBACK_ITEMS.filter((item) => item.status === values.statusFilter)
+                        filtered = filtered.filter((item) => item.status === values.statusFilter)
                     }
 
-                    if (values.typeFilter) {
-                        return MOCK_FEEDBACK_ITEMS.filter((item) => item.type === values.typeFilter)
+                    if (values.categoryFilter) {
+                        filtered = filtered.filter((item) => item.category === values.categoryFilter)
                     }
 
-                    return MOCK_FEEDBACK_ITEMS
+                    if (values.topicFilter) {
+                        filtered = filtered.filter((item) => item.topic === values.topicFilter)
+                    }
+
+                    return filtered
                 },
             },
         ],
     })),
 
     subscriptions(({ actions }) => ({
-        typeFilter: () => {
+        categoryFilter: () => {
             return actions.loadFeedbackItems()
         },
         statusFilter: () => {
+            return actions.loadFeedbackItems()
+        },
+        topicFilter: () => {
             return actions.loadFeedbackItems()
         },
     })),

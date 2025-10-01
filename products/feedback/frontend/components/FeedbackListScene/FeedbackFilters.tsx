@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconBug, IconQuestion } from '@posthog/icons'
 import { LemonBadge, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { IconFeedback } from '~/lib/lemon-ui/icons'
-
 import { feedbackListSceneLogic } from '../../scenes/FeedbackListScene/feedbackListSceneLogic'
-import { FeedbackStatus, FeedbackType, StatusOption, TypeOption } from '../../types'
+import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSettingsLogic'
+import { FeedbackStatus, StatusOption } from '../../types'
 
 const STATUS_LABELS: Record<StatusOption, { label: string; color: 'success' | 'warning' | 'muted' }> = {
     all: { label: 'All', color: 'muted' },
@@ -15,19 +13,14 @@ const STATUS_LABELS: Record<StatusOption, { label: string; color: 'success' | 'w
     [FeedbackStatus.Hidden]: { label: 'Hidden', color: 'warning' },
 }
 
-const TYPE_LABELS: Record<TypeOption, { label: string; icon: JSX.Element }> = {
-    all: { label: 'All types', icon: <></> },
-    [FeedbackType.Question]: { label: 'Question', icon: <IconQuestion /> },
-    [FeedbackType.Feedback]: { label: 'Feedback', icon: <IconFeedback /> },
-    [FeedbackType.Bug]: { label: 'Bug', icon: <IconBug /> },
-}
-
 export const FeedbackFilters = (): JSX.Element => {
+    const { feedbackCategories, feedbackTopics } = useValues(feedbackGeneralSettingsLogic)
     const statusOptions: StatusOption[] = ['all', FeedbackStatus.Visible, FeedbackStatus.Hidden]
-    const typeOptions: TypeOption[] = ['all', FeedbackType.Question, FeedbackType.Feedback, FeedbackType.Bug]
+    const categoryOptions: Array<string | 'all'> = ['all', ...feedbackCategories]
+    const topicOptions: Array<string | 'all'> = ['all', ...feedbackTopics]
 
-    const { statusFilter, typeFilter } = useValues(feedbackListSceneLogic)
-    const { setStatusFilter, setTypeFilter } = useActions(feedbackListSceneLogic)
+    const { statusFilter, categoryFilter, topicFilter } = useValues(feedbackListSceneLogic)
+    const { setStatusFilter, setCategoryFilter, setTopicFilter } = useActions(feedbackListSceneLogic)
 
     const statusOption = useMemo(() => {
         if (!statusFilter) {
@@ -36,12 +29,19 @@ export const FeedbackFilters = (): JSX.Element => {
         return statusFilter
     }, [statusFilter])
 
-    const typeOption = useMemo(() => {
-        if (!typeFilter) {
+    const categoryOption = useMemo(() => {
+        if (!categoryFilter) {
             return 'all'
         }
-        return typeFilter
-    }, [typeFilter])
+        return categoryFilter
+    }, [categoryFilter])
+
+    const topicOption = useMemo(() => {
+        if (!topicFilter) {
+            return 'all'
+        }
+        return topicFilter
+    }, [topicFilter])
 
     return (
         <div className="bg-bg-light border rounded p-4">
@@ -69,23 +69,42 @@ export const FeedbackFilters = (): JSX.Element => {
                     }}
                 />
                 <LemonSelect
-                    value={typeOption}
-                    placeholder="Select type"
-                    options={typeOptions.map((type) => ({
-                        value: type,
+                    value={categoryOption}
+                    placeholder="Select category"
+                    options={categoryOptions.map((category) => ({
+                        value: category,
                         label: (
                             <div className="flex items-center gap-2 text-sm">
-                                {TYPE_LABELS[type].icon}
-                                <span>{TYPE_LABELS[type].label}</span>
+                                <span className="capitalize">{category === 'all' ? 'All categories' : category}</span>
                             </div>
                         ),
                     }))}
                     size="small"
-                    onChange={(type) => {
-                        if (type === 'all') {
-                            setTypeFilter(null)
+                    onChange={(category) => {
+                        if (category === 'all') {
+                            setCategoryFilter(null)
                         } else {
-                            setTypeFilter(type)
+                            setCategoryFilter(category)
+                        }
+                    }}
+                />
+                <LemonSelect
+                    value={topicOption}
+                    placeholder="Select topic"
+                    options={topicOptions.map((topic) => ({
+                        value: topic,
+                        label: (
+                            <div className="flex items-center gap-2 text-sm">
+                                <span>{topic === 'all' ? 'All topics' : topic}</span>
+                            </div>
+                        ),
+                    }))}
+                    size="small"
+                    onChange={(topic) => {
+                        if (topic === 'all') {
+                            setTopicFilter(null)
+                        } else {
+                            setTopicFilter(topic)
                         }
                     }}
                 />

@@ -1,27 +1,12 @@
 import { useActions } from 'kea'
 
-import { IconBug, IconQuestion } from '@posthog/icons'
 import { LemonBadge, LemonTag } from '@posthog/lemon-ui'
 
-import { IconFeedback } from '~/lib/lemon-ui/icons'
-
 import { feedbackListSceneLogic } from '../../scenes/FeedbackListScene/feedbackListSceneLogic'
-import { FeedbackItem, FeedbackStatus, FeedbackType } from '../../types'
+import { FeedbackItem, FeedbackStatus } from '../../types'
 
 export interface FeedbackListItemProps {
     feedback: FeedbackItem
-}
-
-const TYPE_COLORS: Record<FeedbackType, 'primary' | 'danger' | 'default'> = {
-    [FeedbackType.Bug]: 'danger',
-    [FeedbackType.Feedback]: 'primary',
-    [FeedbackType.Question]: 'default',
-}
-
-const TYPE_CONFIG: Record<FeedbackType, { label: string; icon: JSX.Element }> = {
-    [FeedbackType.Bug]: { label: 'Bug', icon: <IconBug /> },
-    [FeedbackType.Feedback]: { label: 'Feedback', icon: <IconFeedback /> },
-    [FeedbackType.Question]: { label: 'Question', icon: <IconQuestion /> },
 }
 
 const STATUS_CONFIG: Record<FeedbackStatus, { label: string; color: 'success' | 'warning' }> = {
@@ -31,6 +16,7 @@ const STATUS_CONFIG: Record<FeedbackStatus, { label: string; color: 'success' | 
 
 export function FeedbackListItem({ feedback }: FeedbackListItemProps): JSX.Element {
     const { openFeedbackItem } = useActions(feedbackListSceneLogic)
+    const truncatedTopic = feedback.topic.length > 50 ? `${feedback.topic.slice(0, 50)}...` : feedback.topic
 
     return (
         <div
@@ -44,9 +30,11 @@ export function FeedbackListItem({ feedback }: FeedbackListItemProps): JSX.Eleme
                         <span className="text-muted text-xs">·</span>
                         <span className="text-muted text-xs">{feedback.timestamp}</span>
                         <span className="text-muted text-xs">·</span>
-                        <LemonTag type={TYPE_COLORS[feedback.type]} icon={TYPE_CONFIG[feedback.type].icon}>
-                            {TYPE_CONFIG[feedback.type].label}
+                        <LemonTag>
+                            <span className="capitalize">{feedback.category}</span>
                         </LemonTag>
+                        <span className="text-muted text-xs">·</span>
+                        <span className="text-muted text-xs">{truncatedTopic}</span>
                     </div>
                     <p className="text-sm m-0">{feedback.message}</p>
                 </div>
