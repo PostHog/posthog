@@ -537,7 +537,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchEx
                 primary_key = (("team_id", "INTEGER"), ("session_id", "TEXT"))
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stagle_table_name = (
+        stage_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
             if requires_merge
             else inputs.table_name
@@ -557,7 +557,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchEx
                 ) as redshift_table,
                 redshift_client.managed_table(
                     inputs.schema,
-                    stagle_table_name,
+                    stage_table_name,
                     table_fields,
                     create=requires_merge,
                     delete=requires_merge,
@@ -832,7 +832,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
         merge_settings = _get_merge_settings(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stagle_table_name = (
+        stage_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
             if merge_settings.requires_merge
             else inputs.table_name
@@ -853,7 +853,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                 ) as redshift_table,
                 redshift_client.managed_table(
                     inputs.schema,
-                    stagle_table_name,
+                    stage_table_name,
                     table_fields,
                     create=merge_settings.requires_merge,
                     delete=merge_settings.requires_merge,

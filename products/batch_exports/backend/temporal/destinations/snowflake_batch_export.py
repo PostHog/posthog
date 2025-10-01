@@ -1157,7 +1157,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
                 ]
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stagle_table_name = (
+        stage_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
             if requires_merge
             else inputs.table_name
@@ -1169,7 +1169,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
                     inputs.table_name, data_interval_end_str, table_fields, delete=False
                 ) as snow_table,
                 snow_client.managed_table(
-                    stagle_table_name,
+                    stage_table_name,
                     data_interval_end_str,
                     table_fields,
                     create=requires_merge,
