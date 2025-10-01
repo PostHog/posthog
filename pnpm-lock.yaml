@@ -474,6 +474,9 @@ importers:
       '@posthog/products-feature-flags':
         specifier: workspace:*
         version: link:../products/feature_flags
+      '@posthog/products-feedback':
+        specifier: workspace:*
+        version: link:../products/feedback
       '@posthog/products-games':
         specifier: workspace:*
         version: link:../products/games
@@ -1851,6 +1854,27 @@ importers:
       fuse.js:
         specifier: '*'
         version: 6.6.2
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/feedback:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.30.0
+        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
       kea:
         specifier: ^3.1.7
         version: 3.1.7(react@18.2.0)
