@@ -1,5 +1,3 @@
-import re
-import json
 import math
 import asyncio
 from collections.abc import Sequence
@@ -14,7 +12,7 @@ from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
     trim_messages,
 )
-from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
@@ -62,11 +60,15 @@ from .prompts import (
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
     ROOT_HARD_LIMIT_REACHED_PROMPT,
     ROOT_SYSTEM_PROMPT,
-    SESSION_SUMMARIZATION_PROMPT_BASE,
-    SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT,
-    SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT,
 )
-from .tools import NavigateTool, ReadDataTool, ReadTaxonomyTool, SearchTool
+from .tools import (
+    ReadDataTool,
+    ReadTaxonomyTool,
+    SearchTool,
+    create_and_query_insight,
+    create_dashboard,
+    session_summarization,
+)
 
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
@@ -126,24 +128,9 @@ class RootNode(AssistantNode):
         should_add_billing_tool, billing_context_prompt = billing_context
         history, new_window_id = message_window
 
-        # Build system prompt with conditional session summarization and insight search sections
-        system_prompt_template = ROOT_SYSTEM_PROMPT
-        # Check if session summarization is enabled for the user
-        session_summarization_context = ""
-        if self._has_session_summarization_feature_flag():
-            context = self._render_session_summarization_context(config)
-            # Inject session summarization context
-            session_summarization_context = context
-        system_prompt_template = re.sub(
-            r"\n?<session_summarization>.*?</session_summarization>",
-            session_summarization_context,
-            system_prompt_template,
-            flags=re.DOTALL,
-        )
-
         system_prompts = ChatPromptTemplate.from_messages(
             [
-                ("system", system_prompt_template),
+                ("system", ROOT_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         ).format_messages(
@@ -232,32 +219,28 @@ class RootNode(AssistantNode):
         if self._is_hard_limit_reached(state):
             return base_model
 
-        from ee.hogai.tool import (
-            MaxTool,
-            create_and_query_insight,
-            create_dashboard,
-            get_contextual_tool_class,
-            session_summarization,
-        )
+        from ee.hogai.tool import MaxTool, get_contextual_tool_class
 
         available_tools: list[type[BaseModel] | MaxTool] = []
 
         # Add the basic toolkit
-        toolkit = [ReadTaxonomyTool, SearchTool, ReadDataTool, TodoWriteTool, NavigateTool]
-        for tool in toolkit:
-            available_tools.append(tool(team=self._team, user=self._user, state=state, config=config))
-
-        # Check if session summarization is enabled for the user
-        if self._has_session_summarization_feature_flag():
-            available_tools.append(session_summarization)
-        # Add dashboard creation tool (always available)
-        available_tools.append(create_dashboard)
+        toolkit = [ReadTaxonomyTool, SearchTool, ReadDataTool, TodoWriteTool]
+        for tool_class in toolkit:
+            available_tools.append(tool_class(team=self._team, user=self._user, state=state, config=config))
 
         tool_names = self.context_manager.get_contextual_tools().keys()
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         if not is_editing_insight:
             # This is the default tool, which can be overriden by the MaxTool based tool with the same name
             available_tools.append(create_and_query_insight)
+
+        # Check if session summarization is enabled for the user
+        if self._has_session_summarization_feature_flag():
+            available_tools.append(session_summarization)
+
+        available_tools.append(create_dashboard)
+
+        # Inject contextual tools
         for tool_name in tool_names:
             ToolClass = get_contextual_tool_class(tool_name)
             if ToolClass is None:
@@ -412,27 +395,6 @@ class RootNode(AssistantNode):
                 return messages[idx:]
         return messages
 
-    def _render_session_summarization_context(self, config: RunnableConfig) -> str:
-        """Render the user context template with the provided context strings."""
-        search_session_recordings_context = self.context_manager.get_contextual_tools().get("search_session_recordings")
-        if (
-            not search_session_recordings_context
-            or not isinstance(search_session_recordings_context, dict)
-            or not search_session_recordings_context.get("current_filters")
-            or not isinstance(search_session_recordings_context["current_filters"], dict)
-        ):
-            conditional_context = SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT
-        else:
-            current_filters = search_session_recordings_context["current_filters"]
-            conditional_template = PromptTemplate.from_template(
-                SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT, template_format="mustache"
-            )
-            conditional_context = conditional_template.format_prompt(
-                current_filters=json.dumps(current_filters)
-            ).to_string()
-        template = PromptTemplate.from_template(SESSION_SUMMARIZATION_PROMPT_BASE, template_format="mustache")
-        return template.format_prompt(conditional_context=conditional_context).to_string()
-
 
 class RootNodeTools(AssistantNode):
     @property
@@ -456,10 +418,6 @@ class RootNodeTools(AssistantNode):
         content = None
         if tool_call.name == "create_and_query_insight":
             content = "Coming up with an insight"
-        elif tool_call.name == "search_documentation":
-            content = "Checking PostHog docs"
-        elif tool_call.name == "retrieve_billing_information":
-            content = "Checking your billing data"
         else:
             # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
             # when the tool has been removed from the backend since the user's frontend was loaded

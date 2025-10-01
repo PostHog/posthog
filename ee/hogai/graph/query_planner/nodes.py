@@ -27,7 +27,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.mixins import TaxonomyReasoningNodeMixin
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
@@ -127,7 +126,6 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
                 "trends_json_schema": dereference_schema(AssistantTrendsQuery.model_json_schema()),
                 "funnel_json_schema": dereference_schema(AssistantFunnelsQuery.model_json_schema()),
                 "retention_json_schema": dereference_schema(AssistantRetentionQuery.model_json_schema()),
-                "insight_types_prompt": ROOT_INSIGHT_DESCRIPTION_PROMPT,
             },
             config,
         )

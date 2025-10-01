@@ -6,9 +6,65 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, VisualizationMessage
 
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types import AssistantState
+
+QUERY_KIND_DESCRIPTION_PROMPT = """
+## Trends
+A trends insight visualizes events over time using time series. They're useful for finding patterns in historical data.
+
+The trends insights have the following features:
+- The insight can show multiple trends in one request.
+- Custom formulas can calculate derived metrics, like `A/B*100` to calculate a ratio.
+- Filter and break down data using multiple properties.
+- Compare with the previous period and sample data.
+- Apply various aggregation types, like sum, average, etc., and chart types.
+- And more.
+
+Examples of use cases include:
+- How the product's most important metrics change over time.
+- Long-term patterns, or cycles in product's usage.
+- The usage of different features side-by-side.
+- How the properties of events vary using aggregation (sum, average, etc).
+- Users can also visualize the same data points in a variety of ways.
+
+## Funnel
+A funnel insight visualizes a sequence of events that users go through in a product. They use percentages as the primary aggregation type. Funnels use two or more series, so the conversation history should mention at least two events.
+
+The funnel insights have the following features:
+- Various visualization types (steps, time-to-convert, historical trends).
+- Filter data and apply exclusion steps.
+- Break down data using a single property.
+- Specify conversion windows, details of conversion calculation, attribution settings.
+- Sample data.
+- And more.
+
+Examples of use cases include:
+- Conversion rates.
+- Drop off steps.
+- Steps with the highest friction and time to convert.
+- If product changes are improving their funnel over time.
+- Average/median time to convert.
+- Conversion trends over time.
+
+## Retention
+A retention insight visualizes how many users return to the product after performing some action. They're useful for understanding user engagement and retention.
+
+The retention insights have the following features: filter data, sample data, and more.
+
+Examples of use cases include:
+- How many users come back and perform an action after their first visit.
+- How many users come back to perform action X after performing action Y.
+- How often users return to use a specific feature.
+
+## SQL
+The 'sql' insight type allows you to write arbitrary SQL queries to retrieve data.
+
+The SQL insights have the following features:
+- Filter data using arbitrary SQL.
+- All ClickHouse SQL features.
+- You can nest subqueries as needed.
+""".strip()
 
 
 class EditCurrentInsightArgs(BaseModel):
@@ -19,7 +75,7 @@ class EditCurrentInsightArgs(BaseModel):
     query_description: str = Field(
         description="The new query to edit the current insight. Must include all details from the current insight plus any change on top of them. Include any relevant information from the current conversation, as the tool does not have access to the conversation."
     )
-    query_kind: str = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
+    query_kind: str = Field(description=QUERY_KIND_DESCRIPTION_PROMPT)
 
 
 class EditCurrentInsightTool(MaxTool):
