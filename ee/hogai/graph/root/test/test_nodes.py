@@ -377,7 +377,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                         context_tools, {"search_session_recordings": {"current_filters": {"duration": ">"}}}
                     )
 
-                    tools = await node._get_tools(config)
+                    tools = await node._get_tools(
+                        AssistantState(messages=[HumanMessage(content="show me long recordings")]), config
+                    )
 
                     node._get_model(
                         AssistantState(messages=[HumanMessage(content="show me long recordings")]),

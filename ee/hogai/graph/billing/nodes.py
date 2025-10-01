@@ -40,7 +40,7 @@ class BillingNode(AssistantNode):
         return AssistantNodeName.BILLING
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        billing_context = self._get_billing_context(config)
+        billing_context = self.context_manager.get_billing_context()
         if not billing_context:
             return PartialAssistantState(
                 messages=[

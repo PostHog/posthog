@@ -1,7 +1,7 @@
 import json
 import asyncio
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal, Optional, TypeVar, cast
+from typing import TYPE_CHECKING, Literal, Optional, TypeVar, Union, cast
 from uuid import uuid4
 
 import posthoganalytics
@@ -69,7 +69,7 @@ from .tools import (
 )
 
 if TYPE_CHECKING:
-    pass
+    from ee.hogai.tool import MaxTool
 
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
@@ -90,7 +90,7 @@ RouteName = Literal[
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
-RootTool = type[BaseModel] | "MaxTool"
+RootTool = Union[type[BaseModel], "MaxTool"]
 
 
 class RootNode(AssistantNode):
@@ -247,7 +247,7 @@ class RootNode(AssistantNode):
         )
 
     def _check_user_has_billing_context(self, config: RunnableConfig) -> bool:
-        return self._get_billing_context(config) is not None
+        return self.context_manager.get_billing_context() is not None
 
     async def _get_billing_prompt(self, config: RunnableConfig) -> str:
         """Get billing information including whether to include the billing tool and the prompt.
