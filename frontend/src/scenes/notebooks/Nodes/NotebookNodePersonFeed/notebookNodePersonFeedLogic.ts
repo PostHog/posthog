@@ -1,5 +1,5 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { lazyLoaders, loaders } from 'kea-loaders'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -30,7 +30,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
         setSummarizingState: (state: 'idle' | 'loading' | 'success' | 'error') => ({ state }),
     }),
 
-    lazyLoaders(({ props }) => ({
+    loaders(({ actions, values, props }) => ({
         sessions: [
             null as SessionsTimelineQueryResponse['results'] | null,
             {
@@ -45,22 +45,20 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                 },
             },
         ],
-    })),
-
-    loaders(({ actions, values }) => ({
         sessionSummary: [
             null as SessionSummaryResponse | null,
             {
                 summarizeSessions: async () => {
                     try {
                         actions.setSummarizingState('loading')
-                        if (values.sessionIdsWithRecording) {
-                            const response = await api.sessionSummaries.create({
-                                session_ids: values.sessionIdsWithRecording,
-                            })
-                            return response
+                        if (values.sessionIdsWithRecording.length === 0) {
+                            return null
                         }
-                        return null
+
+                        const response = await api.sessionSummaries.create({
+                            session_ids: values.sessionIdsWithRecording,
+                        })
+                        return response
                     } catch (error) {
                         posthog.captureException(error)
                         throw error
@@ -75,6 +73,8 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             'idle' as 'idle' | 'loading' | 'success' | 'error',
             {
                 setSummarizingState: (_, { state }) => state,
+                summarizeSessionsSuccess: () => 'success',
+                summarizeSessionsFailure: () => 'error',
             },
         ],
     }),
@@ -91,12 +91,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
         canSummarize: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]],
     }),
 
-    listeners(({ actions }) => ({
-        summarizeSessionsSuccess: () => {
-            actions.setSummarizingState('success')
-        },
-        summarizeSessionsFailure: () => {
-            actions.setSummarizingState('error')
-        },
-    })),
+    afterMount(({ actions }) => {
+        actions.loadSessionsTimeline()
+    }),
 ])
