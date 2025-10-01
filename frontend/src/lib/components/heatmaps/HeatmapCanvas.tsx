@@ -137,7 +137,14 @@ export function HeatmapCanvas({
     }
 
     if (heatmapFilters.type === 'scrolldepth') {
-        return <ScrollDepthCanvas positioning={positioning} context={context} exportToken={exportToken} />
+        return (
+            <ScrollDepthCanvas
+                key={`scrolldepth-${heatmapFilters.type}-${exportToken ? 'export' : `${widthOverride ?? windowWidth}x${windowHeight}`}`}
+                positioning={positioning}
+                context={context}
+                exportToken={exportToken}
+            />
+        )
     }
 
     return (
