@@ -114,7 +114,7 @@ impl From<&ExceptionList> for Vec<ExceptionData> {
                     .stack
                     .as_ref()
                     .map(|stack| match stack {
-                        Stacktrace::Raw { frames } => vec![], // Exception
+                        Stacktrace::Raw { frames: _ } => vec![], // Exception
                         Stacktrace::Resolved { frames } => {
                             frames.clone().into_iter().map(FrameData::from).collect()
                         }
