@@ -481,6 +481,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     (tag: string) => !formTags?.includes(tag)
                                                                 )}
                                                                 className="mt-2"
+                                                                flagId={featureFlag.id}
                                                             />
                                                         )}
                                                     </LemonField>
@@ -663,6 +664,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 tagsAvailable={tags.filter(
                                                     (tag: string) => !featureFlag.tags?.includes(tag)
                                                 )}
+                                                flagId={featureFlag.id}
                                             />
                                         ) : (
                                             <SceneTags
@@ -1080,6 +1082,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 tags={featureFlag.tags}
                                                 evaluationTags={featureFlag.evaluation_tags || []}
                                                 staticOnly
+                                                flagId={featureFlag.id}
                                             />
                                         ) : (
                                             <ObjectTags tags={featureFlag.tags} staticOnly />

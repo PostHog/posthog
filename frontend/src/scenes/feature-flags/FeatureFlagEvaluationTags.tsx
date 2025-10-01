@@ -20,6 +20,7 @@ interface FeatureFlagEvaluationTagsProps {
     tagsAvailable?: string[]
     staticOnly?: boolean
     className?: string
+    flagId?: number | string | null
 }
 
 export function FeatureFlagEvaluationTags({
@@ -29,10 +30,11 @@ export function FeatureFlagEvaluationTags({
     tagsAvailable,
     staticOnly = false,
     className,
+    flagId,
 }: FeatureFlagEvaluationTagsProps): JSX.Element {
-    const logic = featureFlagEvaluationTagsLogic({ tags, evaluationTags })
+    const logic = featureFlagEvaluationTagsLogic({ tags, evaluationTags, flagId })
     const { editingTags, showEvaluationOptions, selectedTags, selectedEvaluationTags } = useValues(logic)
-    const { setEditingTags, setShowEvaluationOptions, setSelectedTags, setSelectedEvaluationTags } = useActions(logic)
+    const { setEditingTags, setShowEvaluationOptions, setDraftTags, setDraftEvaluationTags } = useActions(logic)
 
     const { saveFeatureFlag } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
@@ -52,9 +54,9 @@ export function FeatureFlagEvaluationTags({
 
     const toggleEvaluationTag = (tag: string): void => {
         if (selectedEvaluationTags.includes(tag)) {
-            setSelectedEvaluationTags(selectedEvaluationTags.filter((t: string) => t !== tag))
+            setDraftEvaluationTags(selectedEvaluationTags.filter((t: string) => t !== tag))
         } else {
-            setSelectedEvaluationTags([...selectedEvaluationTags, tag])
+            setDraftEvaluationTags([...selectedEvaluationTags, tag])
         }
     }
 
@@ -67,7 +69,7 @@ export function FeatureFlagEvaluationTags({
                         allowCustomValues
                         value={selectedTags}
                         options={tagsAvailable?.map((t: string) => ({ key: t, label: t }))}
-                        onChange={setSelectedTags}
+                        onChange={setDraftTags}
                         loading={featureFlagLoading}
                         data-attr="feature-flag-tags-input"
                         placeholder='Add tags like "production", "app", "docs-page"'
@@ -111,8 +113,6 @@ export function FeatureFlagEvaluationTags({
                         onClick={() => {
                             setEditingTags(false)
                             setShowEvaluationOptions(false)
-                            setSelectedTags(tags)
-                            setSelectedEvaluationTags(evaluationTags)
                         }}
                     >
                         Cancel

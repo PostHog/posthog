@@ -1,60 +1,76 @@
-import { actions, events, kea, listeners, path, props, reducers } from 'kea'
+import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { featureFlagEvaluationTagsLogicType } from './featureFlagEvaluationTagsLogicType'
 
 export interface FeatureFlagEvaluationTagsLogicProps {
     tags: string[]
     evaluationTags: string[]
+    flagId?: number | string | null
 }
 
 export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogicType>([
-    path(['scenes', 'feature-flags', 'featureFlagEvaluationTagsLogic']),
+    path((key) => ['scenes', 'feature-flags', 'featureFlagEvaluationTagsLogic', key]),
     props({} as FeatureFlagEvaluationTagsLogicProps),
+    key((props) => props.flagId || 'new'),
     actions({
         setEditingTags: (editing: boolean) => ({ editing }),
         setShowEvaluationOptions: (show: boolean) => ({ show }),
-        setSelectedTags: (tags: string[]) => ({ tags }),
-        setSelectedEvaluationTags: (evaluationTags: string[]) => ({ evaluationTags }),
-        resetSelectionsToProps: true,
+        setDraftTags: (tags: string[]) => ({ tags }),
+        setDraftEvaluationTags: (evaluationTags: string[]) => ({ evaluationTags }),
     }),
-    reducers(({ props }) => ({
+    reducers(() => ({
         editingTags: [false as boolean, { setEditingTags: (_, { editing }) => editing }],
         showEvaluationOptions: [false as boolean, { setShowEvaluationOptions: (_, { show }) => show }],
-        selectedTags: [
-            props.tags as string[],
+        draftTags: [
+            null as string[] | null,
             {
-                setSelectedTags: (_, { tags }) => tags,
-                resetSelectionsToProps: () => props.tags as string[],
+                setDraftTags: (_, { tags }) => tags,
+                setEditingTags: (state, { editing }) => (editing ? state : null),
             },
         ],
-        selectedEvaluationTags: [
-            props.evaluationTags as string[],
+        draftEvaluationTags: [
+            null as string[] | null,
             {
-                setSelectedEvaluationTags: (_, { evaluationTags }) => evaluationTags,
-                resetSelectionsToProps: () => props.evaluationTags as string[],
+                setDraftEvaluationTags: (_, { evaluationTags }) => evaluationTags,
+                setEditingTags: (state, { editing }) => (editing ? state : null),
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
-        setSelectedTags: () => {
-            if (values.selectedTags.length === 0 && values.showEvaluationOptions) {
+    selectors({
+        selectedTags: [
+            (s) => [s.editingTags, s.draftTags, (_, props) => props.tags],
+            (editingTags, draftTags, propsTags): string[] =>
+                editingTags && draftTags !== null ? draftTags : propsTags || [],
+        ],
+        selectedEvaluationTags: [
+            (s) => [s.editingTags, s.draftEvaluationTags, (_, props) => props.evaluationTags],
+            (editingTags, draftEvaluationTags, propsEvaluationTags): string[] =>
+                editingTags && draftEvaluationTags !== null ? draftEvaluationTags : propsEvaluationTags || [],
+        ],
+    }),
+    listeners(({ actions, values, props }) => ({
+        setDraftTags: () => {
+            if (values.draftTags && values.draftTags.length === 0 && values.showEvaluationOptions) {
                 actions.setShowEvaluationOptions(false)
             }
         },
-    })),
-    events(({ actions, values }) => ({
-        propsChanged: (previousProps, nextProps) => {
-            // When props change and we're not editing, sync the selections
-            if (!values.editingTags) {
-                const propsChanged =
-                    previousProps.tags.join(',') !== nextProps.tags.join(',') ||
-                    previousProps.evaluationTags.join(',') !== nextProps.evaluationTags.join(',')
-
-                if (propsChanged) {
-                    actions.setSelectedTags([...nextProps.tags])
-                    actions.setSelectedEvaluationTags([...nextProps.evaluationTags])
-                }
+        setEditingTags: ({ editing }) => {
+            if (editing) {
+                // When entering edit mode, initialize drafts from current props
+                actions.setDraftTags(props.tags || [])
+                actions.setDraftEvaluationTags(props.evaluationTags || [])
+            } else {
+                // Clear drafts when exiting edit mode
+                actions.setDraftTags(null as any)
+                actions.setDraftEvaluationTags(null as any)
             }
+        },
+    })),
+    events(({ actions }) => ({
+        beforeUnmount: () => {
+            // Reset state when component unmounts to ensure fresh state for next mount
+            actions.setEditingTags(false)
+            actions.setShowEvaluationOptions(false)
         },
     })),
 ])
