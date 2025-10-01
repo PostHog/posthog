@@ -196,11 +196,11 @@ async def test_insert_into_redshift_activity_completes_range(
     workflow_id = uuid.uuid4()
 
     fake_info = activity.Info(
-        activity_id="insert-into-bigquery-activity",
+        activity_id="insert-into-redshift-activity",
         activity_type="unknown",
         current_attempt_scheduled_time=dt.datetime.now(dt.UTC),
         workflow_id=str(workflow_id),
-        workflow_type="bigquery-export",
+        workflow_type="redshift-export",
         workflow_run_id=str(uuid.uuid4()),
         attempt=1,
         heartbeat_timeout=dt.timedelta(seconds=1),
