@@ -67,14 +67,15 @@ class TestMessageAttachmentsAPI(APIBaseTest):
     @patch("products.messaging.backend.api.message_attachments.object_storage")
     def test_upload_storage_exception(self, mock_storage):
         mock_storage.write.side_effect = Exception("Storage error!")
-test_file = SimpleUploadedFile("test.svg", b'<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>', content_type="image/svg+xml")
+        test_file = SimpleUploadedFile(
+            "test.svg", b'<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>', content_type="image/svg+xml"
+        )
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_attachments/upload/", {"file": test_file}, format="multipart"
         )
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertIn("error", response.json())
 
-    @patch("products.messaging.backend.api.message_attachments.object_storage")
     def test_upload_missing_file(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_attachments/upload/", {}, format="multipart"
