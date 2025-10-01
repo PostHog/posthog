@@ -1,6 +1,7 @@
 import json
 import uuid
 import urllib
+import builtins
 from datetime import datetime
 from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
 
@@ -196,7 +197,7 @@ class EventViewSet(
                 action_id=request.GET.get("action_id"),
             )
 
-            # Retry the query without the 1 day optimization
+            # Retry the query without the 1-day optimization
             if len(query_result) < limit:
                 query_result = query_events_list(
                     unbounded_date_from=True,  # only this changed from the query above
@@ -290,7 +291,8 @@ class EventViewSet(
     @tracer.start_as_current_span("events_api_event_property_values")
     def _event_property_values(
         self,
-        event_names: list[str],
+        # list is defined locally so messy to use as a type :/
+        event_names: builtins.list[str],
         is_column: bool,
         key: str,
         team: Team,
@@ -299,6 +301,7 @@ class EventViewSet(
     ) -> response.Response:
         date_from = relative_date_parse("-7d", team.timezone_info).strftime("%Y-%m-%d 00:00:00")
         date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
+
         chain: list[str | int] = [key] if is_column else ["properties", key]
         conditions: list[ast.Expr] = [
             ast.CompareOperation(
