@@ -2,23 +2,23 @@ import { actions, kea, path, reducers } from 'kea'
 
 import type { feedbackGeneralSettingsLogicType } from './feedbackGeneralSettingsLogicType'
 
-export const DEFAULT_FEEDBACK_TYPES: string[] = ['bug', 'feature', 'improvement']
+export const DEFAULT_FEEDBACK_CATEGORIES: string[] = ['bug', 'feature', 'improvement']
 
 export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType>([
     path(['products', 'feedback', 'settings', 'feedbackGeneralSettingsLogic']),
 
     actions({
-        addFeedbackType: (key: string) => ({ key }),
-        removeFeedbackType: (index: number) => ({ index }),
+        addFeedbackCategory: (key: string) => ({ key }),
+        removeFeedbackCategory: (index: number) => ({ index }),
     }),
 
     reducers({
-        feedbackTypes: [
-            DEFAULT_FEEDBACK_TYPES as string[],
-            { persist: true, storageKey: 'feedback-types-v2' },
+        feedbackCategories: [
+            DEFAULT_FEEDBACK_CATEGORIES as string[],
+            { persist: true },
             {
-                addFeedbackType: (state, { key }) => [...state, key],
-                removeFeedbackType: (state, { index }) => state.filter((_, i) => i !== index),
+                addFeedbackCategory: (state, { key }) => [...state, key],
+                removeFeedbackCategory: (state, { index }) => state.filter((_, i) => i !== index),
             },
         ],
     }),

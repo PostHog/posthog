@@ -8,15 +8,15 @@ import { FeedbackPreview } from './FeedbackPreview'
 import { feedbackGeneralSettingsLogic } from './feedbackGeneralSettingsLogic'
 
 export function FeedbackGeneralSettings(): JSX.Element {
-    const { feedbackTypes } = useValues(feedbackGeneralSettingsLogic)
-    const { addFeedbackType, removeFeedbackType } = useActions(feedbackGeneralSettingsLogic)
+    const { feedbackCategories } = useValues(feedbackGeneralSettingsLogic)
+    const { addFeedbackCategory, removeFeedbackCategory } = useActions(feedbackGeneralSettingsLogic)
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false)
-    const [newTypeName, setNewTypeName] = useState('')
+    const [newCategoryName, setNewCategoryName] = useState('')
 
     const handleAdd = (): void => {
-        addFeedbackType(newTypeName)
-        setNewTypeName('')
+        addFeedbackCategory(newCategoryName)
+        setNewCategoryName('')
         setIsAddModalOpen(false)
     }
 
@@ -26,27 +26,27 @@ export function FeedbackGeneralSettings(): JSX.Element {
                 <div className="flex flex-col gap-4">
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-semibold">Feedback types</h3>
+                            <h3 className="text-lg font-semibold">Feedback categories</h3>
                             <LemonButton
                                 type="primary"
                                 icon={<IconPlus />}
                                 size="small"
                                 onClick={() => setIsAddModalOpen(true)}
                             >
-                                Add Type
+                                Add Category
                             </LemonButton>
                         </div>
-                        {feedbackTypes.map((type, index) => (
+                        {feedbackCategories.map((category, index) => (
                             <div
-                                key={type}
+                                key={category}
                                 className="border rounded p-2 bg-surface-primary flex items-center justify-between"
                             >
-                                <div className="font-medium capitalize">{type}</div>
+                                <div className="font-medium capitalize">{category}</div>
                                 <LemonButton
                                     icon={<IconTrash />}
                                     size="xsmall"
                                     status="danger"
-                                    onClick={() => removeFeedbackType(index)}
+                                    onClick={() => removeFeedbackCategory(index)}
                                 />
                             </div>
                         ))}
@@ -64,9 +64,9 @@ export function FeedbackGeneralSettings(): JSX.Element {
                 isOpen={isAddModalOpen}
                 onClose={() => {
                     setIsAddModalOpen(false)
-                    setNewTypeName('')
+                    setNewCategoryName('')
                 }}
-                title="Add Feedback Type"
+                title="Add Feedback Category"
                 footer={
                     <>
                         <LemonButton type="secondary" onClick={() => setIsAddModalOpen(false)}>
@@ -75,7 +75,7 @@ export function FeedbackGeneralSettings(): JSX.Element {
                         <LemonButton
                             type="primary"
                             onClick={handleAdd}
-                            disabledReason={!newTypeName.trim() ? 'Enter a name' : undefined}
+                            disabledReason={!newCategoryName.trim() ? 'Enter a name' : undefined}
                         >
                             Add
                         </LemonButton>
@@ -83,10 +83,10 @@ export function FeedbackGeneralSettings(): JSX.Element {
                 }
             >
                 <div className="flex flex-col gap-2">
-                    <p>Enter a name for the new feedback type:</p>
+                    <p>Enter a name for the new feedback category:</p>
                     <LemonInput
-                        value={newTypeName}
-                        onChange={setNewTypeName}
+                        value={newCategoryName}
+                        onChange={setNewCategoryName}
                         placeholder="e.g., question, praise, complaint"
                         autoFocus
                         onPressEnter={handleAdd}

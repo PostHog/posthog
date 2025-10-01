@@ -7,19 +7,19 @@ import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { feedbackGeneralSettingsLogic } from './feedbackGeneralSettingsLogic'
 
 export function FeedbackPreview(): JSX.Element {
-    const { feedbackTypes } = useValues(feedbackGeneralSettingsLogic)
-    const [selectedType, setSelectedType] = useState<string>(feedbackTypes[0] || '')
+    const { feedbackCategories } = useValues(feedbackGeneralSettingsLogic)
+    const [selectedCategory, setSelectedCategory] = useState<string>(feedbackCategories[0] || '')
 
     return (
         <div className="border rounded-lg bg-surface-primary shadow-sm">
-            {feedbackTypes.length > 0 && (
+            {feedbackCategories.length > 0 && (
                 <div className="flex gap-1 p-2 border-b bg-surface-light">
                     <LemonSegmentedButton
-                        value={selectedType}
-                        onChange={(value) => setSelectedType(value)}
-                        options={feedbackTypes.map((type) => ({
-                            value: type,
-                            label: <span className="capitalize">{type}</span>,
+                        value={selectedCategory}
+                        onChange={(value) => setSelectedCategory(value)}
+                        options={feedbackCategories.map((category) => ({
+                            value: category,
+                            label: <span className="capitalize">{category}</span>,
                         }))}
                         size="small"
                         fullWidth
