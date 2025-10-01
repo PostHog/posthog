@@ -52,6 +52,9 @@ jobs:
                         - tsconfig.*.json
                         - webpack.config.js
                         - stylelint*
+                        - '**/*.md'
+                        - '**/*.mdx'
+                        - .config/.markdownlint-cli2.jsonc
 
     frontend-format:
         name: Frontend formatting
