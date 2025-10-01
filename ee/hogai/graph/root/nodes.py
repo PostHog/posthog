@@ -51,7 +51,6 @@ from ee.hogai.utils.types import (
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
-    MAX_PERSONALITY_PROMPT,
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
@@ -160,7 +159,6 @@ class RootNode(AssistantNode):
             ],
             template_format="mustache",
         ).format_messages(
-            personality_prompt=MAX_PERSONALITY_PROMPT,
             core_memory_prompt=core_memory_prompt,
             billing_context=billing_context_prompt,
         )
