@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use common_types::error_tracking::{FrameData, FrameId};
 use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -42,26 +43,6 @@ pub enum RawFrame {
     LegacyJS(RawJSFrame),
     #[serde(rename = "custom")]
     Custom(CustomFrame),
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
-pub struct FrameId {
-    pub raw_id: String,
-    #[serde(skip)]
-    pub team_id: i32,
-}
-
-impl FrameId {
-    pub fn new(raw_id: String, team_id: i32) -> Self {
-        FrameId { raw_id, team_id }
-    }
-
-    pub fn placeholder() -> Self {
-        FrameId {
-            raw_id: "placeholder".to_string(),
-            team_id: 0,
-        }
-    }
 }
 
 impl RawFrame {
@@ -313,6 +294,23 @@ impl std::fmt::Display for Frame {
         }
 
         Ok(())
+    }
+}
+
+impl From<Frame> for FrameData {
+    fn from(frame: Frame) -> Self {
+        FrameData {
+            raw_id: frame.raw_id,
+            synthetic: frame.synthetic,
+            resolved_name: frame.resolved_name,
+            mangled_name: frame.mangled_name,
+            source: frame.source,
+            resolved: frame.resolved,
+            in_app: frame.in_app,
+            line: frame.line,
+            column: frame.column,
+            lang: frame.lang,
+        }
     }
 }
 

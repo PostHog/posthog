@@ -1,8 +1,9 @@
+use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
 use crate::{
-    frames::{Context, ContextLine, Frame, FrameId},
+    frames::{Context, ContextLine, Frame},
     langs::CommonFrameMetadata,
 };
 

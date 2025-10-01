@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
 
+use common_types::error_tracking::NewFingerprintEvent;
 use rdkafka::types::RDKafkaErrorCode;
 use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
@@ -340,6 +341,7 @@ pub async fn resolve_issue(
         .await?;
 
         let output_props = event_properties.clone().to_output(issue.id);
+        send_new_fingerprint_event(&context, &issue, &output_props).await?;
         send_issue_created_alert(&context, &issue, assignment, output_props, &event_timestamp)
             .await?;
         txn.commit().await?;
@@ -386,6 +388,31 @@ async fn send_issue_created_alert(
         event_timestamp,
     )
     .await
+}
+
+async fn send_new_fingerprint_event(
+    context: &AppContext,
+    issue: &Issue,
+    output_props: &OutputErrProps,
+) -> Result<(), UnhandledError> {
+    let event = NewFingerprintEvent::new(
+        issue.team_id,
+        output_props.fingerprint.clone(),
+        (&output_props.exception_list).into(),
+    );
+    let event_iter = vec![event];
+    let res = send_iter_to_kafka(
+        &context.immediate_producer,
+        &context.config.new_fingerprints_topic,
+        &event_iter,
+    )
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>();
+    if let Err(err) = res {
+        return Err(UnhandledError::KafkaProduceError(err));
+    }
+    Ok(())
 }
 
 async fn send_issue_reopened_alert(
