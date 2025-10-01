@@ -153,10 +153,9 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ data: string }>()
             const pipeline = new StepPipeline(testStep, previous)
-            const result = await pipeline.process({
-                result: ok({ data: 'test' }),
-                context: { message, lastStep: 'firstStep', sideEffects: [] },
-            })
+            const result = await pipeline.process(
+                createContext(ok({ data: 'test' }), { message, lastStep: 'firstStep' })
+            )
 
             expect(result).toEqual(
                 createContext(ok({ processed: 'test' }), { message, lastStep: 'testStep' }) // Should update to current step
@@ -180,10 +179,10 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [initialSideEffect1, initialSideEffect2] },
-            }
+            const input = createContext(ok({ data: 'test' }), {
+                message,
+                sideEffects: [initialSideEffect1, initialSideEffect2],
+            })
 
             const result = await pipeline.process(input)
 
@@ -204,10 +203,7 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [existingSideEffect] },
-            }
+            const input = createContext(ok({ data: 'test' }), { message, sideEffects: [existingSideEffect] })
 
             const result = await pipeline.process(input)
 
@@ -223,10 +219,7 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [] }, // No existing side effects
-            }
+            const input = createContext(ok({ data: 'test' }), { message })
 
             const result = await pipeline.process(input)
 
@@ -242,10 +235,10 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: drop<{ data: string }>('dropped'),
-                context: { message, sideEffects: [existingSideEffect] },
-            }
+            const input = createContext(drop<{ data: string }>('dropped'), {
+                message,
+                sideEffects: [existingSideEffect],
+            })
 
             const result = await pipeline.process(input)
 
@@ -268,10 +261,7 @@ describe('StepPipeline', () => {
             const pipeline1 = new StepPipeline(step1, previous)
             const pipeline2 = new StepPipeline(step2, pipeline1)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [initialSideEffect] },
-            }
+            const input = createContext(ok({ data: 'test' }), { message, sideEffects: [initialSideEffect] })
 
             const result = await pipeline2.process(input)
 
@@ -286,10 +276,7 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [] }, // Empty side effects array
-            }
+            const input = createContext(ok({ data: 'test' }), { message })
 
             const result = await pipeline.process(input)
 
@@ -309,10 +296,10 @@ describe('StepPipeline', () => {
             const previous = new StartPipeline<{ data: string }>()
             const pipeline = new StepPipeline(step, previous)
 
-            const input = {
-                result: ok({ data: 'test' }),
-                context: { message, sideEffects: [contextSideEffect1, contextSideEffect2] },
-            }
+            const input = createContext(ok({ data: 'test' }), {
+                message,
+                sideEffects: [contextSideEffect1, contextSideEffect2],
+            })
 
             const result = await pipeline.process(input)
 
