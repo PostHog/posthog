@@ -1311,7 +1311,7 @@ describe('Event Pipeline E2E tests', () => {
             expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
                 expect.arrayContaining([user1DistinctId, user2DistinctId, user3DistinctId])
             )
-        }, 45_000)
+        })
     })
 
     testWithTeamIngester('alias events ordering scenario 2: alias first', {}, async (ingester, hub, team) => {
