@@ -3,11 +3,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use common_kafka::kafka_consumer::Offset;
 use common_types::error_tracking::{EmbeddingRecord, NewFingerprintEvent};
-<<<<<<< HEAD
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-=======
->>>>>>> origin/master
 
 use crate::app_context::AppContext;
 
@@ -16,11 +13,7 @@ pub mod config;
 pub mod metric_consts;
 
 pub async fn handle_batch(
-<<<<<<< HEAD
     fingerprints: Vec<NewFingerprintEvent>,
-=======
-    _fingerprints: Vec<NewFingerprintEvent>,
->>>>>>> origin/master
     _offsets: &[Offset],
     context: Arc<AppContext>,
 ) -> Result<Vec<EmbeddingRecord>> {
