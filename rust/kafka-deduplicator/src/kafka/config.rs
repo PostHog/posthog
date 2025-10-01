@@ -51,6 +51,18 @@ impl ConsumerConfigBuilder {
         self
     }
 
+    /// Enable sticky partition assignments based on the kafka client ID supplied
+    pub fn with_sticky_partition_assignment(mut self, client_id: Option<&str>) -> Self {
+        match client_id {
+            Some(found_client_id) => {
+                self.config.set("client.id", found_client_id.to_string());
+                self.config.set("partition.assignment.strategy", "cooperative-sticky");
+            }
+            None => {},
+        }
+        self
+    }
+
     /// Build the final configuration
     pub fn build(self) -> ClientConfig {
         self.config
