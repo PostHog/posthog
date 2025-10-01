@@ -124,9 +124,8 @@ export enum Scene {
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
-export type SceneProps = Record<string, any>
 
-export interface SceneExport<T = SceneProps> {
+export interface SceneExport<T = {}> {
     /** component to render for this scene */
     component: SceneComponent<T>
     /** logic to mount for this scene */
@@ -138,6 +137,8 @@ export interface SceneExport<T = SceneProps> {
     /** when was the scene last touched, unix timestamp for sortability */
     lastTouch?: number
 }
+
+type SceneProps = Record<string, any>
 
 // KLUDGE: LoadedScene is used in a logic and therefore cannot accept generics
 // we use an untyped SceneProps to satisfy the types

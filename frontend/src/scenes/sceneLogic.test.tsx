@@ -57,11 +57,13 @@ describe('sceneLogic', () => {
         const expectedAnnotation = partial({
             component: expect.any(Function),
             logic: expect.any(Function),
+            lastTouch: expect.any(Number),
         })
 
         const expectedSettings = partial({
             component: expect.any(Function),
             logic: expect.any(Function),
+            lastTouch: expect.any(Number),
         })
 
         await expectLogic(logic).delay(1)

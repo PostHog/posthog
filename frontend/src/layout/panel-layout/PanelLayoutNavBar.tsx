@@ -69,7 +69,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         showLayoutNavBar,
     } = useActions(panelLayoutLogic)
     const {
-        pathname,
         isLayoutPanelVisible,
         activePanelIdentifier,
         activePanelIdentifierFromUrl,
@@ -82,6 +81,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
+    const { location } = useValues(router)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
@@ -114,7 +114,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     }
 
     const isStaticNavItemActive = (itemIdentifier: string): boolean => {
-        const currentPath = removeProjectIdIfPresent(pathname)
+        const currentPath = removeProjectIdIfPresent(location.pathname)
 
         if (itemIdentifier === 'Home' && currentPath === '/') {
             return true

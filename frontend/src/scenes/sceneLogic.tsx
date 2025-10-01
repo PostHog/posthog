@@ -353,9 +353,16 @@ export const sceneLogic = kea<sceneLogicType>([
         exportedScenes: [
             preloadedScenes,
             {
+                setScene: (state, { sceneId }) =>
+                    sceneId in state
+                        ? {
+                              ...state,
+                              [sceneId]: { ...state[sceneId], lastTouch: new Date().valueOf() }, // sceneParams: params,
+                          }
+                        : state,
                 setExportedScene: (state, { exportedScene, sceneId }) => ({
                     ...state,
-                    [sceneId]: { ...exportedScene },
+                    [sceneId]: { ...exportedScene, lastTouch: new Date().valueOf() },
                 }),
             },
         ],
@@ -402,13 +409,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
                 return config
             },
-            { resultEqualityCheck: equal },
         ],
         sceneParams: [
             (s) => [s.activeTab],
-            (activeTab): SceneParams => {
-                return activeTab?.sceneParams || { params: {}, searchParams: {}, hashParams: {} }
-            },
+            (activeTab): SceneParams => activeTab?.sceneParams || { params: {}, searchParams: {}, hashParams: {} },
         ],
         activeSceneId: [
             (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable],
@@ -447,7 +451,6 @@ export const sceneLogic = kea<sceneLogicType>([
             (activeSceneId, exportedScenes) => {
                 return activeSceneId ? exportedScenes[activeSceneId] : null
             },
-            { resultEqualityCheck: (a, b) => a === b },
         ],
         activeLoadedScene: [
             (s) => [s.activeSceneId, s.activeExportedScene, s.sceneParams, s.activeTabId],
@@ -468,7 +471,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     tabId: activeTabId,
                 }
             },
-            { resultEqualityCheck: equal },
         ],
         activeSceneLogicPropsWithTabId: [
             (s) => [s.activeExportedScene, s.sceneParams, s.activeTabId],
@@ -478,7 +480,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     tabId: activeTabId,
                 }
             },
-            { resultEqualityCheck: equal },
         ],
         activeSceneLogic: [
             (s) => [s.activeExportedScene, s.activeSceneLogicPropsWithTabId],
