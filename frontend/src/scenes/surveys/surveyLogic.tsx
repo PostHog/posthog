@@ -1513,11 +1513,9 @@ export const surveyLogic = kea<surveyLogicType>([
                 dateRange: SurveyDateRange | null,
                 survey: Survey
             ) => {
-                // Calculate default date range for this survey
                 const defaultDateFrom = getSurveyStartDateForQuery(survey)
                 const defaultDateTo = getSurveyEndDateForQuery(survey)
 
-                // Filter out answer filters with empty values
                 const nonEmptyAnswerFilters = answerFilters?.filter((filter) => {
                     const value = filter.value
                     if (Array.isArray(value)) {
@@ -1526,7 +1524,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     return value !== null && value !== undefined && value !== ''
                 })
 
-                // Check if date range matches defaults - only include if it's been customized
                 const isDefaultDateRange =
                     dateRange?.date_from === defaultDateFrom && dateRange?.date_to === defaultDateTo
 
