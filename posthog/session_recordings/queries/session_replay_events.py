@@ -178,6 +178,7 @@ class SessionReplayEvents:
     @staticmethod
     def get_block_listing_query(
         recording_start_time: Optional[datetime] = None,
+        format: Optional[str] = None,
     ) -> LiteralString:
         """
         Helper function to build a query for session metadata, to be able to use
@@ -200,11 +201,13 @@ class SessionReplayEvents:
                     {optional_timestamp_clause}
                 GROUP BY
                     session_id
+                {optional_format_clause}
                 """
         query = query.format(
             optional_timestamp_clause=(
                 "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
-            )
+            ),
+            optional_format_clause=(f"FORMAT {format}" if format else ""),
         )
         return query
 

@@ -73,7 +73,7 @@ from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, las
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
-    get_api_personal_rate_limiter,
+    get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
     get_app_org_rate_limiter,
     get_org_app_concurrency_limit,
@@ -1061,10 +1061,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.modifiers.useMaterializedViews = True
 
             concurrency_limit = self.get_api_queries_concurrency_limit()
-            with get_api_personal_rate_limiter().run(
+            with get_api_team_rate_limiter().run(
                 is_api=self.is_query_service,
                 team_id=self.team.pk,
-                org_id=self.team.organization_id,
                 task_id=self.query_id,
                 limit=concurrency_limit,
             ):

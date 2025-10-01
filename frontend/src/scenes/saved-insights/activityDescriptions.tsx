@@ -232,8 +232,6 @@ const insightActionsMapping: Record<
     saved: () => null,
     is_sample: () => null,
     timezone: () => null,
-    effective_restriction_level: () => null,
-    effective_privilege_level: () => null,
     disable_baseline: () => null,
     dashboard_tiles: () => null,
     query_status: () => null,
