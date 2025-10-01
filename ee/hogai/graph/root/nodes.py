@@ -291,9 +291,9 @@ class RootNode(AssistantNode):
         available_tools: list[type[BaseModel] | MaxTool] = []
 
         # Add the basic toolkit
-        toolkit = [ReadTaxonomyTool, SearchTool, ReadDataTool, TodoWriteTool]
-        for tool_class in toolkit:
-            available_tools.append(tool_class(team=self._team, user=self._user, state=state, config=config))
+        toolkit: list[type[MaxTool]] = [ReadTaxonomyTool, SearchTool, ReadDataTool, TodoWriteTool]
+        for StaticMaxToolClass in toolkit:
+            available_tools.append(StaticMaxToolClass(team=self._team, user=self._user, state=state, config=config))
 
         tool_names = self.context_manager.get_contextual_tools().keys()
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
@@ -309,10 +309,10 @@ class RootNode(AssistantNode):
 
         # Inject contextual tools
         for tool_name in tool_names:
-            ToolClass = get_contextual_tool_class(tool_name)
-            if ToolClass is None:
+            ContextualMaxToolClass = get_contextual_tool_class(tool_name)
+            if ContextualMaxToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
-            available_tools.append(ToolClass(team=self._team, user=self._user, state=state, config=config))
+            available_tools.append(ContextualMaxToolClass(team=self._team, user=self._user, state=state, config=config))
 
         return available_tools
 
