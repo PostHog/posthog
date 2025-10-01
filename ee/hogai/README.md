@@ -22,14 +22,20 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 2. In your `max_tools.py`, define a new tool class inheriting from `MaxTool`:
 
     ```python
-    from ee.hogai.tool import MaxTool
     from pydantic import BaseModel, Field
-    from langchain_core.prompts import ChatPromptTemplate
+
     from ee.hogai.llm import MaxChatOpenAI
+    from ee.hogai.tool import MaxTool
+
 
     # Define your tool's arguments schema
     class YourToolArgs(BaseModel):
         parameter_name: str = Field(description="Description of the parameter")
+
+
+    class YourToolOutput(BaseModel):
+        result_data: int
+
 
     class YourTool(MaxTool):
         name: str = "your_tool_name"  # Must match a value in AssistantContextualTool enum
@@ -38,22 +44,18 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
         root_system_prompt_template: str = "Context about the tool state: {context_var}"
         args_schema: type[BaseModel] = YourToolArgs
 
-        async def _arun_impl(self, parameter_name: str) -> tuple[str, Any]:
+        async def _arun_impl(self, parameter_name: str) -> tuple[str, YourToolOutput]:
             # Implement tool logic here
             # Access context with self.context (must have context_var from template)
             # If you use Django's ORM, ensure you utilize its asynchronous capabilities.
 
             # Optional: Use LLM to process inputs or generate structured outputs
-            model = (
-                MaxChatOpenAI(model="gpt-4o", temperature=0.2)
-                .with_structured_output(OutputType)
-                .with_retry()
-            )
+            model = MaxChatOpenAI(model="gpt-4o", temperature=0.2).with_structured_output(YourToolOutput).with_retry()
 
             response = model.ainvoke({"question": "What is PostHog?"})
 
             # Process and return results as (message, structured_data)
-            return "Tool execution completed", result_data
+            return "Tool execution completed", response
     ```
 
 3. Add your tool name to the `AssistantContextualTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
@@ -110,7 +112,7 @@ When a tool is mounted, it automatically gets shown as available in the scene UI
 
 For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed.tsx`, which mounts the `search_session_recordings` tool.
 
-## Iterating
+### Iterating
 
 Once you have an initial version of the tool in place, **test the heck out of it**. Try everything you'd want as a regular user, and tune all aspects of the tool as needed: prompt, description, `root_system_prompt_template`, context from the frontend.
 
@@ -118,7 +120,7 @@ When developing, get full visibility into what the tool is doing using local Pos
 
 If you've got any requests for Max, including around tools, let us know at #team-max-ai in Slack!
 
-## Best practices for LLM-based tools
+### Best practices for LLM-based tools
 
 - Provide comprehensive context about current state from the frontend
 - Test with diverse inputs and edge cases

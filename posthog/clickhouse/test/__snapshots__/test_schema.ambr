@@ -1812,7 +1812,7 @@
       , INDEX kafka_timestamp_minmax_person _timestamp TYPE minmax GRANULARITY 3
       
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person', '{replica}-{shard}', version)
-  Order By (team_id, id)
+  ORDER BY (team_id, id)
   
   
   '''
@@ -1846,7 +1846,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id2_mv ON CLUSTER 'posthog'
-  TO posthog_test.person_distinct_id2
+  TO writable_person_distinct_id2
   AS SELECT
   team_id,
   distinct_id,
@@ -1856,7 +1856,7 @@
   _timestamp,
   _offset,
   _partition
-  FROM posthog_test.kafka_person_distinct_id2
+  FROM kafka_person_distinct_id2
   
   '''
 # ---
@@ -1925,7 +1925,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_overrides_mv ON CLUSTER 'posthog'
-  TO posthog_test.person_distinct_id_overrides
+  TO writable_person_distinct_id_overrides
   AS SELECT
   team_id,
   distinct_id,
@@ -1935,7 +1935,7 @@
   _timestamp,
   _offset,
   _partition
-  FROM posthog_test.kafka_person_distinct_id_overrides
+  FROM kafka_person_distinct_id_overrides
   WHERE version > 0 -- only store updated rows, not newly inserted ones
   
   '''
@@ -1944,7 +1944,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_mv ON CLUSTER 'posthog'
-  TO posthog_test.person
+  TO writable_person
   AS SELECT
   id,
   created_at,
@@ -1955,7 +1955,7 @@
   version,
   _timestamp,
   _offset
-  FROM posthog_test.kafka_person
+  FROM kafka_person
   
   '''
 # ---
@@ -2112,7 +2112,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS plugin_log_entries_mv ON CLUSTER 'posthog'
-  TO posthog_test.plugin_log_entries
+  TO writable_plugin_log_entries
   AS SELECT
   id,
   team_id,
@@ -2125,7 +2125,7 @@
   instance_id,
   _timestamp,
   _offset
-  FROM posthog_test.kafka_plugin_log_entries
+  FROM kafka_plugin_log_entries
   
   '''
 # ---
@@ -5000,7 +5000,7 @@
       , INDEX kafka_timestamp_minmax_person _timestamp TYPE minmax GRANULARITY 3
       
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person', '{replica}-{shard}', version)
-  Order By (team_id, id)
+  ORDER BY (team_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
   '''

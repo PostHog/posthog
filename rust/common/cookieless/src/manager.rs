@@ -301,13 +301,8 @@ impl CookielessManager {
         let redis_key = get_redis_identifies_key(hash, team_id);
 
         // Try to get the count from Redis
-        match self.redis_client.get(redis_key.clone()).await {
-            Ok(count_str) => {
-                // Parse the count string to a u64
-                count_str
-                    .parse::<u64>()
-                    .map_err(|e| CookielessManagerError::InvalidIdentifyCount(e.to_string()))
-            }
+        match self.redis_client.scard(redis_key.clone()).await {
+            Ok(count) => Ok(count),
             Err(common_redis::CustomRedisError::NotFound) => {
                 // If the key doesn't exist, the count is 0
                 Ok(0)
@@ -425,6 +420,8 @@ pub fn get_redis_identifies_key(hash: &[u8], team_id: TeamId) -> String {
 
 #[cfg(test)]
 mod tests {
+    // TODO these tests should really hit a real redis rather than a mocked one
+
     use super::*;
     use common_redis::MockRedisClient;
     use serde_json::Value;
@@ -836,7 +833,7 @@ mod tests {
         let redis_key = get_redis_identifies_key(&hash, team_id);
 
         // Set up the mock to return a count of 3
-        mock_redis = mock_redis.get_ret(&redis_key, Ok("3".to_string()));
+        mock_redis = mock_redis.scard_ret(&redis_key, Ok(3));
         let redis_client = Arc::new(mock_redis);
 
         // Create a CookielessManager
@@ -930,7 +927,7 @@ mod tests {
         let identifies_key = get_redis_identifies_key(&base_hash, 1);
 
         // Set up the mock to return a count of 2
-        mock_redis = mock_redis.get_ret(&identifies_key, Ok("2".to_string()));
+        mock_redis = mock_redis.scard_ret(&identifies_key, Ok(2));
         let redis_client = Arc::new(mock_redis);
 
         // Create a CookielessManager
@@ -1098,7 +1095,7 @@ mod tests {
         let redis_key = get_redis_identifies_key(&hash, team_id);
 
         // Set up the mock to return an error
-        mock_redis = mock_redis.get_ret(
+        mock_redis = mock_redis.scard_ret(
             &redis_key,
             Err(common_redis::CustomRedisError::Other(
                 "Some Redis error".to_string(),
