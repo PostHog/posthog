@@ -4,6 +4,16 @@ import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Feedback',
+    scenes: {
+        FeedbackList: {
+            import: () => import('./frontend/scenes/FeedbackListScene/FeedbackListScene'),
+            name: 'Feedback',
+            projectBased: true,
+        },
+    },
+    routes: {
+        '/feedback': ['FeedbackList', 'feedbackList'],
+    },
     urls: {
         feedbackList: (): string => '/feedback',
         feedback: (id: string): string => `/feedback/${id}`,
