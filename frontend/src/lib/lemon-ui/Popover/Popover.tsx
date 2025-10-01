@@ -233,6 +233,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
         onClickInside?.(e)
         // If we are not the top level popover, set a flag so that other popovers know that.
+
         if (parentPopoverLevel > -1 && !closeParentPopoverOnClickInside) {
             nestedPopoverReceivedClick = true
             setTimeout(() => {
