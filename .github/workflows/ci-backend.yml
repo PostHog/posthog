@@ -724,7 +724,7 @@ jobs:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
               run: |
                   set +e
-                  pytest -n auto --dist worksteal posthog/temporal products/batch_exports/backend/tests/temporal -m "not async_migrations" \
+                  pytest posthog/temporal products/batch_exports/backend/tests/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
