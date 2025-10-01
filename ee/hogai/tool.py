@@ -104,7 +104,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
             raise ValueError("You must set `thinking_message` on the tool, so that we can show the tool kicking off")
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
-        self._init_run(config)
         try:
             return self._run_impl(*args, **kwargs)
         except NotImplementedError:
@@ -112,31 +111,11 @@ class MaxTool(AssistantContextMixin, BaseTool):
         return async_to_sync(self._arun_impl)(*args, **kwargs)
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
-        self._init_run(config)
         try:
             return await self._arun_impl(*args, **kwargs)
         except NotImplementedError:
             pass
         return await super()._arun(*args, config=config, **kwargs)
-
-    def _init_run(self, config: RunnableConfig):
-        self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
-        self._team = config["configurable"]["team"]
-        self._user = config["configurable"]["user"]
-        self._config = {
-            **config,
-            "recursion_limit": 48,
-            "callbacks": config.get("callbacks", []),
-            "configurable": {
-                **(config.get("configurable") or {}),
-                "thread_id": config["configurable"].get("thread_id"),
-                "trace_id": config["configurable"].get("trace_id"),
-                "distinct_id": config["configurable"].get("distinct_id"),
-                "team": self._team,
-                "user": self._user,
-            },
-        }
-        self._context_manager = AssistantContextManager(self._team, self._user, self._config)
 
     @property
     def context(self) -> dict:
