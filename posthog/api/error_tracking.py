@@ -293,7 +293,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 # print(f"DEBUG: issue_embeddings count = {len(issue_embeddings) if issue_embeddings else 0}")
 
                 if issue_embeddings:
-                    all_similar_fingerprints = []
+                    all_similar_results = []
 
                     # Search for similarities across all embeddings from the current issue
                     for _, embedding_row in enumerate(issue_embeddings):
@@ -301,6 +301,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                         # print(f"DEBUG: Processing embedding {i+1}/{len(issue_embeddings)}")
 
                         # Search for similar embeddings using cosine similarity
+
+                        # TODO: add a where clause to only return when the distance is small enough
+                        # we don't want totally unrelated issues being listed
                         query = """
                             SELECT DISTINCT fingerprint, cosineDistance(embeddings, %(target_embedding)s) as distance
                             FROM error_tracking_issue_fingerprint_embeddings
@@ -321,14 +324,26 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                         # print(f"DEBUG: similar_embeddings count = {len(similar_embeddings) if similar_embeddings else 0}")
 
                         if similar_embeddings:
-                            # Extract fingerprints from similarity results
-                            similar_fingerprints = [row[0] for row in similar_embeddings]
-                            # print(f"DEBUG: similar_fingerprints for embedding {i+1} = {similar_fingerprints}")
-                            all_similar_fingerprints.extend(similar_fingerprints)
+                            # Collect both fingerprint and distance
+                            for row in similar_embeddings:
+                                fingerprint, distance = row[0], row[1]
+                                all_similar_results.append((fingerprint, distance))
 
-                    # Remove duplicates and use all collected similar fingerprints
-                    all_similar_fingerprints = list(set(all_similar_fingerprints))
-                    # print(f"DEBUG: total unique similar fingerprints = {len(all_similar_fingerprints)}")
+                    # Remove duplicates by fingerprint, keeping the best (smallest) distance for each
+                    fingerprint_best_distance = {}
+                    for fingerprint, distance in all_similar_results:
+                        if (
+                            fingerprint not in fingerprint_best_distance
+                            or distance < fingerprint_best_distance[fingerprint]
+                        ):
+                            fingerprint_best_distance[fingerprint] = distance
+
+                    # Sort by distance (ascending - smaller distance = more similar) and take top 10
+                    sorted_results = sorted(fingerprint_best_distance.items(), key=lambda x: x[1])[:10]
+                    all_similar_fingerprints = [fingerprint for fingerprint, _ in sorted_results]
+
+                    # print(f"DEBUG: top 10 similar fingerprints with distances = {sorted_results}")
+                    # print(f"DEBUG: final fingerprints for lookup = {all_similar_fingerprints}")
 
                     if all_similar_fingerprints:
                         # Get issue IDs that have these fingerprints
