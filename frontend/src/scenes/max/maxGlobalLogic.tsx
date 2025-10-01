@@ -7,59 +7,15 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { routes, sceneConfigurations } from 'scenes/scenes'
+import { routes } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 import { SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
 import { maxLogic } from './maxLogic'
-
-/**
- * Build available pages context with descriptions for the navigate tool
- */
-function buildSceneDescriptionsContext(): string {
-    const pageEntries: string[] = []
-
-    // Get all navigate URL keys from urls object that are functions
-    const navigateUrlKeys = Object.keys(urls).filter((key) => typeof urls[key as keyof typeof urls] === 'function')
-
-    for (const urlKey of navigateUrlKeys) {
-        try {
-            // Call the URL function with nothing to get the base URL route
-            const url = urls[pageKey as AssistantNavigateUrls]()
-            // Look up the Scene enum from the routes mapping
-            const routeInfo = routes[url]
-            if (!routeInfo) {
-                continue
-            }
-            const [sceneKey] = routeInfo
-            const sceneConfig = sceneConfigurations[sceneKey]
-            // Find tools available on this scene
-            const availableTools = Object.entries(TOOL_DEFINITIONS)
-                .filter(([_, toolDef]) => toolDef.product === sceneKey)
-                .map(([_, toolDef]) => toolDef.name)
-            if (!sceneConfig.description && !availableTools.length) {
-                continue // No extra details, and the key itself is already included in the navigate tool's definition
-            }
-            let entry = `- **${urlKey}**`
-            if (sceneConfig.description) {
-                entry += `: ${sceneConfig.description}`
-            }
-            if (availableTools.length > 0) {
-                entry += ` [tools: ${availableTools.join(', ')}]`
-            }
-            pageEntries.push(entry)
-        } catch {
-            // Skip URLs that require parameters or fail to resolve
-            continue
-        }
-    }
-
-    return pageEntries.join('\n')
-}
+import { buildSceneDescriptionsContext } from './utils/sceneDescriptionsContext'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -74,7 +30,8 @@ export const STATIC_TOOLS: ToolRegistration[] = [
             if (!(pageKey in urls)) {
                 throw new Error(`${pageKey} not in urls`)
             }
-            const url = urls[pageKey as AssistantNavigateUrls]()
+            // @ts-expect-error - we can ignore the error about expecting more than 0 args
+            const url = urls[pageKey as keyof typeof urls]()
             // Include the conversation ID and panel to ensure the side panel is open
             // (esp. when the navigate tool is used from the full-page Max)
             router.actions.push(url, { chat: maxLogic.values.frontendConversationId }, { panel: SidePanelTab.Max })
