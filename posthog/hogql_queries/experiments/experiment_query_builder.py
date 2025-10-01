@@ -1,13 +1,3 @@
-"""
-Map Aggregation Query Builder for Experiments (Plain HogQL Version)
-
-This module implements the same single-scan query approach as map_agg_query_builder.py,
-but uses plain HogQL strings with placeholders instead of Python AST construction.
-This is more concise and easier to read/maintain.
-
-Performance: Expected 2-10x speedup compared to self-join approach.
-"""
-
 from posthog.schema import ExperimentMeanMetric, ExperimentMetricMathType, MultipleVariantHandling
 
 from posthog.hogql import ast
@@ -21,12 +11,7 @@ from posthog.models.experiment import Experiment
 from posthog.models.team.team import Team
 
 
-class MapAggregationQueryBuilderHogQL:
-    """
-    Builds a single-scan experiment query using map aggregations.
-    Uses plain HogQL strings with placeholders for readability and type safety.
-    """
-
+class ExperimentQueryBuilder:
     def __init__(
         self,
         experiment: Experiment,
