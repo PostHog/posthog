@@ -64,12 +64,23 @@ class MapAggregationQueryBuilderHogQL:
         # Build the query with placeholders
         query = parse_select(
             """
-            SELECT
-                metric_events.variant AS variant,
-                count(metric_events.entity_id) AS num_users,
-                sum(metric_events.value) AS total_sum,
-                sum(power(metric_events.value, 2)) AS total_sum_of_squares
-            FROM (
+            WITH events_enriched as (
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
+                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
+                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id,
+                    groupArrayIf(
+                        tuple(timestamp, {value_expr}),
+                        {metric_predicate}
+                    ) AS metric_events_array
+                FROM events
+                WHERE ({exposure_predicate} OR {metric_predicate})
+                GROUP BY entity_id
+            ),
+
+            metric_events as (
                 SELECT
                     events_enriched.entity_id AS entity_id,
                     events_enriched.variant AS variant,
@@ -77,23 +88,16 @@ class MapAggregationQueryBuilderHogQL:
                     events_enriched.exposure_session_id AS exposure_session_id,
                     arrayFilter(x -> x.1 >= events_enriched.first_exposure_time, events_enriched.metric_events_array) AS metric_after_exposure,
                     {value_agg} AS value
-                FROM (
-                    SELECT
-                        {entity_key} AS entity_id,
-                        {variant_expr} AS variant,
-                        minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
-                        argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
-                        argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id,
-                        groupArrayIf(
-                            tuple(timestamp, {value_expr}),
-                            {metric_predicate}
-                        ) AS metric_events_array
-                    FROM events
-                    WHERE ({exposure_predicate} OR {metric_predicate})
-                    GROUP BY entity_id
-                ) AS events_enriched
+                FROM events_enriched
                 WHERE events_enriched.first_exposure_time IS NOT NULL
-            ) AS metric_events
+            )
+
+            SELECT
+                metric_events.variant AS variant,
+                count(metric_events.entity_id) AS num_users,
+                sum(metric_events.value) AS total_sum,
+                sum(power(metric_events.value, 2)) AS total_sum_of_squares
+            FROM metric_events
             GROUP BY metric_events.variant
             """,
             placeholders={
