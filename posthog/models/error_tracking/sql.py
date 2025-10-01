@@ -141,7 +141,7 @@ def KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL():
     return ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name=KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
         engine=kafka_engine(
-            KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS, group="clickhouse-error-tracking-fingerprint-embeddings"
+            KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS, group="clickhouse_error_tracking_fingerprint_embeddings"
         ),
         extra_fields="",
     )
