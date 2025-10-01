@@ -174,7 +174,7 @@ const IssueExternalReference = (): JSX.Element => {
 const RelatedIssues = (): JSX.Element => {
     const { issue, relatedIssues, relatedIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadRelatedIssues } = useActions(errorTrackingIssueSceneLogic)
-    const { mergeInto } = useActions(issueActionsLogic)
+    const { mergeIssues } = useActions(issueActionsLogic)
 
     useEffect(() => {
         loadRelatedIssues()
@@ -182,7 +182,7 @@ const RelatedIssues = (): JSX.Element => {
 
     const handleMerge = async (relatedIssueId: string): Promise<void> => {
         if (issue) {
-            await mergeInto(issue.id, [relatedIssueId])
+            await mergeIssues([issue.id, relatedIssueId])
             loadRelatedIssues()
         }
     }
