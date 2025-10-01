@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- Development server-level memory optimizations -->
+    <mark_cache_size>268435456</mark_cache_size> <!-- 256MB -->
+    <uncompressed_cache_size>268435456</uncompressed_cache_size> <!-- 256MB -->
+    <cache_size_to_ram_max_ratio>0.25</cache_size_to_ram_max_ratio>
+    <max_server_memory_usage_to_ram_ratio replace="true">0.6</max_server_memory_usage_to_ram_ratio>
+</clickhouse>
