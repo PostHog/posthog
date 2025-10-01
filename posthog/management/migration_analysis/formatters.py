@@ -102,14 +102,13 @@ class ConsoleTreeFormatter(RiskFormatter):
 
         # Determine prefix based on whether there are warnings after operations
         has_warnings = risk.combination_risks or risk.policy_violations
-        is_last_op = idx == len(risk.operations) - 1
 
         # Nested operations get extra indentation
         if op_risk.parent_index is not None:
-            base_prefix = "  │  " if has_warnings and not is_last_op else "  "
+            base_prefix = "  │  " if has_warnings else "  "
             prefix = base_prefix + "   "
         else:
-            prefix = "  │  " if has_warnings and not is_last_op else "  "
+            prefix = "  │  " if has_warnings else "  "
 
         # Format operation line with numbering
         op_number = f"#{idx + 1}"
