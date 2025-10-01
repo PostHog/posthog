@@ -13,6 +13,8 @@ from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_set
 )
 from products.tasks.backend.temporal.process_task.utils import get_sandbox_name_for_task
 
+from .constants import BASE_SNAPSHOT
+
 # Skip all sandbox tests if RUNLOOP_API_KEY is not set
 pytestmark = pytest.mark.skipif(
     not os.environ.get("RUNLOOP_API_KEY"), reason="RUNLOOP_API_KEY environment variable not set"
@@ -38,18 +40,14 @@ class TestGetSandboxForSetupActivity:
 
     async def _cleanup_sandbox(self, sandbox_id):
         """Helper method to clean up a sandbox."""
-        try:
-            sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
-            await sandbox.terminate()
-        except Exception:
-            # Sandbox might already be terminated or not exist
-            pass
+
+        sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+        await sandbox.destroy()
 
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_get_sandbox_for_setup_with_existing_snapshot(self, activity_environment, github_integration, ateam):
-        # Create an existing snapshot
-        snapshot = await self._create_snapshot(github_integration)
+        snapshot = await self._create_snapshot(github_integration, external_id=BASE_SNAPSHOT["external_id"])
 
         task_id = "test-task-123"
         sandbox_id = None
@@ -66,7 +64,7 @@ class TestGetSandboxForSetupActivity:
             # Verify sandbox was created
             sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
-            assert sandbox.status in ["pending", "initializing", "running"]  # Valid creation states
+            assert sandbox.status in ["pending", "initializing", "running"]
 
         finally:
             await self._cleanup_snapshot(snapshot)
@@ -93,6 +91,7 @@ class TestGetSandboxForSetupActivity:
             # Verify sandbox was created
             sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
+
             assert sandbox.status in ["pending", "initializing", "running"]
 
         finally:

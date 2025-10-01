@@ -31,7 +31,7 @@ async def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> str:
         name=get_sandbox_name_for_task(input.task_id),
         template=SandboxEnvironmentTemplate.DEFAULT_BASE,
         environment_variables={},
-        snapshot_id=snapshot.external_id if snapshot else None,
+        snapshot_id=str(snapshot.id) if snapshot else None,
     )
 
     sandbox = await SandboxEnvironment.create(config)

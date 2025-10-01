@@ -100,7 +100,7 @@ class SandboxEnvironment:
         snapshot_external_id = None
 
         if config.snapshot_id:
-            snapshot = await sync_to_async(SandboxSnapshot.objects.get)(external_id=config.snapshot_id)
+            snapshot = await sync_to_async(SandboxSnapshot.objects.get)(id=config.snapshot_id)
 
             if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                 snapshot_external_id = snapshot.external_id
