@@ -19,7 +19,7 @@ export function FeedbackListItem({ feedback }: FeedbackListItemProps): JSX.Eleme
     }
 
     return (
-        <div className="border rounded bg-surface-primary p-4 hover:bg-surface-secondary transition-colors">
+        <div className="border-b last:border-b-0 p-4 hover:bg-surface-secondary transition-colors">
             <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">

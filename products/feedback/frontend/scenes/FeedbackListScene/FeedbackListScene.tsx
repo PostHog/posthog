@@ -4,6 +4,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { FeedbackFilters } from '../../components/FeedbackFilters'
 import { FeedbackList } from '../../components/ListScene/FeedbackList'
 
 export const scene: SceneExport = {
@@ -14,6 +15,7 @@ export function FeedbackListScene(): JSX.Element {
     return (
         <SceneContent>
             <Header />
+            <FeedbackFilters />
             <FeedbackList />
         </SceneContent>
     )
