@@ -10,13 +10,19 @@ export const manifest: ProductManifest = {
             name: 'Feedback',
             projectBased: true,
         },
+        FeedbackItem: {
+            import: () => import('./frontend/scenes/FeedbackItemScene/FeedbackItemScene'),
+            name: 'Feedback item',
+            projectBased: true,
+        },
     },
     routes: {
         '/feedback': ['FeedbackList', 'feedbackList'],
+        '/feedback/:id': ['FeedbackItem', 'feedbackItem'],
     },
     urls: {
         feedbackList: (): string => '/feedback',
-        feedback: (id: string): string => `/feedback/${id}`,
+        feedbackItem: (id: string): string => `/feedback/${id}`,
     },
     fileSystemTypes: {
         feedback: {

@@ -17,3 +17,6 @@ export interface FeedbackItem {
     timestamp: string
     status: FeedbackStatus
 }
+
+export type StatusOption = FeedbackStatus | 'all'
+export type TypeOption = FeedbackType | 'all'

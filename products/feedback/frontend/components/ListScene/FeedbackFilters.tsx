@@ -1,12 +1,13 @@
+import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
 import { IconBug, IconQuestion } from '@posthog/icons'
 import { LemonBadge, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconFeedback } from '~/lib/lemon-ui/icons'
 
-import { FeedbackStatus, FeedbackType } from '../types'
-
-type StatusOption = FeedbackStatus | 'all'
-type TypeOption = FeedbackType | 'all'
+import { filtersLogic } from '../../logics/filtersLogic'
+import { FeedbackStatus, FeedbackType, StatusOption, TypeOption } from '../../types'
 
 const STATUS_LABELS: Record<StatusOption, { label: string; color: 'success' | 'warning' | 'muted' }> = {
     all: { label: 'All', color: 'muted' },
@@ -25,12 +26,31 @@ export const FeedbackFilters = (): JSX.Element => {
     const statusOptions: StatusOption[] = ['all', FeedbackStatus.Visible, FeedbackStatus.Hidden]
     const typeOptions: TypeOption[] = ['all', FeedbackType.Question, FeedbackType.Feedback, FeedbackType.Bug]
 
+    const { statusFilter, typeFilter } = useValues(filtersLogic)
+    const { setStatusFilter, setTypeFilter } = useActions(filtersLogic)
+
+    const statusOption = useMemo(() => {
+        if (!statusFilter) {
+            return 'all'
+        } else {
+            return statusFilter
+        }
+    }, [statusFilter])
+
+    const typeOption = useMemo(() => {
+        if (!typeFilter) {
+            return 'all'
+        } else {
+            return typeFilter
+        }
+    }, [typeFilter])
+
     return (
         <div className="bg-bg-light border rounded p-4">
             <div className="flex gap-2">
                 <LemonInput fullWidth type="search" placeholder="it doesn't do anything (yet)" />
                 <LemonSelect
-                    value="all"
+                    value={statusOption}
                     placeholder="Select status"
                     options={statusOptions.map((status) => ({
                         value: status,
@@ -42,9 +62,16 @@ export const FeedbackFilters = (): JSX.Element => {
                         ),
                     }))}
                     size="small"
+                    onChange={(status) => {
+                        if (status === 'all') {
+                            setStatusFilter(null)
+                        } else {
+                            setStatusFilter(status)
+                        }
+                    }}
                 />
                 <LemonSelect
-                    value="all"
+                    value={typeOption}
                     placeholder="Select type"
                     options={typeOptions.map((type) => ({
                         value: type,
@@ -56,6 +83,13 @@ export const FeedbackFilters = (): JSX.Element => {
                         ),
                     }))}
                     size="small"
+                    onChange={(type) => {
+                        if (type === 'all') {
+                            setTypeFilter(null)
+                        } else {
+                            setTypeFilter(type)
+                        }
+                    }}
                 />
             </div>
         </div>
