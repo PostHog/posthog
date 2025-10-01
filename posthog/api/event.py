@@ -298,7 +298,7 @@ class EventViewSet(
         else:
             # Check if this property is hidden (enterprise feature)
             if self._is_property_hidden(key, team):
-                return response.Response([])
+                return self._return_with_short_cache([])
 
             return self._event_property_values(query_params)
 
@@ -378,7 +378,9 @@ class EventViewSet(
             order_by=order_by,
             limit=ast.Constant(value=10),
         )
+
         result = execute_hogql_query(query, team=query_params.team)
+
         values = []
         for value in result.results:
             if isinstance(value[0], float | int | bool | uuid.UUID):
@@ -388,7 +390,14 @@ class EventViewSet(
                     values.append(json.loads(value[0]))
                 except json.JSONDecodeError:
                     values.append(value[0])
-        return response.Response([{"name": convert_property_value(value)} for value in flatten(values)])
+
+        return self._return_with_short_cache([{"name": convert_property_value(value)} for value in flatten(values)])
+
+    @staticmethod
+    def _return_with_short_cache(values) -> response.Response:
+        resp = response.Response(values)
+        resp["Cache-Control"] = "max-age=10"
+        return resp
 
     @tracer.start_as_current_span("events_api_is_property_hidden")
     def _is_property_hidden(self, key: str, team: Team) -> bool:
@@ -426,8 +435,10 @@ class EventViewSet(
             ),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["event"]), order="ASC")],
         )
+
         result = execute_hogql_query(query, team=query_params.team)
-        return response.Response([{"name": event[0]} for event in result.results])
+
+        return self._return_with_short_cache([{"name": event[0]} for event in result.results])
 
 
 class LegacyEventViewSet(EventViewSet):
