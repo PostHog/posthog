@@ -276,6 +276,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
             if issue_fingerprints:
                 # Query ClickHouse for matching fingerprints
+
+                # TODO: we should also return the embedding version
+                # and use the version for searching similar embeddings
                 query = """
                     SELECT DISTINCT embeddings
                     FROM error_tracking_issue_fingerprint_embeddings
