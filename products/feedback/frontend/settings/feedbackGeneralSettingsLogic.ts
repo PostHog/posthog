@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
+import { FeedbackItemTopic } from '../models'
 import type { feedbackGeneralSettingsLogicType } from './feedbackGeneralSettingsLogicType'
 
 export const DEFAULT_FEEDBACK_CATEGORIES: string[] = ['bug', 'feature', 'improvement']
@@ -12,7 +13,7 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
     path(['products', 'feedback', 'settings', 'feedbackGeneralSettingsLogic']),
 
     actions({
-        loadFeedbackTopicsTemp: true,
+        loadFeedbackTopics: true,
 
         addFeedbackCategory: (key: string) => ({ key }),
         removeFeedbackCategory: (index: number) => ({ index }),
@@ -29,24 +30,16 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
                 removeFeedbackCategory: (state, { index }) => state.filter((_, i) => i !== index),
             },
         ],
-        feedbackTopics: [
-            DEFAULT_FEEDBACK_TOPICS as string[],
-            { persist: true },
-            {
-                addFeedbackTopic: (state, { key }) => [...state, key],
-                removeFeedbackTopic: (state, { index }) => state.filter((_, i) => i !== index),
-            },
-        ],
     }),
 
     loaders(() => ({
-        feedbackTopicsTemp: [
-            [] as string[],
+        feedbackTopics: [
+            [] as FeedbackItemTopic[],
             {
-                loadFeedbackTopicsTemp: async () => {
-                    const response = await api.feedbackItems.list()
+                loadFeedbackTopics: async () => {
+                    const response = await api.feedback.topics.list()
 
-                    return []
+                    return response.results
                 },
             },
         ],
@@ -54,7 +47,7 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
 
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadFeedbackTopicsTemp()
+            actions.loadFeedbackTopics()
         },
     })),
 ])

@@ -162,6 +162,12 @@ import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
+import {
+    FeedbackItem,
+    FeedbackItemCategory,
+    FeedbackItemStatus,
+    FeedbackItemTopic,
+} from 'products/feedback/frontend/models'
 import { HogflowTestResult } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
@@ -1515,6 +1521,18 @@ export class ApiRequest {
 
     public feedbackItem(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.feedbackItems(teamId).addPathComponent(id)
+    }
+
+    public feedbackItemCategories(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('feedback_categories')
+    }
+
+    public feedbackItemStatuses(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('feedback_statuses')
+    }
+
+    public feedbackItemTopics(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('feedback_topics')
     }
 }
 
@@ -4170,17 +4188,37 @@ const api = {
         },
     },
 
-    feedbackItems: {
-        async list(
-            params: {
-                limit?: number
-                offset?: number
-            } = {}
-        ): Promise<CountedPaginatedResponse<any>> {
-            return await new ApiRequest().feedbackItems().withQueryString(toParams(params)).get()
+    feedback: {
+        items: {
+            async list(
+                params: {
+                    limit?: number
+                    offset?: number
+                } = {}
+            ): Promise<CountedPaginatedResponse<FeedbackItem>> {
+                return await new ApiRequest().feedbackItems().withQueryString(toParams(params)).get()
+            },
+            async get(id: string): Promise<FeedbackItem> {
+                return await new ApiRequest().feedbackItem(id).get()
+            },
         },
-        async get(id: string): Promise<any> {
-            return await new ApiRequest().feedbackItem(id).get()
+
+        categories: {
+            async list(): Promise<CountedPaginatedResponse<FeedbackItemCategory>> {
+                return await new ApiRequest().feedbackItemCategories().get()
+            },
+        },
+
+        statuses: {
+            async list(): Promise<CountedPaginatedResponse<FeedbackItemStatus>> {
+                return await new ApiRequest().feedbackItemStatuses().get()
+            },
+        },
+
+        topics: {
+            async list(): Promise<CountedPaginatedResponse<FeedbackItemTopic>> {
+                return await new ApiRequest().feedbackItemTopics().get()
+            },
         },
     },
 

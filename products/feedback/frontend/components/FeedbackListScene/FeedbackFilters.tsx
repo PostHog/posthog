@@ -5,19 +5,12 @@ import { LemonBadge, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { feedbackListSceneLogic } from '../../scenes/FeedbackListScene/feedbackListSceneLogic'
 import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSettingsLogic'
-import { FeedbackStatus, StatusOption } from '../../types'
-
-const STATUS_LABELS: Record<StatusOption, { label: string; color: 'success' | 'warning' | 'muted' }> = {
-    all: { label: 'All statuses', color: 'muted' },
-    [FeedbackStatus.Visible]: { label: 'Visible', color: 'success' },
-    [FeedbackStatus.Hidden]: { label: 'Hidden', color: 'warning' },
-}
 
 export const FeedbackFilters = (): JSX.Element => {
     const { feedbackCategories, feedbackTopics } = useValues(feedbackGeneralSettingsLogic)
-    const statusOptions: StatusOption[] = ['all', FeedbackStatus.Visible, FeedbackStatus.Hidden]
+    const statusOptions: Array<string | 'all'> = ['all', 'visible', 'hidden']
     const categoryOptions: Array<string | 'all'> = ['all', ...feedbackCategories]
-    const topicOptions: Array<string | 'all'> = ['all', ...feedbackTopics]
+    const topicOptions: Array<string | 'all'> = ['all', ...feedbackTopics.map((t) => t.name)]
 
     const { statusFilter, categoryFilter, topicFilter } = useValues(feedbackListSceneLogic)
     const { setStatusFilter, setCategoryFilter, setTopicFilter } = useActions(feedbackListSceneLogic)
@@ -54,8 +47,8 @@ export const FeedbackFilters = (): JSX.Element => {
                         value: status,
                         label: (
                             <div className="flex items-center gap-2 text-sm">
-                                <LemonBadge status={STATUS_LABELS[status].color} size="small" />
-                                <span>{STATUS_LABELS[status].label}</span>
+                                <LemonBadge status="success" size="small" />
+                                <span>{status}</span>
                             </div>
                         ),
                     }))}

@@ -69,6 +69,24 @@ class FeedbackItemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = FeedbackItemSerializer
 
 
+class FeedbackItemCategoryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "feedback_item_category"
+    queryset = FeedbackItemCategory.objects.all()
+    serializer_class = FeedbackItemCategorySerializer
+
+
+class FeedbackItemStatusViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "feedback_item_status"
+    queryset = FeedbackItemStatus.objects.all()
+    serializer_class = FeedbackItemStatusSerializer
+
+
+class FeedbackItemTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "feedback_item_topic"
+    queryset = FeedbackItemTopic.objects.all()
+    serializer_class = FeedbackItemTopicSerializer
+
+
 class PublicFeedbackItemViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "feedback_item"
     authentication_classes = []

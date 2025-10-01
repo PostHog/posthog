@@ -29,7 +29,7 @@ export function FeedbackListItem({ feedback }: FeedbackListItemProps): JSX.Eleme
                         <span className="text-muted text-xs">{feedback.created_at}</span>
                         <span className="text-muted text-xs">·</span>
                         <LemonTag>
-                            <span className="capitalize">{feedback.category}</span>
+                            <span className="capitalize">{feedback.category?.name}</span>
                         </LemonTag>
                         <span className="text-muted text-xs">·</span>
                         <span className="text-muted text-xs">{truncatedTopic}</span>

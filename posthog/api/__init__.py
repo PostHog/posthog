@@ -217,6 +217,24 @@ project_features_router = projects_router.register(
     "project_feedback_items",
     ["project_id"],
 )
+projects_router.register(
+    r"feedback_categories",
+    feedback.FeedbackItemCategoryViewSet,
+    "project_feedback_categories",
+    ["project_id"],
+)
+projects_router.register(
+    r"feedback_statuses",
+    feedback.FeedbackItemStatusViewSet,
+    "project_feedback_statuses",
+    ["project_id"],
+)
+projects_router.register(
+    r"feedback_topics",
+    feedback.FeedbackItemTopicViewSet,
+    "project_feedback_topics",
+    ["project_id"],
+)
 
 projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 

@@ -3,16 +3,16 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
-import { MOCK_FEEDBACK_ITEMS } from '../../mocks'
+import api from 'lib/api'
+
 import { FeedbackItem } from '../../models'
-import { FeedbackStatus } from '../../types'
 import type { feedbackListSceneLogicType } from './feedbackListSceneLogicType'
 
 export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
     path(['products', 'feedback', 'scenes', 'FeedbackListScene', 'feedbackListSceneLogic']),
 
     actions({
-        setStatusFilter: (status: FeedbackStatus | null) => ({ status }),
+        setStatusFilter: (status: string | null) => ({ status }),
         setCategoryFilter: (category: string | null) => ({ category }),
         setTopicFilter: (topic: string | null) => ({ topic }),
 
@@ -22,7 +22,7 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
 
     reducers({
         statusFilter: [
-            null as FeedbackStatus | null,
+            null as string | null,
             {
                 setStatusFilter: (_, { status }) => status,
             },
@@ -41,28 +41,14 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
         ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(() => ({
         feedbackItems: [
             [] as FeedbackItem[],
             {
                 loadFeedbackItems: async () => {
-                    await new Promise((resolve) => setTimeout(resolve, 1000))
+                    const response = await api.feedback.items.list()
 
-                    let filtered = MOCK_FEEDBACK_ITEMS
-
-                    if (values.statusFilter) {
-                        filtered = filtered.filter((item) => item.status === values.statusFilter)
-                    }
-
-                    if (values.categoryFilter) {
-                        filtered = filtered.filter((item) => item.category === values.categoryFilter)
-                    }
-
-                    if (values.topicFilter) {
-                        filtered = filtered.filter((item) => item.topic === values.topicFilter)
-                    }
-
-                    return filtered
+                    return response.results
                 },
             },
         ],

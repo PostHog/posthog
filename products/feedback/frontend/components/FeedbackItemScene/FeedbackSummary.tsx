@@ -3,12 +3,6 @@ import { useValues } from 'kea'
 import { LemonBadge, LemonTag } from '@posthog/lemon-ui'
 
 import { feedbackItemSceneLogic } from '../../scenes/FeedbackItemScene/feedbackItemSceneLogic'
-import { FeedbackStatus } from '../../types'
-
-const STATUS_CONFIG: Record<FeedbackStatus, { label: string; color: 'success' | 'warning' }> = {
-    [FeedbackStatus.Visible]: { label: 'Visible', color: 'success' },
-    [FeedbackStatus.Hidden]: { label: 'Hidden', color: 'warning' },
-}
 
 export function FeedbackSummary(): JSX.Element {
     const { feedbackItem, feedbackItemLoading } = useValues(feedbackItemSceneLogic)
@@ -38,24 +32,24 @@ export function FeedbackSummary(): JSX.Element {
                             <span className="capitalize">{feedbackItem.category}</span>
                         </LemonTag>
                         <div className="flex items-center gap-1.5">
-                            <LemonBadge status={STATUS_CONFIG[feedbackItem.status].color} size="small" />
-                            <span className="text-xs text-muted">{STATUS_CONFIG[feedbackItem.status].label}</span>
+                            <LemonBadge status="success" size="small" />
+                            <span className="text-xs text-muted">{feedbackItem.status?.name}</span>
                         </div>
                     </div>
                 </div>
 
                 <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                        <span className="font-semibold text-base">{feedbackItem.user}</span>
+                        <span className="font-semibold text-base">todo@todo.com</span>
                         <span className="text-muted text-sm">·</span>
-                        <span className="text-muted text-sm">{feedbackItem.timestamp}</span>
+                        <span className="text-muted text-sm">{feedbackItem.created_at}</span>
                     </div>
                 </div>
             </div>
 
             <div className="p-6">
                 <h3 className="text-sm font-semibold text-muted mb-2">Message</h3>
-                <p className="text-base m-0 whitespace-pre-wrap">{feedbackItem.message}</p>
+                <p className="text-base m-0 whitespace-pre-wrap">{feedbackItem.content}</p>
             </div>
 
             <div className="border-t p-6 bg-surface-secondary">
@@ -66,11 +60,11 @@ export function FeedbackSummary(): JSX.Element {
                     </div>
                     <div>
                         <h4 className="text-xs font-semibold text-muted mb-1">Category</h4>
-                        <p className="text-sm m-0 capitalize">{feedbackItem.category}</p>
+                        <p className="text-sm m-0 capitalize">{feedbackItem.category?.name}</p>
                     </div>
                     <div>
                         <h4 className="text-xs font-semibold text-muted mb-1">Topic</h4>
-                        <p className="text-sm m-0">{feedbackItem.topic}</p>
+                        <p className="text-sm m-0">{feedbackItem.topic?.name}</p>
                     </div>
                 </div>
             </div>
