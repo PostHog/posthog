@@ -128,7 +128,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:1033e5b4%'
+    AND query LIKE '%cohort_calc:af501f45%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -154,7 +154,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:886906e7%'
+    AND query LIKE '%cohort_calc:a095d755%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -254,7 +254,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:37d1f64f%'
+    AND query LIKE '%cohort_calc:d89e7047%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -280,7 +280,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:66a47892%'
+    AND query LIKE '%cohort_calc:7de781ec%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -361,7 +361,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:cfad9daa%'
+    AND query LIKE '%cohort_calc:342c9b2f%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
