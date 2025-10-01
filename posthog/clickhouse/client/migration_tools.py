@@ -56,9 +56,10 @@ def run_sql_with_exceptions(
     node_roles = node_roles or [NodeRole.DATA]
 
     if settings.E2E_TESTING or settings.DEBUG:
-        # In E2E tests and debug mode, we run migrations on all nodes
-        # because we don't have different ClickHouse topologies yet in Docker
-        node_roles = [NodeRole.ALL]
+        # In E2E tests and debug mode, we run migrations on data nodes
+        # because we don't have different ClickHouse topologies yet in Docker,
+        # and this is the only type we are using right now
+        node_roles = [NodeRole.DATA]
 
     def run_migration():
         if "ON CLUSTER" in sql:
