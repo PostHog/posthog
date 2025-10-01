@@ -1,85 +1,12 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 
+import { ScrollDepthMouseCanvas, scrollDepthColor } from 'lib/components/heatmaps/ScrollDepthCanvas'
 import { useMousePosition } from 'lib/components/heatmaps/useMousePosition'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
-import { HeatmapElement } from '../types'
-
-export const scrollDepthColor = (count: number, maxCount: number, heatmapColorPalette: string | null): string => {
-    const value = 1 - count / maxCount
-
-    if (heatmapColorPalette === 'default') {
-        const safeValue = Math.max(0, Math.min(1, value))
-        const hue = Math.round(260 * safeValue)
-
-        // Return hsl color. You can adjust saturation and lightness to your liking
-        return `hsl(${hue}, 100%, 50%)`
-    }
-
-    const rgba = [0, 0, 0, count / maxCount]
-
-    switch (heatmapColorPalette) {
-        case 'red':
-            rgba[0] = 255
-            break
-        case 'green':
-            rgba[1] = 255
-            break
-        case 'blue':
-            rgba[2] = 255
-            break
-        default:
-            break
-    }
-
-    return `rgba(${rgba.join(', ')})`
-}
-
-export function ScrollDepthMouseCanvas({
-    mouseY,
-    shiftPressed,
-    rawHeatmapLoading,
-    heatmapElements,
-    percentage,
-}: {
-    mouseY: number
-    shiftPressed: boolean
-    rawHeatmapLoading: boolean
-    heatmapElements: HeatmapElement[]
-    percentage: number
-}): JSX.Element | null {
-    return (
-        <div
-            className="absolute left-0 right-0 flex items-center z-10 -translate-y-1/2"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                top: mouseY,
-            }}
-        >
-            <div className="border-b border-default w-full opacity-75" />
-            <div
-                className={clsx(
-                    'bg-default whitespace-nowrap text-white rounded p-2 font-semibold opacity-75 hover:opacity-100 transition-all',
-                    !shiftPressed ? 'pointer-events-auto' : 'pointer-events-none'
-                )}
-            >
-                {rawHeatmapLoading ? (
-                    <>Loading...</>
-                ) : heatmapElements.length ? (
-                    <>{percentage.toPrecision(4)}% scrolled this far</>
-                ) : (
-                    <>No scroll data for the current dimension range</>
-                )}
-            </div>
-
-            <div className="border-b border-default w-10 opacity-75" />
-        </div>
-    )
-}
 
 function ScrollDepthMouseInfo(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
