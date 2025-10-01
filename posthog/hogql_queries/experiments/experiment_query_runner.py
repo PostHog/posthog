@@ -100,8 +100,9 @@ class ExperimentQueryRunner(QueryRunner):
 
         self.stats_method = get_experiment_stats_method(self.experiment)
 
-        # Determine how to handle entities exposed to multiple variants
-        self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.experiment)
+        self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(
+            self.experiment.exposure_criteria
+        )
 
         # Just to simplify access
         self.metric = self.query.metric

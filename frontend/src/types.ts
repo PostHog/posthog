@@ -4507,6 +4507,7 @@ export type APIScopeObject =
     | 'group'
     | 'hog_function'
     | 'insight'
+    | 'integration'
     | 'notebook'
     | 'organization'
     | 'organization_member'
