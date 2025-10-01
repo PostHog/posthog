@@ -70,8 +70,9 @@ const processCost = (event: PluginEvent) => {
     // If we already have input and output costs, we can skip the rest of the logic
     if (event.properties['$ai_input_cost_usd'] && event.properties['$ai_output_cost_usd']) {
         if (!event.properties['$ai_total_cost_usd']) {
-            event.properties['$ai_total_cost_usd'] =
-                event.properties['$ai_input_cost_usd'] + event.properties['$ai_output_cost_usd']
+            event.properties['$ai_total_cost_usd'] = parseFloat(
+                bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
+            )
         }
 
         return event

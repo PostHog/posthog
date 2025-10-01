@@ -92,7 +92,8 @@ export const findCostFromModel = (aiModel: string, properties?: Properties): Cos
 }
 
 export const requireSpecialCost = (aiModel: string): boolean => {
-    return SPECIAL_COST_MODELS.some((model) => aiModel.toLowerCase().includes(model.toLowerCase()))
+    const lowerAiModel = aiModel.toLowerCase()
+    return SPECIAL_COST_MODELS.some((model) => lowerAiModel.includes(model.toLowerCase()))
 }
 
 export const getNewModelName = (properties: Properties): string => {
@@ -104,7 +105,9 @@ export const getNewModelName = (properties: Properties): string => {
 
     // Gemini 2.5 Pro Preview has a limit of 200k input tokens before the price changes, we store the other price in the :large suffix
     if (model.toLowerCase().includes('gemini-2.5-pro-preview')) {
-        const tokenCountExceeded = properties['$ai_input_tokens'] ? properties['$ai_input_tokens'] > 200000 : false
+        const tokenCountExceeded = properties['$ai_input_tokens']
+            ? Number(properties['$ai_input_tokens']) > 200000
+            : false
         return tokenCountExceeded ? 'gemini-2.5-pro-preview:large' : 'gemini-2.5-pro-preview'
     }
 
