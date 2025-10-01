@@ -4753,6 +4753,37 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    def test_validation_empty_groups(self):
+        """Test that creating a flag with empty groups raises validation error"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Empty groups flag", "key": "empty-groups-flag", "filters": {"groups": []}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Feature flags must have at least one condition set (group).",
+                "attr": "filters",
+            },
+        )
+
+    def test_validation_groups_with_empty_properties_allowed(self):
+        """Test that creating a flag with groups having empty properties but valid rollout is allowed"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Valid flag with empty properties",
+                "key": "valid-empty-properties",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def _create_flag_with_properties(
         self,
         name: str,
