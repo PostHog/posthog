@@ -1,7 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
-import { CostModelSource, normalizeTraceProperties, processAiEvent } from './process-ai-event'
+import { CostModelSource } from './cost-model-matching'
+import { normalizeTraceProperties, processAiEvent } from './process-ai-event'
 
 jest.mock('../../utils/logger', () => ({
     logger: {
@@ -279,8 +280,8 @@ describe('processAiEvent()', () => {
                 temperature: 0.5,
             }
             const result = processAiEvent(event)
-            // Should not extract parameters without provider
-            expect(result.properties!.$ai_temperature).toBeUndefined()
+            // Extracts parameters even without provider
+            expect(result.properties!.$ai_temperature).toBe(0.5)
         })
 
         it('handles empty model parameters object', () => {
