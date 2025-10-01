@@ -871,7 +871,7 @@ def cleanup_old_events_by_partition(
 
         # Wait for all mutations to complete
         cluster.map_all_hosts_in_shards(
-            {host.shard_num: mutation.wait for host, mutation in shard_mutations.items()}
+            {host.shard_num: mutation.wait for host, mutation in shard_mutations.items() if host.shard_num is not None}
         ).result()
 
         context.log.info(f"Completed deletion for partition {partition}")
