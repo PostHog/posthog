@@ -654,7 +654,7 @@ class RedshiftConsumerFromStage(ConsumerFromStage):
                 await cursor.execute(self.current_buffer.read())
 
         self.logger.debug(
-            "Insert query finished finished",
+            "Insert query finished",
             current_file_index=self.current_file_index,
             buffer_size=buffer_size,
         )
