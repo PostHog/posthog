@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import date, timedelta
 from enum import Enum
 from typing import Any, Literal
@@ -437,18 +438,28 @@ class ExperimentSerializer(serializers.ModelSerializer):
                     existing_flag_serializer.is_valid(raise_exception=True)
                     existing_flag_serializer.save()
 
-        # Add fingerprints to metrics
-        for metric_field in ["metrics", "metrics_secondary"]:
-            if metric_field in validated_data:
-                start_date = validated_data.get("start_date", instance.start_date)
+        # Always recalculate fingerprints for all metrics
+        # Fingerprints depend on start_date, stats_config, and exposure_criteria
+        start_date = validated_data.get("start_date", instance.start_date)
+        stats_config = validated_data.get("stats_config", instance.stats_config)
+        exposure_criteria = validated_data.get("exposure_criteria", instance.exposure_criteria)
 
-                for metric in validated_data[metric_field]:
-                    metric["fingerprint"] = compute_metric_fingerprint(
-                        metric,
+        for metric_field in ["metrics", "metrics_secondary"]:
+            # Use metrics from validated_data if present, otherwise use existing metrics
+            metrics = validated_data.get(metric_field, getattr(instance, metric_field, None))
+            if metrics:
+                updated_metrics = []
+                for metric in metrics:
+                    metric_copy = deepcopy(metric)
+                    metric_copy["fingerprint"] = compute_metric_fingerprint(
+                        metric_copy,
                         start_date,
-                        validated_data.get("stats_config", instance.stats_config),
-                        validated_data.get("exposure_criteria", instance.exposure_criteria),
+                        stats_config,
+                        exposure_criteria,
                     )
+                    updated_metrics.append(metric_copy)
+
+                validated_data[metric_field] = updated_metrics
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
@@ -718,12 +729,17 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
 
         Query parameters:
         - metric_uuid (required): The UUID of the metric to retrieve results for
+        - fingerprint (required): The fingerprint of the metric configuration
         """
         experiment = self.get_object()
         metric_uuid = request.query_params.get("metric_uuid")
+        fingerprint = request.query_params.get("fingerprint")
 
         if not metric_uuid:
             raise ValidationError("metric_uuid query parameter is required")
+
+        if not fingerprint:
+            raise ValidationError("fingerprint query parameter is required")
 
         metrics = experiment.metrics or []
         metrics_secondary = experiment.metrics_secondary or []
@@ -735,7 +751,9 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
 
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
-        start_date = experiment.start_date.date() if experiment.start_date else experiment.created_at.date()
+        if not experiment.start_date:
+            raise ValidationError("Experiment has not been started yet")
+        start_date = experiment.start_date.date()
         end_date = experiment.end_date.date() if experiment.end_date else date.today()
 
         experiment_dates = []
@@ -751,7 +769,7 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
             timeseries[experiment_date.isoformat()] = None
 
         metric_results = ExperimentMetricResult.objects.filter(
-            experiment_id=experiment.id, metric_uuid=metric_uuid
+            experiment_id=experiment.id, metric_uuid=metric_uuid, fingerprint=fingerprint
         ).order_by("query_to")
 
         completed_count = 0

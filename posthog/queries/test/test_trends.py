@@ -5508,7 +5508,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         step = sign_up_action.steps[0]
         step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
 
-        sign_up_action.steps = [dataclasses.asdict(step)]  # type: ignore
+        sign_up_action.steps = [dataclasses.asdict(step)]
         sign_up_action.save()
 
         with freeze_time("2020-01-04T14:01:01Z"):
@@ -6777,7 +6777,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         query_time = datetime(2020, 1, 5, 10, 1, 1, tzinfo=ZoneInfo(self.team.timezone))
-        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600  # type: ignore
+        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600
         utc_offset_sign = "-" if utc_offset_hours < 0 else "+"
         with freeze_time(query_time):
             response = Trends().run(

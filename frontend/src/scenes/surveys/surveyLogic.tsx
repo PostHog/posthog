@@ -27,6 +27,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
@@ -227,11 +228,12 @@ function extractPersonData(row: SurveyResponseRow): {
     // now, we're querying for all PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES, starting from the third last value, so build our person properties object
     // from those values. We use them to have a display name for the person
     const personProperties: Record<string, any> = {}
+    const personDisplayProperties = PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
     let hasAnyProperties = false
-    for (let i = 0; i < PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.length; i++) {
+    for (let i = 0; i < personDisplayProperties.length; i++) {
         const value = row.at(-3 - i) as string
         if (value && value !== null && value !== '') {
-            personProperties[PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES[i]] = value
+            personProperties[personDisplayProperties[i]] = value
             hasAnyProperties = true
         }
     }
@@ -484,6 +486,8 @@ export const surveyLogic = kea<surveyLogicType>([
             ['user'],
             teamLogic,
             ['currentTeam'],
+            propertyDefinitionsModel,
+            ['propertyDefinitionsByType'],
         ],
     })),
     actions({

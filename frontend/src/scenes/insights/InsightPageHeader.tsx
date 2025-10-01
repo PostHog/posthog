@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconCode2, IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash, IconWarning } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
@@ -10,7 +10,6 @@ import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
@@ -45,7 +44,6 @@ import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
-import { queryEndpointLogic } from 'scenes/data-warehouse/editor/output-pane-tabs/queryEndpointLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -60,10 +58,10 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     ScenePanel,
-    ScenePanelActions,
+    ScenePanelActionsSection,
     ScenePanelCommonActions,
     ScenePanelDivider,
-    ScenePanelMetaInfo,
+    ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -79,6 +77,8 @@ import {
     ItemMode,
     QueryBasedInsightModel,
 } from '~/types'
+
+import { QueryEndpointModal } from 'products/embedded_analytics/frontend/QueryEndpointModal'
 
 import { getInsightIconTypeFromQuery } from './utils'
 
@@ -112,7 +112,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { createStaticCohort } = useActions(exportsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const { createQueryEndpoint } = useActions(queryEndpointLogic({ tabId: 'qe-insight' }))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -129,6 +128,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
+    const [queryEndpointModalOpen, setQueryEndpointModalOpen] = useState<boolean>(false)
 
     const dashboardOverridesExist =
         (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
@@ -206,72 +206,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     )}
                     <NewDashboardModal />
+                    <QueryEndpointModal
+                        isOpen={queryEndpointModalOpen}
+                        closeModal={() => setQueryEndpointModalOpen(false)}
+                        tabId={insightProps.tabId || ''}
+                        insightQuery={insightQuery as HogQLQuery | InsightQueryNode}
+                    />
                 </>
             )}
-            <PageHeader
-                buttons={
-                    <div className="flex justify-between items-center gap-2">
-                        {insightMode === ItemMode.Edit && hasDashboardItemId && (
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => setInsightMode(ItemMode.View, null)}
-                                data-attr="insight-cancel-edit-button"
-                            >
-                                Cancel
-                            </LemonButton>
-                        )}
-
-                        {insightMode !== ItemMode.Edit ? (
-                            canEditInsight && (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.Insight}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={insight.user_access_level}
-                                >
-                                    <LemonButton
-                                        type="primary"
-                                        icon={dashboardOverridesExist ? <IconWarning /> : undefined}
-                                        tooltip={
-                                            dashboardOverridesExist
-                                                ? `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`
-                                                : undefined
-                                        }
-                                        tooltipPlacement="bottom"
-                                        onClick={() => {
-                                            if (isDataVisualizationNode(query) && insight.short_id) {
-                                                router.actions.push(
-                                                    urls.sqlEditor(undefined, undefined, insight.short_id)
-                                                )
-                                            } else if (insight.short_id) {
-                                                push(urls.insightEdit(insight.short_id))
-                                            } else {
-                                                setInsightMode(ItemMode.Edit, null)
-                                            }
-                                        }}
-                                        data-attr="insight-edit-button"
-                                    >
-                                        Edit
-                                    </LemonButton>
-                                </AccessControlAction>
-                            )
-                        ) : (
-                            <InsightSaveButton
-                                saveAs={() => saveAs(undefined, undefined, 'Unfiled/Insights')}
-                                saveInsight={(redirectToViewMode) =>
-                                    insight.short_id
-                                        ? saveInsight(redirectToViewMode)
-                                        : saveInsight(redirectToViewMode, getLastNewFolder() ?? 'Unfiled/Insights')
-                                }
-                                isSaved={hasDashboardItemId}
-                                addingToDashboard={!!insight.dashboards?.length && !insight.id}
-                                insightSaving={insightSaving}
-                                insightChanged={insightChanged || queryChanged}
-                            />
-                        )}
-                    </div>
-                }
-                tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
-            />
 
             <ScenePanel>
                 <>
@@ -293,7 +235,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             }}
                         />
                     </ScenePanelCommonActions>
-                    <ScenePanelMetaInfo>
+                    <ScenePanelDivider />
+                    <ScenePanelInfoSection>
                         <SceneTags
                             onSave={(tags) => {
                                 setInsightMetadata({ tags })
@@ -311,14 +254,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             by={insight.last_modified_by}
                             prefix="Last modified"
                         />
-                    </ScenePanelMetaInfo>
+                    </ScenePanelInfoSection>
 
                     <ScenePanelDivider />
 
-                    <ScenePanelActions>
+                    <ScenePanelActionsSection>
                         {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
 
-                        <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
+                        {insight.short_id && (
+                            <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
+                        )}
                         <SceneAddToDashboardButton
                             dashboard={
                                 hasDashboardItemId
@@ -393,7 +338,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </ButtonPrimitive>
                         )}
 
-                        {exportContext ? (
+                        {exportContext && insight.short_id != null ? (
                             <SceneExportDropdownMenu
                                 dropdownMenuItems={[
                                     {
@@ -416,23 +361,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : null}
 
                         {featureFlags[FEATURE_FLAGS.EMBEDDED_ANALYTICS] ? (
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    {
-                                        query &&
-                                            createQueryEndpoint({
-                                                name: (
-                                                    defaultInsightName || Math.random().toString(36).substring(2, 15)
-                                                )
-                                                    .slice(0, 20)
-                                                    .replace(/\s+/g, '-'),
-                                                description: insight.description,
-                                                query: insightQuery as HogQLQuery | InsightQueryNode,
-                                            })
-                                    }
-                                }}
-                                menuItem
-                            >
+                            <ButtonPrimitive onClick={() => setQueryEndpointModalOpen(true)} menuItem>
                                 <IconCode2 />
                                 Create query endpoint
                             </ButtonPrimitive>
@@ -490,13 +419,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         },
                                     })
                                 }}
+                                menuItem
                             >
+                                <IconPeople />
                                 Save as static cohort
                             </ButtonPrimitive>
                         )}
-
-                        <ScenePanelDivider />
-
+                    </ScenePanelActionsSection>
+                    <ScenePanelDivider />
+                    <ScenePanelActionsSection>
                         <LemonSwitch
                             data-attr={`${RESOURCE_TYPE}-${showQueryEditor ? 'hide' : 'show'}-source`}
                             className="px-2 py-1"
@@ -530,10 +461,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 label="Debug panel"
                             />
                         ) : null}
-
-                        {hasDashboardItemId && (
-                            <>
-                                <ScenePanelDivider />
+                    </ScenePanelActionsSection>
+                    {hasDashboardItemId && (
+                        <>
+                            <ScenePanelDivider />
+                            <ScenePanelActionsSection>
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Notebook}
                                     minAccessLevel={AccessControlLevel.Editor}
@@ -561,9 +493,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         </ButtonPrimitive>
                                     )}
                                 </AccessControlAction>
-                            </>
-                        )}
-                    </ScenePanelActions>
+                            </ScenePanelActionsSection>
+                        </>
+                    )}
                 </>
             </ScenePanel>
 
@@ -586,6 +518,69 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 renameDebounceMs={1000}
                 // Use onBlur-only saves to prevent autosave while typing
                 saveOnBlur={true}
+                actions={
+                    <>
+                        {insightMode === ItemMode.Edit && hasDashboardItemId && (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => setInsightMode(ItemMode.View, null)}
+                                data-attr="insight-cancel-edit-button"
+                                size="small"
+                            >
+                                Cancel
+                            </LemonButton>
+                        )}
+
+                        {insightMode !== ItemMode.Edit ? (
+                            canEditInsight && (
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Insight}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={insight.user_access_level}
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        icon={dashboardOverridesExist ? <IconWarning /> : undefined}
+                                        tooltip={
+                                            dashboardOverridesExist
+                                                ? `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`
+                                                : undefined
+                                        }
+                                        tooltipPlacement="bottom"
+                                        onClick={() => {
+                                            if (isDataVisualizationNode(query) && insight.short_id) {
+                                                router.actions.push(
+                                                    urls.sqlEditor(undefined, undefined, insight.short_id)
+                                                )
+                                            } else if (insight.short_id) {
+                                                push(urls.insightEdit(insight.short_id))
+                                            } else {
+                                                setInsightMode(ItemMode.Edit, null)
+                                            }
+                                        }}
+                                        data-attr="insight-edit-button"
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                </AccessControlAction>
+                            )
+                        ) : (
+                            <InsightSaveButton
+                                saveAs={() => saveAs(undefined, undefined, 'Unfiled/Insights')}
+                                saveInsight={(redirectToViewMode) =>
+                                    insight.short_id
+                                        ? saveInsight(redirectToViewMode)
+                                        : saveInsight(redirectToViewMode, getLastNewFolder() ?? 'Unfiled/Insights')
+                                }
+                                isSaved={hasDashboardItemId}
+                                addingToDashboard={!!insight.dashboards?.length && !insight.id}
+                                insightSaving={insightSaving}
+                                insightChanged={insightChanged || queryChanged}
+                            />
+                        )}
+                    </>
+                }
             />
             <SceneDivider />
         </>

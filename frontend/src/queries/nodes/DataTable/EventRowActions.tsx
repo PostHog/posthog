@@ -79,7 +79,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         </LemonButton>
                     ) : null}
                     {insightUrl && (
-                        <LemonButton to={insightUrl} fullWidth data-attr="events-table-usage">
+                        <LemonButton to={insightUrl} fullWidth data-attr="events-table-usage" targetBlank>
                             Try out in Insights
                         </LemonButton>
                     )}

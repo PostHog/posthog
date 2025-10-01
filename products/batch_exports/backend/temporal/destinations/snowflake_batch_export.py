@@ -395,6 +395,9 @@ class SnowflakeClient:
         This enables asynchronous execution of queries to release the event loop to execute other tasks
         while we poll for a query to be done. For example, the event loop may use this time for heartbeating.
 
+        The main advantage of using execute_async and polling for the result is that we don't need to maintain a network
+        connection to the Snowflake server, which could timeout or be interrupted.
+
         Args:
             connection: A SnowflakeConnection object as produced by snowflake.connector.connect.
             query: A query string to run asynchronously.
@@ -557,9 +560,7 @@ class SnowflakeClient:
         file_stream: io.BufferedReader | io.BytesIO
         if isinstance(file, BatchExportTemporaryFile):
             file.rewind()
-            # We comply with the file-like interface of io.IOBase.
-            # So we ask mypy to be nice with us.
-            file_stream = io.BufferedReader(file)  # type: ignore
+            file_stream = io.BufferedReader(file)
         else:
             file.seek(0)
             file_stream = file
@@ -701,7 +702,7 @@ class SnowflakeClient:
         update_key: collections.abc.Iterable[str],
         update_when_matched: collections.abc.Iterable[SnowflakeField],
     ):
-        """Merge two identical person model tables in Snowflake."""
+        """Merge two identical model tables in Snowflake."""
 
         # handle the case where the final table doesn't contain all the fields present in the stage table
         # (for example, if we've added new fields to the person model)
@@ -1281,8 +1282,9 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
         requires_merge, merge_key, update_key = _get_snowflake_merge_config(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        attempt = activity.info().attempt
         stage_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
             if requires_merge
             else inputs.table_name
         )
@@ -1382,7 +1384,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
                     maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
         except OverBillingLimitError:
