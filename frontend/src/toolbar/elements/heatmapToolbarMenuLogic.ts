@@ -459,7 +459,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             if (values.heatmapScrollY !== scrollY) {
                 actions.setHeatmapScrollY(scrollY)
             }
-        }, 100)
+        }, 50)
 
         // we bundle the whole app with the toolbar, which means we don't need ES5 support
         // so we can use IntersectionObserver
