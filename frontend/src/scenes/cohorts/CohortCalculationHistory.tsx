@@ -11,16 +11,24 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { cohortCalculationHistorySceneLogic } from './cohortCalculationHistorySceneLogic'
+import {
+    CohortCalculationHistoryRecord,
+    cohortCalculationHistorySceneLogic,
+} from './cohortCalculationHistorySceneLogic'
 
 const RESOURCE_TYPE = 'cohort'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<CohortCalculationHistoryProps> = {
     component: CohortCalculationHistory,
     logic: cohortCalculationHistorySceneLogic,
+    paramsToProps: ({ params: { id } }) => ({ id: id }),
 }
 
-export function CohortCalculationHistory(props: any): JSX.Element {
+interface CohortCalculationHistoryProps {
+    id: string
+}
+
+export function CohortCalculationHistory(props: CohortCalculationHistoryProps): JSX.Element {
     const cohortId = props.id && props.id !== 'new' ? parseInt(props.id) : 0
 
     const logic = cohortCalculationHistorySceneLogic({ cohortId })
@@ -48,7 +56,7 @@ export function CohortCalculationHistory(props: any): JSX.Element {
         return <NotFound object="cohort" />
     }
 
-    const columns: LemonTableColumns<any> = [
+    const columns: LemonTableColumns<CohortCalculationHistoryRecord> = [
         {
             title: 'Started',
             dataIndex: 'started_at',
@@ -89,8 +97,8 @@ export function CohortCalculationHistory(props: any): JSX.Element {
                     return '-'
                 }
 
-                const maxMb = Math.max(...queries.map((q: any) => q.memory_mb || 0))
-                return maxMb ? `${maxMb.toFixed(1)} MB` : '-'
+                const maxMb = Math.max(...queries.map((q) => q.memory_mb || 0))
+                return maxMb > 0 ? `${maxMb.toFixed(1)} MB` : '-'
             },
         },
         {
@@ -166,7 +174,7 @@ export function CohortCalculationHistory(props: any): JSX.Element {
                                     <div>
                                         <h4>Query Details</h4>
                                         <div className="space-y-2">
-                                            {record.queries.map((query: any, index: number) => (
+                                            {record.queries.map((query, index: number) => (
                                                 <div key={index} className="border border-border rounded p-2">
                                                     <div className="grid grid-cols-4 gap-4 text-xs">
                                                         <div>
