@@ -4,12 +4,12 @@ import { Form } from 'kea-forms'
 import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
@@ -29,16 +29,19 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
         useValues(messageTemplateLogic)
 
     return (
-        <SceneContent>
-            <Form logic={messageTemplateLogic} formKey="template" className="flex flex-col gap-4">
-                <PageHeader
-                    buttons={
+        <Form logic={messageTemplateLogic} formKey="template">
+            <SceneContent>
+                <SceneTitleSection
+                    name={template.name}
+                    resourceType={{ type: 'template' }}
+                    actions={
                         <>
                             {templateChanged && (
                                 <LemonButton
                                     data-attr="cancel-message-template"
                                     type="secondary"
                                     onClick={() => resetTemplate(originalTemplate)}
+                                    size="small"
                                 >
                                     Discard changes
                                 </LemonButton>
@@ -50,13 +53,14 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                                 onClick={submitTemplate}
                                 loading={isTemplateSubmitting}
                                 disabledReason={templateChanged ? undefined : 'No changes to save'}
+                                size="small"
                             >
                                 {id === 'new' ? 'Create' : 'Save'}
                             </LemonButton>
                         </>
                     }
                 />
-                <SceneTitleSection name={template.name} resourceType={{ type: 'template' }} />
+                <SceneDivider />
 
                 <div className="flex flex-wrap gap-4 items-start">
                     <div className="flex-1 self-start p-3 space-y-2 rounded border min-w-100 bg-surface-primary">
@@ -99,7 +103,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                         )}
                     </div>
                 </div>
-            </Form>
-        </SceneContent>
+            </SceneContent>
+        </Form>
     )
 }

@@ -1,1 +1,1 @@
-0859_alter_team_session_recording_retention_period
+0867_add_updated_at_to_feature_flags

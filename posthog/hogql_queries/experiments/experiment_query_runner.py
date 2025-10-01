@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     CachedExperimentQueryResponse,
     ExperimentDataWarehouseNode,
+    ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentQuery,
     ExperimentQueryResponse,
@@ -59,8 +60,9 @@ class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, override_end_date: Optional[datetime] = None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.override_end_date = override_end_date
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -77,7 +79,7 @@ class ExperimentQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.date_range = get_experiment_date_range(self.experiment, self.team)
+        self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
         self.date_range_query = QueryDateRange(
             date_range=self.date_range,
             team=self.team,
@@ -98,8 +100,9 @@ class ExperimentQueryRunner(QueryRunner):
 
         self.stats_method = get_experiment_stats_method(self.experiment)
 
-        # Determine how to handle entities exposed to multiple variants
-        self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.experiment)
+        self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(
+            self.experiment.exposure_criteria
+        )
 
         # Just to simplify access
         self.metric = self.query.metric
@@ -127,10 +130,26 @@ class ExperimentQueryRunner(QueryRunner):
             ast.Field(chain=["exposures", "variant"]),
             ast.Field(chain=["exposures", "entity_id"]),
             ast.Alias(
+                alias="exposure_event_uuid",
+                expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_event_uuid"])]),
+            ),
+            ast.Alias(
+                alias="exposure_session_id",
+                expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_session_id"])]),
+            ),
+            ast.Alias(
                 expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
                 alias="value",
             ),
         ]
+
+        # For funnel metrics, we create a map between events and sessions, so we can look them up later
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            select_fields.append(
+                parse_expr(
+                    "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(toString(session_id), ''))) AS uuid_to_session"
+                )
+            )
 
         # Get time window constraints for events relative to exposure time
         metric_time_window = get_exposure_time_window_constraints(
@@ -351,12 +370,55 @@ class ExperimentQueryRunner(QueryRunner):
         Columns: variant, num_users, total_sum, total_sum_of_squares
         For ratio metrics, also includes: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
         """
+
         select_fields = [
             ast.Field(chain=["metric_events", "variant"]),
             parse_expr("count(metric_events.entity_id) as num_users"),
-            parse_expr("sum(metric_events.value) as total_sum"),
-            parse_expr("sum(power(metric_events.value, 2)) as total_sum_of_squares"),
         ]
+
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            # For funnel metrics, value is the highest step reached (0-indexed)
+            # total_sum should count only users who completed all steps
+            num_steps = len(self.metric.series)
+            select_fields.extend(
+                [
+                    parse_expr(f"countIf(metric_events.value.1 = {num_steps - 1}) as total_sum"),
+                    parse_expr(f"countIf(metric_events.value.1 = {num_steps - 1}) as total_sum_of_squares"),
+                ]
+            )
+
+            # Add step counts - how many users reached each step
+            step_count_exprs = []
+            for i in range(num_steps):
+                step_count_exprs.append(f"countIf(metric_events.value.1 >= {i})")
+            step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
+            select_fields.append(parse_expr(step_counts_expr))
+
+            # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
+            # that step as their last step in the funnel.
+            # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
+            event_uuids_exprs = []
+            for i in range(num_steps + 1):
+                event_uuids_expr = f"""
+                    groupArraySampleIf(100)(
+                        if(
+                            metric_events.value.2 != '',
+                            tuple(toString(metric_events.entity_id), uuid_to_session[metric_events.value.2], metric_events.value.2),
+                            tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))),
+                        metric_events.value.1 = {i} - 1
+                    )
+                """
+                event_uuids_exprs.append(event_uuids_expr)
+            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
+            select_fields.append(parse_expr(event_uuids_exprs_sql))
+        else:
+            # For non-funnel metrics, use the original logic
+            select_fields.extend(
+                [
+                    parse_expr("sum(metric_events.value) as total_sum"),
+                    parse_expr("sum(power(metric_events.value, 2)) as total_sum_of_squares"),
+                ]
+            )
 
         # For ratio metrics, add additional aggregations
         if self.is_ratio_metric:

@@ -96,7 +96,7 @@ function createArrayChangeHandler(
             return null
         }
 
-        const array = change.after as any[]
+        const array = (change.after || []) as any[]
         const displayArray = map ? array.map(map).filter(Boolean) : array
         const fieldNameElement = useEmphasis ? <em>{fieldName}</em> : fieldName
 
@@ -355,6 +355,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         }
         return { description: [<>{recordCanvasAfter ? 'enabled' : 'disabled'} canvas recording in session replay</>] }
     },
+    session_recording_retention_period: createSimpleValueHandler('session replay data retention'),
 
     // Survey config
     surveys_opt_in: createBooleanToggleHandler('surveys'),
@@ -728,7 +729,6 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     effective_membership_level: () => null,
     default_modifiers: () => null,
     is_demo: () => null,
-    access_control: () => null,
     has_group_types: () => null,
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,

@@ -36,7 +36,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     props({} as CampaignLogicProps),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
-        values: [campaignLogic(props), ['campaign', 'triggerAction'], hogFlowEditorLogic, ['selectedNodeId']],
+        values: [
+            campaignLogic(props),
+            ['campaign', 'campaignSanitized', 'triggerAction'],
+            hogFlowEditorLogic,
+            ['selectedNodeId'],
+        ],
         actions: [hogFlowEditorLogic, ['setSelectedNodeId']],
     })),
     actions({
@@ -255,7 +260,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             submit: async (testInvocation: HogflowTestInvocation) => {
                 try {
                     const apiResponse = await api.hogFlows.createTestInvocation(values.campaign.id, {
-                        configuration: values.campaign,
+                        configuration: values.campaignSanitized,
                         globals: JSON.parse(testInvocation.globals),
                         mock_async_functions: testInvocation.mock_async_functions,
                         current_action_id: values.selectedNodeId ?? undefined,

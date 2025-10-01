@@ -11,6 +11,7 @@ import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -18,7 +19,6 @@ import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/Sea
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
-import { multitabEditorLogic } from '../multitabEditorLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = (): JSX.Element => {
@@ -40,6 +40,8 @@ export const QueryDatabase = (): JSX.Element => {
         toggleEditJoinModal,
         setEditingDraft,
         renameDraft,
+        openUnsavedQuery,
+        deleteUnsavedQuery,
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
@@ -82,6 +84,10 @@ export const QueryDatabase = (): JSX.Element => {
                 if (item && item.record?.type === 'column') {
                     void copyToClipboard(item.record.columnName, item.record.columnName)
                 }
+
+                if (item && item.record?.type === 'unsaved-query') {
+                    openUnsavedQuery(item.record)
+                }
             }}
             renderItem={(item) => {
                 // Check if item has search matches for highlighting
@@ -96,8 +102,9 @@ export const QueryDatabase = (): JSX.Element => {
                             <div className="flex flex-row gap-1 justify-between">
                                 <span
                                     className={cn(
-                                        ['managed-views', 'views', 'sources', 'drafts'].includes(item.record?.type) &&
-                                            'font-bold',
+                                        ['managed-views', 'views', 'sources', 'drafts', 'unsaved-folder'].includes(
+                                            item.record?.type
+                                        ) && 'font-bold',
                                         item.record?.type === 'column' && 'font-mono text-xs',
                                         'truncate'
                                     )}
@@ -148,13 +155,7 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    if (router.values.location.pathname.endsWith(urls.sqlEditor())) {
-                                        multitabEditorLogic({
-                                            key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                        }).actions.createTab(`SELECT * FROM ${item.name}`)
-                                    } else {
-                                        router.actions.push(urls.sqlEditor(`SELECT * FROM ${item.name}`))
-                                    }
+                                    sceneLogic.actions.newTab(urls.sqlEditor(`SELECT * FROM ${item.name}`))
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
@@ -199,13 +200,7 @@ export const QueryDatabase = (): JSX.Element => {
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            if (router.values.location.pathname.endsWith(urls.sqlEditor())) {
-                                                multitabEditorLogic({
-                                                    key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                                }).actions.editView(item.record?.view.query.query, item.record?.view)
-                                            } else {
-                                                router.actions.push(urls.sqlEditor(undefined, item.record?.view.id))
-                                            }
+                                            sceneLogic.actions.newTab(urls.sqlEditor(undefined, item.record?.view.id))
                                         }}
                                     >
                                         <ButtonPrimitive menuItem>Edit view definition</ButtonPrimitive>
@@ -283,6 +278,35 @@ export const QueryDatabase = (): JSX.Element => {
                             </DropdownMenuGroup>
                         )
                     }
+                }
+
+                if (item.record?.type === 'unsaved-query') {
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (item.record) {
+                                        openUnsavedQuery(item.record)
+                                    }
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Open</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (item.record) {
+                                        deleteUnsavedQuery(item.record)
+                                    }
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Discard</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
                 }
 
                 if (item.record?.type === 'sources') {

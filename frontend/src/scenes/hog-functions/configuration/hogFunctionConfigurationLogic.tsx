@@ -12,7 +12,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -93,41 +92,43 @@ export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'des
 export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
-export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
-    function sanitizeInputs(data: HogFunctionMappingType): Record<string, CyclotronJobInputType> {
-        const sanitizedInputs: Record<string, CyclotronJobInputType> = {}
-        data.inputs_schema?.forEach((inputSchema) => {
-            const templatingEnabled = inputSchema.templating ?? true
-            const input = data.inputs?.[inputSchema.key]
-            const secret = input?.secret
-            let value = input?.value
+export function sanitizeInputs(
+    data: Pick<HogFunctionMappingType, 'inputs_schema' | 'inputs'>
+): Record<string, CyclotronJobInputType> {
+    const sanitizedInputs: Record<string, CyclotronJobInputType> = {}
+    data.inputs_schema?.forEach((inputSchema) => {
+        const templatingEnabled = inputSchema.templating ?? true
+        const input = data.inputs?.[inputSchema.key]
+        const secret = input?.secret
+        let value = input?.value
 
-            if (secret) {
-                // If set this means we haven't changed the value
-                sanitizedInputs[inputSchema.key] = {
-                    value: '********', // Don't send the actual value
-                    secret: true,
-                }
-                return
-            }
-
-            if (inputSchema.type === 'json' && typeof value === 'string') {
-                try {
-                    value = JSON.parse(value)
-                } catch {
-                    // Ignore
-                }
-            }
-
+        if (secret) {
+            // If set this means we haven't changed the value
             sanitizedInputs[inputSchema.key] = {
-                value: value,
-                templating: templatingEnabled ? (input?.templating ?? 'hog') : undefined,
+                value: '********', // Don't send the actual value
+                secret: true,
             }
-        })
+            return
+        }
 
-        return sanitizedInputs
-    }
+        if (inputSchema.type === 'json' && typeof value === 'string') {
+            try {
+                value = JSON.parse(value)
+            } catch {
+                // Ignore
+            }
+        }
 
+        sanitizedInputs[inputSchema.key] = {
+            value: value,
+            templating: templatingEnabled ? (input?.templating ?? 'hog') : undefined,
+        }
+    })
+
+    return sanitizedInputs
+}
+
+export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     const filters = data.filters ?? {}
     filters.source = filters.source ?? 'events'
 
@@ -295,8 +296,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             ['groupTypes'],
             userLogic,
             ['hasAvailableFeature'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
     })),
     actions({

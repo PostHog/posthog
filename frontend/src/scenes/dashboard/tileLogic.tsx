@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
 
 import { BreakdownFilter, TileFilters } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter } from '~/types'
@@ -30,29 +30,31 @@ export const tileLogic = kea<tileLogicType>([
         overrides: [
             (props.filtersOverrides ?? {}) as TileFilters,
             {
-                setDates: (state, { date_from, date_to }) => ({ ...state, date_from, date_to }),
-                setProperties: (state, { properties }) => ({ ...state, properties }),
+                setDates: (state, { date_from, date_to }) => {
+                    const newState = { ...state }
+                    if (date_from !== undefined && date_from !== null) {
+                        newState.date_from = date_from
+                    } else {
+                        delete newState.date_from
+                    }
+                    if (date_to !== undefined && date_to !== null) {
+                        newState.date_to = date_to
+                    } else {
+                        delete newState.date_to
+                    }
+                    return newState
+                },
+                setProperties: (state, { properties }) => {
+                    const newState = { ...state }
+                    if (properties && properties.length > 0) {
+                        newState.properties = properties
+                    } else {
+                        delete newState.properties
+                    }
+                    return newState
+                },
                 setBreakdown: (state, { breakdown_filter }) => ({ ...state, breakdown_filter }),
                 resetOverrides: () => ({}),
-            },
-        ],
-    })),
-
-    selectors(() => ({
-        /** For showing an "Overrides" chip if anything is set */
-        hasOverrides: [
-            (s) => [s.overrides],
-            (o: TileFilters) => {
-                // Check if any override has a meaningful value
-                if (o.date_from !== undefined || o.date_to !== undefined || o.properties !== undefined) {
-                    return true
-                }
-                // For breakdown_filter, check if it has meaningful values
-                if (o.breakdown_filter !== undefined && o.breakdown_filter !== null) {
-                    const bf = o.breakdown_filter
-                    return !!(bf.breakdown || bf.breakdowns || bf.breakdown_type)
-                }
-                return false
             },
         ],
     })),

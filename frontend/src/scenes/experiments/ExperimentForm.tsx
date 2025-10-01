@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { useState } from 'react'
 
-import { IconPlusSmall, IconToggle, IconTrash } from '@posthog/icons'
+import { IconInfo, IconLock, IconPlusSmall, IconToggle, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonCheckbox,
@@ -16,12 +16,14 @@ import {
 
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -45,6 +47,7 @@ const ExperimentFormFields = (): JSX.Element => {
         useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     const { reportExperimentFeatureFlagModalOpened, reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
 
@@ -148,17 +151,16 @@ const ExperimentFormFields = (): JSX.Element => {
                     setShowFeatureFlagSelector(false)
                 }}
             />
-
             {webExperimentsAvailable && (
                 <>
                     <SceneSection
                         title="Experiment type"
                         description="Select your experiment setup, this cannot be changed once saved."
-                        className={cn('gap-y-0 mt-6')}
+                        className="gap-y-0"
                     >
                         <LemonRadio
                             value={experiment.type}
-                            className="flex flex-col gap-2"
+                            className="flex flex-col gap-2 mt-4"
                             onChange={(type) => {
                                 setExperimentType(type)
                             }}
@@ -193,9 +195,10 @@ const ExperimentFormFields = (): JSX.Element => {
                     <SceneSection
                         title="Participant type"
                         description="Determines on what level you want to aggregate metrics. You can change this later, but flag values for users will change so you need to reset the experiment for accurate results."
-                        className={cn('gap-y-0 mt-6')}
+                        className="gap-y-0"
                     >
                         <LemonRadio
+                            className="mt-4"
                             value={
                                 experiment.parameters.aggregation_group_type_index != undefined
                                     ? experiment.parameters.aggregation_group_type_index
@@ -341,31 +344,114 @@ const ExperimentFormFields = (): JSX.Element => {
                     </SceneSection>
                     <SceneDivider />
                     <div className={cn('mt-6 pb-2 max-w-150 mt-0 pb-0')}>
-                        <LemonField name="parameters.ensure_experience_continuity">
-                            {({ value, onChange }) => (
-                                <label className="border rounded p-4 group" htmlFor="continuity-checkbox">
-                                    <LemonCheckbox
-                                        id="continuity-checkbox"
-                                        label="Persist flag across authentication steps"
-                                        onChange={() => onChange(!value)}
-                                        fullWidth
-                                        checked={value}
-                                    />
-                                    <div className="text-secondary text-sm pl-6">
-                                        If your feature flag is evaluated for anonymous users, use this option to ensure
-                                        the flag value remains consistent after the user logs in. Depending on your
-                                        setup, this option may not always be appropriate. Note that this feature
-                                        requires creating profiles for anonymous users.{' '}
-                                        <Link
-                                            to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                            target="_blank"
+                        {featureFlags[FEATURE_FLAGS.EXPERIMENT_FORM_PERSISTENCE_FIELD] === 'test' ? (
+                            <SceneSection
+                                title={
+                                    <span className="flex items-center gap-2">
+                                        Variant persistence
+                                        <Tooltip
+                                            title={
+                                                <span>
+                                                    Only relevant if your experiment targets users transitioning from
+                                                    anonymous to logged-in. Persistence requires PostHog servers to
+                                                    perform the check and is incompatible with server-side local
+                                                    evaluation. Learn more in the{' '}
+                                                    <Link
+                                                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                        target="_blank"
+                                                        className="text-white underline"
+                                                    >
+                                                        documentation
+                                                    </Link>
+                                                    .
+                                                </span>
+                                            }
                                         >
-                                            Learn more
-                                        </Link>
-                                    </div>
-                                </label>
-                            )}
-                        </LemonField>
+                                            <IconInfo className="text-secondary text-lg" />
+                                        </Tooltip>
+                                    </span>
+                                }
+                                description="Choose how experiment variants are handled when users authenticate"
+                            >
+                                <LemonField name="parameters.ensure_experience_continuity">
+                                    {({ value, onChange }) => {
+                                        const currentValue = value ?? false
+                                        return (
+                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 max-w-160">
+                                                {[
+                                                    {
+                                                        value: false,
+                                                        icon: <IconX />,
+                                                        title: 'Disabled (default)',
+                                                        description: 'Users may see different variants after login.',
+                                                    },
+                                                    {
+                                                        value: true,
+                                                        icon: <IconLock />,
+                                                        title: 'Persist across authentication',
+                                                        description:
+                                                            'Same variant before and after login. Incompatible with server-side flag evaluation.',
+                                                    },
+                                                ].map(({ value, icon, title, description }) => (
+                                                    <div
+                                                        key={value.toString()}
+                                                        className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
+                                                            currentValue === value
+                                                                ? 'border-primary bg-primary-highlight'
+                                                                : 'border-border'
+                                                        }`}
+                                                        onClick={() => onChange(value)}
+                                                    >
+                                                        <div className="flex items-start gap-3">
+                                                            <div className="text-lg text-muted">{icon}</div>
+                                                            <div className="flex-1">
+                                                                <div className="font-medium text-sm">{title}</div>
+                                                                <div className="text-xs text-muted mt-1">
+                                                                    {description}
+                                                                </div>
+                                                            </div>
+                                                            <input
+                                                                type="radio"
+                                                                name="persistence-mode"
+                                                                checked={currentValue === value}
+                                                                onChange={() => onChange(value)}
+                                                                className="cursor-pointer"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )
+                                    }}
+                                </LemonField>
+                            </SceneSection>
+                        ) : (
+                            <LemonField name="parameters.ensure_experience_continuity">
+                                {({ value, onChange }) => (
+                                    <label className="border rounded p-4 group" htmlFor="continuity-checkbox">
+                                        <LemonCheckbox
+                                            id="continuity-checkbox"
+                                            label="Persist flag across authentication steps"
+                                            onChange={() => onChange(!value)}
+                                            fullWidth
+                                            checked={value}
+                                        />
+                                        <div className="text-secondary text-sm pl-6">
+                                            If your feature flag is evaluated for anonymous users, use this option to
+                                            ensure the flag value remains consistent after the user logs in. Depending
+                                            on your setup, this option may not always be appropriate. Note that this
+                                            feature requires creating profiles for anonymous users.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                target="_blank"
+                                            >
+                                                Learn more
+                                            </Link>
+                                        </div>
+                                    </label>
+                                )}
+                            </LemonField>
+                        )}
                     </div>
                 </>
             )}
@@ -472,23 +558,29 @@ const SelectExistingFeatureFlagModal = ({
                 filters={featureFlagModalFilters}
                 setFeatureFlagsFilters={setFeatureFlagModalFilters}
                 searchPlaceholder="Search for feature flags"
-                filtersConfig={{ search: true, type: true }}
+                filtersConfig={{ search: true }}
             />
         </div>
     )
 
     return (
-        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag">
+        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag" width="50%">
             <div className="deprecated-space-y-2">
                 <div className="text-muted mb-2 max-w-xl">
-                    Select an existing feature flag to use with this experiment. The feature flag must use multiple
-                    variants with <code>'control'</code> as the first, and not be associated with an existing
+                    Select an existing multivariate feature flag to use with this experiment. The feature flag must use
+                    multiple variants with <code>'control'</code> as the first, and not be associated with an existing
                     experiment.
                 </div>
                 {filtersSection}
                 <LemonTable
                     id="ff"
-                    dataSource={featureFlagModalFeatureFlags.results}
+                    dataSource={featureFlagModalFeatureFlags.results.filter((featureFlag) => {
+                        try {
+                            return featureFlagEligibleForExperiment(featureFlag)
+                        } catch {
+                            return false
+                        }
+                    })}
                     loading={featureFlagModalFeatureFlagsLoading}
                     useURLForSorting={false}
                     columns={[
@@ -517,24 +609,20 @@ const SelectExistingFeatureFlagModal = ({
                         {
                             title: null,
                             render: function RenderActions(_, flag) {
-                                let disabledReason: string | undefined = undefined
-                                try {
-                                    featureFlagEligibleForExperiment(flag)
-                                } catch (error) {
-                                    disabledReason = (error as Error).message
-                                }
                                 return (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="primary"
-                                        disabledReason={disabledReason}
-                                        onClick={() => {
-                                            onSelect(flag)
-                                            handleClose()
-                                        }}
-                                    >
-                                        Select
-                                    </LemonButton>
+                                    <div className="flex items-center justify-end">
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="primary"
+                                            disabledReason={undefined}
+                                            onClick={() => {
+                                                onSelect(flag)
+                                                handleClose()
+                                            }}
+                                        >
+                                            Select
+                                        </LemonButton>
+                                    </div>
                                 )
                             },
                         },

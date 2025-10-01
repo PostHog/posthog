@@ -9,8 +9,6 @@ from langchain_core.agents import AgentAction
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langgraph.config import get_stream_writer
-from langgraph.types import StreamWriter
 
 from posthog.schema import (
     AssistantToolCallMessage,
@@ -47,50 +45,32 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.state import prepare_reasoning_progress_message
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class SessionSummarizationNode(AssistantNode):
     logger = structlog.get_logger(__name__)
     REASONING_MESSAGE = "Summarizing session recordings"
 
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.SESSION_SUMMARIZATION
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._session_search = _SessionSearch(self)
         self._session_summarizer = _SessionSummarizer(self)
 
-    def _get_stream_writer(self) -> StreamWriter | None:
-        """Get the stream writer for custom events"""
-        try:
-            return get_stream_writer()
-        except Exception as err:
-            self.logger.warning(
-                "Failed to get stream writer for session summarization",
-                extra={"node": "SessionSummarizationNode", "error": str(err)},
-            )
-            # Fallback if stream writer is not available
-            return None
-
-    def _stream_progress(self, progress_message: str) -> None:
+    async def _stream_progress(self, progress_message: str) -> None:
         """Push summarization progress as reasoning messages"""
-        writer = self._get_stream_writer()
-        if not writer:
-            self.logger.warning(
-                "Stream writer is not available, cannot stream progress",
-                extra={"node": "SessionSummarizationNode", "message": progress_message},
-            )
-            return
-        message_chunk = prepare_reasoning_progress_message(progress_message)
-        message = (message_chunk, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
-        writer(("session_summarization_node", "messages", message))
-        return
+        content = prepare_reasoning_progress_message(progress_message)
+        if content:
+            await self._write_reasoning(content=content)
 
-    def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
+    async def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
         """Stream TipTap content directly to a notebook if notebook_id is present in state."""
-        writer = self._get_stream_writer()
-        if not writer:
-            self.logger.exception("Stream writer not available for notebook update")
-            return
         # Check if we have a notebook_id in the state
         if not state.notebook_short_id:
             self.logger.exception("No notebook_short_id in state, skipping notebook update")
@@ -104,8 +84,7 @@ class SessionSummarizationNode(AssistantNode):
                 notebook_id=state.notebook_short_id, content=content, id=str(uuid4())
             )
         # Stream the notebook update
-        message = (notebook_message, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
-        writer(("session_summarization_node", "messages", message))
+        await self._write_message(notebook_message)
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
@@ -428,13 +407,13 @@ class _SessionSummarizer:
             )
             completed += 1
             # Update the user on the progress
-            self._node._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
+            await self._node._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
             return result
 
         # Run all tasks concurrently
         tasks = [_summarize(sid) for sid in session_ids]
         summaries = await asyncio.gather(*tasks)
-        self._node._stream_progress(progress_message=f"Generating a summary, almost there")
+        await self._node._stream_progress(progress_message=f"Generating a summary, almost there")
         # Dumping to ensure that summaries content is always stringified JSON
         return json.dumps(summaries)
 
@@ -453,7 +432,7 @@ class _SessionSummarizer:
         )
         # Stream initial plan
         initial_state = self._intermediate_state.format_intermediate_state()
-        self._node._stream_notebook_content(initial_state, state)
+        await self._node._stream_notebook_content(initial_state, state)
 
         async for update_type, step, data in execute_summarize_session_group(
             session_ids=session_ids,
@@ -474,7 +453,7 @@ class _SessionSummarizer:
                 # Update intermediate state based on step enum (no content, as it's just a status message)
                 self._intermediate_state.update_step_progress(content=None, step=step)
                 # Status message - stream to user
-                self._node._stream_progress(progress_message=data)
+                await self._node._stream_progress(progress_message=data)
             # Notebook intermediate data update messages
             elif update_type == SessionSummaryStreamUpdate.NOTEBOOK_UPDATE:
                 if not isinstance(data, dict):
@@ -486,7 +465,7 @@ class _SessionSummarizer:
                 self._intermediate_state.update_step_progress(content=data, step=step)
                 # Stream the updated intermediate state
                 formatted_state = self._intermediate_state.format_intermediate_state()
-                self._node._stream_notebook_content(formatted_state, state)
+                await self._node._stream_notebook_content(formatted_state, state)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                 if not isinstance(data, EnrichedSessionGroupSummaryPatternsList):
@@ -507,7 +486,7 @@ class _SessionSummarizer:
                     tasks_available=tasks_available,
                     summary_title=summary_title,
                 )
-                self._node._stream_notebook_content(summary_content, state, partial=False)
+                await self._node._stream_notebook_content(summary_content, state, partial=False)
                 # Update the notebook through BE for cases where the chat was closed
                 await update_notebook_from_summary_content(
                     notebook=notebook, summary_content=summary_content, session_ids=session_ids
@@ -533,7 +512,7 @@ class _SessionSummarizer:
         base_message = f"Found sessions ({len(session_ids)})"
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
             # If small amount of sessions - there are no patterns to extract, so summarize them individually and return as is
-            self._node._stream_progress(
+            await self._node._stream_progress(
                 progress_message=f"{base_message}. We will do a quick summary, as the scope is small",
             )
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
@@ -548,7 +527,7 @@ class _SessionSummarizer:
             state.notebook_short_id = notebook.short_id
         # For large groups, process in detail, searching for patterns
         # TODO: Allow users to define the pattern themselves (or rather catch it from the query)
-        self._node._stream_progress(
+        await self._node._stream_progress(
             progress_message=f"{base_message}. We will analyze in detail, and store the report in a notebook",
         )
         summaries_content = await self._summarize_sessions_as_group(

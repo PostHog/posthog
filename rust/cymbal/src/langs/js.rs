@@ -1,3 +1,4 @@
+use common_types::error_tracking::FrameId;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
@@ -5,7 +6,7 @@ use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition
 
 use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
-    frames::{Frame, FrameId},
+    frames::Frame,
     langs::CommonFrameMetadata,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,

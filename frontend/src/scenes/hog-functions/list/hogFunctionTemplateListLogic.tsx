@@ -44,6 +44,7 @@ export type HogFunctionTemplateListLogicProps = {
     manualTemplates?: HogFunctionTemplateType[] | null
     manualTemplatesLoading?: boolean
     hideComingSoonByDefault?: boolean
+    customFilterFunction?: (template: HogFunctionTemplateType) => boolean
 }
 
 export const shouldShowHogFunctionTemplate = (
@@ -164,8 +165,20 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         filteredTemplates: [
-            (s) => [s.filters, s.templates, s.templatesFuse, (_, props) => props.hideComingSoonByDefault ?? false],
-            (filters, templates, templatesFuse, hideComingSoonByDefault): HogFunctionTemplateType[] => {
+            (s) => [
+                s.filters,
+                s.templates,
+                s.templatesFuse,
+                (_, props) => props.hideComingSoonByDefault ?? false,
+                (_, props) => props.customFilterFunction ?? (() => true),
+            ],
+            (
+                filters,
+                templates,
+                templatesFuse,
+                hideComingSoonByDefault,
+                customFilterFunction
+            ): HogFunctionTemplateType[] => {
                 const { search } = filters
 
                 if (search) {
@@ -174,6 +187,10 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
                 const [available, comingSoon] = templates.reduce(
                     ([available, comingSoon], template) => {
+                        if (!customFilterFunction(template)) {
+                            return [available, comingSoon]
+                        }
+
                         if (template.status === 'coming_soon') {
                             if (!hideComingSoonByDefault) {
                                 comingSoon.push(template)

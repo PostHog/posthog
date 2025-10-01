@@ -15,6 +15,7 @@ pub use event::RawEvent;
 pub use team::ProjectId;
 pub use team::Team;
 pub use team::TeamId;
+pub use team::TeamIdentifier;
 
 // Utils
 pub mod util;
@@ -25,3 +26,6 @@ pub use person::PersonId;
 
 // Groups
 pub use group::GroupType;
+
+// Error tracking types are exported directly
+pub mod error_tracking;

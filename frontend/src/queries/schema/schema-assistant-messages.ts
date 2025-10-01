@@ -1,6 +1,7 @@
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
+import type { Category, NotebookInfo } from '~/types'
 import { InsightShortId } from '~/types'
 
 import {
@@ -126,6 +127,9 @@ export interface NotebookUpdateMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Notebook
     notebook_id: string
     content: ProsemirrorJSONContent
+    notebook_type?: Category
+    conversation_notebooks?: NotebookInfo[]
+    current_run_notebooks?: NotebookInfo[]
     tool_calls?: AssistantToolCall[]
 }
 
@@ -159,6 +163,7 @@ export interface TaskExecutionItem {
     status: TaskExecutionStatus
     artifact_ids?: string[]
     progress_text?: string
+    task_type: string
 }
 
 export interface TaskExecutionMessage extends BaseAssistantMessage {
@@ -231,48 +236,51 @@ export type AssistantContextualTool =
     | 'search_docs'
     | 'search_insights'
     | 'session_summarization'
+    | 'create_dashboard'
+    | 'filter_revenue_analytics'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
 // "
 // List every key of objects `frontend/src/products.tsx::productUrls` and `frontend/src/scenes/urls.ts::urls`,
-// whose function takes either zero arguments, or only optional arguments. Exclude beta or alpha products.
+// whose function takes either zero arguments, or only optional arguments.
 // Exclude scenes related to signup, login, onboarding, upsell or admin, as well as internal scenes, and ones about uploading files.
 // Your only output should be a list of those string keys in TypeScript union syntax.
 // Once done, verify whether indeed each item of the output satisfies the criteria.
 // "
 export type AssistantNavigateUrls =
-    | 'createAction'
     | 'actions'
-    | 'cohorts'
-    | 'projectHomepage'
-    | 'max'
-    | 'settings'
-    | 'eventDefinitions'
-    | 'propertyDefinitions'
-    | 'database'
     | 'activity'
+    | 'alerts'
+    | 'annotations'
+    | 'createAction'
+    | 'cohorts'
+    | 'dashboards'
+    | 'database'
+    | 'earlyAccessFeatures'
+    | 'eventDefinitions'
+    | 'errorTracking'
+    | 'experiments'
+    | 'featureFlags'
+    | 'game368hedgehogs'
+    | 'heatmaps'
     | 'ingestionWarnings'
     | 'insights'
     | 'insightNew'
-    | 'savedInsights'
-    | 'webAnalytics'
-    | 'webAnalyticsWebVitals'
-    | 'alerts'
-    | 'dashboards'
-    | 'experiments'
-    | 'featureFlags'
-    | 'surveys'
-    | 'surveyTemplates'
+    | 'pipeline'
+    | 'projectHomepage'
+    | 'propertyDefinitions'
+    | 'max'
+    | 'notebooks'
     | 'replay'
     | 'replaySettings'
-    | 'pipeline'
+    | 'revenueAnalytics'
+    | 'savedInsights'
+    | 'settings'
     | 'sqlEditor'
-    | 'annotations'
-    | 'heatmaps'
-    | 'earlyAccessFeatures'
-    | 'errorTracking'
-    | 'game368hedgehogs'
-    | 'notebooks'
-    | 'persons'
+    | 'surveys'
+    | 'surveyTemplates'
     | 'toolbarLaunch'
+    | 'webAnalytics'
+    | 'webAnalyticsWebVitals'
+    | 'persons'

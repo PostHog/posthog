@@ -61,6 +61,11 @@ export const MiniFilters: SharedListMiniFilter[] = [
         name: 'Error',
     },
     {
+        type: 'console',
+        key: 'console-app-state',
+        name: 'App state',
+    },
+    {
         type: 'network',
         key: 'performance-fetch',
         name: 'Fetch/XHR',

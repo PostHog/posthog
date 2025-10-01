@@ -3,22 +3,12 @@ import { expect, test } from '../utils/playwright-test-base'
 test.describe('SQL Editor', () => {
     test.beforeEach(async ({ page }) => {
         await page.goToMenuItem('sql-editor')
-
-        await page.locator('[data-attr=sql-editor-new-tab-button]').click()
     })
 
     test('See SQL Editor', async ({ page }) => {
         await expect(page.locator('[data-attr=editor-scene]')).toBeVisible()
         await expect(page.locator('[data-attr=sql-editor-source-empty-state]')).toBeVisible()
-        await expect(page.getByText('Untitled 1')).toBeVisible()
-    })
-
-    test('Create new query tab', async ({ page }) => {
-        await page.locator('[data-attr=sql-editor-new-tab-button]').click()
-        await expect(page.locator('[data-attr=sql-editor-new-tab-button]')).toBeVisible()
-        // two tabs
-        await expect(page.getByText('Untitled 1')).toBeVisible()
-        await expect(page.getByText('Untitled 2')).toBeVisible()
+        await expect(page.getByText('SQL query')).toBeVisible()
     })
 
     test('Add source link', async ({ page }) => {

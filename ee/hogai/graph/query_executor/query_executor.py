@@ -33,6 +33,7 @@ from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models.team.team import Team
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.query_executor.format import (
@@ -324,7 +325,13 @@ class AssistantQueryExecutor:
                 # Use the completed query results
                 response_dict = query_status["results"]
 
-        except (APIException, ExposedHogQLError, HogQLNotImplementedError, ExposedCHQueryError) as err:
+        except (
+            APIException,
+            ExposedHogQLError,
+            HogQLNotImplementedError,
+            ExposedCHQueryError,
+            UserAccessControlError,
+        ) as err:
             elapsed = time.time() - start_time
             # Handle known query execution errors with user-friendly messages
             err_message = str(err)

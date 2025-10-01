@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBook, IconCompass, IconGraph, IconRewindPlay } from '@posthog/icons'
+import { IconBook, IconCompass, IconDashboard, IconGraph, IconRewindPlay } from '@posthog/icons'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -68,6 +68,12 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         name: 'Query data',
         description: 'Query data by creating insights and SQL queries',
         icon: <IconGraph />,
+    },
+    {
+        identifier: 'create_dashboard' as const,
+        name: TOOL_DEFINITIONS['create_dashboard'].name,
+        description: TOOL_DEFINITIONS['create_dashboard'].description,
+        icon: <IconDashboard />,
     },
 ]
 

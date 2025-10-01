@@ -2,12 +2,14 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useState } from 'react'
 
-import { IconCheck, IconInfo, IconPlus, IconX } from '@posthog/icons'
+import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfo, IconPlus, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonDialog,
     LemonDivider,
+    LemonSegmentedButton,
+    LemonSegmentedButtonOption,
     LemonSelect,
     LemonSwitch,
     LemonTag,
@@ -23,17 +25,21 @@ import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { IconSelectEvents } from 'lib/lemon-ui/icons'
+import { IconInfinity, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { isObject, objectsEqual } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { InternalMultipleChoiceSurvey } from 'scenes/session-recordings/components/InternalSurvey/InternalMultipleChoiceSurvey'
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
     AccessControlLevel,
     AccessControlResourceType,
     SessionRecordingAIConfig,
     type SessionRecordingMaskingLevel,
+    type SessionRecordingRetentionPeriod,
 } from '~/types'
 
 interface SupportedPlatformProps {
@@ -637,6 +643,112 @@ export function ReplayMaskingSettings(): JSX.Element {
                     ]}
                 />
             </AccessControlAction>
+        </div>
+    )
+}
+
+export function ReplayDataRetentionSettings(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const retentionFeature = currentOrganization?.available_product_features?.find(
+        (feature) => feature.key === 'session_replay_data_retention'
+    )
+    const hasMaxRetentionEntitlement =
+        retentionFeature &&
+        retentionFeature?.unit?.startsWith('month') &&
+        retentionFeature?.limit &&
+        retentionFeature?.limit >= 60
+    const currentRetention = currentTeam?.session_recording_retention_period || '30d'
+
+    const renderOptions = (): LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>[] => {
+        const options = [
+            {
+                value: '30d' as SessionRecordingRetentionPeriod,
+                icon: <IconClock />,
+                label: '30 days',
+                'data-attr': 'session-recording-retention-button-30d',
+            },
+            {
+                value: '90d' as SessionRecordingRetentionPeriod,
+                icon: <IconHourglass />,
+                label: '90 days',
+                disabledReason: 'Only available on the pay-as-you-go plan',
+                'data-attr': 'session-recording-retention-button-90d',
+            },
+            {
+                value: '1y' as SessionRecordingRetentionPeriod,
+                icon: <IconCalendar />,
+                label: '1 year (365 days)',
+                disabledReason: 'Only available with the Boost or Scale packages',
+                'data-attr': 'session-recording-retention-button-1y',
+            },
+            {
+                value: '5y' as SessionRecordingRetentionPeriod,
+                icon: <IconInfinity />,
+                label: '5 years (1825 days)',
+                disabledReason: 'Only available with the Enterprise package',
+                'data-attr': 'session-recording-retention-button-5y',
+            },
+        ]
+
+        if (
+            retentionFeature &&
+            retentionFeature?.unit?.startsWith('month') &&
+            retentionFeature?.limit &&
+            retentionFeature?.limit > 1
+        ) {
+            if (retentionFeature.limit >= 3) {
+                options[1].disabledReason = ''
+            }
+
+            if (retentionFeature.limit >= 12) {
+                options[2].disabledReason = ''
+            }
+
+            if (retentionFeature.limit >= 60) {
+                options[3].disabledReason = ''
+            }
+        }
+
+        return options
+    }
+
+    const handleRetentionChange = (retention_period: SessionRecordingRetentionPeriod): void => {
+        updateCurrentTeam({
+            session_recording_retention_period: retention_period,
+        })
+    }
+
+    return (
+        <div>
+            <p>This controls how long your recordings are stored.</p>
+            <p>
+                Altering this setting will only affect the retention period for future recordings.{' '}
+                <Link to="https://posthog.com/docs/session-replay/data-retention" target="_blank">
+                    Learn more
+                </Link>
+            </p>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.SessionRecording}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
+            >
+                <LemonSegmentedButton
+                    value={currentRetention}
+                    onChange={(val) => val && handleRetentionChange(val)}
+                    options={renderOptions()}
+                />
+            </AccessControlAction>
+            {!hasMaxRetentionEntitlement && (
+                <p className="mt-4">
+                    Need longer data retention? Head over to our{' '}
+                    <Link to={urls.organizationBilling()} target="_blank">
+                        billing page
+                    </Link>{' '}
+                    to upgrade your package.{' '}
+                </p>
+            )}
         </div>
     )
 }

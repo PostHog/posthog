@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use common_types::error_tracking::{FrameData, FrameId};
 use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,7 +10,7 @@ use crate::{
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
         custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, js::RawJSFrame,
-        node::RawNodeFrame, python::RawPythonFrame,
+        node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
     },
     metric_consts::PER_FRAME_TIME,
     sanitize_string,
@@ -27,6 +28,8 @@ pub mod resolver;
 pub enum RawFrame {
     #[serde(rename = "python")]
     Python(RawPythonFrame),
+    #[serde(rename = "ruby")]
+    Ruby(RawRubyFrame),
     #[serde(rename = "web:javascript")]
     JavaScriptWeb(RawJSFrame),
     #[serde(rename = "node:javascript")]
@@ -42,26 +45,6 @@ pub enum RawFrame {
     Custom(CustomFrame),
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
-pub struct FrameId {
-    pub raw_id: String,
-    #[serde(skip)]
-    pub team_id: i32,
-}
-
-impl FrameId {
-    pub fn new(raw_id: String, team_id: i32) -> Self {
-        FrameId { raw_id, team_id }
-    }
-
-    pub fn placeholder() -> Self {
-        FrameId {
-            raw_id: "placeholder".to_string(),
-            team_id: 0,
-        }
-    }
-}
-
 impl RawFrame {
     pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
@@ -73,6 +56,7 @@ impl RawFrame {
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
+            RawFrame::Ruby(frame) => (Ok(frame.into()), "ruby"),
             RawFrame::Custom(frame) => (Ok(frame.into()), "custom"),
             RawFrame::Go(frame) => (Ok(frame.into()), "go"),
             RawFrame::Hermes(frame) => (frame.resolve(team_id, catalog).await, "hermes"),
@@ -103,7 +87,7 @@ impl RawFrame {
             // TODO - Python and Go frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
             // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
             // which we'd then use to do a join on the releases table to get release information)
-            RawFrame::Python(_) | RawFrame::Go(_) => None,
+            RawFrame::Python(_) | RawFrame::Ruby(_) | RawFrame::Go(_) => None,
             RawFrame::Custom(_) => None,
         }
     }
@@ -113,6 +97,7 @@ impl RawFrame {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
+            RawFrame::Ruby(raw) => raw.frame_id(),
             RawFrame::Go(raw) => raw.frame_id(),
             RawFrame::Custom(raw) => raw.frame_id(),
             RawFrame::Hermes(raw) => raw.frame_id(),
@@ -309,6 +294,23 @@ impl std::fmt::Display for Frame {
         }
 
         Ok(())
+    }
+}
+
+impl From<Frame> for FrameData {
+    fn from(frame: Frame) -> Self {
+        FrameData {
+            raw_id: frame.raw_id.raw_id,
+            synthetic: frame.synthetic,
+            resolved_name: frame.resolved_name,
+            mangled_name: frame.mangled_name,
+            source: frame.source,
+            resolved: frame.resolved,
+            in_app: frame.in_app,
+            line: frame.line,
+            column: frame.column,
+            lang: frame.lang,
+        }
     }
 }
 

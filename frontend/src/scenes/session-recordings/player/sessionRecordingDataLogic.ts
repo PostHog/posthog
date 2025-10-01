@@ -29,7 +29,6 @@ import {
     SessionPlayerData,
     SessionRecordingId,
     SessionRecordingType,
-    SnapshotSourceType,
 } from '~/types'
 
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
@@ -44,8 +43,6 @@ const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of
 
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
-    // allows altering v1 polling interval in tests
-    realTimePollingIntervalMilliseconds?: number
     // allows disabling polling for new sources in tests
     blobV2PollingDisabled?: boolean
     playerKey?: string
@@ -56,35 +53,28 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataLogic', key]),
     props({} as SessionRecordingDataLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
-    connect(
-        ({
+    connect(({ sessionRecordingId, blobV2PollingDisabled }: SessionRecordingDataLogicProps) => {
+        const snapshotLogic = snapshotDataLogic({
             sessionRecordingId,
-            realTimePollingIntervalMilliseconds,
             blobV2PollingDisabled,
-        }: SessionRecordingDataLogicProps) => {
-            const snapshotLogic = snapshotDataLogic({
-                sessionRecordingId,
-                realTimePollingIntervalMilliseconds,
-                blobV2PollingDisabled,
-            })
-            return {
-                actions: [
-                    sessionRecordingEventUsageLogic,
-                    ['reportRecordingLoaded'],
-                    snapshotLogic,
-                    ['loadSnapshots', 'loadSnapshotSources', 'loadNextSnapshotSource', 'setSnapshots'],
-                ],
-                values: [
-                    teamLogic,
-                    ['currentTeam'],
-                    annotationsModel,
-                    ['annotations', 'annotationsLoading'],
-                    snapshotLogic,
-                    ['snapshotSources', 'snapshotsBySources', 'snapshotsLoading', 'snapshotsLoaded'],
-                ],
-            }
+        })
+        return {
+            actions: [
+                sessionRecordingEventUsageLogic,
+                ['reportRecordingLoaded'],
+                snapshotLogic,
+                ['loadSnapshots', 'loadSnapshotSources', 'loadNextSnapshotSource', 'setSnapshots'],
+            ],
+            values: [
+                teamLogic,
+                ['currentTeam'],
+                annotationsModel,
+                ['annotations', 'annotationsLoading'],
+                snapshotLogic,
+                ['snapshotSources', 'snapshotsBySources', 'snapshotsLoading', 'snapshotsLoaded'],
+            ],
         }
-    ),
+    }),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
     }),
@@ -100,8 +90,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         reportUsageIfFullyLoaded: true,
         persistRecording: true,
         maybePersistRecording: true,
-        pollRealtimeSnapshots: true,
-        stopRealtimePolling: true,
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
         setRecordingReportedLoaded: true,
     }),
@@ -713,17 +701,6 @@ AND properties.$lib != 'web'`
             },
         ],
 
-        isLikelyPastTTL: [
-            (s) => [s.start, s.snapshotSources],
-            (start, snapshotSources) => {
-                // If the recording is older than 30 days and has only realtime sources being reported, it is likely past its TTL
-                const isOlderThan30Days = dayjs().diff(start, 'hour') > 30
-                const onlyHasRealTime = snapshotSources?.every((s) => s.source === SnapshotSourceType.realtime)
-                const hasNoSources = snapshotSources?.length === 0
-                return isOlderThan30Days && (onlyHasRealTime || hasNoSources)
-            },
-        ],
-
         bufferedToTime: [
             (s) => [s.segments],
             (segments): number | null => {
@@ -791,13 +768,6 @@ AND properties.$lib != 'web'`
         },
     })),
     beforeUnmount(({ cache }) => {
-        // Clear the cache
-
-        if (cache.realTimePollingTimeoutID) {
-            clearTimeout(cache.realTimePollingTimeoutID)
-            cache.realTimePollingTimeoutID = undefined
-        }
-
         cache.windowIdForTimestamp = undefined
         cache.viewportForTimestamp = undefined
         cache.processingCache = undefined

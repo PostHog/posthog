@@ -24,7 +24,6 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -40,14 +39,7 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    AvailableFeature,
-    ExporterFormat,
-    RecordingSegment,
-    SessionPlayerData,
-    SessionPlayerState,
-    SessionRecordingType,
-} from '~/types'
+import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -112,7 +104,7 @@ export enum SessionRecordingPlayerMode {
     Video = 'video',
 }
 
-const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
+export const ModesWithInteractions = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
     playerKey: string
@@ -343,7 +335,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading', 'isRealtimePolling'],
+            ['snapshotsLoaded', 'snapshotsLoading'],
             sessionRecordingDataLogic(props),
             [
                 'urls',
@@ -436,13 +428,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
         setMaskWindow: (shouldMaskWindow: boolean) => ({ shouldMaskWindow }),
-        loadSimilarRecordings: true,
-        loadSimilarRecordingsSuccess: (count: number) => ({ count }),
-        showNextRecordingConfirmation: true,
-        hideNextRecordingConfirmation: true,
-        confirmNextRecording: true,
-        loadRecordingMeta: true,
-        setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
         schedulePlayerTimeTracking: true,
         setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
@@ -451,6 +436,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         markViewed: (delay?: number) => ({ delay }),
         setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
         setShowingClipParams: (showingClipParams: boolean) => ({ showingClipParams }),
+        setIsHovering: (isHovering: boolean) => ({ isHovering }),
+        allowPlayerChromeToHide: true,
     }),
     reducers(({ props }) => ({
         showingClipParams: [
@@ -690,24 +677,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setDebugSnapshotIncrementalSources: (s, { incrementalSources }) => ({ ...s, incrementalSources }),
             },
         ],
-        showingNextRecordingConfirmation: [
+        isHovering: [
             false,
             {
-                showNextRecordingConfirmation: () => true,
-                hideNextRecordingConfirmation: () => false,
-                confirmNextRecording: () => false,
+                setIsHovering: (_, { isHovering }) => isHovering,
             },
         ],
-        similarRecordingsCount: [
-            0,
+        forceShowPlayerChrome: [
+            true,
             {
-                loadSimilarRecordingsSuccess: (_, { count }) => count,
-            },
-        ],
-        similarRecordings: [
-            [] as string[],
-            {
-                setSimilarRecordings: (_, { results }) => results,
+                setIsHovering: (state, { isHovering }) => (isHovering ? false : state),
+                allowPlayerChromeToHide: () => {
+                    return false
+                    return false
+                },
             },
         ],
     })),
@@ -984,21 +967,31 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 },
             },
         ],
-        hoverFlagIsEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return featureFlags[FEATURE_FLAGS.REPLAY_HOVER_UI] === 'test'
-            },
-        ],
         hoverModeIsEnabled: [
-            (s) => [s.logicProps, s.isCommenting, s.hoverFlagIsEnabled, s.showingClipParams],
-            (logicProps, isCommenting, hoverFlagIsEnabled, showingClipParams): boolean => {
+            (s) => [s.logicProps, s.isCommenting, s.showingClipParams],
+            (logicProps, isCommenting, showingClipParams): boolean => {
                 return (
-                    hoverFlagIsEnabled &&
-                    logicProps.mode === SessionRecordingPlayerMode.Standard &&
+                    !!logicProps.mode &&
+                    ModesWithInteractions.includes(logicProps.mode) &&
                     !isCommenting &&
                     !showingClipParams
                 )
+            },
+        ],
+        showPlayerChrome: [
+            (s) => [s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],
+            (hoverModeIsEnabled, isHovering, forceShowPlayerChrome): boolean => {
+                if (!hoverModeIsEnabled) {
+                    // we always show the UI in non-hover mode
+                    return true
+                }
+
+                // we default to showing the UI until a timer hides it
+                // or the user has hovered over the player
+                if (forceShowPlayerChrome) {
+                    return true
+                }
+                return isHovering
             },
         ],
     }),
@@ -1145,6 +1138,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (iframeContentWindow) {
                     // Clean up any previous listeners before adding new ones
                     cache.iframeErrorListenerCleanup?.()
+                    cache.iframeErrorListenerCleanup = undefined
 
                     cache.iframeErrorListenerCleanup = registerErrorListeners({
                         iframeWindow: iframeContentWindow,
@@ -1333,7 +1327,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (
                 props.playerKey?.startsWith('file-') ||
                 values.wasMarkedViewed ||
-                (props.mode && !ModesThatCanBeMarkedViewed.includes(props.mode))
+                (props.mode && !ModesWithInteractions.includes(props.mode))
             ) {
                 return
             }
@@ -1357,15 +1351,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
         },
-        setEndReached: async ({ reached }) => {
+        setEndReached: ({ reached }) => {
             if (reached) {
                 actions.setPause()
                 // TODO: this will be time-gated so won't happen immediately, but we need it to
                 if (!values.wasMarkedViewed) {
                     actions.markViewed(0)
-                }
-                if (values.similarRecordingsCount > 0) {
-                    actions.showNextRecordingConfirmation()
                 }
             }
         },
@@ -1522,6 +1513,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: () => {
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
+                cache.timer = undefined
             }
         },
         pauseIframePlayback: () => {
@@ -1688,51 +1680,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 await document.exitFullscreen()
             }
         },
-        showNextRecordingConfirmation: () => {
-            if (props.playlistLogic) {
-                props.playlistLogic.actions.loadNext()
-            }
-        },
-        confirmNextRecording: async () => {
-            // Mark all similar recordings as viewed
-            await Promise.all(
-                values.similarRecordings.map((recordingId: SessionRecordingType['id']) =>
-                    api.recordings.update(recordingId, {
-                        viewed: true,
-                    })
-                )
-            )
-            actions.hideNextRecordingConfirmation()
-            if (props.playlistLogic) {
-                props.playlistLogic.actions.loadNext()
-            }
-        },
-        loadSimilarRecordings: async () => {
-            if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_SIMILAR_RECORDINGS]) {
-                const response = await api.recordings.getSimilarRecordings(values.sessionRecordingId)
-                actions.loadSimilarRecordingsSuccess(response.count)
-                actions.setSimilarRecordings(response.results)
-            }
-        },
-        maybeLoadRecordingMeta: async (_, breakpoint) => {
-            if (!values.sessionRecordingId) {
-                return
-            }
-
-            breakpoint()
-
-            try {
-                actions.loadSimilarRecordings()
-            } catch (e) {
-                console.error('Failed to load recording meta', e)
-                actions.setPlayerError('Failed to load recording meta')
-            }
-        },
-        loadRecordingMeta: async () => {
-            if (!values.sessionRecordingId) {
-                return
-            }
-        },
         schedulePlayerTimeTracking: () => {
             const currentState = values.playingTimeTracking.state
             const interval = currentState === 'playing' ? 5000 : 30000
@@ -1793,13 +1740,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         cache.hasInitialized = false
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
+        cache.fullScreenListener = undefined
         cache.pausedMediaElements = []
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
 
         if (cache.playerTimeTrackingTimer) {
             clearTimeout(cache.playerTimeTrackingTimer)
+            cache.playerTimeTrackingTimer = undefined
         }
+
+        cache.iframeErrorListenerCleanup?.()
+        cache.iframeErrorListenerCleanup = undefined
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
@@ -1828,6 +1780,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     clearTimeout(timer)
                 }
             })
+            cache.consoleDebounceTimers = undefined
         }
         ;(window as any)[`__posthog_player_logs`] = undefined
         ;(window as any)[`__posthog_player_warnings`] = undefined

@@ -231,11 +231,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         key: Scene.ErrorTracking,
                         name: 'Error tracking',
                         path: urls.errorTracking(),
+                        iconType: 'error_tracking',
                     },
                     {
                         key: [Scene.ErrorTrackingIssue, exceptionType],
                         name: exceptionType,
                         onRename: async (name: string) => actions.updateName(name),
+                        iconType: 'error_tracking',
                     },
                 ]
             },

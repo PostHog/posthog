@@ -44,6 +44,7 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
+    SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

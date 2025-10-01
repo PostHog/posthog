@@ -26,19 +26,14 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../config/config'
-import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
+import { kafkaConsumerAssignment, kafkaHeaderStatusCounter } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
 import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
 import { getKafkaConfigFromEnv } from './config'
-import {
-    parseBrokerStatistics,
-    parsePartitionStatistics,
-    trackBrokerMetrics,
-    trackPartitionMetrics,
-} from './kafka-client-metrics'
+import { parseBrokerStatistics, trackBrokerMetrics } from './kafka-client-metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
@@ -333,6 +328,14 @@ export class KafkaConsumer {
         return new HealthCheckResultOk()
     }
 
+    public isShuttingDown(): boolean {
+        return this.isStopping
+    }
+
+    public isRebalancing(): boolean {
+        return this.rebalanceCoordination.isRebalancing
+    }
+
     public assignments(): Assignment[] {
         return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
     }
@@ -512,11 +515,6 @@ export class KafkaConsumer {
                 const brokerStats = parseBrokerStatistics(parsedStats)
 
                 trackBrokerMetrics(brokerStats, this.config.groupId, this.consumerId)
-
-                const partitionStats = parsePartitionStatistics(parsedStats)
-                for (const { topicName, partitionId, partitionData } of partitionStats) {
-                    trackPartitionMetrics(topicName, partitionId, partitionData, this.config.groupId, this.consumerId)
-                }
 
                 // Log key metrics for observability - only include cgrp fields if present
                 const logData: any = {
@@ -843,8 +841,19 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.distinct_id = value
             } else if (key === 'timestamp') {
                 result.timestamp = value
+            } else if (key === 'event') {
+                result.event = value
+            } else if (key === 'uuid') {
+                result.uuid = value
             }
         })
+    })
+
+    // Track comprehensive header status metrics
+    const trackedHeaders = ['token', 'distinct_id', 'timestamp', 'event', 'uuid'] as const
+    trackedHeaders.forEach((header) => {
+        const status = result[header] ? 'present' : 'absent'
+        kafkaHeaderStatusCounter.labels(header, status).inc()
     })
 
     return result

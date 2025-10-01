@@ -116,6 +116,151 @@ def REPLACE_WEB_STATS_HOURLY_STAGING_SQL():
     )
 
 
+# Hardcoded production column definitions to match exact table structure
+#
+# NOTE: These definitions exist because the production destination tables have a different
+# column order than what our WEB_STATS_COLUMNS/WEB_BOUNCES_COLUMNS generate. Specifically,
+# mat_metadata_loggedIn appears at the END of the production tables (due to migration via
+# ALTER TABLE ADD COLUMN), but our code generates it in the middle. For REPLACE PARTITION
+# to work, staging and destination tables must have identical column order and types.
+#
+# Production table schemas extracted from DESCRIBE TABLE commands:
+WEB_STATS_V2_PRODUCTION_COLUMNS = """
+    pathname String,
+    entry_pathname String,
+    end_pathname String,
+    browser String,
+    os String,
+    viewport_width Int64,
+    viewport_height Int64,
+    referring_domain String,
+    utm_source String,
+    utm_medium String,
+    utm_campaign String,
+    utm_term String,
+    utm_content String,
+    country_code String,
+    city_name String,
+    region_code String,
+    region_name String,
+    has_gclid Bool,
+    has_gad_source_paid_search Bool,
+    has_fbclid Bool,
+    mat_metadata_backend Nullable(String),
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    pageviews_count_state AggregateFunction(sum, UInt64),
+    mat_metadata_loggedIn Nullable(Bool)
+"""
+
+WEB_BOUNCES_V2_PRODUCTION_COLUMNS = """
+    entry_pathname String,
+    end_pathname String,
+    browser String,
+    os String,
+    viewport_width Int64,
+    viewport_height Int64,
+    referring_domain String,
+    utm_source String,
+    utm_medium String,
+    utm_campaign String,
+    utm_term String,
+    utm_content String,
+    country_code String,
+    city_name String,
+    region_code String,
+    region_name String,
+    has_gclid Bool,
+    has_gad_source_paid_search Bool,
+    has_fbclid Bool,
+    mat_metadata_backend Nullable(String),
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    pageviews_count_state AggregateFunction(sum, UInt64),
+    bounces_count_state AggregateFunction(sum, UInt64),
+    total_session_duration_state AggregateFunction(sum, Int64),
+    total_session_count_state AggregateFunction(sum, UInt64),
+    mat_metadata_loggedIn Nullable(Bool)
+"""
+
+# Production ORDER BY clauses extracted from production tables
+# These exclude nullable columns to avoid ClickHouse "Sorting key contains nullable columns" error
+WEB_STATS_V2_PRODUCTION_ORDER_BY = """(
+    team_id,
+    period_bucket,
+    host,
+    device_type,
+    pathname,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid
+)"""
+
+WEB_BOUNCES_V2_PRODUCTION_ORDER_BY = """(
+    team_id,
+    period_bucket,
+    host,
+    device_type,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid
+)"""
+
+
+def REPLACE_WEB_STATS_V2_STAGING_SQL():
+    return TABLE_TEMPLATE(
+        "web_pre_aggregated_stats_staging",
+        WEB_STATS_V2_PRODUCTION_COLUMNS,
+        WEB_STATS_V2_PRODUCTION_ORDER_BY,
+        force_unique_zk_path=True,
+        replace=True,
+        on_cluster=False,
+    )
+
+
+def REPLACE_WEB_BOUNCES_V2_STAGING_SQL():
+    return TABLE_TEMPLATE(
+        "web_pre_aggregated_bounces_staging",
+        WEB_BOUNCES_V2_PRODUCTION_COLUMNS,
+        WEB_BOUNCES_V2_PRODUCTION_ORDER_BY,
+        force_unique_zk_path=True,
+        replace=True,
+        on_cluster=False,
+    )
+
+
 WEB_ANALYTICS_DIMENSIONS = [
     "entry_pathname",
     "end_pathname",

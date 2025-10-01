@@ -33,9 +33,9 @@ export type RoleResourceAccessControls = DefaultResourceAccessControls & {
 
 export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>([
     path(['scenes', 'accessControl', 'resourcesAccessControlLogic']),
-    connect({
+    connect(() => ({
         values: [roleAccessControlLogic, ['roles'], teamLogic, ['currentTeam'], membersLogic, ['sortedMembers']],
-    }),
+    })),
     actions({
         updateResourceAccessControls: (
             accessControls: Pick<
@@ -204,10 +204,11 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             () => [],
             (): AccessControlType['resource'][] => {
                 return [
-                    AccessControlResourceType.FeatureFlag,
                     AccessControlResourceType.Dashboard,
+                    AccessControlResourceType.FeatureFlag,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.Notebook,
+                    AccessControlResourceType.RevenueAnalytics,
                     AccessControlResourceType.SessionRecording,
                 ]
             },

@@ -37,7 +37,6 @@ import {
 } from '~/queries/utils'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
-    AccessLevel,
     CohortType,
     DashboardMode,
     DashboardTile,
@@ -54,7 +53,6 @@ import {
     MultipleSurveyQuestion,
     PersonType,
     QueryBasedInsightModel,
-    Resource,
     type SDK,
     Survey,
     SurveyQuestionType,
@@ -564,15 +562,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
         reportBillingDowngradeClicked: (plan: string) => ({ plan }),
         reportRoleCreated: (role: string) => ({ role }),
-        reportResourceAccessLevelUpdated: (resourceType: Resource, roleName: string, accessLevel: AccessLevel) => ({
-            resourceType,
-            roleName,
-            accessLevel,
-        }),
-        reportRoleCustomAddedToAResource: (resourceType: Resource, rolesLength: number) => ({
-            resourceType,
-            rolesLength,
-        }),
         reportFlagsCodeExampleInteraction: (optionType: string) => ({
             optionType,
         }),

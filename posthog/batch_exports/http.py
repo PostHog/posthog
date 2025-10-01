@@ -46,6 +46,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
 from posthog.models.signals import model_activity_signal
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -182,9 +183,13 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
+    integration_id = serializers.PrimaryKeyRelatedField(
+        write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
+    )
+
     class Meta:
         model = BatchExportDestination
-        fields = ["type", "config"]
+        fields = ["type", "config", "integration", "integration_id"]
 
     def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
@@ -356,6 +361,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
+    # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
@@ -378,7 +384,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
-        if destination_attrs["type"] == BatchExportDestination.Destination.S3:
+        if destination_type == BatchExportDestination.Destination.S3:
             config = destination_attrs["config"]
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = config.get("file_format", "JSONLines")
@@ -392,6 +398,37 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
                 )
+        if destination_type == BatchExportDestination.Destination.DATABRICKS:
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "databricks-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("The Databricks destination is not enabled for this team.")
+
+            # validate the Integration is valid (this is mandatory for Databricks batch exports)
+            integration: Integration | None = destination_attrs.get("integration")
+            if integration is None:
+                raise serializers.ValidationError("integration is required for Databricks batch exports")
+            if integration.team_id != team_id:
+                raise serializers.ValidationError("Integration does not belong to this team.")
+            if integration.kind != Integration.IntegrationKind.DATABRICKS:
+                raise serializers.ValidationError("Integration is not a Databricks integration.")
+            # try instantiate the integration to check if it's valid
+            try:
+                DatabricksIntegration(integration)
+            except DatabricksIntegrationError as e:
+                raise serializers.ValidationError(str(e))
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
@@ -809,10 +846,8 @@ def create_backfill(
     if start_at >= end_at:
         raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
-    if end_at > dt.datetime.now(dt.UTC) + batch_export.interval_time_delta:
-        raise ValidationError(
-            f"The provided 'end_at' ({end_at.isoformat()}) is too far into the future. Cannot backfill beyond 1 batch period into the future."
-        )
+    if end_at > dt.datetime.now(dt.UTC):
+        raise ValidationError(f"The provided 'end_at' ({end_at.isoformat()}) is in the future")
 
     try:
         return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)

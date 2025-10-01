@@ -94,10 +94,19 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                     argMin(person.properties, timestamp)
                 ) AS first_person,
                 round(
-                    sumIf(toFloat(properties.$ai_latency),
-                        properties.$ai_parent_id IS NULL
-                        OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
-                    ), 2
+                    CASE
+                        -- If all events with latency are generations, sum them all
+                        WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
+                             AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
+                        THEN sumIf(toFloat(properties.$ai_latency),
+                                   event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
+                             )
+                        -- Otherwise sum the direct children of the trace
+                        ELSE sumIf(toFloat(properties.$ai_latency),
+                                   properties.$ai_parent_id IS NULL
+                                   OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                             )
+                    END, 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
                       event = '$ai_generation'
