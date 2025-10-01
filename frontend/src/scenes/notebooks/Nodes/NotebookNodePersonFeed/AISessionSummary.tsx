@@ -6,36 +6,48 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils'
 
-import { TimelineEntry } from '~/queries/schema/schema-general'
 import { EnrichedSessionGroupSummaryPattern } from '~/types'
 
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 
 export function AISessionSummary({ personId }: { personId: string }): JSX.Element | null {
     const logic = notebookNodePersonFeedLogic({ personId })
-    const { canSummarize, sessions, sessionSummary, sessionSummaryLoading, summarizingState } = useValues(logic)
+    const { canSummarize, sessionIdsWithRecording, sessionSummary, sessionSummaryLoading, summarizingState } =
+        useValues(logic)
     const { summarizeSessions } = useActions(logic)
 
     if (!canSummarize) {
         return null
     }
 
-    const pluralizedSessions = pluralize((sessions as TimelineEntry[]).length, 'session')
+    const numSessionsWithRecording = sessionIdsWithRecording.length
+
+    const pluralizedSessions = pluralize(numSessionsWithRecording, 'session')
 
     return (
         <>
             <div className="mb-4 p-4 bg-surface-secondary rounded border">
                 {!sessionSummary && summarizingState === 'idle' && (
                     <div className="flex items-center justify-between">
-                        <AISummaryMessage
-                            heading="AI Session Summary"
-                            subheading={`Analyze ${pluralizedSessions} and identify patterns`}
-                        />
+                        {numSessionsWithRecording > 0 ? (
+                            <AISummaryMessage
+                                heading="AI Session Summary"
+                                subheading={`Analyze ${pluralizedSessions} and identify patterns`}
+                            />
+                        ) : (
+                            <AISummaryMessage
+                                heading="AI Session Summary"
+                                subheading="No sessions with recordings found"
+                            />
+                        )}
                         <LemonButton
                             type="primary"
                             icon={<IconSparkles />}
                             onClick={summarizeSessions}
                             loading={sessionSummaryLoading}
+                            disabledReason={
+                                numSessionsWithRecording === 0 ? 'No sessions with recordings found' : undefined
+                            }
                             data-attr="person-feed-summarize-sessions"
                         >
                             Summarize Sessions
@@ -57,7 +69,7 @@ export function AISessionSummary({ personId }: { personId: string }): JSX.Elemen
                             subheading="Summary generated successfully! Patterns are displayed below."
                         />
                         <p className="text-sm text-muted">
-                            {pluralize(sessionSummary.summary?.patterns?.length || 0, 'pattern')} found
+                            {pluralize(sessionSummary.patterns?.length || 0, 'pattern')} found
                         </p>
                         {sessionSummary.patterns.map((pattern: EnrichedSessionGroupSummaryPattern) => (
                             <PatternCard key={pattern.pattern_id} pattern={pattern} />

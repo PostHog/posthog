@@ -54,15 +54,13 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                 summarizeSessions: async () => {
                     try {
                         actions.setSummarizingState('loading')
-                        const sessionsWithRecordings = values?.sessions
-                            ?.filter((session) => !!session.recording_duration_s)
-                            .map((session) => session.sessionId)
-                            .filter((id) => id !== undefined)
-                        if (sessionsWithRecordings) {
-                            return await api.sessionSummaries.create({
-                                session_ids: sessionsWithRecordings,
+                        if (values.sessionIdsWithRecording) {
+                            const response = await api.sessionSummaries.create({
+                                session_ids: values.sessionIdsWithRecording,
                             })
+                            return response
                         }
+                        return null
                     } catch (error) {
                         posthog.captureException(error)
                         throw error
@@ -82,10 +80,15 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
     }),
 
     selectors({
-        canSummarize: [
-            (s) => [s.featureFlags, s.sessions],
-            (featureFlags, sessions) => featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY] && sessions?.length > 0,
+        sessionIdsWithRecording: [
+            (s) => [s.sessions],
+            (sessions) =>
+                sessions
+                    ?.filter((session) => !!session.recording_duration_s)
+                    .map((session) => session.sessionId)
+                    .filter((id) => id !== undefined) as string[],
         ],
+        canSummarize: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]],
     }),
 
     listeners(({ actions }) => ({
