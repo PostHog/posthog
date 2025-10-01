@@ -432,10 +432,6 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             new_variants = variant_data.get("variants", [])
             new_payloads = variant_data.get("payloads", {})
 
-            # Merge with existing payloads to handle partial updates
-            existing_payloads = current_filters.get("payloads", {})
-            merged_payloads = {**existing_payloads, **new_payloads}
-
             # Validate variant rollout percentages before proceeding
             if new_variants:
                 total_rollout = sum(variant.get("rollout_percentage", 0) for variant in new_variants)
@@ -444,13 +440,13 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
             # Validate payload keys match variant keys
             variant_keys = {v.get("key") for v in new_variants}
-            payload_keys = set(merged_payloads.keys()) if merged_payloads else set()
+            payload_keys = set(new_payloads.keys()) if new_payloads else set()
 
             # Only validate payload-variant key matching if both exist and are non-empty
-            # Allow partial payloads (for gradual variant updates) or no payloads (for variants without payloads)
+            # Allow no payloads (for variants without payloads) or empty variants
             if payload_keys and variant_keys and not payload_keys.issubset(variant_keys):
                 invalid_keys = payload_keys - variant_keys
-                raise ValueError(f"Payload keys {invalid_keys} don't match any variant keys {variant_keys}")
+                raise ValueError(f"Payload keys {invalid_keys} don't match variant keys {variant_keys}")
 
             updated_multivariate = current_filters.get("multivariate", {})
             updated_multivariate["variants"] = new_variants
@@ -458,7 +454,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             serializer_data["filters"] = {
                 **current_filters,
                 "multivariate": updated_multivariate,
-                "payloads": merged_payloads,
+                "payloads": new_payloads,
             }
         else:
             raise Exception(f"Unrecognized operation: {payload['operation']}")
