@@ -63,9 +63,12 @@ class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
 
-    def __init__(self, *args, override_end_date: Optional[datetime] = None, **kwargs):
+    def __init__(
+        self, *args, override_end_date: Optional[datetime] = None, use_map_aggregation: Optional[bool] = False, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
+        self.use_map_aggregation = use_map_aggregation
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -111,7 +114,7 @@ class ExperimentQueryRunner(QueryRunner):
         self.metric = self.query.metric
 
     @property
-    def use_map_aggregation(self) -> bool:
+    def is_map_aggregation_supported(self) -> bool:
         """
         Determines whether to use the map aggregation query builder.
         Only enabled for mean metrics without data warehouse support (MVP scope).
@@ -124,8 +127,13 @@ class ExperimentQueryRunner(QueryRunner):
         if self.is_data_warehouse_query:
             return False
 
-        # Check environment variable for testing/rollout
-        return os.getenv("EXPERIMENT_USE_MAP_AGGREGATION", "false").lower() == "true"
+        # No outlier handling supported yet
+        if isinstance(self.metric, ExperimentMeanMetric) and (
+            self.metric.lower_bound_percentile or self.metric.upper_bound_percentile
+        ):
+            return False
+
+        return self.use_map_aggregation is True
 
     def _get_metrics_aggregated_per_entity_query(
         self,
@@ -463,7 +471,7 @@ class ExperimentQueryRunner(QueryRunner):
         Returns the main experiment query.
         Branches to map aggregation implementation if enabled, otherwise uses legacy approach.
         """
-        if self.use_map_aggregation:
+        if self.is_map_aggregation_supported:
             # Use new map aggregation query builder (single scan, no self-join)
             # Choose between AST-based or HogQL string-based implementation
             use_hogql_strings = os.getenv("EXPERIMENT_USE_HOGQL_STRINGS", "false").lower() == "true"
