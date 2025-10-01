@@ -130,7 +130,7 @@ async fn generate_flamegraph(frequency: i32, seconds: u64, image_width: usize) -
         .build()
         .context("Failed to build flamegraph report")?
         .flamegraph_with_options(&mut buf, &mut options)
-        .context("Failed to populate flamgegraph image buffer")?;
+        .context("Failed to populate flamegraph image buffer")?;
 
     // GZIP the flamegraph image buffer before returning it
     let mut body = Vec::new();
