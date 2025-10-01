@@ -19,7 +19,7 @@ import {
     useTransitionStyles,
 } from '@floating-ui/react'
 import clsx from 'clsx'
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
@@ -47,6 +47,10 @@ interface BaseTooltipProps {
      */
     interactive?: boolean
     docLink?: string
+    /**
+     * Run a function when showing the tooltip, for example to log an event.
+     */
+    onOpen?: () => void
 }
 
 export type RequiredTooltipProps = (
@@ -69,6 +73,7 @@ export function Tooltip({
     visible: controlledOpen,
     docLink,
     containerClassName,
+    onOpen,
 }: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const [isHoveringTooltip, setIsHoveringTooltip] = useState(false) // Track tooltip hover state
@@ -77,6 +82,12 @@ export function Tooltip({
     const floatingContainer = useFloatingContainer()
 
     const open = controlledOpen ?? (uncontrolledOpen || isHoveringTooltip)
+
+    useEffect(() => {
+        if (open && onOpen) {
+            onOpen()
+        }
+    }, [open, onOpen])
 
     const { context, refs } = useFloating({
         placement,
