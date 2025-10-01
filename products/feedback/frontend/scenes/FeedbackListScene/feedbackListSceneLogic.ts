@@ -4,7 +4,8 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { MOCK_FEEDBACK_ITEMS } from '../../mocks'
-import { FeedbackItem, FeedbackStatus } from '../../types'
+import { FeedbackItem } from '../../models'
+import { FeedbackStatus } from '../../types'
 import type { feedbackListSceneLogicType } from './feedbackListSceneLogicType'
 
 export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([

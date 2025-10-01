@@ -1507,6 +1507,15 @@ export class ApiRequest {
     public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
+
+    // # Feedback
+    public feedbackItems(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('feedback_items')
+    }
+
+    public feedbackItem(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.feedbackItems(teamId).addPathComponent(id)
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -4158,6 +4167,20 @@ const api = {
 
         async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
             return await new ApiRequest().datasetItem(datasetItemId).update({ data })
+        },
+    },
+
+    feedbackItems: {
+        async list(
+            params: {
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<any>> {
+            return await new ApiRequest().feedbackItems().withQueryString(toParams(params)).get()
+        },
+        async get(id: string): Promise<any> {
+            return await new ApiRequest().feedbackItem(id).get()
         },
     },
 

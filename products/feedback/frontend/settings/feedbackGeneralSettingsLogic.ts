@@ -1,4 +1,7 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, events, kea, path, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
+
+import api from 'lib/api'
 
 import type { feedbackGeneralSettingsLogicType } from './feedbackGeneralSettingsLogicType'
 
@@ -9,6 +12,8 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
     path(['products', 'feedback', 'settings', 'feedbackGeneralSettingsLogic']),
 
     actions({
+        loadFeedbackTopicsTemp: true,
+
         addFeedbackCategory: (key: string) => ({ key }),
         removeFeedbackCategory: (index: number) => ({ index }),
         addFeedbackTopic: (key: string) => ({ key }),
@@ -33,4 +38,23 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
             },
         ],
     }),
+
+    loaders(() => ({
+        feedbackTopicsTemp: [
+            [] as string[],
+            {
+                loadFeedbackTopicsTemp: async () => {
+                    const response = await api.feedbackItems.list()
+
+                    return []
+                },
+            },
+        ],
+    })),
+
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadFeedbackTopicsTemp()
+        },
+    })),
 ])

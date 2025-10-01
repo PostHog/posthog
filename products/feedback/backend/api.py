@@ -11,23 +11,61 @@ from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 
-from products.feedback.backend.models import FeedbackItem
+from products.feedback.backend.models import (
+    FeedbackItem,
+    FeedbackItemAssignment,
+    FeedbackItemCategory,
+    FeedbackItemStatus,
+    FeedbackItemTopic,
+)
 
 logger = structlog.get_logger(__name__)
 
 FIVE_HUNDRED_MEGABYTES = 1024 * 1024 * 500
 
 
+class FeedbackItemCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeedbackItemCategory
+        fields = ["id", "name"]
+
+
+class FeedbackItemStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeedbackItemStatus
+        fields = ["id", "name"]
+
+
+class FeedbackItemTopicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeedbackItemTopic
+        fields = ["id", "name"]
+
+
+class FeedbackItemAssignmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeedbackItemAssignment
+        fields = ["user", "role"]
+
+
 class FeedbackItemSerializer(serializers.ModelSerializer):
+    category = FeedbackItemCategorySerializer(read_only=True)
+    topic = FeedbackItemTopicSerializer(read_only=True)
+    status = FeedbackItemStatusSerializer(read_only=True)
+    assignment = FeedbackItemAssignmentSerializer(read_only=True)
+    attachments = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+
     class Meta:
         model = FeedbackItem
-        fields = ["id", "content"]
-        read_only_fields = ["id", "content"]
+        fields = ["id", "content", "category", "topic", "status", "assignment", "attachments", "created_at"]
+        read_only_fields = ["id", "content", "created_at"]
 
 
 class FeedbackItemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "feedback_item"
-    queryset = FeedbackItem.objects.all()
+    queryset = FeedbackItem.objects.select_related("category", "topic", "status", "assignment__user").prefetch_related(
+        "attachments"
+    )
     serializer_class = FeedbackItemSerializer
 
 
