@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PreIngestionEvent } from '~/types'
 
-import { AI_EVENT_TYPES, processAiEvent } from '../../../ingestion/ai-events/process-ai-event'
+import { AI_EVENT_TYPES, processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { parseEventTimestamp } from '../timestamps'
