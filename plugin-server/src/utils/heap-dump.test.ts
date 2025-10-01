@@ -114,9 +114,8 @@ describe('heap-dump', () => {
                         Key: expect.stringMatching(
                             /^heap-dumps\/\d{4}-\d{2}-\d{2}\/heapdump-test-pod-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.heapsnapshot$/
                         ),
+                        Body: expect.any(Object), // PassThrough stream
                     }),
-                    partSize: 5 * 1024 * 1024, // 5MB
-                    queueSize: 4,
                 })
             )
             expect(mockUploadDone).toHaveBeenCalled()

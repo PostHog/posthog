@@ -1,5 +1,6 @@
 import { S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
+import { PassThrough } from 'stream'
 import * as v8 from 'v8'
 
 import { PluginsServerConfig } from '../types'
@@ -67,6 +68,26 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
         // Create heap snapshot
         logger.info('📸 Creating heap snapshot...')
         const snapshot = v8.getHeapSnapshot()
+
+        // Create a PassThrough stream similar to session batch writer
+        const passThrough = new PassThrough()
+
+        // Pipe snapshot to passThrough - simpler approach
+        snapshot.pipe(passThrough)
+
+        snapshot.on('error', (error) => {
+            logger.error('📸 Heap snapshot stream error', { error: error.message })
+            passThrough.destroy(error)
+        })
+
+        snapshot.on('end', () => {
+            logger.info('📸 Heap snapshot stream ended')
+        })
+
+        passThrough.on('error', (error) => {
+            logger.error('📸 PassThrough stream error', { error: error.message })
+        })
+
         logger.info('📸 Heap snapshot created, preparing S3 upload')
 
         // Stream directly to S3
@@ -76,8 +97,6 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
         logger.info('📸 Initializing S3 upload', {
             bucket: s3Bucket,
             key: s3Key,
-            partSize: '5MB',
-            queueSize: 4,
         })
 
         const upload = new Upload({
@@ -85,7 +104,7 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
             params: {
                 Bucket: s3Bucket,
                 Key: s3Key,
-                Body: snapshot,
+                Body: passThrough, // Use passThrough instead of snapshot directly
                 ContentType: 'application/octet-stream',
                 Metadata: {
                     podName,
@@ -93,24 +112,26 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
                     timestamp: new Date().toISOString(),
                 },
             },
-            // Add multipart upload configuration for better handling of large files
-            partSize: 5 * 1024 * 1024, // 5MB chunks
-            queueSize: 4, // Parallel uploads
+            // Remove partSize and queueSize - let SDK use defaults
         })
 
         // Add progress tracking
         let lastProgressLog = Date.now()
         let progressCount = 0
+        let lastLoaded = 0
+
         upload.on('httpUploadProgress', (progress) => {
             progressCount++
             const now = Date.now()
             const loaded = progress.loaded || 0
             const total = progress.total || 0
             const percentage = total > 0 ? Math.round((loaded / total) * 100) : 0
+            const bytesPerSecond = loaded > lastLoaded ? (loaded - lastLoaded) / ((now - lastProgressLog) / 1000) : 0
 
             // Log first progress event immediately, then every 5 seconds
             if (progressCount === 1 || now - lastProgressLog > 5000) {
                 lastProgressLog = now
+                lastLoaded = loaded
                 logger.info('📸 Heap dump upload progress', {
                     filename,
                     s3Key,
@@ -119,6 +140,8 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
                     percentage: `${percentage}%`,
                     duration: `${now - startTime}ms`,
                     progressCount,
+                    bytesPerSecond: Math.round(bytesPerSecond),
+                    part: progress.part,
                 })
             }
         })
@@ -128,6 +151,9 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
             let timeoutId: NodeJS.Timeout | undefined
             const timeoutPromise = new Promise((_, reject) => {
                 timeoutId = setTimeout(() => {
+                    logger.warn('📸 Heap dump upload timeout - aborting')
+                    // Destroy the stream to stop the upload
+                    passThrough.destroy()
                     // Abort the upload to free resources
                     void upload.abort().catch((abortError) => {
                         logger.warn('Failed to abort heap dump upload', { error: abortError })
