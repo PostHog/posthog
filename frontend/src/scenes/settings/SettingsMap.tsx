@@ -4,6 +4,7 @@ import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
 import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
+import { FeedbackGeneralSettings } from '@posthog/products-feedback/frontend/settings/FeedbackGeneralSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
@@ -485,6 +486,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
                 component: <SymbolSets />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-feedback',
+        title: 'Feedback',
+        settings: [
+            {
+                id: 'feedback-general',
+                title: 'General',
+                component: <FeedbackGeneralSettings />,
             },
         ],
     },

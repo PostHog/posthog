@@ -1,4 +1,8 @@
+import { IconGear } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -30,6 +34,18 @@ const Header = (): JSX.Element => {
                 resourceType={{
                     type: 'feedback',
                 }}
+                actions={
+                    <>
+                        <LemonButton
+                            size="small"
+                            to={urls.feedbackConfiguration()}
+                            type="secondary"
+                            icon={<IconGear />}
+                        >
+                            Configure
+                        </LemonButton>
+                    </>
+                }
             />
             <SceneDivider />
         </>
