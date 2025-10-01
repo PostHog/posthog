@@ -7,6 +7,8 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import Query, get_cluster
 from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER, CLICKHOUSE_MIGRATIONS_HOST
 
+from ee import settings
+
 logger = logging.getLogger("migrations")
 
 
@@ -53,6 +55,11 @@ def run_sql_with_exceptions(
     """
 
     node_roles = node_roles or [NodeRole.DATA]
+
+    if settings.E2E_TESTING or settings.DEBUG:
+        # In E2E tests and debug mode, we run migrations on all nodes
+        # because we don't have different ClickHouse topologies yet in Docker
+        node_roles = [NodeRole.ALL]
 
     def run_migration():
         if "ON CLUSTER" in sql:
