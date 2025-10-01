@@ -1,4 +1,5 @@
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BranchFunction, BranchingBatchPipeline } from './branching-batch-pipeline'
 import { GatheringBatchPipeline } from './gathering-batch-pipeline'
 import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
@@ -48,5 +49,13 @@ export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput, C
 
     gather(): GatheringBatchPipeline<TInput, TOutput, C> {
         return new GatheringBatchPipeline(this)
+    }
+
+    branch<TBranched, COut extends C = C>(
+        branchFn: BranchFunction<TOutput, TBranched, C, COut>,
+        truePipeline: BatchPipeline<TBranched, TOutput, COut>,
+        falsePipeline: BatchPipeline<TOutput, TOutput, C>
+    ): BranchingBatchPipeline<TInput, TOutput, TBranched, TOutput, C, COut> {
+        return new BranchingBatchPipeline(this, branchFn, truePipeline, falsePipeline)
     }
 }
