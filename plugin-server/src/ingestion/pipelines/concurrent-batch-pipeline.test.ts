@@ -67,7 +67,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const spy = jest.spyOn(previousPipeline, 'feed')
 
             const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
-            const testBatch: BatchPipelineResultWithContext<string> = [createContext(ok('test'), context1)]
+            const testBatch = [createContext(ok('test'), context1)]
 
             pipeline.feed(testBatch)
 
@@ -93,10 +93,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const previousPipeline = createNewBatchPipeline<string>()
 
             // Feed some test data
-            const testBatch: BatchPipelineResultWithContext<string> = [
-                createContext(ok('hello'), context1),
-                createContext(ok('world'), context2),
-            ]
+            const testBatch = [createContext(ok('hello'), context1), createContext(ok('world'), context2)]
             previousPipeline.feed(testBatch)
 
             const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
@@ -117,7 +114,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const redirectResult = redirect<string>('test redirect', 'test-topic')
 
             const previousPipeline = createNewBatchPipeline<string>()
-            const testBatch: BatchPipelineResultWithContext<string> = [
+            const testBatch: BatchPipelineResultWithContext<string, any> = [
                 createContext(dropResult, context1),
                 createContext(dlqResult, context2),
                 createContext(redirectResult, context3),
@@ -146,7 +143,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             const dropResult = drop<string>('test drop')
 
             const previousPipeline = createNewBatchPipeline<string>()
-            const testBatch: BatchPipelineResultWithContext<string> = [
+            const testBatch: BatchPipelineResultWithContext<string, any> = [
                 createContext(ok('hello'), context1),
                 createContext(dropResult, context2),
                 createContext(ok('world'), context3),
@@ -174,10 +171,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             })
 
             const previousPipeline = createNewBatchPipeline<string>()
-            const testBatch: BatchPipelineResultWithContext<string> = [
-                createContext(ok('fast'), context1),
-                createContext(ok('slow'), context2),
-            ]
+            const testBatch = [createContext(ok('fast'), context1), createContext(ok('slow'), context2)]
             previousPipeline.feed(testBatch)
 
             const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
@@ -199,7 +193,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             })
 
             const previousPipeline = createNewBatchPipeline<string>()
-            const testBatch: BatchPipelineResultWithContext<string> = [createContext(ok('test'), context1)]
+            const testBatch = [createContext(ok('test'), context1)]
             previousPipeline.feed(testBatch)
 
             const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
@@ -213,8 +207,8 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             )
 
             const previousPipeline = createNewBatchPipeline<string>()
-            const batch1: BatchPipelineResultWithContext<string> = [createContext(ok('batch1'), context1)]
-            const batch2: BatchPipelineResultWithContext<string> = [createContext(ok('batch2'), context2)]
+            const batch1 = [createContext(ok('batch1'), context1)]
+            const batch2 = [createContext(ok('batch2'), context2)]
 
             const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
 
@@ -239,7 +233,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             )
 
             const previousPipeline = createNewBatchPipeline<string>()
-            const testBatch: BatchPipelineResultWithContext<string> = [
+            const testBatch = [
                 createContext(ok('item1'), context1),
                 createContext(ok('item2'), context2),
                 createContext(ok('item3'), context3),
@@ -292,7 +286,7 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             })
 
             const previousPipeline = createNewBatchPipeline<string>()
-            const testBatch: BatchPipelineResultWithContext<string> = [
+            const testBatch = [
                 createContext(ok('fast'), context1),
                 createContext(ok('slow'), context2),
                 createContext(ok('medium'), context3),

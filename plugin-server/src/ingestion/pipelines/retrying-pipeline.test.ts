@@ -147,7 +147,7 @@ describe('RetryingPipeline', () => {
             if (result.result.type === PipelineResultType.DLQ) {
                 expect(result.result.reason).toBe('Processing error - non-retriable')
             }
-            expect(result.context).toEqual({ message, sideEffects: [] })
+            expect(result.context).toEqual({ message, sideEffects: [], warnings: [] })
         })
 
         it('should treat errors without isRetriable property as retriable', async () => {

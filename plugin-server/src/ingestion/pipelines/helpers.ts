@@ -8,24 +8,26 @@ import { PipelineResult, ok } from './results'
 import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
 import { StartPipeline } from './start-pipeline'
 
+export type DefaultContext = { message: Message }
+
 /**
  * Helper function to create a new processing pipeline for single items
  */
-export function createNewPipeline<T = { message: Message }>(): StartPipeline<T> {
-    return new StartPipeline<T>()
+export function createNewPipeline<T = { message: Message }, C = DefaultContext>(): StartPipeline<T, C> {
+    return new StartPipeline<T, C>()
 }
 
 /**
  * Helper function to create a new batch processing pipeline starting with a root pipeline
  */
-export function createNewBatchPipeline<T = { message: Message }>(): BufferingBatchPipeline<T> {
-    return new BufferingBatchPipeline<T>()
+export function createNewBatchPipeline<T, C = DefaultContext>(): BufferingBatchPipeline<T, C> {
+    return new BufferingBatchPipeline<T, C>()
 }
 
 /**
  * Helper function to create a batch of ResultWithContext from Kafka messages or objects with a message property
  */
-export function createBatch<T extends { message: Message }>(items: T[]): BatchPipelineResultWithContext<T> {
+export function createBatch<T extends DefaultContext>(items: T[]): BatchPipelineResultWithContext<T, DefaultContext> {
     return items.map((item) => createContext(ok(item), { message: item.message }))
 }
 
@@ -34,7 +36,7 @@ export function createBatch<T extends { message: Message }>(items: T[]): BatchPi
  */
 export function createContext<T, C>(
     result: PipelineResult<T>,
-    partialContext: Partial<PipelineContext<C>> & { message: Message }
+    partialContext: Partial<PipelineContext<C>> & DefaultContext
 ): PipelineResultWithContext<T> {
     const { message, lastStep, sideEffects, warnings, ...rest } = partialContext
     return {
@@ -52,18 +54,18 @@ export function createContext<T, C>(
 /**
  * Helper function to create a retrying pipeline
  */
-export function createRetryingPipeline<TInput, TOutput>(
-    innerPipeline: Pipeline<TInput, TOutput>,
+export function createRetryingPipeline<TInput, TOutput, C>(
+    innerPipeline: Pipeline<TInput, TOutput, C>,
     options?: RetryingPipelineOptions
-): RetryingPipeline<TInput, TOutput> {
+): RetryingPipeline<TInput, TOutput, C> {
     return new RetryingPipeline(innerPipeline, options)
 }
 
 /**
  * Helper function to create a batch pipeline unwrapper
  */
-export function createUnwrapper<TInput, TOutput>(
-    batchPipeline: BatchPipeline<TInput, TOutput>
-): BatchPipelineUnwrapper<TInput, TOutput> {
+export function createUnwrapper<TInput, TOutput, C>(
+    batchPipeline: BatchPipeline<TInput, TOutput, C>
+): BatchPipelineUnwrapper<TInput, TOutput, C> {
     return new BatchPipelineUnwrapper(batchPipeline)
 }

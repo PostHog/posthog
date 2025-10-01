@@ -1,23 +1,23 @@
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { GatheringBatchPipeline } from './gathering-batch-pipeline'
-import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
+import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
 
-export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput>
-    implements BatchPipeline<TInput, TOutput>
+export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput, C = PipelineContext>
+    implements BatchPipeline<TInput, TOutput, C>
 {
-    private promiseQueue: Promise<PipelineResultWithContext<TOutput>>[] = []
+    private promiseQueue: Promise<PipelineResultWithContext<TOutput, C>>[] = []
 
     constructor(
-        private processor: Pipeline<TIntermediate, TOutput>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate>
+        private processor: Pipeline<TIntermediate, TOutput, C>,
+        private previousPipeline: BatchPipeline<TInput, TIntermediate, C>
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput, C>): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, C> | null> {
         const previousResults = await this.previousPipeline.next()
 
         if (previousResults !== null) {
@@ -46,7 +46,7 @@ export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput>
         return [resultWithContext]
     }
 
-    gather(): GatheringBatchPipeline<TInput, TOutput> {
+    gather(): GatheringBatchPipeline<TInput, TOutput, C> {
         return new GatheringBatchPipeline(this)
     }
 }

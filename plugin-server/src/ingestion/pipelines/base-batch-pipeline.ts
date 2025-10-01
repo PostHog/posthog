@@ -6,29 +6,29 @@ import { PipelineResult, PipelineResultOk, isOkResult } from './results'
 /**
  * Type guard for ResultWithContext that asserts the result is successful
  */
-function isSuccessResultWithContext<T>(
-    resultWithContext: PipelineResultWithContext<T>
-): resultWithContext is PipelineResultWithContext<T> & { result: PipelineResultOk<T> } {
+function isSuccessResultWithContext<T, C>(
+    resultWithContext: PipelineResultWithContext<T, C>
+): resultWithContext is PipelineResultWithContext<T, C> & { result: PipelineResultOk<T> } {
     return isOkResult(resultWithContext.result)
 }
 
 export type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
 
-export class BaseBatchPipeline<TInput, TIntermediate, TOutput> implements BatchPipeline<TInput, TOutput> {
+export class BaseBatchPipeline<TInput, TIntermediate, TOutput, C> implements BatchPipeline<TInput, TOutput, C> {
     private stepName: string
 
     constructor(
         private currentStep: BatchProcessingStep<TIntermediate, TOutput>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate>
+        private previousPipeline: BatchPipeline<TInput, TIntermediate, C>
     ) {
         this.stepName = this.currentStep.name || 'anonymousBatchStep'
     }
 
-    feed(elements: BatchPipelineResultWithContext<TInput>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput, C>): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, C> | null> {
         const previousResults = await this.previousPipeline.next()
         if (previousResults === null) {
             return null

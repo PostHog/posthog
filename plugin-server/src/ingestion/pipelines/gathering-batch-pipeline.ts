@@ -1,16 +1,17 @@
 import { BaseBatchPipeline, BatchProcessingStep } from './base-batch-pipeline'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { PipelineContext } from './pipeline.interface'
 import { isOkResult, ok } from './results'
 
-export class GatheringBatchPipeline<TInput, TOutput> implements BatchPipeline<TInput, TOutput> {
-    constructor(private subPipeline: BatchPipeline<TInput, TOutput>) {}
+export class GatheringBatchPipeline<TInput, TOutput, C = PipelineContext> implements BatchPipeline<TInput, TOutput, C> {
+    constructor(private subPipeline: BatchPipeline<TInput, TOutput, C>) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput, C>): void {
         this.subPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput> | null> {
-        const allResults: BatchPipelineResultWithContext<TOutput> = []
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, C> | null> {
+        const allResults: BatchPipelineResultWithContext<TOutput, C> = []
 
         // Loop and collect all results from sub-pipeline
         let result = await this.subPipeline.next()
@@ -39,7 +40,7 @@ export class GatheringBatchPipeline<TInput, TOutput> implements BatchPipeline<TI
         return allResults
     }
 
-    pipeBatch<U>(step: BatchProcessingStep<TOutput, U>): BaseBatchPipeline<TInput, TOutput, U> {
+    pipeBatch<U>(step: BatchProcessingStep<TOutput, U>): BaseBatchPipeline<TInput, TOutput, U, C> {
         return new BaseBatchPipeline(step, this)
     }
 }
