@@ -18,7 +18,7 @@ import {
     RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
-import { Breadcrumb, InsightLogicProps, SimpleIntervalType } from '~/types'
+import { Breadcrumb, InsightLogicProps, InsightShortId, SimpleIntervalType } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
@@ -29,6 +29,22 @@ export enum RevenueAnalyticsQuery {
     GROSS_REVENUE,
     METRICS,
     TOP_CUSTOMERS,
+}
+
+export const REVENUE_ANALYTICS_QUERY_TO_SHORT_ID: Record<RevenueAnalyticsQuery, InsightShortId> = {
+    [RevenueAnalyticsQuery.OVERVIEW]: 'revenue-analytics-overview' as InsightShortId,
+    [RevenueAnalyticsQuery.MRR]: 'revenue-analytics-mrr' as InsightShortId,
+    [RevenueAnalyticsQuery.GROSS_REVENUE]: 'revenue-analytics-gross-revenue' as InsightShortId,
+    [RevenueAnalyticsQuery.METRICS]: 'revenue-analytics-metrics' as InsightShortId,
+    [RevenueAnalyticsQuery.TOP_CUSTOMERS]: 'revenue-analytics-top-customers' as InsightShortId,
+}
+
+export const REVENUE_ANALYTICS_QUERY_TO_NAME: Record<RevenueAnalyticsQuery, string> = {
+    [RevenueAnalyticsQuery.OVERVIEW]: 'Revenue Analytics Overview',
+    [RevenueAnalyticsQuery.MRR]: 'MRR',
+    [RevenueAnalyticsQuery.GROSS_REVENUE]: 'Gross Revenue',
+    [RevenueAnalyticsQuery.METRICS]: 'Revenue Metrics',
+    [RevenueAnalyticsQuery.TOP_CUSTOMERS]: 'Top Customers',
 }
 
 export const REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID = 'revenue-analytics'
@@ -284,10 +300,50 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             (s) => [s.queries],
             (queries): MaxContextInput[] => {
                 return [
-                    createMaxContextHelpers.insight({ query: queries[RevenueAnalyticsQuery.MRR] }),
-                    createMaxContextHelpers.insight({ query: queries[RevenueAnalyticsQuery.GROSS_REVENUE] }),
-                    createMaxContextHelpers.insight({ query: queries[RevenueAnalyticsQuery.METRICS] }),
-                    createMaxContextHelpers.insight({ query: queries[RevenueAnalyticsQuery.TOP_CUSTOMERS] }),
+                    createMaxContextHelpers.insight(
+                        {
+                            id: RevenueAnalyticsQuery.MRR,
+                            short_id: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.MRR],
+                            name: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.MRR],
+                            query: queries[RevenueAnalyticsQuery.MRR],
+                        },
+                        {
+                            revenueAnalyticsQuery: RevenueAnalyticsQuery.MRR,
+                        }
+                    ),
+                    createMaxContextHelpers.insight(
+                        {
+                            id: RevenueAnalyticsQuery.GROSS_REVENUE,
+                            short_id: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.GROSS_REVENUE],
+                            name: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.GROSS_REVENUE],
+                            query: queries[RevenueAnalyticsQuery.GROSS_REVENUE],
+                        },
+                        {
+                            revenueAnalyticsQuery: RevenueAnalyticsQuery.GROSS_REVENUE,
+                        }
+                    ),
+                    createMaxContextHelpers.insight(
+                        {
+                            id: RevenueAnalyticsQuery.METRICS,
+                            short_id: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.METRICS],
+                            name: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.METRICS],
+                            query: queries[RevenueAnalyticsQuery.METRICS],
+                        },
+                        {
+                            revenueAnalyticsQuery: RevenueAnalyticsQuery.METRICS,
+                        }
+                    ),
+                    createMaxContextHelpers.insight(
+                        {
+                            id: RevenueAnalyticsQuery.TOP_CUSTOMERS,
+                            short_id: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[RevenueAnalyticsQuery.TOP_CUSTOMERS],
+                            name: REVENUE_ANALYTICS_QUERY_TO_NAME[RevenueAnalyticsQuery.TOP_CUSTOMERS],
+                            query: queries[RevenueAnalyticsQuery.TOP_CUSTOMERS],
+                        },
+                        {
+                            revenueAnalyticsQuery: RevenueAnalyticsQuery.TOP_CUSTOMERS,
+                        }
+                    ),
                 ]
             },
         ],
