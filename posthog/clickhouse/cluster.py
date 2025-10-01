@@ -698,13 +698,16 @@ class AlterTableMutationRunner(MutationRunner):
 @dataclass
 class LightweightDeleteMutationRunner(MutationRunner):
     predicate: str = field(kw_only=True)
+    partition: str | None = field(default=None, kw_only=True)
 
     def get_all_commands(self) -> Set[str]:
-        return {f"UPDATE _row_exists = 0 WHERE {self.predicate}"}
+        partition_suffix = f" IN PARTITION '{self.partition}'" if self.partition else ""
+        return {f"UPDATE _row_exists = 0{partition_suffix} WHERE {self.predicate}"}
 
     def get_statement(self, commands: Set[str]) -> str:
         # XXX: lightweight deletes should only be called with the same command represented by the predicate
         if commands != self.get_all_commands():
             raise ValueError(f"unexpected commands: {commands!r}")
 
-        return f"DELETE FROM {settings.CLICKHOUSE_DATABASE}.{self.table} WHERE {self.predicate}"
+        partition_clause = f" IN PARTITION '{self.partition}'" if self.partition else ""
+        return f"DELETE FROM {settings.CLICKHOUSE_DATABASE}.{self.table}{partition_clause} WHERE {self.predicate}"
