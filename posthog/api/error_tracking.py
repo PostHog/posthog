@@ -273,8 +273,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             issues = ErrorTrackingIssue.objects.filter(team=self.team)
 
             if issues is not None:
+                # TODO: remove library mock
                 related_issues = [
-                    {"id": issue.id, "title": issue.name, "description": issue.description} for issue in issues
+                    {"id": issue.id, "title": issue.name, "description": issue.description, "library": "posthog-js"}
+                    for issue in issues
                 ]
 
         return Response(related_issues)
