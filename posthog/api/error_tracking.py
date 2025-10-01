@@ -352,6 +352,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                                         "id": issue.id,
                                         "title": issue.name,
                                         "description": issue.description,
+                                        # TODO: library isn't part of the issue
                                         "library": issue.library,
                                     }
                                     for issue in issues
