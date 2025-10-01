@@ -340,12 +340,22 @@ async fn write_event_properties_batch(
     loop {
         let result = sqlx::query(
             r#"
+            WITH locked_rows AS (
+                SELECT event, property, team_id, project_id
+                FROM posthog_eventproperty
+                WHERE (event, property, team_id, project_id) IN (
+                    SELECT * FROM UNNEST($1::text[], $2::text[], $3::int[], $4::bigint[])
+                )
+                FOR UPDATE SKIP LOCKED
+            )
+
             INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
-                (SELECT * FROM UNNEST(
-                    $1::text[],
-                    $2::text[],
-                    $3::int[],
-                    $4::bigint[])) ON CONFLICT DO NOTHING"#,
+            SELECT * FROM UNNEST($1::text[], $2::text[], $3::int[], $4::bigint[])
+            WHERE (event, property, team_id, project_id) NOT IN (
+                SELECT event, property, team_id, project_id FROM locked_rows
+            )
+            ON CONFLICT DO NOTHING
+            "#,
         )
         .bind(&batch.event_names)
         .bind(&batch.property_names)
@@ -412,8 +422,8 @@ async fn write_property_definitions_batch(
     loop {
         // what if we just ditch properties without a property_type set? why update on conflict at all?
         let result = sqlx::query(r#"
-            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
-                (SELECT * FROM UNNEST(
+            WITH input_data AS (
+                SELECT * FROM UNNEST(
                     $1::uuid[],
                     $2::varchar[],
                     $3::smallint[],
@@ -421,14 +431,50 @@ async fn write_property_definitions_batch(
                     $5::boolean[],
                     $6::int[],
                     $7::bigint[],
-                    $8::varchar[]))
-                ON CONFLICT (
-                    COALESCE(project_id, team_id::bigint), name, type,
-                    COALESCE(group_type_index, -1))
-                DO UPDATE SET
-                    property_type=EXCLUDED.property_type,
-                    is_numerical=EXCLUDED.is_numerical
-                WHERE posthog_propertydefinition.property_type IS NULL"#,
+                    $8::varchar[]
+                ) AS t(id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
+            ),
+            locked_rows AS (
+                SELECT pd.id, pd.name, pd.type, pd.group_type_index, pd.is_numerical,
+                    pd.team_id, pd.project_id, pd.property_type
+                FROM posthog_propertydefinition pd
+                INNER JOIN input_data i ON (
+                    COALESCE(pd.project_id, pd.team_id::bigint) = COALESCE(i.project_id, i.team_id::bigint)
+                    AND pd.name = i.name
+                    AND pd.type = i.type
+                    AND COALESCE(pd.group_type_index, -1) = COALESCE(i.group_type_index, -1)
+                )
+                FOR UPDATE SKIP LOCKED
+            ),
+            updated_rows AS (
+                UPDATE posthog_propertydefinition pd
+                SET property_type = i.property_type,
+                    is_numerical = i.is_numerical
+                FROM input_data i
+                WHERE pd.id IN (SELECT id FROM locked_rows)
+                    AND COALESCE(pd.project_id, pd.team_id::bigint) = COALESCE(i.project_id, i.team_id::bigint)
+                    AND pd.name = i.name
+                    AND pd.type = i.type
+                    AND COALESCE(pd.group_type_index, -1) = COALESCE(i.group_type_index, -1)
+                    AND pd.property_type IS NULL
+                RETURNING pd.id, pd.name, pd.type, pd.group_type_index
+            )
+            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
+            SELECT i.id, i.name, i.type, i.group_type_index, i.is_numerical,
+                i.team_id, i.project_id, i.property_type
+            FROM input_data i
+            WHERE NOT EXISTS (
+                SELECT 1 FROM locked_rows lr
+                WHERE COALESCE(lr.project_id, lr.team_id::bigint) = COALESCE(i.project_id, i.team_id::bigint)
+                    AND lr.name = i.name
+                    AND lr.type = i.type
+                    AND COALESCE(lr.group_type_index, -1) = COALESCE(i.group_type_index, -1)
+            )
+            ON CONFLICT (COALESCE(project_id, team_id::bigint), name, type, COALESCE(group_type_index, -1))
+            DO UPDATE SET
+                property_type = EXCLUDED.property_type,
+                is_numerical = EXCLUDED.is_numerical
+            WHERE posthog_propertydefinition.property_type IS NULL"#,
             )
             .bind(&batch.ids)
             .bind(&batch.names)
@@ -509,17 +555,47 @@ async fn write_event_definitions_batch(
         // then convert this stmt to ON CONFLICT DO NOTHING
         let result = sqlx::query(
             r#"
-            INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)
-                (SELECT * FROM UNNEST (
+            WITH input_data AS (
+                SELECT * FROM UNNEST(
                     $1::uuid[],
                     $2::varchar[],
                     $3::int[],
                     $4::bigint[],
                     $5::timestamptz[],
-                    $5::timestamptz[]))
-                ON CONFLICT (coalesce(project_id, team_id::bigint), name) DO UPDATE
-                    SET last_seen_at=EXCLUDED.last_seen_at
-                    WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at"#,
+                    $5::timestamptz[]
+                ) AS t(id, name, team_id, project_id, last_seen_at, created_at)
+            ),
+            locked_rows AS (
+                SELECT ed.id, ed.name, ed.team_id, ed.project_id, ed.last_seen_at, ed.created_at
+                FROM posthog_eventdefinition ed
+                INNER JOIN input_data i ON (
+                    COALESCE(ed.project_id, ed.team_id::bigint) = COALESCE(i.project_id, i.team_id::bigint)
+                    AND ed.name = i.name
+                )
+                FOR UPDATE SKIP LOCKED
+            ),
+            updated_rows AS (
+                UPDATE posthog_eventdefinition ed
+                SET last_seen_at = i.last_seen_at
+                FROM input_data i
+                WHERE ed.id IN (SELECT id FROM locked_rows)
+                    AND COALESCE(ed.project_id, ed.team_id::bigint) = COALESCE(i.project_id, i.team_id::bigint)
+                    AND ed.name = i.name
+                    AND ed.last_seen_at < i.last_seen_at
+                RETURNING ed.id, ed.name, ed.team_id, ed.project_id
+            )
+            INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)
+            SELECT i.id, i.name, i.team_id, i.project_id, i.last_seen_at, i.created_at
+            FROM input_data i
+            WHERE NOT EXISTS (
+                SELECT 1 FROM locked_rows lr
+                WHERE COALESCE(lr.project_id, lr.team_id::bigint) = COALESCE(i.project_id, i.team_id::bigint)
+                    AND lr.name = i.name
+            )
+            ON CONFLICT (COALESCE(project_id, team_id::bigint), name)
+            DO UPDATE SET
+                last_seen_at = EXCLUDED.last_seen_at
+            WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at"#,
         )
         .bind(&batch.ids)
         .bind(&batch.names)
