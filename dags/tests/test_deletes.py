@@ -518,6 +518,57 @@ def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
+def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snapshot):
+    from unittest.mock import patch
+
+    from dagster import build_op_context
+
+    from posthog.clickhouse.cluster import LightweightDeleteMutationRunner
+
+    now = datetime.now()
+    old_timestamp = now - timedelta(days=400)
+
+    team_ids = [400, 401]
+    old_events = [
+        (team_id, f"old_{team_id}_{i}", UUID(int=team_id * 1000 + i), old_timestamp)
+        for team_id in team_ids
+        for i in range(10)
+    ]
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp)
+            VALUES
+            """,
+            old_events,
+        )
+
+    cluster.any_host(insert_events).result()
+
+    config = MonthlyCleanupConfig(team_ids=team_ids, min_age_months=13)
+    context = build_op_context()
+
+    partitions = find_partitions_to_cleanup(context, config, cluster)
+    assert len(partitions) > 0
+
+    captured_delete_statements = []
+    original_call = LightweightDeleteMutationRunner.__call__
+
+    def capture_delete_statement(self, client: Client):
+        commands = self.get_all_commands()
+        statement = self.get_statement(commands)
+        captured_delete_statements.append(statement)
+        return original_call(self, client)
+
+    with patch.object(LightweightDeleteMutationRunner, "__call__", capture_delete_statement):
+        cleanup_old_events_by_partition(context, config, cluster, partitions)
+
+    assert len(captured_delete_statements) > 0
+
+    assert captured_delete_statements == snapshot
+
+
+@pytest.mark.django_db
 def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
     now = datetime.now()
     old_timestamp = now - timedelta(days=400)
