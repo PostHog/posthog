@@ -46,23 +46,73 @@ pub struct PoolStats {
     pub num_idle: usize,
 }
 
-pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
-    get_pool_with_timeout(url, max_connections, Duration::from_secs(20)).await
+/// Configuration for database connection pool
+/// Each service should provide its own configuration based on its needs
+#[derive(Debug, Clone)]
+pub struct PoolConfig {
+    pub max_connections: u32,
+    pub acquire_timeout: Duration,
+    pub idle_timeout: Option<Duration>,
+    pub max_lifetime: Option<Duration>,
+    pub test_before_acquire: bool,
 }
 
+impl Default for PoolConfig {
+    /// Provides sensible production defaults
+    /// Services can override these with their own environment-based configs
+    fn default() -> Self {
+        Self {
+            max_connections: 10,
+            acquire_timeout: Duration::from_secs(10),
+            idle_timeout: Some(Duration::from_secs(300)), // Close idle connections after 5 minutes
+            max_lifetime: Some(Duration::from_secs(1800)), // Force refresh connections after 30 minutes
+            test_before_acquire: true,                     // Test connection health before use
+        }
+    }
+}
+
+/// Legacy function for backward compatibility - uses default production settings
+/// New services should use get_pool_with_config() with their own PoolConfig
+pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
+    let config = PoolConfig {
+        max_connections,
+        ..Default::default()
+    };
+    get_pool_with_config(url, config).await
+}
+
+/// Legacy function for backward compatibility - uses default production settings except for timeout
+/// New services should use get_pool_with_config() with their own PoolConfig
 pub async fn get_pool_with_timeout(
     url: &str,
     max_connections: u32,
     acquire_timeout: Duration,
 ) -> Result<PgPool, sqlx::Error> {
-    PgPoolOptions::new()
-        .max_connections(max_connections)
-        .acquire_timeout(acquire_timeout)
-        .test_before_acquire(true)
-        .idle_timeout(Duration::from_secs(300)) // Close idle connections after 5 minutes
-        .max_lifetime(Duration::from_secs(1800)) // Force refresh every 30 minutes
-        .connect(url)
-        .await
+    let config = PoolConfig {
+        max_connections,
+        acquire_timeout,
+        ..Default::default()
+    };
+    get_pool_with_config(url, config).await
+}
+
+/// Creates a database pool with the provided configuration
+/// This is the recommended function for services to use
+pub async fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sqlx::Error> {
+    let mut options = PgPoolOptions::new()
+        .max_connections(config.max_connections)
+        .acquire_timeout(config.acquire_timeout)
+        .test_before_acquire(config.test_before_acquire);
+
+    if let Some(idle_timeout) = config.idle_timeout {
+        options = options.idle_timeout(idle_timeout);
+    }
+
+    if let Some(max_lifetime) = config.max_lifetime {
+        options = options.max_lifetime(max_lifetime);
+    }
+
+    options.connect(url).await
 }
 
 #[async_trait]
