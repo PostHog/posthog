@@ -1008,7 +1008,7 @@ export class ApiRequest {
     }
 
     public errorTrackingRelatedIssues(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTrackingIssues(teamId).addPathComponent(`related_issues/${issueId}`)
+        return this.errorTrackingIssues(teamId).addPathComponent(`${issueId}/related_issues`)
     }
 
     public errorTrackingExternalReference(teamId?: TeamType['id']): ApiRequest {

@@ -260,9 +260,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue.merge(issue_ids=ids)
         return Response({"success": True})
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=True)
     def related_issues(self, request: request.Request, **kwargs):
-        issue_id = kwargs.get("issue_id")
+        issue_id = kwargs.get("pk")
 
         related_issues = []
         if issue_id is not None:
