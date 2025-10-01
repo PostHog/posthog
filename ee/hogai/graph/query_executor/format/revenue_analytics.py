@@ -165,8 +165,8 @@ class RevenueAnalyticsMRRResultsFormatter:
 
         return content
 
-    def _extract_series(self, results: list[RevenueAnalyticsMRRQueryResultItem], kind: str) -> list[dict[str, Any]]:
-        return [result.model_dump()[kind] for result in results]
+    def _extract_series(self, results: list[RevenueAnalyticsMRRQueryResultItem], key: str) -> list[dict[str, Any]]:
+        return [result.model_dump()[key] for result in results]
 
 
 class RevenueAnalyticsTopCustomersResultsFormatter:
