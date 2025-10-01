@@ -311,7 +311,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                             SELECT DISTINCT fingerprint, cosineDistance(embeddings, %(target_embedding)s) as distance
                             FROM error_tracking_issue_fingerprint_embeddings
                             WHERE team_id = %(team_id)s
-                            AND fingerprints NOT IN %(fingerprints)s
+                            AND fingerprint NOT IN %(fingerprints)s
                             ORDER BY distance ASC
                             LIMIT 10
                         """
