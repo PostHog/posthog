@@ -300,7 +300,7 @@ impl std::fmt::Display for Frame {
 impl From<Frame> for FrameData {
     fn from(frame: Frame) -> Self {
         FrameData {
-            raw_id: frame.raw_id,
+            raw_id: frame.raw_id.raw_id,
             synthetic: frame.synthetic,
             resolved_name: frame.resolved_name,
             mangled_name: frame.mangled_name,

@@ -400,11 +400,10 @@ async fn send_new_fingerprint_event(
         output_props.fingerprint.clone(),
         (&output_props.exception_list).into(),
     );
-    let event_iter = vec![event];
     let res = send_iter_to_kafka(
         &context.immediate_producer,
         &context.config.new_fingerprints_topic,
-        &event_iter,
+        &[event],
     )
     .await
     .into_iter()

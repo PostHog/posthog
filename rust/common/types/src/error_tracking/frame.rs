@@ -23,9 +23,7 @@ impl FrameId {
 // We emit a single, unified representation of a frame, which is what we pass on to users.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct FrameData {
-    // Properties used in processing
-    #[serde(flatten)]
-    pub raw_id: FrameId, // The raw frame id this was resolved from
+    pub raw_id: String,       // The raw frame id this was resolved from
     pub mangled_name: String, // Mangled name of the function
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>, // Line the function is define on, if known
