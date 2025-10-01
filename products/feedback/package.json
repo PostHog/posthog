@@ -9,6 +9,7 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
-        "react": "*"
+        "react": "*",
+        "clsx": "*"
     }
 }
