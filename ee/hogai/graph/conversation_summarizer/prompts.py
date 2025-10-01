@@ -60,7 +60,7 @@ Here's an example of how your output must be structured:
 4. Problem Solving:
    [Description of solved problems and ongoing troubleshooting]
 
-6. All User Messages:
+5. All User Messages:
     - [Detailed non-tool use user message]
     - [...]
 
