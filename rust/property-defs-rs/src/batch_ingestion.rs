@@ -368,7 +368,6 @@ async fn write_event_properties_batch(
 
         match result {
             Err(e) => {
-                println!("<DEBUG ({})> Batch write to posthog_eventproperty error: {:?}", tries, &e);
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
@@ -491,7 +490,6 @@ async fn write_property_definitions_batch(
 
         match result {
             Err(e) => {
-                println!("<DEBUG ({})> Batch write to posthog_propertydefinition error: {:?}", tries, &e);
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
@@ -611,7 +609,6 @@ async fn write_event_definitions_batch(
 
         match result {
             Err(e) => {
-                println!("<DEBUG ({})> Batch write to posthog_eventdefinition error: {:?}", tries, &e);
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
