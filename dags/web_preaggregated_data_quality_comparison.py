@@ -124,7 +124,7 @@ ORDER BY period_bucket_date DESC
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_pre_aggregated_accuracy(context: AssetExecutionContext) -> list[dict]:
-    team_id = TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
+    team_id = int(TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS)
 
     partition_date = datetime.strptime(context.partition_key, "%Y-%m-%d").date()
     end_date = partition_date
