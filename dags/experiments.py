@@ -16,7 +16,13 @@ from django.db.models import Q
 
 import dagster
 
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
+from posthog.schema import (
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentQuery,
+    ExperimentQueryResponse,
+    ExperimentRatioMetric,
+)
 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.experiment import Experiment, ExperimentMetricResult
@@ -80,6 +86,20 @@ def _get_experiment_metrics(context: dagster.SensorEvaluationContext) -> list[tu
             experiment_metrics.append((experiment.id, metric_uuid, fingerprint, metric))
 
     return experiment_metrics
+
+
+def _remove_step_sessions_from_experiment_result(result: ExperimentQueryResponse) -> ExperimentQueryResponse:
+    """
+    Remove step_sessions values from experiment results to reduce API response size.
+    """
+    if result.baseline is not None:
+        result.baseline.step_sessions = None
+
+    if result.variant_results is not None:
+        for variant in result.variant_results:
+            variant.step_sessions = None
+
+    return result
 
 
 def _parse_partition_key(partition_key: str) -> tuple[int, str, str]:
@@ -162,6 +182,8 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team)
         result = query_runner._calculate()
+
+        result = _remove_step_sessions_from_experiment_result(result)
 
         completed_at = datetime.now(ZoneInfo("UTC"))
 
