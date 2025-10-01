@@ -75,6 +75,7 @@
         "@posthog/products-error-tracking": "workspace:*",
         "@posthog/products-experiments": "workspace:*",
         "@posthog/products-feature-flags": "workspace:*",
+        "@posthog/products-feedback": "workspace:*",
         "@posthog/products-games": "workspace:*",
         "@posthog/products-groups": "workspace:*",
         "@posthog/products-links": "workspace:*",
