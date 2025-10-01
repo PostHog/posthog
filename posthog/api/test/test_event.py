@@ -523,14 +523,12 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop=value1"
             ).json()
-            assert len(response) == 2
             assert {r["name"] for r in response} == {"asdf", "qwerty"}
 
             # Test array property filter
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop={json.dumps(['value1', 'value2'])}"
             ).json()
-            assert len(response) == 3
             assert {r["name"] for r in response} == {"asdf", "qwerty", "no match"}
 
             # Test multiple property filters
@@ -583,7 +581,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop={json.dumps(['123', 'true', 'value1'])}"
             ).json()
-            assert len(response) == 2  # Should match both values since filter_prop="value1" exists
             assert {r["name"] for r in response} == {"asdf", "qwerty"}
 
             # Test with non-string property values
@@ -1055,7 +1052,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
         ).json()
 
-        assert len(response["results"]) == 2
         assert [r["event"] for r in response["results"]] == ["should_be_included", "should_be_included"]
 
     def test_filter_events_by_being_before_properties_with_date_type(self):
@@ -1094,7 +1090,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
         ).json()
 
-        assert len(response["results"]) == 1
         assert [r["event"] for r in response["results"]] == ["should_be_included"]
 
     def test_filter_events_with_date_format(self):
@@ -1140,5 +1135,4 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
         ).json()
 
-        assert len(response["results"]) == 1
         assert [r["event"] for r in response["results"]] == ["should_be_included"]

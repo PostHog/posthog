@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
+from opentelemetry import trace
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
@@ -35,6 +36,8 @@ from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import convert_property_value, flatten, relative_date_parse
+
+tracer = trace.get_tracer(__name__)
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
 
@@ -267,138 +270,145 @@ class EventViewSet(
         team = self.team
 
         key = request.GET.get("key")
+        if not key:
+            raise serializers.ValidationError("You must provide a key")
+
         event_names = request.GET.getlist("event_name", None)
         is_column = request.GET.get("is_column", "false").lower() == "true"
 
         if key == "custom_event":
-            system_events = [
-                event_name
-                for event_name in CORE_FILTER_DEFINITIONS_BY_GROUP["events"].keys()
-                if event_name != "All Events"  # Skip the wildcard
-            ]
-
-            query = ast.SelectQuery(
-                select=[ast.Field(chain=["event"])],
-                distinct=True,
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                where=ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotIn,
-                    left=ast.Field(chain=["event"]),
-                    right=ast.Constant(value=system_events),
-                ),
-                order_by=[ast.OrderExpr(expr=ast.Field(chain=["event"]), order="ASC")],
-            )
-
-            result = execute_hogql_query(query, team=team)
-            return response.Response([{"name": event[0]} for event in result.results])
-        elif key:
+            return self._custom_event_values(team)
+        else:
             # Check if this property is hidden (enterprise feature)
-            try:
-                from ee.models.property_definition import EnterprisePropertyDefinition
+            if self._is_property_hidden(key, team):
+                return response.Response([])
 
-                hidden_property_exists = EnterprisePropertyDefinition.objects.filter(
-                    team=team,
-                    name=key,
-                    type=PropertyDefinition.Type.EVENT.value,
-                    hidden=True,
-                ).exists()
-                if hidden_property_exists:
-                    # Return empty result if property is hidden
-                    return response.Response([])
-            except ImportError:
-                # Enterprise features not available, continue normally
-                pass
-
-            date_from = relative_date_parse("-7d", team.timezone_info).strftime("%Y-%m-%d 00:00:00")
-            date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
-
-            chain: list[str | int] = [key] if is_column else ["properties", key]
-
-            conditions: list[ast.Expr] = [
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=date_from),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=date_to),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=chain),
-                    right=ast.Constant(value=None),
-                ),
-            ]
-
-            # Handle property filters from query parameters
-            for param_key, param_value in request.GET.items():
-                if param_key.startswith("properties_"):
-                    property_key = param_key.replace("properties_", "", 1)
-                    try:
-                        # Expect properly encoded JSON from frontend
-                        property_values = (
-                            json.loads(param_value) if isinstance(param_value, str | bytes | bytearray) else param_value
-                        )
-                        conditions.append(create_property_conditions(property_key, property_values))
-                    except json.JSONDecodeError:
-                        # If not JSON, treat as single value
-                        conditions.append(create_property_conditions(property_key, param_value))
-
-            if event_names and len(event_names) > 0:
-                event_conditions: list[ast.Expr] = [
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=event_name),
-                    )
-                    for event_name in event_names
-                ]
-                if len(event_conditions) > 1:
-                    conditions.append(ast.Or(exprs=event_conditions))
-                else:
-                    conditions.append(event_conditions[0])
-
-            if request.GET.get("value"):
-                conditions.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.ILike,
-                        left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                        right=ast.Constant(value=f"%{request.GET.get('value')}%"),
-                    )
-                )
-
-            order_by = []
-            if request.GET.get("value"):
-                order_by = [
-                    ast.OrderExpr(
-                        expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
-                        order="ASC",
-                    )
-                ]
-
-            query = ast.SelectQuery(
-                select=[ast.Field(chain=chain)],
-                distinct=True,
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                where=ast.And(exprs=conditions),
-                order_by=order_by,
-                limit=ast.Constant(value=10),
+            return self._event_property_values(
+                event_names, is_column, key, team, request.GET.items(), request.GET.get("value")
             )
 
-            result = execute_hogql_query(query, team=team)
-            values = []
-            for value in result.results:
-                if isinstance(value[0], float | int | bool | uuid.UUID):
+    @tracer.start_as_current_span("events_api_event_property_values")
+    def _event_property_values(self, event_names, is_column, key, team, items, value) -> response.Response:
+        date_from = relative_date_parse("-7d", team.timezone_info).strftime("%Y-%m-%d 00:00:00")
+        date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
+        chain: list[str | int] = [key] if is_column else ["properties", key]
+        conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=date_from),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=date_to),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Field(chain=chain),
+                right=ast.Constant(value=None),
+            ),
+        ]
+        # Handle property filters from query parameters
+        for param_key, param_value in items:
+            if param_key.startswith("properties_"):
+                property_key = param_key.replace("properties_", "", 1)
+                try:
+                    # Expect properly encoded JSON from frontend
+                    property_values = (
+                        json.loads(param_value) if isinstance(param_value, str | bytes | bytearray) else param_value
+                    )
+                    conditions.append(create_property_conditions(property_key, property_values))
+                except json.JSONDecodeError:
+                    # If not JSON, treat as single value
+                    conditions.append(create_property_conditions(property_key, param_value))
+        if event_names and len(event_names) > 0:
+            event_conditions: list[ast.Expr] = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value=event_name),
+                )
+                for event_name in event_names
+            ]
+            if len(event_conditions) > 1:
+                conditions.append(ast.Or(exprs=event_conditions))
+            else:
+                conditions.append(event_conditions[0])
+        if value:
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.ILike,
+                    left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
+                    right=ast.Constant(value=f"%{value}%"),
+                )
+            )
+        order_by = []
+        if value:
+            order_by = [
+                ast.OrderExpr(
+                    expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
+                    order="ASC",
+                )
+            ]
+        query = ast.SelectQuery(
+            select=[ast.Field(chain=chain)],
+            distinct=True,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=conditions),
+            order_by=order_by,
+            limit=ast.Constant(value=10),
+        )
+        result = execute_hogql_query(query, team=team)
+        values = []
+        for value in result.results:
+            if isinstance(value[0], float | int | bool | uuid.UUID):
+                values.append(value[0])
+            else:
+                try:
+                    values.append(json.loads(value[0]))
+                except json.JSONDecodeError:
                     values.append(value[0])
-                else:
-                    try:
-                        values.append(json.loads(value[0]))
-                    except json.JSONDecodeError:
-                        values.append(value[0])
-
         return response.Response([{"name": convert_property_value(value)} for value in flatten(values)])
+
+    @tracer.start_as_current_span("events_api_is_property_hidden")
+    def _is_property_hidden(self, key, team):
+        property_is_hidden = False
+        try:
+            from ee.models.property_definition import EnterprisePropertyDefinition
+
+            property_is_hidden = EnterprisePropertyDefinition.objects.filter(
+                team=team,
+                name=key,
+                type=PropertyDefinition.Type.EVENT.value,
+                hidden=True,
+            ).exists()
+        except ImportError:
+            # Enterprise features not available, continue normally
+            pass
+
+        return property_is_hidden
+
+    @tracer.start_as_current_span("events_api_custom_event_values")
+    def _custom_event_values(self, team: Team) -> response.Response:
+        system_events = [
+            event_name
+            for event_name in CORE_FILTER_DEFINITIONS_BY_GROUP["events"].keys()
+            if event_name != "All Events"  # Skip the wildcard
+        ]
+        query = ast.SelectQuery(
+            select=[ast.Field(chain=["event"])],
+            distinct=True,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.NotIn,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=system_events),
+            ),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["event"]), order="ASC")],
+        )
+        result = execute_hogql_query(query, team=team)
+        return response.Response([{"name": event[0]} for event in result.results])
 
 
 class LegacyEventViewSet(EventViewSet):
