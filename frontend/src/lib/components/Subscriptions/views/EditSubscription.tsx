@@ -232,6 +232,21 @@ export function EditSubscription({
                                     </>
                                 ) : (
                                     <>
+                                        <LemonField name="target_integration" label="Which Slack integration to use">
+                                            {({ value, onChange }) => (
+                                                <>
+                                                    <IntegrationChoice
+                                                        value={
+                                                            slackIntegrations.find((x) => x.id === value)?.id ??
+                                                            slackIntegrations[0].id
+                                                        }
+                                                        onChange={onChange}
+                                                        integration="slack"
+                                                        redirectUrl={window.location.pathname}
+                                                    />
+                                                </>
+                                            )}
+                                        </LemonField>
                                         <LemonField
                                             name="target_value"
                                             label="Which Slack channel to send reports to"
@@ -246,48 +261,25 @@ export function EditSubscription({
                                                 </>
                                             }
                                         >
-                                            {({ value, onChange }) => {
-                                                const [rawIntegrationId, rawChannelId] = value?.split('|') || []
-                                                const integrationId =
-                                                    rawIntegrationId === 'undefined'
-                                                        ? undefined
-                                                        : parseInt(rawIntegrationId)
-                                                const channelId =
-                                                    rawChannelId === 'undefined' ? undefined : rawChannelId
-
-                                                const handleChange = (
-                                                    value: string | number | null,
-                                                    type: 'integration' | 'channel'
-                                                ): void => {
-                                                    if (type === 'integration') {
-                                                        onChange(`${value}|${channelId}`)
-                                                    } else {
-                                                        onChange(`${integrationId}|${value}`)
-                                                    }
-                                                }
-
-                                                return (
-                                                    <>
-                                                        <IntegrationChoice
-                                                            value={integrationId}
-                                                            onChange={(value) => handleChange(value, 'integration')}
-                                                            integration="slack"
-                                                            redirectUrl={window.location.pathname}
+                                            {({ value, onChange }) => (
+                                                <>
+                                                    {typeof subscription.target_integration === 'number' ? (
+                                                        <SlackChannelPicker
+                                                            value={value}
+                                                            onChange={onChange}
+                                                            integration={
+                                                                slackIntegrations.find(
+                                                                    (x) => x.id === subscription.target_integration
+                                                                ) ?? slackIntegrations[0]
+                                                            }
                                                         />
-                                                        {integrationId ? (
-                                                            <SlackChannelPicker
-                                                                value={channelId ?? null}
-                                                                onChange={(value) => handleChange(value, 'channel')}
-                                                                integration={slackIntegrations[0]}
-                                                            />
-                                                        ) : (
-                                                            <div className="p-2 h-10 italic rounded border border-dashed text-secondary">
-                                                                Configure Slack to continue
-                                                            </div>
-                                                        )}
-                                                    </>
-                                                )
-                                            }}
+                                                    ) : (
+                                                        <div className="p-2 h-10 italic rounded border border-dashed text-secondary">
+                                                            Configure Slack to continue
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
                                         </LemonField>
                                     </>
                                 )}
