@@ -90,7 +90,6 @@ class SandboxAgent:
         return await self.sandbox.execute(setup_command, timeout_seconds=15 * 60)
 
     async def execute_task(self, task_id: str, repository: str) -> ExecutionResult:
-        """Execute PostHog Code Agent for a task."""
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
