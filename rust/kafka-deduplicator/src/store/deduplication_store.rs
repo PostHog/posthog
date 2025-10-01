@@ -70,6 +70,7 @@ pub enum DeduplicationResult {
     ConfirmedDuplicate(DeduplicationType, DeduplicationResultReason), // The reason why it's a confirmed duplicate
     PotentialDuplicate(DeduplicationType),
     New,
+    Skipped,
 }
 
 impl DeduplicationResult {
@@ -132,9 +133,22 @@ impl DeduplicationStore {
         Ok(non_duplicated)
     }
 
+    /// Check if an event should be excluded from deduplication
+    fn is_excluded_event(event: &RawEvent) -> bool {
+        matches!(
+            event.event.as_str(),
+            "$feature_flag_called" | "$autocapture"
+        )
+    }
+
     /// Handle an event, tracking both timestamp and UUID patterns
     pub fn handle_event_with_raw(&self, raw_event: &RawEvent) -> Result<DeduplicationResult> {
         let _start_time = Instant::now();
+
+        // Check if this event type should be excluded from deduplication
+        if Self::is_excluded_event(raw_event) {
+            return Ok(DeduplicationResult::Skipped);
+        }
 
         // Track timestamp-based deduplication
         let deduplication_result = self.handle_timestamp_dedup(raw_event)?;

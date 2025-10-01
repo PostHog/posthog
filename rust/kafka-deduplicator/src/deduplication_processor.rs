@@ -402,6 +402,12 @@ impl DeduplicationProcessor {
                     .with_label("reason", &reason.to_string().to_lowercase())
                     .increment(1);
             }
+            DeduplicationResult::Skipped => {
+                metrics
+                    .counter(DEDUPLICATION_RESULT_COUNTER)
+                    .with_label("result_type", "skipped")
+                    .increment(1);
+            }
         }
     }
 
