@@ -106,6 +106,7 @@ pub trait Client {
     ) -> Result<bool, CustomRedisError>;
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
+    async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
 }
 
 pub struct RedisClient {
@@ -290,6 +291,14 @@ impl Client for RedisClient {
             None => Err(CustomRedisError::NotFound),
         }
     }
+
+    async fn scard(&self, k: String) -> Result<u64, CustomRedisError> {
+        let mut conn = self.connection.clone();
+        let results = conn.scard(k);
+        timeout(Duration::from_millis(get_redis_timeout_ms()), results)
+            .await?
+            .map_err(|e| CustomRedisError::Other(e.to_string()))
+    }
 }
 
 #[derive(Clone)]
@@ -302,6 +311,7 @@ pub struct MockRedisClient {
     set_nx_ex_ret: HashMap<String, Result<bool, CustomRedisError>>,
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
+    scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
 }
 
@@ -316,6 +326,7 @@ impl Default for MockRedisClient {
             set_nx_ex_ret: HashMap::new(),
             del_ret: HashMap::new(),
             hget_ret: HashMap::new(),
+            scard_ret: HashMap::new(),
             calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -367,6 +378,11 @@ impl MockRedisClient {
 
     pub fn hget_ret(&mut self, key: &str, ret: Result<String, CustomRedisError>) -> Self {
         self.hget_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn scard_ret(&mut self, key: &str, ret: Result<u64, CustomRedisError>) -> Self {
+        self.scard_ret.insert(key.to_owned(), ret);
         self.clone()
     }
 
@@ -597,6 +613,21 @@ impl Client for MockRedisClient {
         });
 
         match self.hget_ret.get(&key) {
+            Some(result) => result.clone(),
+            None => Err(CustomRedisError::NotFound),
+        }
+    }
+
+    async fn scard(&self, key: String) -> Result<u64, CustomRedisError> {
+        // Record the call
+        let mut calls = self.lock_calls();
+        calls.push(MockRedisCall {
+            op: "scard".to_string(),
+            key: key.to_string(),
+            value: MockRedisValue::None,
+        });
+
+        match self.scard_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
         }

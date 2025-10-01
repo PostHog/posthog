@@ -4358,6 +4358,24 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_groups]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_groups 
+  (
+      group_type_index UInt8,
+      group_key VARCHAR,
+      created_at DateTime64,
+      team_id Int64,
+      group_properties VARCHAR
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'groups')
+  
+  '''
+# ---
 # name: test_create_table_query[writable_heatmaps]
   '''
   
@@ -4383,6 +4401,90 @@
       _offset UInt64,
       _partition UInt64
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_person]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_person 
+  (
+      id UUID,
+      created_at DateTime64,
+      team_id Int64,
+      properties VARCHAR,
+      is_identified Int8,
+      is_deleted Int8,
+      version UInt64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'person')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_person_distinct_id2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_person_distinct_id2 
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'person_distinct_id2')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_person_distinct_id_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_person_distinct_id_overrides 
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'person_distinct_id_overrides')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_plugin_log_entries]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_plugin_log_entries 
+  (
+      id UUID,
+      team_id Int64,
+      plugin_id Int64,
+      plugin_config_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      source VARCHAR,
+      type VARCHAR,
+      message VARCHAR,
+      instance_id UUID
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'plugin_log_entries')
   
   '''
 # ---

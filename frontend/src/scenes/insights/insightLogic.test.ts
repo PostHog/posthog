@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
+import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -98,8 +98,6 @@ function insightModelWith(properties: Record<string, any>): QueryBasedInsightMod
         visibility: null,
         last_modified_at: '2021-03-31T15:00:00.000Z',
         last_modified_by: null,
-        effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
-        effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         layouts: {},
         color: null,
         user_access_level: AccessControlLevel.Editor,

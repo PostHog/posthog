@@ -1112,6 +1112,16 @@
         }
     },
     {
+        "model": "claude-sonnet-4-5-20250929",
+        "provider": "anthropic",
+        "cost": {
+            "prompt_token": 0.000003,
+            "completion_token": 0.000015,
+            "cache_read_token": 3e-7,
+            "cache_write_token": 0.00000375
+        }
+    },
+    {
         "model": "claude-v1",
         "provider": "anthropic",
         "cost": {

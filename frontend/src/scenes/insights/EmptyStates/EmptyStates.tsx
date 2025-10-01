@@ -570,19 +570,21 @@ export function InsightValidationError({
 }
 
 export interface InsightErrorStateProps {
-    excludeDetail?: boolean
     title?: string | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
+    excludeDetail?: boolean
+    excludeActions?: boolean
     fixWithAIComponent?: JSX.Element
     onRetry?: () => void
 }
 
 export function InsightErrorState({
-    excludeDetail,
     title,
     query,
     queryId,
+    excludeDetail = false,
+    excludeActions = false,
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
@@ -600,16 +602,10 @@ export function InsightErrorState({
         >
             <IconErrorOutline className="text-5xl shrink-0" />
 
-            <h2
-                className="text-xl leading-tight mb-6"
-                // TODO: Use an actual `text-danger` color once @adamleithp changes are live
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ color: 'var(--danger)' }}
-                data-attr="insight-loading-too-long"
-            >
-                {title || <span>There was a problem completing this query</span>}
-                {/* Note that this default phrasing above signals the issue is intermittent, */}
+            <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
+                {/* Note that this default phrasing signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
+                {title || <span>There was a problem completing this query</span>}
             </h2>
 
             {!excludeDetail && (
@@ -633,10 +629,12 @@ export function InsightErrorState({
                 </div>
             )}
 
-            <div className="flex gap-2 mt-4">
-                {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
-                {fixWithAIComponent ?? null}
-            </div>
+            {!excludeActions && (
+                <div className="flex gap-2 mt-4">
+                    {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
+                    {fixWithAIComponent ?? null}
+                </div>
+            )}
             <QueryIdDisplay queryId={queryId} />
         </div>
     )

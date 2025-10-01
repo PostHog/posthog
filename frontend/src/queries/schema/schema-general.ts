@@ -1550,6 +1550,10 @@ export interface NamedQueryRunRequest {
     query_override?: Record<string, any>
 }
 
+export interface NamedQueryLastExecutionTimesRequest {
+    names: string[]
+}
+
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string

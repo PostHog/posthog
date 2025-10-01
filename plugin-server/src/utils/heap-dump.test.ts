@@ -47,7 +47,14 @@ describe('heap-dump', () => {
             }
 
             mockUploadDone = jest.fn().mockImplementation(done)
-            return { done: mockUploadDone }
+
+            // Mock the 'on' method for progress tracking
+            const mockOn = jest.fn()
+
+            return {
+                done: mockUploadDone,
+                on: mockOn,
+            }
         })
         jest.mocked(Upload).mockImplementation(mockUpload)
 
@@ -107,6 +114,7 @@ describe('heap-dump', () => {
                         Key: expect.stringMatching(
                             /^heap-dumps\/\d{4}-\d{2}-\d{2}\/heapdump-test-pod-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.heapsnapshot$/
                         ),
+                        Body: expect.any(Object), // PassThrough stream
                     }),
                 })
             )
@@ -138,6 +146,7 @@ describe('heap-dump', () => {
 
             mockUpload.mockImplementationOnce(() => ({
                 done: jest.fn().mockRejectedValue(testError),
+                on: jest.fn(), // Mock the 'on' method for progress tracking
             }))
 
             await expect(createHeapDump(s3Client, 'test-heap-dumps', 'heap-dumps')).rejects.toThrow(testError)

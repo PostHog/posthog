@@ -17,8 +17,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
-    DashboardPrivilegeLevel,
-    DashboardRestrictionLevel,
     ENTITY_MATCH_TYPE,
     FunnelLayout,
     OrganizationMembershipLevel,
@@ -2093,8 +2091,6 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
-    effective_restriction_level: DashboardRestrictionLevel
-    effective_privilege_level: DashboardPrivilegeLevel
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
@@ -2140,10 +2136,6 @@ export interface DashboardBasicType extends WithAccessControl {
     is_shared: boolean
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate'
-    restriction_level: DashboardRestrictionLevel
-    effective_restriction_level: DashboardRestrictionLevel
-    effective_privilege_level: DashboardPrivilegeLevel
-    access_control_version: 'v1' | 'v2'
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -2215,19 +2207,6 @@ export interface DashboardTemplateVariableType {
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
-
-/** Explicit dashboard collaborator, based on DashboardPrivilege. */
-export interface DashboardCollaboratorType {
-    id: string
-    dashboard_id: DashboardType['id']
-    user: UserBasicType
-    level: DashboardPrivilegeLevel
-    added_at: string
-    updated_at: string
-}
-
-/** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
-export type FusedDashboardCollaboratorType = Pick<DashboardCollaboratorType, 'user' | 'level'>
 
 export interface OrganizationInviteType {
     id: string

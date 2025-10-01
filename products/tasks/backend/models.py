@@ -1,11 +1,13 @@
 import uuid
 from typing import Optional, cast
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.utils import timezone
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.utils import UUIDModel
 
 from products.tasks.backend.agents import get_agent_by_id
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowTemplate
@@ -455,3 +457,90 @@ class TaskProgress(models.Model):
         if self.total_steps and self.total_steps > 0:
             return min(100, (self.completed_steps / self.total_steps) * 100)
         return 0
+
+
+class SandboxSnapshot(UUIDModel):
+    """Tracks sandbox snapshots used for sandbox environments in tasks."""
+
+    class Status(models.TextChoices):
+        IN_PROGRESS = "in_progress", "In Progress"
+        COMPLETE = "complete", "Complete"
+        ERROR = "error", "Error"
+
+    integration = models.ForeignKey(
+        Integration,
+        on_delete=models.SET_NULL,
+        related_name="snapshots",
+        null=True,
+        blank=True,
+    )
+
+    external_id = models.CharField(
+        max_length=255, blank=True, help_text="Snapshot ID from external provider.", unique=True
+    )
+
+    repos = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        help_text="List of repositories in format 'org/repo'",
+    )
+
+    metadata = models.JSONField(default=dict, blank=True, help_text="Additional metadata for the snapshot.")
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.IN_PROGRESS,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_sandbox_snapshot"
+        indexes = [
+            models.Index(fields=["integration", "status", "-created_at"]),
+        ]
+
+    def __str__(self):
+        repo_count = len(self.repos)
+        return f"Snapshot {self.external_id} ({self.get_status_display()}, {repo_count} repos)"
+
+    def is_complete(self) -> bool:
+        return self.status == self.Status.COMPLETE
+
+    def has_repo(self, repo: str) -> bool:
+        repo_lower = repo.lower()
+        return any(r.lower() == repo_lower for r in self.repos)
+
+    def has_repos(self, repos: list[str]) -> bool:
+        return all(self.has_repo(repo) for repo in repos)
+
+    def update_status(self, status: Status):
+        self.status = status
+        self.save(update_fields=["status"])
+
+    @classmethod
+    def get_latest_snapshot_for_integration(cls, integration_id: int) -> Optional["SandboxSnapshot"]:
+        return (
+            cls.objects.filter(
+                integration_id=integration_id,
+                status=cls.Status.COMPLETE,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+    @classmethod
+    def get_latest_snapshot_with_repos(
+        cls, integration_id: int, required_repos: list[str]
+    ) -> Optional["SandboxSnapshot"]:
+        snapshots = cls.objects.filter(
+            integration_id=integration_id,
+            status=cls.Status.COMPLETE,
+        ).order_by("-created_at")
+
+        for snapshot in snapshots:
+            if snapshot.has_repos(required_repos):
+                return snapshot
+        return None

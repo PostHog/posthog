@@ -16,6 +16,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.response import Response
+from statshog.defaults.django import statsd
 
 from posthog.schema import PropertyOperator
 
@@ -1366,6 +1367,9 @@ class FeatureFlagViewSet(
         logger = logging.getLogger(__name__)
 
         include_cohorts = "send_cohorts" in request.GET
+
+        # Track send_cohorts parameter usage
+        statsd.incr("posthog_local_evaluation_request", tags={"send_cohorts": str(include_cohorts).lower()})
 
         try:
             # Check if team is quota limited for feature flags

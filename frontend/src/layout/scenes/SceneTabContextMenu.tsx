@@ -76,7 +76,7 @@ export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children
                 </ContextMenuItem>
                 <ContextMenuItem asChild>
                     <ButtonPrimitive menuItem onClick={openInNewWindow}>
-                        <IconExternal /> Open new browser tab
+                        <IconExternal /> Open in new browser tab
                     </ButtonPrimitive>
                 </ContextMenuItem>
                 <ContextMenuSeparator />

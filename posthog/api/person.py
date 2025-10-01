@@ -1,4 +1,5 @@
 import json
+import uuid
 import asyncio
 import builtins
 from collections.abc import Callable
@@ -870,7 +871,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             distinct_ids=person.distinct_ids,
             team_id=person.team.id,
         )
-        workflow_id = f"delete-recordings-with-person-{person.uuid}"
+        workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
 
         asyncio.run(
             temporal.start_workflow(

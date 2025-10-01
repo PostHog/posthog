@@ -1,9 +1,10 @@
 import Fuse from 'fuse.js'
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
+import { NamedQueryLastExecutionTimesRequest } from '~/queries/schema/schema-general'
 import { QueryEndpointType } from '~/types'
 
 import type { queryEndpointsLogicType } from './queryEndpointsLogicType'
@@ -27,17 +28,18 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
     actions({
         setFilters: (filters: Partial<QueryEndpointsFilters>) => ({ filters }),
     }),
-    loaders(({ values }) => ({
-        queryEndpoints: [
+    loaders(() => ({
+        allQueryEndpoints: [
             [] as QueryEndpointType[],
             {
                 loadQueryEndpoints: async () => {
                     const response = await api.queryEndpoint.list()
                     let haystack: QueryEndpointType[] = response.results || []
 
-                    // TODO: Filter the already fetched results, not every time filter changes
                     if (haystack.length > 0) {
-                        const names = haystack.map((endpoint) => endpoint.name)
+                        const names: NamedQueryLastExecutionTimesRequest = {
+                            names: haystack.map((endpoint) => endpoint.name),
+                        }
                         const lastExecutionTimes = await api.queryEndpoint.getLastExecutionTimes(names)
 
                         haystack = haystack.map((endpoint) => ({
@@ -46,13 +48,6 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
                         }))
                     }
 
-                    if (values.filters.search) {
-                        const fuse = new Fuse<QueryEndpointType>(haystack, {
-                            keys: ['name', 'description', 'query.query'],
-                            threshold: 0.3,
-                        })
-                        haystack = fuse.search(values.filters.search).map((result) => result.item)
-                    }
                     return haystack
                 },
             },
@@ -66,11 +61,22 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
-        setFilters: () => {
-            actions.loadQueryEndpoints()
-        },
-    })),
+    selectors({
+        queryEndpoints: [
+            (s) => [s.allQueryEndpoints, s.filters],
+            (allQueryEndpoints, filters) => {
+                if (!filters.search) {
+                    return allQueryEndpoints
+                }
+
+                const fuse = new Fuse<QueryEndpointType>(allQueryEndpoints, {
+                    keys: ['name', 'description', 'query.query'],
+                    threshold: 0.3,
+                })
+                return fuse.search(filters.search).map((result) => result.item)
+            },
+        ],
+    }),
     afterMount(({ actions }) => {
         actions.loadQueryEndpoints()
     }),
