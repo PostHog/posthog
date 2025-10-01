@@ -72,7 +72,9 @@ class MaxChatMixin(BaseModel):
         ).format(**project_org_user_variables)
 
     def _enrich_messages(self, messages: list[list[BaseMessage]], project_org_user_variables: dict[str, Any]):
-        for message_sublist in messages:
+        messages = messages.copy()
+        for i in range(len(messages)):
+            message_sublist = messages[i]
             # In every sublist (which becomes a separate generation) insert our shared prompt at the very end
             # of the system messages block
             for msg_index, msg in enumerate(message_sublist):
@@ -80,8 +82,11 @@ class MaxChatMixin(BaseModel):
                     continue  # Keep going
                 else:
                     # Here's our end of the system messages block
-                    message_sublist.insert(msg_index, self._get_project_org_system_message(project_org_user_variables))
+                    copied_list = message_sublist.copy()
+                    copied_list.insert(msg_index, self._get_project_org_system_message(project_org_user_variables))
+                    messages[i] = copied_list
                     break
+        return messages
 
 
 class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
@@ -117,7 +122,7 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
         if self.use_responses_api:
             self._enrich_responses_api_model_kwargs(project_org_user_variables)
         else:
-            self._enrich_messages(messages, project_org_user_variables)
+            messages = self._enrich_messages(messages, project_org_user_variables)
         return super().generate(messages, *args, **kwargs)
 
     async def agenerate(
@@ -130,7 +135,7 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
         if self.use_responses_api:
             self._enrich_responses_api_model_kwargs(project_org_user_variables)
         else:
-            self._enrich_messages(messages, project_org_user_variables)
+            messages = self._enrich_messages(messages, project_org_user_variables)
         return await super().agenerate(messages, *args, **kwargs)
 
 

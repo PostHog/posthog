@@ -51,4 +51,5 @@ class TitleGeneratorNode(AssistantNode):
             team=self._team,
             streaming=False,
             stream_usage=False,
+            disable_streaming=True,
         )
