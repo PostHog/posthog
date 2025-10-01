@@ -79,7 +79,7 @@ function PlayerSeekbarTick({
                 onOpen={() => {
                     posthog.capture('player seekbar tick tooltip shown', {
                         item_type: item.type,
-                        event: item.data.event,
+                        ...(isEventItem(item) && { event: item.data.event }),
                     })
                 }}
                 title={
