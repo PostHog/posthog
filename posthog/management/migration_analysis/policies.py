@@ -67,16 +67,18 @@ class UUIDPrimaryKeyPolicy(MigrationPolicy):
 
 class SingleMigrationPolicy(MigrationPolicy):
     """
-    PostHog policy: One migration per PR.
+    PostHog policy: One migration per app per PR.
 
     Rationale:
     - Easier to debug issues
     - Simpler rollback strategy
     - Clearer code review
+
+    Note: Multiple migrations from different apps is OK (e.g., posthog + third-party dependency).
     """
 
-    def __init__(self, migration_count: int):
-        self.migration_count = migration_count
+    def __init__(self, app_counts: dict[str, int]):
+        self.app_counts = app_counts
 
     def check_operation(self, op) -> list[str]:
         """No operation-level checks for this policy."""
@@ -87,13 +89,15 @@ class SingleMigrationPolicy(MigrationPolicy):
         return []
 
     def check_batch(self) -> list[str]:
-        """Check multiple migrations."""
-        if self.migration_count > 1:
-            return [
-                f"Found {self.migration_count} migrations. "
-                "PostHog requires one migration per PR to promote easy debugging and revertability."
-            ]
-        return []
+        """Check for multiple migrations per app."""
+        violations = []
+        for app_label, count in self.app_counts.items():
+            if count > 1:
+                violations.append(
+                    f"Found {count} migrations for app '{app_label}'. "
+                    "PostHog requires one migration per app per PR to promote easy debugging and revertability."
+                )
+        return violations
 
 
 # Registry of all PostHog policies

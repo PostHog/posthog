@@ -27,8 +27,8 @@ class Command(BaseCommand):
             # Return silently when no migrations to analyze (for CI)
             return
 
-        # Check batch-level policies (e.g., multiple migrations)
-        batch_policy_violations = self.check_batch_policies(len(migrations))
+        # Check batch-level policies (e.g., multiple migrations per app)
+        batch_policy_violations = self.check_batch_policies(migrations)
         if batch_policy_violations:
             print("\n📋 POLICY VIOLATIONS:")
             for violation in batch_policy_violations:
@@ -50,9 +50,15 @@ class Command(BaseCommand):
             if blocked:
                 sys.exit(1)
 
-    def check_batch_policies(self, migration_count: int) -> list[str]:
+    def check_batch_policies(self, migrations: list[tuple[str, object]]) -> list[str]:
         """Check policies that apply to the batch of migrations."""
-        policy = SingleMigrationPolicy(migration_count)
+        # Count migrations per app
+        app_counts: dict[str, int] = {}
+        for _label, migration in migrations:
+            app_label = migration.app_label
+            app_counts[app_label] = app_counts.get(app_label, 0) + 1
+
+        policy = SingleMigrationPolicy(app_counts)
         return policy.check_batch()
 
     def get_unapplied_migrations(self) -> list[tuple[str, object]]:
