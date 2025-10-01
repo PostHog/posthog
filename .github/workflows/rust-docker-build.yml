@@ -8,6 +8,7 @@ on:
             - '.github/workflows/rust-docker-build.yml'
         branches:
             - 'master'
+            - 'jose-sequeira/kafka-dedup-more-info-results'
 jobs:
     build:
         name: build ${{ matrix.image }}
