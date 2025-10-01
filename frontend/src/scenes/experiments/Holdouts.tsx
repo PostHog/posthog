@@ -52,7 +52,7 @@ export function Holdouts(): JSX.Element {
             return 'Rollout percentage is required'
         }
         if (holdout.filters?.[0]?.rollout_percentage < 0 || holdout.filters?.[0]?.rollout_percentage > 100) {
-            return 'Rollout percentage should be between 0 to 100'
+            return 'Rollout percentage should be between 0 and 100'
         }
     }
 
