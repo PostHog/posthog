@@ -266,10 +266,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         related_issues = []
         if issue_id is not None:
-            issue_ids = [issue_id]
+            # issue_ids = [issue_id]
             # fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
             # TODO: query CH for related issues passing the fingerprints/stacktraces?
-            issues = ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids)
+            # issues = ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids)
+            issues = ErrorTrackingIssue.objects.filter(team=self.team)
 
             if issues is not None:
                 related_issues = [
