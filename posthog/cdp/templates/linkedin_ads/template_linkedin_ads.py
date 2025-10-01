@@ -16,7 +16,6 @@ let body := {
     'conversionHappenedAt': inputs.conversionDateTime,
     'user': {
         'userIds': [],
-        'userInfo': {}
      },
     'eventId' : inputs.eventId
 }
@@ -31,10 +30,14 @@ if (not empty(inputs.conversionValue)) {
     body.conversionValue.amount := inputs.conversionValue
 }
 
+let userInfo := {}
 for (let key, value in inputs.userInfo) {
     if (not empty(value)) {
-        body.user.userInfo[key] := value
+        userInfo[key] := value
     }
+}
+if (length(keys(body.user.userInfo)) >= 1) {
+    body.user['userInfo'] := userInfo
 }
 
 for (let key, value in inputs.userIds) {
