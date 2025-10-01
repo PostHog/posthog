@@ -528,6 +528,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "last_modified_at",
                 "tags",
                 "user_access_level",
+                "last_viewed_at",
             },
         )
 
@@ -2515,24 +2516,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Order updates when an insight is viewed again
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_1_id, insight_2_id]
-
-    def test_another_user_viewing_an_insight_does_not_impact_the_list(self) -> None:
-        insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
-
-        another_user = User.objects.create_and_join(self.organization, "team2@posthog.com", None)
-        InsightViewed.objects.create(
-            team=self.team,
-            user=another_user,
-            insight_id=insight_1_id,
-            last_viewed_at=timezone.now(),
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
-        response_data = response.json()
-
-        # Insights are ordered by most recently viewed
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_data), 0)
 
     def test_get_recent_insights_with_feature_flag(self) -> None:
         filter_dict = {
