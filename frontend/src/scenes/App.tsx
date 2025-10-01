@@ -45,7 +45,7 @@ function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const {
         activeSceneId,
-        activeLoadedScene,
+        activeExportedScene,
         activeSceneComponentParamsWithTabId,
         activeSceneLogicPropsWithTabId,
         sceneConfig,
@@ -66,8 +66,8 @@ function AppScene(): JSX.Element | null {
     )
 
     let sceneElement: JSX.Element
-    if (activeLoadedScene?.component) {
-        const { component: SceneComponent } = activeLoadedScene
+    if (activeExportedScene?.component) {
+        const { component: SceneComponent } = activeExportedScene
         sceneElement = (
             <SceneComponent
                 key={`tab-${activeSceneLogicPropsWithTabId.tabId}`}
@@ -84,10 +84,10 @@ function AppScene(): JSX.Element | null {
             key={`error-${activeSceneLogicPropsWithTabId.tabId}`}
             exceptionProps={{ feature: activeSceneId }}
         >
-            {activeLoadedScene?.logic ? (
+            {activeExportedScene?.logic ? (
                 <BindLogic
                     key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
-                    logic={activeLoadedScene.logic}
+                    logic={activeExportedScene.logic}
                     props={activeSceneLogicPropsWithTabId}
                 >
                     {sceneElement}

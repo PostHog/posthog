@@ -96,7 +96,7 @@ SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kaf
 
 def BEHAVIORAL_COHORTS_MATCHES_MV_SQL():
     return """
-CREATE MATERIALIZED VIEW {mv_name} TO {writable_table_name}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
 AS SELECT
     team_id,
     cohort_id,

@@ -5,7 +5,7 @@
 - Environment:
   - Auto-detect flox environment before running terminal commands
   - If flox is available, and you run into trouble executing commands, try with `flox activate -- bash -c "<command>"` pattern
-    - Never use `flox activate` in interactive sessions (it hangs)
+    - Never use `flox activate` in interactive sessions (it hangs if you try)
 - Tests:
   - All tests: `pytest`
   - Single test: `pytest path/to/test.py::TestClass::test_method`
@@ -35,6 +35,10 @@
 - any tests: prefer to use parameterized tests, think carefully about what input and output look like so that the tests exercise the system and explain the code to the future traveller
 - Python tests: in python use the parameterized library for parameterized tests, every time you are tempted to add more than one assertion to a test consider (really carefully) if it should be a parameterized test instead
 - always remember that there is a tension between having the fewest parts to code (a simple system) and having the most understandable code (a maintainable system). structure code to balance these two things.
+- Separation of concerns: Keep different responsibilities in different places (data/logic/presentation, safety checks/policies, etc.)
+- Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
+- Avoid over-engineering: Don't apply design patterns just because you know them
+- Start simple, iterate: Build minimal solution first, add complexity only when demanded
 
 ## General
 
