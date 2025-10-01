@@ -21,22 +21,21 @@ export function FeedbackGeneralSettings(): JSX.Element {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 border rounded p-4">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="flex flex-col gap-4">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold">Feedback Types</h3>
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            size="small"
-                            onClick={() => setIsAddModalOpen(true)}
-                        >
-                            Add Type
-                        </LemonButton>
-                    </div>
-
                     <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-semibold">Feedback types</h3>
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlus />}
+                                size="small"
+                                onClick={() => setIsAddModalOpen(true)}
+                            >
+                                Add Type
+                            </LemonButton>
+                        </div>
                         {feedbackTypes.map((type, index) => (
                             <div
                                 key={type}
@@ -54,9 +53,10 @@ export function FeedbackGeneralSettings(): JSX.Element {
                     </div>
                 </div>
 
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-0">
                     <h3 className="text-lg font-semibold">Preview</h3>
-                    <FeedbackPreview feedbackTypes={feedbackTypes} />
+                    <p className="text-sm text-muted-foreground">This is what your users will see</p>
+                    <FeedbackPreview />
                 </div>
             </div>
 

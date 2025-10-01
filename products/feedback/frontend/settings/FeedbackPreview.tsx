@@ -1,33 +1,28 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconUpload } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { feedbackGeneralSettingsLogic } from './feedbackGeneralSettingsLogic'
 
 export function FeedbackPreview(): JSX.Element {
     const { feedbackTypes } = useValues(feedbackGeneralSettingsLogic)
-    const [selectedType, setSelectedType] = useState<string | null>(feedbackTypes[0] || null)
+    const [selectedType, setSelectedType] = useState<string>(feedbackTypes[0] || '')
 
     return (
-        <div className="border rounded-lg bg-surface-primary shadow-lg">
+        <div className="border rounded-lg bg-surface-primary shadow-sm">
             <div className="flex gap-1 p-2 border-b bg-surface-light">
-                {feedbackTypes.map((type) => (
-                    <button
-                        key={type}
-                        onClick={() => setSelectedType(type)}
-                        className={clsx(
-                            'p-1 rounded text-sm font-medium transition-colors capitalize',
-                            selectedType === type
-                                ? 'bg-primary text-primary-content'
-                                : 'bg-surface-primary text-default hover:bg-surface-secondary'
-                        )}
-                    >
-                        {type}
-                    </button>
-                ))}
+                <LemonSegmentedButton
+                    value={selectedType}
+                    onChange={(value) => setSelectedType(value)}
+                    options={feedbackTypes.map((type) => ({
+                        value: type,
+                        label: <span className="capitalize">{type}</span>,
+                    }))}
+                    size="small"
+                    fullWidth
+                />
             </div>
 
             <div className="p-4 flex flex-col gap-3">
