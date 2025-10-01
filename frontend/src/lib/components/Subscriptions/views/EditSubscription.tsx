@@ -236,6 +236,7 @@ export function EditSubscription({
                                             {({ value, onChange }) => (
                                                 <>
                                                     <IntegrationChoice
+                                                        // Fallback to the first integration as this was the previous behavior
                                                         value={
                                                             slackIntegrations.find((x) => x.id === value)?.id ??
                                                             slackIntegrations[0].id
@@ -267,6 +268,7 @@ export function EditSubscription({
                                                         <SlackChannelPicker
                                                             value={value}
                                                             onChange={onChange}
+                                                            // Fallback to the first integration as this was the previous behavior
                                                             integration={
                                                                 slackIntegrations.find(
                                                                     (x) => x.id === subscription.target_integration
