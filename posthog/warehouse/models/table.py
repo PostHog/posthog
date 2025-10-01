@@ -192,6 +192,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             chdb_query = f"DESCRIBE TABLE (SELECT * FROM {s3_table_func} LIMIT 1)" % quoted_placeholders
 
             # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
+            # See https://github.com/chdb-io/chdb/pull/374 for the fix
             chdb_result = chdb.query(chdb_query, output_format="CSV")
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]

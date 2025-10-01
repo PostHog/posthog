@@ -6,14 +6,13 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { AccessControlLevel, AccessControlResourceType, ReplayTabs } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { createPlaylist } from '../playlist/playlistUtils'
-import { savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
+import { sessionRecordingCollectionsLogic } from './sessionRecordingCollectionsLogic'
 
-export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    const { loadPlaylistsFailed } = useValues(playlistsLogic)
+export function SessionRecordingCollectionsEmptyState(): JSX.Element {
+    const { loadPlaylistsFailed } = useValues(sessionRecordingCollectionsLogic)
     return loadPlaylistsFailed ? (
         <LemonBanner type="error">Error while trying to load playlist.</LemonBanner>
     ) : (

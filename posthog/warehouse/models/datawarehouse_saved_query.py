@@ -83,10 +83,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     )
     sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
 
+    # In case the saved query is materialized to a table, this will be set
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    is_materialized = models.BooleanField(default=False, blank=True, null=True)
+
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
-    is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
     # Whether this saved query is a snapshot or a view
     type = models.CharField(max_length=128, choices=Type.choices, default=Type.VIEW)

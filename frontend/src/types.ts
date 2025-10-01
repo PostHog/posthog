@@ -9,6 +9,7 @@ import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
 
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
+import { PaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -16,8 +17,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
-    DashboardPrivilegeLevel,
-    DashboardRestrictionLevel,
     ENTITY_MATCH_TYPE,
     FunnelLayout,
     OrganizationMembershipLevel,
@@ -306,6 +305,7 @@ export enum AccessControlResourceType {
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
+    Experiment = 'experiment',
 }
 
 interface UserBaseType {
@@ -646,7 +646,7 @@ export interface TeamType extends TeamBasicType {
     person_display_name_properties: string[]
     has_group_types: boolean
     group_types: GroupType[]
-    primary_dashboard: number // Dashboard shown on the project homepage
+    primary_dashboard: number | null // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
@@ -1602,6 +1602,23 @@ export interface SessionRecordingPlaylistType {
     _create_in_folder?: string | null
 }
 
+export interface SavedSessionRecordingPlaylistsFilters {
+    order: string
+    search: string
+    createdBy: number | 'All users'
+    dateFrom: string | dayjs.Dayjs | undefined | null
+    dateTo: string | dayjs.Dayjs | undefined | null
+    page: number
+    pinned: boolean
+    type?: 'collection' | 'saved_filters'
+}
+
+export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
+    count: number
+    /** not in the API response */
+    filters?: SavedSessionRecordingPlaylistsFilters | null
+}
+
 export interface SessionRecordingSegmentType {
     start_time: string
     end_time: string
@@ -2075,8 +2092,6 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
-    effective_restriction_level: DashboardRestrictionLevel
-    effective_privilege_level: DashboardPrivilegeLevel
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
@@ -2122,10 +2137,6 @@ export interface DashboardBasicType extends WithAccessControl {
     is_shared: boolean
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate'
-    restriction_level: DashboardRestrictionLevel
-    effective_restriction_level: DashboardRestrictionLevel
-    effective_privilege_level: DashboardPrivilegeLevel
-    access_control_version: 'v1' | 'v2'
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -2197,19 +2208,6 @@ export interface DashboardTemplateVariableType {
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
-
-/** Explicit dashboard collaborator, based on DashboardPrivilege. */
-export interface DashboardCollaboratorType {
-    id: string
-    dashboard_id: DashboardType['id']
-    user: UserBasicType
-    level: DashboardPrivilegeLevel
-    added_at: string
-    updated_at: string
-}
-
-/** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
-export type FusedDashboardCollaboratorType = Pick<DashboardCollaboratorType, 'user' | 'level'>
 
 export interface OrganizationInviteType {
     id: string
@@ -3605,8 +3603,10 @@ export interface PreflightStatus {
             client_id?: string
         }
     }
-    /** Whether PostHog is running in DEBUG mode. */
+    /** Whether PostHog is running in settings.DEBUG or settings.E2E_TESTING. */
     is_debug?: boolean
+    /** Whether PostHog is running with settings.TEST. */
+    is_test?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
     site_url?: string
@@ -3878,6 +3878,7 @@ export interface Experiment {
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
+    user_access_level: AccessControlLevel
 }
 
 export interface FunnelExperimentVariant {
@@ -4362,12 +4363,22 @@ export interface LinearTeamType {
     name: string
 }
 
+export interface SharePasswordType {
+    id: string
+    created_at: string
+    note: string
+    created_by_email: string
+    is_active: boolean
+    password?: string
+}
+
 export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
     password_required: boolean
     settings?: SharingConfigurationSettings
+    share_passwords?: SharePasswordType[]
 }
 
 export enum ExporterFormat {
@@ -4497,6 +4508,7 @@ export type APIScopeObject =
     | 'group'
     | 'hog_function'
     | 'insight'
+    | 'integration'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -4511,6 +4523,7 @@ export type APIScopeObject =
     | 'sharing_configuration'
     | 'subscription'
     | 'survey'
+    | 'task'
     | 'user'
     | 'webhook'
     | 'warehouse_view'

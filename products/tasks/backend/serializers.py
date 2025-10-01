@@ -266,3 +266,83 @@ class WorkflowConfigurationSerializer(serializers.Serializer):
                     {"workflow": {"name": "A workflow with this name already exists for this team."}}
                 )
             raise
+
+
+class TaskUpdateStageRequestSerializer(serializers.Serializer):
+    current_stage = serializers.UUIDField(help_text="UUID of the workflow stage to move the task to")
+
+
+class TaskUpdatePositionRequestSerializer(serializers.Serializer):
+    position = serializers.IntegerField(help_text="New position for the task")
+
+
+class TaskBulkReorderRequestSerializer(serializers.Serializer):
+    columns = serializers.DictField(
+        child=serializers.ListField(child=serializers.UUIDField()),
+        help_text="Object mapping stage keys to arrays of task UUIDs in the desired order",
+    )
+
+
+class TaskBulkReorderResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of tasks that were updated")
+    tasks = serializers.ListField(
+        child=serializers.DictField(), help_text="Array of updated tasks with their new positions and stages"
+    )
+
+
+class TaskProgressResponseSerializer(serializers.Serializer):
+    has_progress = serializers.BooleanField(help_text="Whether progress information is available")
+    id = serializers.UUIDField(required=False, help_text="Progress record ID")
+    status = serializers.ChoiceField(
+        choices=["started", "in_progress", "completed", "failed"],
+        required=False,
+        help_text="Current execution status",
+    )
+    current_step = serializers.CharField(required=False, help_text="Description of current step being executed")
+    completed_steps = serializers.IntegerField(required=False, help_text="Number of completed steps")
+    total_steps = serializers.IntegerField(required=False, help_text="Total number of steps")
+    progress_percentage = serializers.FloatField(required=False, help_text="Progress percentage (0-100)")
+    output_log = serializers.CharField(required=False, help_text="Live output from Claude Code execution")
+    error_message = serializers.CharField(required=False, help_text="Error message if execution failed")
+    created_at = serializers.DateTimeField(required=False, help_text="When progress tracking started")
+    updated_at = serializers.DateTimeField(required=False, help_text="When progress was last updated")
+    completed_at = serializers.DateTimeField(required=False, help_text="When execution completed")
+    workflow_id = serializers.CharField(required=False, help_text="Temporal workflow ID")
+    workflow_run_id = serializers.CharField(required=False, help_text="Temporal workflow run ID")
+    message = serializers.CharField(required=False, help_text="Message when no progress is available")
+
+
+class TaskProgressUpdateSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Progress record ID")
+    status = serializers.ChoiceField(
+        choices=["started", "in_progress", "completed", "failed"], help_text="Current execution status"
+    )
+    current_step = serializers.CharField(help_text="Description of current step being executed")
+    completed_steps = serializers.IntegerField(help_text="Number of completed steps")
+    total_steps = serializers.IntegerField(help_text="Total number of steps")
+    progress_percentage = serializers.FloatField(help_text="Progress percentage (0-100)")
+    output_log = serializers.CharField(help_text="Live output from Claude Code execution")
+    error_message = serializers.CharField(help_text="Error message if execution failed")
+    updated_at = serializers.DateTimeField(help_text="When progress was last updated")
+    workflow_id = serializers.CharField(help_text="Temporal workflow ID")
+
+
+class TaskProgressStreamResponseSerializer(serializers.Serializer):
+    progress_updates = TaskProgressUpdateSerializer(many=True, help_text="Array of recent progress updates")
+    server_time = serializers.DateTimeField(help_text="Current server time in ISO format")
+
+
+class WorkflowStageArchiveResponseSerializer(serializers.Serializer):
+    message = serializers.CharField(help_text="Success message")
+
+
+class WorkflowDeactivateResponseSerializer(serializers.Serializer):
+    message = serializers.CharField(help_text="Success message")
+
+
+class ErrorResponseSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Error message")
+
+
+class AgentListResponseSerializer(serializers.Serializer):
+    results = AgentDefinitionSerializer(many=True, help_text="Array of available agent definitions")
