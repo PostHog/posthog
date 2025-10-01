@@ -21,9 +21,9 @@ pub struct ContextLine {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewFingerprintEvent {
-    team_id: i32,
-    fingerprint: String,
-    exception_list: Vec<ExceptionData>,
+    pub team_id: i32,
+    pub fingerprint: String,
+    pub exception_list: Vec<ExceptionData>,
 }
 
 impl NewFingerprintEvent {
@@ -43,4 +43,22 @@ pub struct EmbeddingRecord {
     embedding_version: i64,
     fingerprint: String,
     embeddings: Vec<f64>,
+}
+
+impl EmbeddingRecord {
+    pub fn new(
+        team_id: i32,
+        model_name: String,
+        embedding_version: i64,
+        fingerprint: String,
+        embeddings: Vec<f64>,
+    ) -> Self {
+        Self {
+            team_id,
+            model_name,
+            embedding_version,
+            fingerprint,
+            embeddings,
+        }
+    }
 }

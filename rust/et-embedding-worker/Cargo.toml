@@ -20,6 +20,9 @@ anyhow = { workspace = true } # We use anyhow for now because we're in hack it s
 sqlx = { workspace = true }
 uuid = { workspace = true }
 posthog-rs = { workspace = true }
+futures.workspace = true
+reqwest.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 
