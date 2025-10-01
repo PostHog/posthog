@@ -7,6 +7,7 @@ This module defines:
 - Sensors and schedules for continuous timeseries calculation
 """
 
+import json
 from datetime import datetime
 from typing import Any, Union
 from zoneinfo import ZoneInfo
@@ -15,7 +16,13 @@ from django.db.models import Q
 
 import dagster
 
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
+from posthog.schema import (
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentQuery,
+    ExperimentQueryResponse,
+    ExperimentRatioMetric,
+)
 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.experiment import Experiment, ExperimentMetricResult
@@ -34,11 +41,14 @@ experiment_timeseries_partitions_def = dagster.DynamicPartitionsDefinition(name=
 # =============================================================================
 
 
-def _get_experiment_metrics() -> list[tuple[int, str, str, dict[str, Any]]]:
+def _get_experiment_metrics(context: dagster.SensorEvaluationContext) -> list[tuple[int, str, str, dict[str, Any]]]:
     """
     Discover active experiment-metric combinations from the database.
 
     Each combination will become a dynamic partition for the experiment_timeseries asset.
+
+    Args:
+        context: Dagster context for logging to UI.
 
     Returns:
         List of tuples containing (experiment_id, metric_uuid, fingerprint, metric_dict)
@@ -67,14 +77,29 @@ def _get_experiment_metrics() -> list[tuple[int, str, str, dict[str, Any]]]:
                 continue
             fingerprint = metric.get("fingerprint")
             if not fingerprint:
-                raise ValueError(
+                context.log.error(
                     f"Metric {metric_uuid} for experiment {experiment.id} is missing fingerprint. "
-                    "Metrics must have fingerprints computed during creation/update."
+                    "Skipping this metric. Metrics must have fingerprints computed during creation/update."
                 )
+                continue
 
             experiment_metrics.append((experiment.id, metric_uuid, fingerprint, metric))
 
     return experiment_metrics
+
+
+def _remove_step_sessions_from_experiment_result(result: ExperimentQueryResponse) -> ExperimentQueryResponse:
+    """
+    Remove step_sessions values from experiment results to reduce API response size.
+    """
+    if result.baseline is not None:
+        result.baseline.step_sessions = None
+
+    if result.variant_results is not None:
+        for variant in result.variant_results:
+            variant.step_sessions = None
+
+    return result
 
 
 def _parse_partition_key(partition_key: str) -> tuple[int, str, str]:
@@ -158,9 +183,11 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
         query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team)
         result = query_runner._calculate()
 
+        result = _remove_step_sessions_from_experiment_result(result)
+
         completed_at = datetime.now(ZoneInfo("UTC"))
 
-        ExperimentMetricResult.objects.update_or_create(
+        experiment_metric_result, created = ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
             fingerprint=fingerprint,
@@ -179,11 +206,16 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
         context.add_output_metadata(
             metadata={
                 "experiment_id": experiment_id,
+                "experiment_metric_result_id": experiment_metric_result.id,
                 "metric_uuid": metric_uuid,
                 "fingerprint": fingerprint,
                 "metric_type": metric_type,
                 "metric_name": metric.get("name", f"Metric {metric_uuid}"),
                 "experiment_name": experiment.name,
+                "experiment_start_date": experiment.start_date.isoformat() if experiment.start_date else None,
+                "experiment_exposure_criteria": json.dumps(experiment.exposure_criteria)
+                if experiment.exposure_criteria
+                else None,
                 "metric_definition": str(metric),
                 "query_from": query_from_utc.isoformat(),
                 "query_to": query_to_utc.isoformat(),
@@ -247,7 +279,7 @@ def experiment_discovery_sensor(context: dagster.SensorEvaluationContext):
     experiment_timeseries asset and triggers processing only for the new partitions.
     """
     try:
-        current_experiment_metrics = _get_experiment_metrics()
+        current_experiment_metrics = _get_experiment_metrics(context)
         if not current_experiment_metrics:
             context.log.debug("No experiment-metrics found for timeseries analysis")
             return dagster.SkipReason("No experiments with metrics found")

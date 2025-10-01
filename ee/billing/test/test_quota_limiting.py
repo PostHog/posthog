@@ -1091,8 +1091,8 @@ class TestQuotaLimiting(BaseTest):
         mock_capture.assert_called_once()
 
         call_args = mock_capture.call_args
-        self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")  # type: ignore
-        self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})  # type: ignore
+        self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")
+        self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})
 
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):

@@ -2,11 +2,13 @@
 Workflow-agnostic activities for the configurable task system.
 """
 
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import temporalio
 
 from posthog.temporal.common.logger import get_logger
+
+from products.tasks.backend.models import WorkflowStage
 
 logger = get_logger(__name__)
 
@@ -143,11 +145,13 @@ async def get_agent_triggered_transition_activity(params: dict[str, Any]) -> Opt
                 if not workflow:
                     return None
 
-                current_stage = task.current_stage
+                current_stage = cast(WorkflowStage, task.current_stage)
+
                 if not current_stage:
                     return None
 
-                agent_definition = current_stage.get_agent_definition()
+                agent_definition = current_stage.agent_definition
+
                 if not agent_definition:
                     return None
 
@@ -254,11 +258,12 @@ async def should_trigger_agent_workflow_activity(params: dict[str, Any]) -> dict
 
                 workflow = task.effective_workflow
 
-                current_stage = task.current_stage
+                current_stage = cast(WorkflowStage, task.current_stage)
+
                 if not current_stage:
                     return {"should_trigger": False, "trigger_reason": "Task has no current stage"}
 
-                agent_transitions = current_stage.get_agent_definition() is not None
+                agent_transitions = current_stage.agent_definition is not None
 
                 if agent_transitions:
                     return {

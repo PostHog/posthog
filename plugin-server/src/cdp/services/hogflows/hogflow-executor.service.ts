@@ -6,6 +6,7 @@ import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
+    HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     LogEntry,
@@ -15,6 +16,7 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
+import { HogExecutorExecuteAsyncOptions } from '../hog-executor.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -123,6 +125,7 @@ export class HogFlowExecutorService {
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
+        const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
@@ -153,6 +156,7 @@ export class HogFlowExecutorService {
 
             logs.push(...result.logs)
             metrics.push(...result.metrics)
+            capturedPostHogEvents.push(...result.capturedPostHogEvents)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -161,6 +165,7 @@ export class HogFlowExecutorService {
 
         result.logs = logs
         result.metrics = metrics
+        result.capturedPostHogEvents = capturedPostHogEvents
 
         return result
     }
@@ -276,7 +281,10 @@ export class HogFlowExecutorService {
     }
 
     public async executeCurrentAction(
-        invocation: CyclotronJobInvocationHogFlow
+        invocation: CyclotronJobInvocationHogFlow,
+        options?: {
+            hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+        }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
         result.finished = false // Typically we are never finished unless we error or exit
@@ -307,7 +315,12 @@ export class HogFlowExecutorService {
             }
 
             try {
-                const handlerResult = await handler.execute(invocation, currentAction, result)
+                const handlerResult = await handler.execute({
+                    invocation,
+                    action: currentAction,
+                    result,
+                    hogExecutorOptions: options?.hogExecutorOptions,
+                })
 
                 if (handlerResult.finished) {
                     result.finished = true
