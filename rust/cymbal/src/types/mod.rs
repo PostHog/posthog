@@ -108,14 +108,18 @@ impl From<&ExceptionList> for Vec<ExceptionData> {
         exception_list
             .iter()
             .map(|exception| ExceptionData {
-                r#type: exception.exception_type.clone(),
-                value: exception.exception_message.clone(),
-                frames: exception.stack.as_ref().map(|stack| match stack {
-                    Stacktrace::Raw { frames } => vec![], // Exception
-                    Stacktrace::Resolved { frames } => {
-                        frames.clone().into_iter().map(FrameData::from).collect()
-                    }
-                }),
+                exception_type: exception.exception_type.clone(),
+                exception_value: exception.exception_message.clone(),
+                frames: exception
+                    .stack
+                    .as_ref()
+                    .map(|stack| match stack {
+                        Stacktrace::Raw { frames } => vec![], // Exception
+                        Stacktrace::Resolved { frames } => {
+                            frames.clone().into_iter().map(FrameData::from).collect()
+                        }
+                    })
+                    .unwrap_or_default(),
             })
             .collect()
     }

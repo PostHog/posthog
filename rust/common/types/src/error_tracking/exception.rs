@@ -4,8 +4,8 @@ use crate::error_tracking::FrameData;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExceptionData {
-    pub r#type: String,
-    pub value: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub frames: Option<Vec<FrameData>>,
+    pub exception_type: String,
+    pub exception_value: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub frames: Vec<FrameData>,
 }
