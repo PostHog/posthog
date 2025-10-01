@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { IconServer } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 import {
@@ -22,6 +23,7 @@ import {
     GolangSnippet,
     IOSSnippet,
     JSSnippet,
+    JavaSnippet,
     NodeJSSnippet,
     PHPSnippet,
     PythonSnippet,
@@ -130,6 +132,14 @@ export const OPTIONS = [
         documentationLink: `${DOC_BASE_URL}libraries/ruby${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconRuby,
         Snippet: RubySnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'Java',
+        key: SDKKey.JAVA,
+        documentationLink: `${DOC_BASE_URL}libraries/java${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconServer,
+        Snippet: JavaSnippet,
         type: LibraryType.Server,
     },
 ]

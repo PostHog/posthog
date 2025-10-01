@@ -134,4 +134,4 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
     )
 }
 
-const CustomGroupSeparator = (): JSX.Element => <IconMinus className="text-quaternary" transform="rotate(90)" />
+const CustomGroupSeparator = (): JSX.Element => <IconMinus className="text-quaternary rotate-90" />
