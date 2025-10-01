@@ -1,6 +1,8 @@
+from posthog import settings
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
-from posthog.clickhouse.table_engines import ReplacingMergeTree
+from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import (
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS,
@@ -86,9 +88,12 @@ INSERT INTO error_tracking_issue_fingerprint_overrides (fingerprint, issue_id, t
 """
 
 ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE = "error_tracking_issue_fingerprint_embeddings"
+ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE = f"writable_{ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE}"
+KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE = f"kafka_{ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE}"
+ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV = f"{ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE}_mv"
 
 ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     team_id Int64,
     model_name LowCardinality(String),
@@ -100,42 +105,58 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
-# The version here is mostly used to leave open the door of backfills in the future, but
-# we'll probably only very rarely use it
-ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE, ver="inserted_at"
-)
 
-ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL = lambda: (
-    ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_BASE_SQL
-    + """
+def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_ENGINE():
+    return ReplacingMergeTree(ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE, ver="inserted_at")
+
+
+def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(on_cluster=True):
+    return (
+        ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_BASE_SQL
+        + """
     ORDER BY (team_id, model_name, embedding_version, fingerprint)
     SETTINGS index_granularity = 512
     """
-).format(
-    table_name=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_ENGINE(),
-    extra_fields=f"""
+    ).format(
+        table_name=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_ENGINE(),
+        extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
     , {index_by_kafka_timestamp(ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE)}
     """,
-)
+    )
 
-KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL = (
-    lambda: ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_BASE_SQL.format(
-        table_name="kafka_" + ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
-        cluster=CLICKHOUSE_CLUSTER,
+
+def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE_SQL():
+    return ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=Distributed(
+            data_table=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
+            cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
+        ),
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    )
+
+
+def KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(on_cluster=True):
+    return ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_BASE_SQL.format(
+        table_name=KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(
             KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS, group="clickhouse-error-tracking-fingerprint-embeddings"
         ),
         extra_fields="",
     )
-)
 
-ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV_SQL = """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER '{cluster}'
-TO {database}.{table_name}
+
+def ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV_SQL(
+    on_cluster=True, target_table=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE
+):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+TO {target_table}
 AS SELECT
 team_id,
 model_name,
@@ -146,12 +167,15 @@ embeddings,
 _timestamp,
 _offset,
 _partition
-FROM {database}.kafka_{table_name}
+FROM {database}.{kafka_table}
 """.format(
-    table_name=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    database=CLICKHOUSE_DATABASE,
-)
+        mv_name=ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        target_table=target_table,
+        kafka_table=KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
+        database=CLICKHOUSE_DATABASE,
+    )
+
 
 TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL = (
     f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
