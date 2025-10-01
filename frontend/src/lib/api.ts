@@ -2947,7 +2947,7 @@ const api = {
         async getRelatedIssues(
             issueId: ErrorTrackingIssue['id']
         ): Promise<Array<{ id: string; title: string; description: string }>> {
-            return await new ApiRequest().errorTrackingIssues().addPathComponent(`related_issues/${issueId}`).get()
+            return await new ApiRequest().errorTrackingIssue(issueId).addPathComponent(`related_issues`).get()
         },
     },
 

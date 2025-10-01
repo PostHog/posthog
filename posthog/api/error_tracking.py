@@ -260,7 +260,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue.merge(issue_ids=ids)
         return Response({"success": True})
 
-    @action(methods=["GET"], detail=False, url_path="related_issues/(?P<issue_id>[^/.]+)")
+    @action(methods=["GET"], detail=False)
     def related_issues(self, request: request.Request, **kwargs):
         issue_id = kwargs.get("issue_id")
 
