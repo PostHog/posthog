@@ -34,7 +34,12 @@ async fn shutdown() {
     tracing::info!("Shutting down gracefully...");
 }
 
-fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
+fn init_tracer(
+    sink_url: &str,
+    sampling_rate: f64,
+    service_name: &str,
+    export_timeout_secs: u64,
+) -> Tracer {
     opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_trace_config(
@@ -53,7 +58,7 @@ fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer
             opentelemetry_otlp::new_exporter()
                 .tonic()
                 .with_endpoint(sink_url)
-                .with_timeout(Duration::from_secs(3)),
+                .with_timeout(Duration::from_secs(export_timeout_secs)),
         )
         .install_batch(runtime::Tokio)
         .expect("Failed to initialize OpenTelemetry tracer")
@@ -99,6 +104,7 @@ async fn main() {
                 otel_url,
                 config.otel_sampling_rate,
                 &config.otel_service_name,
+                config.otel_export_timeout_secs,
             ))
             .with_filter(LevelFilter::from_level(config.otel_log_level)),
         )
