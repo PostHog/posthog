@@ -40,7 +40,7 @@ jobs:
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
                         - 'plugin-server/**'
-                        - 'posthog/clickhouse/migrations/**'
+                        - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'

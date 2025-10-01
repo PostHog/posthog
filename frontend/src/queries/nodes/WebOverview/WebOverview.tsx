@@ -169,7 +169,7 @@ const WebOverviewItemCell = ({
                     <div className="flex flex-1 flex-row justify-end items-start">
                         {dashboardUrl && (
                             <Tooltip title={`Access dedicated ${item.key} dashboard`}>
-                                <LemonButton to={dashboardUrl} icon={<IconDashboard />} size="xsmall" />
+                                <LemonButton to={dashboardUrl} icon={<IconDashboard />} size="xsmall" targetBlank />
                             </Tooltip>
                         )}
                         {docsUrl && (
