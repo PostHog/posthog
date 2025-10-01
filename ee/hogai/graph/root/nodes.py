@@ -251,7 +251,7 @@ class RootNode(AssistantNode):
             extra_tools = []
 
         base_model = MaxChatAnthropic(
-            model="claude-sonnet-4-0",
+            model="claude-sonnet-4-5",
             streaming=True,
             stream_usage=True,
             user=self._user,
