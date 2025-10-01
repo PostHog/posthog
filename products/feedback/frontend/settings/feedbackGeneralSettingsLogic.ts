@@ -1,4 +1,4 @@
-import { actions, events, kea, path, reducers } from 'kea'
+import { actions, events, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -13,12 +13,6 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
         loadFeedbackTopics: true,
         loadFeedbackCategories: true,
         loadFeedbackStatuses: true,
-
-        addFeedbackCategory: (key: string) => ({ key }),
-        removeFeedbackCategory: (index: number) => ({ index }),
-
-        addFeedbackTopic: (key: string) => ({ key }),
-        removeFeedbackTopic: (index: number) => ({ index }),
     }),
 
     loaders(() => ({
@@ -27,7 +21,6 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
             {
                 loadFeedbackTopics: async () => {
                     const response = await api.feedback.topics.list()
-
                     return response.results
                 },
             },
@@ -37,7 +30,6 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
             {
                 loadFeedbackCategories: async () => {
                     const response = await api.feedback.categories.list()
-
                     return response.results
                 },
             },
@@ -47,7 +39,6 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
             {
                 loadFeedbackStatuses: async () => {
                     const response = await api.feedback.statuses.list()
-
                     return response.results
                 },
             },

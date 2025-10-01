@@ -8,8 +8,8 @@ import { feedbackGeneralSettingsLogic } from './feedbackGeneralSettingsLogic'
 
 export function FeedbackPreview(): JSX.Element {
     const { feedbackCategories, feedbackTopics } = useValues(feedbackGeneralSettingsLogic)
-    const [selectedCategory, setSelectedCategory] = useState<string>(feedbackCategories[0] || '')
-    const [selectedTopic, setSelectedTopic] = useState<string>(feedbackTopics[0] || '')
+    const [selectedCategory, setSelectedCategory] = useState<string>(feedbackCategories[0]?.id || '')
+    const [selectedTopic, setSelectedTopic] = useState<string>(feedbackTopics[0]?.id || '')
 
     return (
         <div className="border rounded-lg bg-surface-primary shadow-sm">
@@ -19,8 +19,8 @@ export function FeedbackPreview(): JSX.Element {
                         value={selectedCategory}
                         onChange={(value) => setSelectedCategory(value)}
                         options={feedbackCategories.map((category) => ({
-                            value: category,
-                            label: <span className="capitalize">{category}</span>,
+                            value: category.id,
+                            label: <span className="capitalize">{category.name}</span>,
                         }))}
                         size="small"
                         fullWidth
@@ -34,8 +34,8 @@ export function FeedbackPreview(): JSX.Element {
                         value={selectedTopic}
                         onChange={(value) => setSelectedTopic(value || '')}
                         options={feedbackTopics.map((topic) => ({
-                            value: topic,
-                            label: topic,
+                            value: topic.id,
+                            label: topic.name,
                         }))}
                         placeholder="Select topic"
                     />
