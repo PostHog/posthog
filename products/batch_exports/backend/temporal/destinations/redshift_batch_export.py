@@ -537,8 +537,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchEx
                 primary_key = (("team_id", "INTEGER"), ("session_id", "TEXT"))
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        attempt = activity.info().attempt
         stage_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
             if requires_merge
             else inputs.table_name
         )
