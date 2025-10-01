@@ -111,7 +111,11 @@ class SandboxEnvironment:
                 name=config.name,
                 environment_variables=config.environment_variables or {},
                 entrypoint=config.entrypoint,
-                **({"snapshot_id": snapshot_external_id} if snapshot_external_id else {blueprint_name: blueprint_name}),
+                **(
+                    {"snapshot_id": snapshot_external_id}
+                    if snapshot_external_id
+                    else {"blueprint_name": blueprint_name}
+                ),
             )
 
         except Exception as e:
@@ -119,6 +123,8 @@ class SandboxEnvironment:
             raise RuntimeError(f"Failed to create sandbox: {e}")
 
         sandbox = SandboxEnvironment(id=devbox.id, status=SandboxEnvironmentStatus(devbox.status), config=config)
+
+        assert sandbox.is_running
 
         logger.info(f"Created sandbox {sandbox.id} with status: {devbox.status}")
 
