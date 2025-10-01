@@ -4194,6 +4194,9 @@ const api = {
                 params: {
                     limit?: number
                     offset?: number
+                    category?: string
+                    topic?: string
+                    status?: string
                 } = {}
             ): Promise<CountedPaginatedResponse<FeedbackItem>> {
                 return await new ApiRequest().feedbackItems().withQueryString(toParams(params)).get()

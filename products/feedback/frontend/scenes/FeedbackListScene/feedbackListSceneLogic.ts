@@ -41,12 +41,16 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
         ],
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         feedbackItems: [
             [] as FeedbackItem[],
             {
                 loadFeedbackItems: async () => {
-                    const response = await api.feedback.items.list()
+                    const response = await api.feedback.items.list({
+                        category: values.categoryFilter ? values.categoryFilter : undefined,
+                        topic: values.topicFilter ? values.topicFilter : undefined,
+                        status: values.statusFilter ? values.statusFilter : undefined,
+                    })
 
                     return response.results
                 },

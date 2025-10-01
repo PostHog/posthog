@@ -7,13 +7,40 @@ import { feedbackListSceneLogic } from '../../scenes/FeedbackListScene/feedbackL
 import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSettingsLogic'
 
 export const FeedbackFilters = (): JSX.Element => {
-    const { feedbackCategories, feedbackTopics } = useValues(feedbackGeneralSettingsLogic)
-    const statusOptions: Array<string | 'all'> = ['all', 'visible', 'hidden']
-    const categoryOptions: Array<string | 'all'> = ['all', ...feedbackCategories]
-    const topicOptions: Array<string | 'all'> = ['all', ...feedbackTopics.map((t) => t.name)]
+    const { feedbackCategories, feedbackTopics, feedbackStatuses } = useValues(feedbackGeneralSettingsLogic)
 
     const { statusFilter, categoryFilter, topicFilter } = useValues(feedbackListSceneLogic)
     const { setStatusFilter, setCategoryFilter, setTopicFilter } = useActions(feedbackListSceneLogic)
+
+    const feedbackTopicsToDisplay = useMemo(() => {
+        return [
+            { value: 'all', label: 'All topics' },
+            ...feedbackTopics.map((topic) => ({
+                value: topic.id,
+                label: topic.name,
+            })),
+        ]
+    }, [feedbackTopics])
+
+    const feedbackCategoriesToDisplay = useMemo(() => {
+        return [
+            { value: 'all', label: 'All categories' },
+            ...feedbackCategories.map((category) => ({
+                value: category.id,
+                label: category.name,
+            })),
+        ]
+    }, [feedbackCategories])
+
+    const feedbackStatusesToDisplay = useMemo(() => {
+        return [
+            { value: 'all', label: 'All statuses' },
+            ...feedbackStatuses.map((status) => ({
+                value: status.id,
+                label: status.name,
+            })),
+        ]
+    }, [feedbackStatuses])
 
     const statusOption = useMemo(() => {
         if (!statusFilter) {
@@ -43,12 +70,12 @@ export const FeedbackFilters = (): JSX.Element => {
                 <LemonSelect
                     value={statusOption}
                     placeholder="Select status"
-                    options={statusOptions.map((status) => ({
-                        value: status,
+                    options={feedbackStatusesToDisplay.map((status) => ({
+                        value: status.value,
                         label: (
                             <div className="flex items-center gap-2 text-sm">
                                 <LemonBadge status="success" size="small" />
-                                <span>{status}</span>
+                                <span>{status.label}</span>
                             </div>
                         ),
                     }))}
@@ -64,32 +91,32 @@ export const FeedbackFilters = (): JSX.Element => {
                 <LemonSelect
                     value={categoryOption}
                     placeholder="Select category"
-                    options={categoryOptions.map((category) => ({
-                        value: category,
-                        label: category === 'all' ? 'All categories' : category,
+                    options={feedbackCategoriesToDisplay.map((category) => ({
+                        value: category.value,
+                        label: category.label,
                     }))}
                     size="small"
-                    onChange={(category) => {
-                        if (category === 'all') {
+                    onChange={(categoryValue) => {
+                        if (categoryValue === 'all') {
                             setCategoryFilter(null)
                         } else {
-                            setCategoryFilter(category)
+                            setCategoryFilter(categoryValue)
                         }
                     }}
                 />
                 <LemonSelect
                     value={topicOption}
                     placeholder="Select topic"
-                    options={topicOptions.map((topic) => ({
-                        value: topic,
-                        label: topic === 'all' ? 'All topics' : topic,
+                    options={feedbackTopicsToDisplay.map((topic) => ({
+                        value: topic.value,
+                        label: topic.label,
                     }))}
                     size="small"
-                    onChange={(topic) => {
-                        if (topic === 'all') {
+                    onChange={(topicValue) => {
+                        if (topicValue === 'all') {
                             setTopicFilter(null)
                         } else {
-                            setTopicFilter(topic)
+                            setTopicFilter(topicValue)
                         }
                     }}
                 />

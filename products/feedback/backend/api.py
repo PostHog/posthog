@@ -1,6 +1,7 @@
 from django.conf import settings
 
 import structlog
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -67,6 +68,8 @@ class FeedbackItemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "attachments"
     )
     serializer_class = FeedbackItemSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["category", "topic", "status"]
 
 
 class FeedbackItemCategoryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
