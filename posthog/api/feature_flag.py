@@ -1074,12 +1074,18 @@ class FeatureFlagViewSet(
                 evaluation_runtime = request.GET["evaluation_runtime"]
                 queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
             elif key == "excluded_properties":
-                import json
-
                 try:
                     excluded_keys = json.loads(request.GET["excluded_properties"])
                     if excluded_keys:
                         queryset = queryset.exclude(key__in=excluded_keys)
+                except (json.JSONDecodeError, TypeError):
+                    # If the JSON is invalid, ignore the filter
+                    pass
+            elif key == "tags":
+                try:
+                    tags = json.loads(request.GET["tags"])
+                    if tags:
+                        queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
                 except (json.JSONDecodeError, TypeError):
                     # If the JSON is invalid, ignore the filter
                     pass
@@ -1185,6 +1191,13 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="JSON-encoded list of feature flag keys to exclude from the results.",
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of tag names to filter feature flags by.",
             ),
         ]
     )

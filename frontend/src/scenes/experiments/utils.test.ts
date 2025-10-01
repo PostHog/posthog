@@ -647,6 +647,7 @@ describe('checkFeatureFlagEligibility', () => {
         version: 0,
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+        evaluation_tags: [],
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }
