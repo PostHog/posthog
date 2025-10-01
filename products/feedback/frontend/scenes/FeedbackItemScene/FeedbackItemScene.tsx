@@ -1,11 +1,9 @@
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
-
-import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -39,6 +37,15 @@ export function FeedbackItemScene(): JSX.Element {
 const Header = (): JSX.Element => {
     return (
         <>
+            <div className="mb-2">
+                <SceneBreadcrumbBackButton
+                    forceBackTo={{
+                        key: 'Feedback',
+                        name: 'Feedback',
+                        path: '/feedback',
+                    }}
+                />
+            </div>
             <SceneTitleSection
                 name="Feedback item"
                 description="Details about a single feedback item"
@@ -46,11 +53,6 @@ const Header = (): JSX.Element => {
                     type: 'feedback',
                 }}
             />
-            <div className="flex items-center gap-2 px-6 mb-4">
-                <Link to="/feedback">
-                    <IconArrowLeft /> Back to Feedback
-                </Link>
-            </div>
             <SceneDivider />
         </>
     )
