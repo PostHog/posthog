@@ -130,7 +130,7 @@ class RootNode(AssistantNode):
         if await self._should_summarize_conversation(state, tools, langchain_messages):
             # Exclude the last message if it's the first turn.
             messages_to_summarize = langchain_messages[:-1] if self._is_first_turn(state) else langchain_messages
-            summary = await AnthropicConversationSummarizer().summarize(messages_to_summarize)
+            summary = await AnthropicConversationSummarizer(self._team, self._user).summarize(messages_to_summarize)
             summary_message = ContextMessage(
                 content=ROOT_CONVERSATION_SUMMARY_PROMPT.format(summary=summary),
                 id=str(uuid4()),
@@ -170,6 +170,12 @@ class RootNode(AssistantNode):
                 flags=re.DOTALL,
             )
 
+        core_memory_prompt = (
+            PromptTemplate.from_template(CORE_MEMORY_PROMPT, template_format="mustache")
+            .format_prompt(core_memory=core_memory)
+            .to_string()
+        )
+
         system_prompts = ChatPromptTemplate.from_messages(
             [
                 ("system", system_prompt_template),
@@ -177,7 +183,7 @@ class RootNode(AssistantNode):
             template_format="mustache",
         ).format_messages(
             personality_prompt=MAX_PERSONALITY_PROMPT,
-            core_memory_prompt=CORE_MEMORY_PROMPT.format(core_memory=core_memory),
+            core_memory_prompt=core_memory_prompt,
             billing_context=billing_context_prompt,
         )
 
