@@ -69,7 +69,7 @@ To re-run a migration, you'll need to delete the entry from the `infi_clickhouse
 
 ## Ingestion layer
 
-We have an extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. The way to do that is to:
+We have extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. The way to do that is to:
 
 1. Create your data table in ClickHouse main cluster.
 2. Create a writable table only on ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`. It should be Distributed table with your data table. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`. 
