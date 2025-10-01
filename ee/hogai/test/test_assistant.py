@@ -1,5 +1,5 @@
 from itertools import cycle
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
@@ -18,7 +18,6 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
-from pydantic import BaseModel
 
 from posthog.schema import (
     AssistantEventType,
@@ -55,6 +54,7 @@ from posthog.schema import (
 )
 
 from posthog.models import Action
+from posthog.schema_models import SchemaModel, is_schema_model
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
@@ -141,14 +141,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def _run_assistant_graph(
         self,
-        test_graph: Optional[CompiledStateGraph] = None,
-        message: Optional[str] = "Hello",
-        conversation: Optional[Conversation] = None,
-        tool_call_partial_state: Optional[AssistantState] = None,
+        test_graph: CompiledStateGraph | None = None,
+        message: str | None = "Hello",
+        conversation: Conversation | None = None,
+        tool_call_partial_state: AssistantState | None = None,
         is_new_conversation: bool = False,
-        mode: Optional[AssistantMode] = None,
-        contextual_tools: Optional[dict[str, Any]] = None,
-        ui_context: Optional[MaxUIContext] = None,
+        mode: AssistantMode | None = None,
+        contextual_tools: dict[str, Any] | None = None,
+        ui_context: MaxUIContext | None = None,
         filter_ack_messages: bool = True,
     ) -> tuple[list[AssistantOutput], BaseAssistant]:
         # If no mode is specified, use ASSISTANT as default
@@ -203,12 +203,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ):
                 self.assertEqual(output_msg, expected_msg)
             elif output_msg_type == AssistantEventType.MESSAGE and expected_msg_type == AssistantEventType.MESSAGE:
-                msg_dict = (
-                    expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
-                )
+                msg_dict = expected_msg.model_dump(exclude_none=True) if is_schema_model(expected_msg) else expected_msg
                 self.assertDictContainsSubset(
                     msg_dict,
-                    cast(BaseModel, output_msg).model_dump(exclude_none=True),
+                    cast(SchemaModel, output_msg).model_dump(exclude_none=True),
                     f"Message content mismatch at index {i}",
                 )
             else:
@@ -219,10 +217,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         for i, (message, expected_message) in enumerate(zip(messages, expected_messages)):
             expected_msg_dict = (
                 expected_message.model_dump(exclude_none=True)
-                if isinstance(expected_message, BaseModel)
+                if is_schema_model(expected_message)
                 else expected_message
             )
-            msg_dict = message.model_dump(exclude_none=True) if isinstance(message, BaseModel) else message
+            msg_dict = message.model_dump(exclude_none=True) if is_schema_model(message) else message
             self.assertDictContainsSubset(expected_msg_dict, msg_dict, f"Message content mismatch at index {i}")
 
     @patch(
@@ -1872,7 +1870,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Process the update
         result = assistant._process_value_update(update)
-        result = cast(list[BaseModel], result)
+        result = cast(list[SchemaModel], result)
 
         # Should receive a list with an ACK event
         self.assertIsNotNone(result)

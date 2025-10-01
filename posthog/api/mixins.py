@@ -1,11 +1,12 @@
 from typing import TypeVar
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from rest_framework.exceptions import ParseError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.schema_models import SchemaModel
 
-T = TypeVar("T", bound=BaseModel)
+T = TypeVar("T", bound=SchemaModel)
 
 
 class PydanticModelMixin:

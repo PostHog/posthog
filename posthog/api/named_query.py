@@ -5,7 +5,6 @@ from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 
 from django_filters.rest_framework import DjangoFilterBackend
-from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
@@ -43,6 +42,7 @@ from posthog.models import User
 from posthog.models.named_query import NamedQuery
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.schema_models import is_schema_model
 from posthog.types import InsightQueryNode
 
 from common.hogvm.python.utils import HogVMException
@@ -255,7 +255,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             )
 
-            if isinstance(result, BaseModel):
+            if is_schema_model(result):
                 result = result.model_dump(by_alias=True)
 
             response_status = (

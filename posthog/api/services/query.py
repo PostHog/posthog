@@ -1,8 +1,5 @@
-from typing import Optional
-
 import structlog
 import pydantic_core
-from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -32,6 +29,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.schema_models import SchemaModel, is_schema_model
 from posthog.warehouse.models import DataWarehouseJoin
 
 from common.hogvm.python.debugger import color_bytecode
@@ -43,16 +41,16 @@ def process_query_dict(
     team: Team,
     query_json: dict,
     *,
-    dashboard_filters_json: Optional[dict] = None,
-    variables_override_json: Optional[dict] = None,
-    limit_context: Optional[LimitContext] = None,
+    dashboard_filters_json: dict | None = None,
+    variables_override_json: dict | None = None,
+    limit_context: LimitContext | None = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    user: Optional[User] = None,
-    query_id: Optional[str] = None,
-    insight_id: Optional[int] = None,
-    dashboard_id: Optional[int] = None,
+    user: User | None = None,
+    query_id: str | None = None,
+    insight_id: int | None = None,
+    dashboard_id: int | None = None,
     is_query_service: bool = False,
-) -> dict | BaseModel:
+) -> dict | SchemaModel:
     upgraded_query_json = upgrade(query_json)
     try:
         model = QuerySchemaRoot.model_validate(upgraded_query_json)
@@ -105,24 +103,24 @@ def process_query_dict(
 
 def process_query_model(
     team: Team,
-    query: BaseModel,  # mypy has problems with unions and isinstance
+    query: SchemaModel,  # mypy has problems with unions and isinstance
     *,
-    dashboard_filters: Optional[DashboardFilter] = None,
-    variables_override: Optional[list[HogQLVariable]] = None,
-    limit_context: Optional[LimitContext] = None,
+    dashboard_filters: DashboardFilter | None = None,
+    variables_override: list[HogQLVariable] | None = None,
+    limit_context: LimitContext | None = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    user: Optional[User] = None,
-    query_id: Optional[str] = None,
-    insight_id: Optional[int] = None,
-    dashboard_id: Optional[int] = None,
+    user: User | None = None,
+    query_id: str | None = None,
+    insight_id: int | None = None,
+    dashboard_id: int | None = None,
     is_query_service: bool = False,
-) -> dict | BaseModel:
-    result: dict | BaseModel
+) -> dict | SchemaModel:
+    result: dict | SchemaModel
 
     try:
         query_runner = get_query_runner(query, team, limit_context=limit_context)
     except ValueError:  # This query doesn't run via query runner
-        if hasattr(query, "source") and isinstance(query.source, BaseModel):
+        if hasattr(query, "source") and is_schema_model(query.source):
             result = process_query_model(
                 team,
                 query.source,

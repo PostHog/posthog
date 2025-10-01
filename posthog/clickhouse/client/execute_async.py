@@ -1,11 +1,10 @@
 import uuid
 import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import orjson as json
 import structlog
 from prometheus_client import Histogram
-from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
 
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
@@ -19,6 +18,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
+from posthog.schema_models import is_schema_model
 from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ QUERY_WAIT_TIME = Histogram(
     "query_wait_time_seconds",
     "Time from query creation to pick-up",
     labelnames=["team", "mode"],
-    buckets=Histogram.DEFAULT_BUCKETS[2:-1] + (20, 30, 60, 120, 300, 600, float("inf")),
+    buckets=(*Histogram.DEFAULT_BUCKETS[2:-1], 20, 30, 60, 120, 300, 600, float("inf")),
 )
 
 QUERY_PROCESS_TIME = Histogram(
@@ -105,7 +105,7 @@ class QueryStatusManager:
     def has_results(self) -> bool:
         return self.redis_client.exists(self.results_key) == 1
 
-    def get_clickhouse_progresses(self) -> Optional[ClickhouseQueryProgress]:
+    def get_clickhouse_progresses(self) -> ClickhouseQueryProgress | None:
         try:
             clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
             query_progress = {
@@ -144,10 +144,10 @@ class QueryStatusManager:
 
 def execute_process_query(
     team_id: int,
-    user_id: Optional[int],
+    user_id: int | None,
     query_id: str,
     query_json: dict,
-    limit_context: Optional[LimitContext],
+    limit_context: LimitContext | None,
     is_query_service: bool = False,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
@@ -195,7 +195,7 @@ def execute_process_query(
             user=user,
             is_query_service=is_query_service,
         )
-        if isinstance(results, BaseModel):
+        if is_schema_model(results):
             results = results.model_dump(by_alias=True)
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.error = False
@@ -226,12 +226,12 @@ def execute_process_query(
 
 def enqueue_process_query_task(
     team: "Team",
-    user_id: Optional[int],
+    user_id: int | None,
     query_json: dict,
     *,
-    insight_id: Optional[int] = None,
-    dashboard_id: Optional[int] = None,
-    query_id: Optional[str] = None,
+    insight_id: int | None = None,
+    dashboard_id: int | None = None,
+    query_id: str | None = None,
     # Attention: This is to pierce through the _manager_ cache, query runner will always refresh
     refresh_requested: bool = False,
     force: bool = False,

@@ -3,7 +3,6 @@ from typing import Any
 from django.test.testcases import TestCase
 
 from parameterized import parameterized
-from pydantic import BaseModel
 
 from posthog.schema import (
     BaseMathType,
@@ -23,6 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.schema_helpers import to_dict
+from posthog.schema_models import SchemaModel
 
 base_trends: dict[str, Any] = {"series": []}
 base_funnel: dict[str, Any] = {"series": []}
@@ -122,7 +122,7 @@ class TestSchemaHelpers(TestCase):
             {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsBarValue"}},
         )
 
-    def _assert_filter(self, key: str, num_keys: int, q1: BaseModel, q2: BaseModel):
+    def _assert_filter(self, key: str, num_keys: int, q1: SchemaModel, q2: SchemaModel):
         self.assertEqual(to_dict(q1), to_dict(q2))
         if num_keys == 0:
             self.assertEqual(key in to_dict(q1), False)

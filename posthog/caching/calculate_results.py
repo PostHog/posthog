@@ -1,8 +1,7 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Union
 
 import structlog
-from pydantic import BaseModel
 
 from posthog.schema import CacheMissResponse, DashboardFilter
 
@@ -14,6 +13,7 @@ from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Dashboard, DashboardTile, Insight, Team, User
 from posthog.models.insight import generate_insight_filters_hash
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_models import is_schema_model
 
 if TYPE_CHECKING:
     from posthog.caching.fetch_from_cache import InsightResult
@@ -22,9 +22,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
-    insight: Optional[Insight] = target if isinstance(target, Insight) else target.insight
-    dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
+def calculate_cache_key(target: Union[DashboardTile, Insight]) -> str | None:
+    insight: Insight | None = target if isinstance(target, Insight) else target.insight
+    dashboard: Dashboard | None = target.dashboard if isinstance(target, DashboardTile) else None
 
     if insight is not None:
         with upgrade_query(insight):
@@ -46,12 +46,12 @@ def calculate_for_query_based_insight(
     insight: Insight,
     *,
     team: Team,
-    dashboard: Optional[Dashboard] = None,
+    dashboard: Dashboard | None = None,
     execution_mode: ExecutionMode,
-    user: Optional[User],
-    filters_override: Optional[dict] = None,
-    variables_override: Optional[dict] = None,
-    tile_filters_override: Optional[dict] = None,
+    user: User | None,
+    filters_override: dict | None = None,
+    variables_override: dict | None = None,
+    tile_filters_override: dict | None = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
@@ -86,7 +86,7 @@ def calculate_for_query_based_insight(
         limit_context=LimitContext.QUERY_ASYNC,
     )
 
-    if isinstance(process_response, BaseModel):
+    if is_schema_model(process_response):
         response = process_response.model_dump(by_alias=True)
 
     assert isinstance(response, dict)

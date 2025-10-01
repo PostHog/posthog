@@ -1,7 +1,7 @@
 import io
 import datetime
 from collections.abc import Generator
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 from django.http import QueryDict
@@ -9,7 +9,6 @@ from django.http import QueryDict
 import requests
 import structlog
 from openpyxl import Workbook
-from pydantic import BaseModel
 from requests.exceptions import HTTPError
 
 from posthog.api.services.query import process_query_dict
@@ -17,6 +16,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content
+from posthog.schema_models import is_schema_model
 from posthog.utils import absolute_uri
 
 from ...exceptions import QuerySizeExceeded
@@ -287,7 +287,7 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
             query["breakdownFilter"]["breakdown_limit"] = limit
             continue
 
-        if isinstance(query_response, BaseModel):
+        if is_schema_model(query_response):
             query_response = query_response.model_dump(by_alias=True)
         yield from _convert_response_to_csv_data(query_response)
         return
@@ -361,7 +361,7 @@ def make_api_call(
     body: Any,
     limit: int,
     method: str,
-    next_url: Optional[str],
+    next_url: str | None,
     path: str,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
@@ -380,7 +380,7 @@ def make_api_call(
     return response
 
 
-def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
+def export_tabular(exported_asset: ExportedAsset, limit: int | None = None) -> None:
     if not limit:
         limit = CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 

@@ -5,11 +5,11 @@ from typing import Any
 
 from posthog.test.base import clean_varying_query_parts
 
-from pydantic import BaseModel
-
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.schema_models import is_schema_model
 
 
 def execute_hogql_query_with_timings(*args, **kwargs):
@@ -52,7 +52,7 @@ def pretty_dataclasses(obj, seen=None, indent=0):
     indent_space = " " * indent
     next_indent = " " * (indent + 2)
 
-    if isinstance(obj, BaseModel):
+    if is_schema_model(obj):
         obj = obj.model_dump()
 
     if dataclasses.is_dataclass(obj):

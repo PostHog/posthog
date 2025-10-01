@@ -1,6 +1,6 @@
 from typing import Literal, get_origin
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from posthog.schema import (
     BaseMathType,
@@ -14,6 +14,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.insights.utils.utils import series_should_be_set_to_dau
+from posthog.schema_models import SchemaModel
 from posthog.types import InsightQueryNode
 
 
@@ -33,7 +34,7 @@ def strip_version_recursive(d):
     return d
 
 
-def to_dict(query: BaseModel) -> dict:
+def to_dict(query: SchemaModel) -> dict:
     dumped = query.model_dump(exclude_none=True, exclude_defaults=True)
     dumped = strip_version_recursive(dumped)
 

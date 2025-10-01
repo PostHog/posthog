@@ -1,7 +1,7 @@
 import json
 import logging
 from functools import lru_cache
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
@@ -17,7 +17,6 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
-from pydantic import BaseModel
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
@@ -92,6 +91,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_models import is_schema_model
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
@@ -122,15 +122,15 @@ def log_and_report_insight_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
-    changes: Optional[list[Change]] = None,
-    properties: Optional[dict[str, Any]] = None,
+    changes: list[Change] | None = None,
+    properties: dict[str, Any] | None = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
 
     The experiments feature creates insights without a name, this does not log those
     """
-    insight_name: Optional[str] = insight.name if insight.name else insight.derived_name
+    insight_name: str | None = insight.name if insight.name else insight.derived_name
     if insight_name:
         log_activity(
             organization_id=organization_id,
@@ -677,8 +677,8 @@ class InsightSerializer(InsightBasicSerializer):
         else:
             representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
-        dashboard: Optional[Dashboard] = self.context.get("dashboard")
-        request: Optional[Request] = self.context.get("request")
+        dashboard: Dashboard | None = self.context.get("dashboard")
+        request: Request | None = self.context.get("request")
         dashboard_filters_override = filters_override_requested_by_client(request, dashboard) if request else None
         dashboard_variables_override = variables_override_requested_by_client(
             request, dashboard, list(self.context["insight_variables"])
@@ -740,7 +740,7 @@ class InsightSerializer(InsightBasicSerializer):
     def insight_result(self, insight: Insight) -> InsightResult:
         from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-        dashboard: Optional[Dashboard] = self.context.get("dashboard")
+        dashboard: Dashboard | None = self.context.get("dashboard")
 
         with upgrade_query(insight):
             try:
@@ -798,8 +798,8 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
-    def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
-        dashboard_tile: Optional[DashboardTile] = self.context.get("dashboard_tile", None)
+    def dashboard_tile_from_context(self, insight: Insight, dashboard: Dashboard | None) -> DashboardTile | None:
+        dashboard_tile: DashboardTile | None = self.context.get("dashboard_tile", None)
 
         if dashboard_tile and dashboard_tile.deleted:
             self.context.update({"dashboard_tile": None})
@@ -1074,7 +1074,7 @@ When set, the specified dashboard's filters and date range override will be appl
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
 
-        dashboard_tile: Optional[DashboardTile] = None
+        dashboard_tile: DashboardTile | None = None
         dashboard_id = request.query_params.get("from_dashboard", None)
         if dashboard_id is not None:
             dashboard_tile = (
@@ -1212,7 +1212,7 @@ When set, the specified dashboard's filters and date range override will be appl
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
 
-        if isinstance(funnel["result"], BaseModel):
+        if is_schema_model(funnel["result"]):
             funnel["result"] = funnel["result"].model_dump()
         funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
         funnel["timings"] = [val.model_dump() for val in timings.to_list()]

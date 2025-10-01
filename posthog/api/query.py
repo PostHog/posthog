@@ -4,7 +4,6 @@ from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 
 from drf_spectacular.utils import OpenApiResponse
-from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, Throttled, ValidationError
 from rest_framework.request import Request
@@ -53,13 +52,14 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.schema_models import SchemaModel, is_schema_model
 
 from common.hogvm.python.utils import HogVMException
 
 
 def _process_query_request(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
-) -> tuple[BaseModel, str, ExecutionMode]:
+) -> tuple[SchemaModel, str, ExecutionMode]:
     """Helper function to process query requests and return the necessary data for both sync and async endpoints."""
     query = request_data.query
 
@@ -160,7 +160,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     else None
                 ),
             )
-            if isinstance(result, BaseModel):
+            if is_schema_model(result):
                 result = result.model_dump(by_alias=True)
             response_status = (
                 status.HTTP_202_ACCEPTED

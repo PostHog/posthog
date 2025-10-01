@@ -5,8 +5,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from pydantic import BaseModel
-
 from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
 
 from posthog.constants import AvailableFeature
@@ -14,11 +12,12 @@ from posthog.management.commands.generate_demo_data import Command as GenerateDe
 from posthog.models import PersonalAPIKey, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import mask_key_value
+from posthog.schema_models import SchemaModel
 
 
 @runtime_checkable
 class PlaywrightSetupFunction(Protocol):
-    def __call__(self, data: BaseModel, /) -> BaseModel: ...
+    def __call__(self, data: SchemaModel, /) -> SchemaModel: ...
 
 
 def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> PlaywrightWorkspaceSetupResult:
@@ -99,7 +98,7 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
 @dataclass(frozen=True)
 class SetupFunctionConfig:
     function: PlaywrightSetupFunction
-    input_model: type[BaseModel]
+    input_model: type[SchemaModel]
     description: str
 
 

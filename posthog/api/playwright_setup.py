@@ -3,13 +3,13 @@
 from django.conf import settings
 from django.http import Http404
 
-from pydantic import BaseModel
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema_models import SchemaModel
 from posthog.test.playwright_setup_functions import PLAYWRIGHT_SETUP_FUNCTIONS
 
 
@@ -38,7 +38,7 @@ def setup_test(request: Request, test_name: str) -> Response:
         setup_config = PLAYWRIGHT_SETUP_FUNCTIONS[test_name]
         request_data = request.data if hasattr(request, "data") else {}
         setup_input = setup_config.input_model.model_validate(request_data)
-        result: BaseModel = setup_config.function(setup_input)
+        result: SchemaModel = setup_config.function(setup_input)
 
         return Response({"success": True, "test_name": test_name, "result": result.model_dump()})
 

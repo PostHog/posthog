@@ -3,11 +3,12 @@
 set -e
 
 # Generate schema.py from schema.json
-datamodel-codegen \
+uvx --from datamodel-code-generator datamodel-codegen \
     --class-name='SchemaRoot' --collapse-root-models --target-python-version 3.11 --disable-timestamp \
     --use-one-literal-as-default --use-default --use-default-kwarg --use-subclass-enum \
     --input frontend/src/queries/schema.json --input-file-type jsonschema \
-    --output posthog/schema.py --output-model-type pydantic_v2.BaseModel \
+    --output posthog/schema.py --output-model-type dataclasses.dataclass \
+    --base-class posthog.schema_models.SchemaModel \
     --custom-file-header "# mypy: disable-error-code=\"assignment\"" \
     --set-default-enum-member --capitalise-enum-members \
     --wrap-string-literal
