@@ -706,9 +706,9 @@ mod tests {
             store.handle_event_with_raw(&event2).unwrap(),
             DeduplicationResult::ConfirmedDuplicate(
                 DeduplicationType::Timestamp,
-                DeduplicationResultReason::SameEvent
+                DeduplicationResultReason::OnlyUuidDifferent
             )
-        ); // Second is duplicate
+        ); // Second is duplicate (only UUID differs)
     }
 
     #[test]
@@ -746,9 +746,9 @@ mod tests {
             store.handle_event_with_raw(&event2).unwrap(),
             DeduplicationResult::ConfirmedDuplicate(
                 DeduplicationType::Timestamp,
-                DeduplicationResultReason::SameEvent
+                DeduplicationResultReason::OnlyUuidDifferent
             )
-        ); // Second is duplicate by timestamp
+        ); // Second is duplicate by timestamp (only UUID differs)
 
         // Now test with same UUID but different timestamp
         let event3 = RawEvent {

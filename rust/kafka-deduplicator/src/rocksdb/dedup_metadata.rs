@@ -615,11 +615,15 @@ mod tests {
 
         let similarity = EventSimilarity::calculate(&event1, &event2).unwrap();
 
-        assert_eq!(similarity.different_field_count, 1); // Only timestamp differs
+        assert_eq!(similarity.different_field_count, 2); // UUID and timestamp differ
         assert!(similarity
             .different_fields
             .iter()
             .any(|(field, _, _)| field == &DedupFieldName::Timestamp));
+        assert!(similarity
+            .different_fields
+            .iter()
+            .any(|(field, _, _)| field == &DedupFieldName::Uuid));
 
         assert_eq!(similarity.different_property_count, 2); // url differs, browser is new
         assert!(similarity
@@ -763,7 +767,7 @@ mod tests {
         metadata.update_duplicate(&duplicate1);
 
         // Verify similarity metrics
-        assert_eq!(similarity1.different_field_count, 0); // All top-level fields match
+        assert_eq!(similarity1.different_field_count, 1); // UUID differs
         assert_eq!(similarity1.different_property_count, 2); // browser differs, session_id is new
         assert!(similarity1.properties_similarity < 1.0);
         assert!(similarity1.properties_similarity > 0.0);
