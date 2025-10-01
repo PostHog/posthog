@@ -491,7 +491,8 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   LIMIT 21
@@ -642,7 +643,8 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   LIMIT 21
@@ -672,7 +674,8 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   ORDER BY "posthog_featureflag"."id" ASC
@@ -742,7 +745,8 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   LIMIT 21
@@ -1288,7 +1292,8 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."key" = 'flag-1'
   LIMIT 21
@@ -1805,7 +1810,8 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   LIMIT 21
@@ -2206,7 +2212,8 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime"
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   ORDER BY "posthog_featureflag"."id" ASC
