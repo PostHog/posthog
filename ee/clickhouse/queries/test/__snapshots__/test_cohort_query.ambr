@@ -1906,7 +1906,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:6eac65ad%'
+    AND query LIKE '%cohort_calc:ca2a382f%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
@@ -2307,7 +2307,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:97c8d20f%'
+    AND query LIKE '%cohort_calc:3885aa19%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''

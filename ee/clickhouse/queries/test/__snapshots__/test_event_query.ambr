@@ -10,7 +10,7 @@
          memory_usage
   FROM system.query_log
   WHERE query NOT LIKE '%query_log%'
-    AND query LIKE '%cohort_calc:66a4b0da%'
+    AND query LIKE '%cohort_calc:b555b7ab%'
     AND type = 'QueryFinish'
   ORDER BY event_time DESC
   '''
