@@ -728,7 +728,7 @@ export function SavedInsights(): JSX.Element {
             title: 'Last viewed',
             sorter: true,
             dataIndex: 'last_viewed_at',
-            render: function renderLastViewed(last_viewed_at: string) {
+            render: function renderLastViewed(last_viewed_at: string | null) {
                 return (
                     <div className="whitespace-nowrap">
                         {last_viewed_at ? <TZLabel time={last_viewed_at} /> : <span className="text-muted">Never</span>}
