@@ -3,10 +3,10 @@ from typing import Optional, Union
 from django.db import models
 from django.utils import timezone
 
-from posthog.models.utils import RootTeamMixin
+from posthog.models.utils import RootTeamMixin, UUIDModel
 
 
-class CohortCalculationHistory(RootTeamMixin, models.Model):
+class CohortCalculationHistory(RootTeamMixin, UUIDModel):
     """
     Track cohort calculation statistics for performance monitoring and debugging.
     """
