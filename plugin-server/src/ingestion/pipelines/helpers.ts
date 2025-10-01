@@ -32,16 +32,19 @@ export function createBatch<T extends { message: Message }>(items: T[]): BatchPi
 /**
  * Helper function to create a PipelineResultWithContext from a result and partial context
  */
-export function createContext<T>(
+export function createContext<T, C>(
     result: PipelineResult<T>,
-    partialContext: Partial<PipelineContext> & { message: Message }
+    partialContext: Partial<PipelineContext<C>> & { message: Message }
 ): PipelineResultWithContext<T> {
+    const { message, lastStep, sideEffects, warnings, ...rest } = partialContext
     return {
         result,
         context: {
-            message: partialContext.message,
-            lastStep: partialContext.lastStep,
-            sideEffects: partialContext.sideEffects || [],
+            message: message,
+            lastStep: lastStep,
+            sideEffects: sideEffects || [],
+            warnings: warnings || [],
+            ...rest,
         },
     }
 }
