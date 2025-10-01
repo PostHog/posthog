@@ -28,7 +28,7 @@ Your summary must include the following sections:
 2. Key Research Concepts: List all important research concepts, approaches, and metrics discussed.
 3. Relevant Data: Enumerate specific data entities examined, modified, or created. Prioritize the most recent messages.
 4. Problem Solving: Outline problems solved and any ongoing issue-fixing efforts.
-6. All User Messages: Compile a complete list of every user message (excluding tool outputs). These form the core evidence of user feedback and evolving intent.
+5. All User Messages: Compile a complete list of every user message (excluding tool outputs). These form the core evidence of user feedback and evolving intent.
 6. Pending Tasks: Enumerate unfinished tasks the user asked you to handle.
 7. Current Work: Provide a detailed account of what was being worked on immediately prior to this summary request, focusing closely on the most recent user and assistant exchanges. Include relevant data if relevant.
 
