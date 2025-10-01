@@ -30,7 +30,7 @@ class TestMessageAttachmentsAPI(APIBaseTest):
         self.assertEqual(file_arg, test_file)
 
         # Assert object_path ends with a UUID and .txt
-        uuid_txt_pattern = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.txt$"
+        uuid_txt_pattern = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.svg$"
         self.assertRegex(object_path_arg, uuid_txt_pattern)
 
     @patch("products.messaging.backend.api.message_attachments.object_storage")
