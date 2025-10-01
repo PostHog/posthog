@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -16,6 +17,7 @@ export function MessageChannels(): JSX.Element {
     const { setupModalOpen, integrations, integrationsLoading, setupModalType, selectedIntegration } =
         useValues(integrationsLogic)
     const { openSetupModal, closeSetupModal } = useActions(integrationsLogic)
+    const hasMessagingSesFeatureFlag = useFeatureFlag('MESSAGING_SES')
 
     const allMessagingIntegrations =
         integrations?.filter((integration) => MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType)) ?? []
@@ -49,7 +51,7 @@ export function MessageChannels(): JSX.Element {
                         isEmpty
                     />
                 )}
-                <EmailIntegrationsList />
+                {hasMessagingSesFeatureFlag && <EmailIntegrationsList />}
                 <IntegrationsList titleText="" onlyKinds={MESSAGING_CHANNEL_TYPES.filter((type) => type !== 'email')} />
             </div>
         </>

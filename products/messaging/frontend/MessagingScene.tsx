@@ -93,6 +93,7 @@ export function MessagingScene(): JSX.Element {
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
 
     const hasMessagingFeatureFlag = useFeatureFlag('MESSAGING')
+    const hasMessagingSesFeatureFlag = useFeatureFlag('MESSAGING_SES')
 
     if (!hasMessagingFeatureFlag) {
         return (
@@ -106,14 +107,16 @@ export function MessagingScene(): JSX.Element {
     }
 
     const newChannelMenuItems: LemonMenuItems = [
-        {
-            label: (
-                <div className="flex gap-1 items-center">
-                    <IconLetter /> Email
-                </div>
-            ),
-            onClick: () => openSetupModal(undefined, 'email'),
-        },
+        hasMessagingSesFeatureFlag
+            ? {
+                  label: (
+                      <div className="flex gap-1 items-center">
+                          <IconLetter /> Email
+                      </div>
+                  ),
+                  onClick: () => openSetupModal(undefined, 'email'),
+              }
+            : null,
         {
             label: (
                 <div className="flex gap-1 items-center">
@@ -134,7 +137,7 @@ export function MessagingScene(): JSX.Element {
             ),
             onClick: () => openSetupModal(undefined, 'twilio'),
         },
-    ]
+    ].filter(Boolean)
 
     const tabs: LemonTab<MessagingSceneTab>[] = [
         {
@@ -147,16 +150,18 @@ export function MessagingScene(): JSX.Element {
                 </>
             ),
         },
-        {
-            label: 'Library',
-            key: 'library',
-            content: (
-                <>
-                    <p>Create and manage messages</p>
-                    <MessageTemplatesTable />
-                </>
-            ),
-        },
+        hasMessagingSesFeatureFlag
+            ? {
+                  label: 'Library',
+                  key: 'library',
+                  content: (
+                      <>
+                          <p>Create and manage messages</p>
+                          <MessageTemplatesTable />
+                      </>
+                  ),
+              }
+            : null,
         {
             label: 'Channels',
             key: 'channels',
@@ -167,7 +172,7 @@ export function MessagingScene(): JSX.Element {
             key: 'opt-outs',
             content: <OptOutScene />,
         },
-    ]
+    ].filter(Boolean)
 
     return (
         <SceneContent className="messaging">
