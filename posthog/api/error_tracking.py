@@ -330,7 +330,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                                 all_similar_results.append((fingerprint, distance))
 
                     # Remove duplicates by fingerprint, keeping the best (smallest) distance for each
-                    fingerprint_best_distance = {}
+                    fingerprint_best_distance: dict[str, float] = {}
                     for fingerprint, distance in all_similar_results:
                         if (
                             fingerprint not in fingerprint_best_distance
@@ -368,7 +368,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                                         "title": issue.name,
                                         "description": issue.description,
                                         # TODO: library isn't part of the issue
-                                        "library": issue.library,
+                                        # "library": issue.library,
                                     }
                                     for issue in issues
                                 ]

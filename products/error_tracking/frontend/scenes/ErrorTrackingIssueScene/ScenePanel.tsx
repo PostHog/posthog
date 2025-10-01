@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 
 import { Link, Spinner } from '@posthog/lemon-ui'
 
-import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+// import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
@@ -30,7 +30,7 @@ import { ExternalReferences } from '../../components/ExternalReferences'
 import { StatusIndicator } from '../../components/Indicators'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { IssueTasks } from '../../components/IssueTasks'
-import { RuntimeIcon } from '../../components/RuntimeIcon'
+// import { RuntimeIcon } from '../../components/RuntimeIcon'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 const RESOURCE_TYPE = 'issue'
@@ -197,7 +197,7 @@ const RelatedIssues = (): JSX.Element => {
             ) : relatedIssues.length > 0 ? (
                 <div className="flex flex-col gap-1">
                     {relatedIssues.map((relatedIssue: any) => {
-                        const relatedRuntime = getRuntimeFromLib(relatedIssue.library)
+                        // const relatedRuntime = getRuntimeFromLib(relatedIssue.library)
                         return (
                             <div
                                 key={relatedIssue.id}
@@ -205,9 +205,9 @@ const RelatedIssues = (): JSX.Element => {
                             >
                                 <Link to={urls.errorTrackingIssue(relatedIssue.id)} className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <span className="shrink-0 text-gray-600">
+                                        {/* <span className="shrink-0 text-gray-600">
                                             <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" />
-                                        </span>
+                                        </span> */}
                                         <div className="font-medium text-sm truncate">{relatedIssue.title}</div>
                                     </div>
                                     {relatedIssue.description && (
