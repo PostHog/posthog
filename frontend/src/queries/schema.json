@@ -791,7 +791,8 @@
                 "create_dashboard",
                 "ReadTaxonomy",
                 "Search",
-                "ReadData"
+                "ReadData",
+                "TodoWrite"
             ],
             "type": "string"
         },

@@ -94,6 +94,7 @@ class AssistantContextualTool(StrEnum):
     READ_TAXONOMY = "ReadTaxonomy"
     SEARCH = "Search"
     READ_DATA = "ReadData"
+    TODO_WRITE = "TodoWrite"
 
 
 class AssistantDateRange(BaseModel):

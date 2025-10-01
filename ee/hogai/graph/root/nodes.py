@@ -34,6 +34,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.root.tools.todo_write import TodoWriteTool
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
@@ -242,7 +243,7 @@ class RootNode(AssistantNode):
         available_tools: list[type[BaseModel] | MaxTool] = []
 
         # Add the basic toolkit
-        toolkit = [ReadTaxonomyTool, SearchTool, ReadDataTool]
+        toolkit = [ReadTaxonomyTool, SearchTool, ReadDataTool, TodoWriteTool]
         for tool in toolkit:
             available_tools.append(tool(team=self._team, user=self._user, state=state, config=config))
 
@@ -261,7 +262,7 @@ class RootNode(AssistantNode):
             ToolClass = get_contextual_tool_class(tool_name)
             if ToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
-            available_tools.append(ToolClass(team=self._team, user=self._user, state=state, config=config))  # type: ignore
+            available_tools.append(ToolClass(team=self._team, user=self._user, state=state, config=config))
 
         return base_model.bind_tools(available_tools, parallel_tool_calls=False)
 

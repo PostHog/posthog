@@ -247,6 +247,7 @@ export type AssistantContextualTool =
     | 'ReadTaxonomy'
     | 'Search'
     | 'ReadData'
+    | 'TodoWrite'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
