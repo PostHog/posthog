@@ -14,9 +14,9 @@ from django.dispatch import receiver
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
+from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.response import Response
-from statshog.defaults.django import statsd
 
 from posthog.schema import PropertyOperator
 
@@ -76,6 +76,12 @@ from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 MAX_PROPERTY_VALUES = 1000
+
+LOCAL_EVALUATION_REQUEST_COUNTER = Counter(
+    "posthog_local_evaluation_request_total",
+    "Local evaluation API requests",
+    labelnames=["send_cohorts"],
+)
 
 
 class LocalEvaluationThrottle(BurstRateThrottle):
@@ -1369,7 +1375,7 @@ class FeatureFlagViewSet(
         include_cohorts = "send_cohorts" in request.GET
 
         # Track send_cohorts parameter usage
-        statsd.incr("posthog_local_evaluation_request", tags={"send_cohorts": str(include_cohorts).lower()})
+        LOCAL_EVALUATION_REQUEST_COUNTER.labels(send_cohorts=str(include_cohorts).lower()).inc()
 
         try:
             # Check if team is quota limited for feature flags
