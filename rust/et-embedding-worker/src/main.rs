@@ -112,8 +112,8 @@ async fn main() {
         let embeddings = match handle_batch(to_process, &offsets, context.clone()).await {
             Ok(embeddings) => embeddings,
             Err(failure) => {
-                error!("Error handling batch: {:?}", failure);
-                panic!("Unhandled error: {:?}", failure);
+                error!("Error handling batch: {failure}");
+                panic!("Unhandled error: {failure}");
             }
         };
 
