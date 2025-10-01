@@ -27,7 +27,8 @@ class TestMessageAttachmentsAPI(APIBaseTest):
         file_arg = called_args[1]
 
         self.assertTrue(object_path_arg.startswith(f"{self.team.id}/"))
-        self.assertEqual(file_arg, test_file)
+        self.assertEqual(file_arg.name, test_file.name)
+        self.assertEqual(file_arg.read(), test_file.read())
 
         # Assert object_path ends with a UUID and .txt
         uuid_txt_pattern = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.svg$"
