@@ -93,7 +93,6 @@ class BaseDestinationTest(ABC):
     def create_batch_export_inputs(
         self,
         team_id: int,
-        batch_export_id: str,
         data_interval_end: dt.datetime,
         interval: str,
         batch_export: BatchExport,
@@ -105,7 +104,7 @@ class BaseDestinationTest(ABC):
         """Create workflow inputs for the destination."""
         return self.batch_export_inputs_class(
             team_id=team_id,
-            batch_export_id=batch_export_id,
+            batch_export_id=batch_export.id,
             data_interval_end=data_interval_end.isoformat(),
             interval=interval,
             batch_export_model=batch_export_model,
@@ -118,13 +117,6 @@ class BaseDestinationTest(ABC):
     @abstractmethod
     def get_destination_config(self, team_id: int) -> dict:
         """Return the destination configuration."""
-        pass
-
-    @abstractmethod
-    def get_invalid_destination_config(self) -> tuple[dict, str]:
-        """Return a tuple of invalid destination configuration and expected error message
-        (used for testing error handling).
-        """
         pass
 
     async def create_integration(self, team_id: int) -> Integration | None:
@@ -447,11 +439,40 @@ class CommonWorkflowTests:
         await adelete_batch_export(batch_export, temporal_client)
 
     @pytest.fixture
+    async def invalid_batch_export_for_destination(
+        self, ateam, temporal_client, interval, invalid_integration, destination_test, exclude_events
+    ) -> AsyncGenerator[tuple[BatchExport, str], None]:
+        integration, expected_error_message = invalid_integration
+        destination_config = {**destination_test.get_destination_config(ateam.pk), "exclude_events": exclude_events}
+        destination_data = {
+            "type": destination_test.destination_type,
+            "config": destination_config,
+            "integration_id": integration.pk if integration else None,
+        }
+
+        batch_export_data = {
+            "name": "my-production-destination-export",
+            "destination": destination_data,
+            "interval": interval,
+        }
+
+        batch_export = await acreate_batch_export(
+            team_id=ateam.pk,
+            name=batch_export_data["name"],
+            destination_data=batch_export_data["destination"],
+            interval=batch_export_data["interval"],
+        )
+
+        yield batch_export, expected_error_message
+
+        await adelete_batch_export(batch_export, temporal_client)
+
+    @pytest.fixture
     def destination_test(self, ateam: Team):
         raise NotImplementedError("destination_test fixture must be implemented by destination-specific tests")
 
     @pytest.fixture
-    def integration(self, ateam):
+    async def integration(self, ateam):
         """Create a test integration (for those destinations that require an integration)"""
         raise NotImplementedError("integration fixture must be implemented by destination-specific tests")
 
@@ -509,7 +530,6 @@ class CommonWorkflowTests:
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
-            batch_export_id=str(batch_export_for_destination.id),
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export=batch_export_for_destination,
@@ -556,7 +576,6 @@ class CommonWorkflowTests:
         """Test workflow behavior when there are no events to export."""
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
-            batch_export_id=str(batch_export_for_destination.id),
             data_interval_end=data_interval_end,
             interval="hour",
             batch_export_model=BatchExportModel(name="events", schema=None),
@@ -595,7 +614,6 @@ class CommonWorkflowTests:
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
-            batch_export_id=str(batch_export_for_destination.id),
             data_interval_end=data_interval_end,
             interval="hour",
             batch_export_model=BatchExportModel(name="events", schema=None),
@@ -619,8 +637,7 @@ class CommonWorkflowTests:
         ateam,
         generate_test_data,
         data_interval_end: dt.datetime,
-        batch_export_for_destination,
-        integration,
+        invalid_batch_export_for_destination,
         setup_destination,
     ):
         """Test that workflow handles non-retryable errors gracefully.
@@ -628,18 +645,16 @@ class CommonWorkflowTests:
         This means we do the right updates to the BatchExportRun model and ensure the workflow succeeds (since we treat
         this as a user error).
 
-        To simulate a user error, we use an invalid destination configuration.
+        To simulate a user error, we use an integration with invalid connection parameters.
         """
+        batch_export_for_destination, expected_error_message = invalid_batch_export_for_destination
 
-        invalid_destination_config, expected_error_message = destination_test.get_invalid_destination_config()
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
-            batch_export_id=str(batch_export_for_destination.id),
             data_interval_end=data_interval_end,
             interval="hour",
             batch_export_model=BatchExportModel(name="events", schema=None),
             batch_export=batch_export_for_destination,
-            **invalid_destination_config,
         )
 
         run = await destination_test.run_workflow(
