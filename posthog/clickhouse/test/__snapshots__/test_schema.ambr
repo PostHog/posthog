@@ -102,7 +102,7 @@
       inserted_at DateTime64(3, 'UTC'),
       embeddings Array(Float64) -- We could experiment with quantization, but if we do we can use a new column, for now we'll eat the inefficiency
        -- Unused, I think, but the above has it, so
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', 'clickhouse-error-tracking-fingerprint-embeddings', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', 'clickhouse_error_tracking_fingerprint_embeddings', 'JSONEachRow')
   
   '''
 # ---
@@ -1294,7 +1294,7 @@
       inserted_at DateTime64(3, 'UTC'),
       embeddings Array(Float64) -- We could experiment with quantization, but if we do we can use a new column, for now we'll eat the inefficiency
        -- Unused, I think, but the above has it, so
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', 'clickhouse-error-tracking-fingerprint-embeddings', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', 'clickhouse_error_tracking_fingerprint_embeddings', 'JSONEachRow')
   
   '''
 # ---
