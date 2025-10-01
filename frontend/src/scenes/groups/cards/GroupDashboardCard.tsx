@@ -38,7 +38,12 @@ function GroupDetailDashboard({
         }
     }, [groupTypeDetailDashboard, groupData, groupTypeName, setProperties, setLoadLayoutFromServerOnPreview])
 
-    return <Dashboard id={groupTypeDetailDashboard.toString()} placement={DashboardPlacement.Group} />
+    return (
+        <div className="flex flex-col gap-0">
+            <h2>Insights</h2>
+            <Dashboard id={groupTypeDetailDashboard.toString()} placement={DashboardPlacement.Group} />
+        </div>
+    )
 }
 
 export function GroupDashboardCard(): JSX.Element {
@@ -58,6 +63,20 @@ export function GroupDashboardCard(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            <div className="flex flex-row justify-between items-center">
+                <h2>Insights</h2>
+                <LemonButton
+                    type="secondary"
+                    disabled={creatingDetailDashboard}
+                    onClick={() => {
+                        setCreatingDetailDashboard(true)
+                        reportGroupTypeDetailDashboardCreated()
+                        createDetailDashboard(groupData.group_type_index)
+                    }}
+                >
+                    Customize
+                </LemonButton>
+            </div>
             <div className="grid grid-cols-2 gap-2">
                 <QueryCard
                     title="Top paths"
@@ -267,19 +286,6 @@ export function GroupDashboardCard(): JSX.Element {
                     }
                     context={{ refresh: 'force_blocking' }}
                 />
-            </div>
-            <div className="flex justify-end">
-                <LemonButton
-                    type="secondary"
-                    disabled={creatingDetailDashboard}
-                    onClick={() => {
-                        setCreatingDetailDashboard(true)
-                        reportGroupTypeDetailDashboardCreated()
-                        createDetailDashboard(groupData.group_type_index)
-                    }}
-                >
-                    Customize
-                </LemonButton>
             </div>
         </div>
     )
