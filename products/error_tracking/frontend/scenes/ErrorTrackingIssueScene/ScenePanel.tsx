@@ -41,6 +41,23 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const hasRelatedIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
     return issue ? (
         <div className="flex flex-col gap-2">
+            <ScenePanelCommonActions>
+                <SceneCommonButtons
+                    comment
+                    share={{
+                        onClick: () => {
+                            void copyToClipboard(
+                                window.location.origin + urls.errorTrackingIssue(issue.id),
+                                'issue link'
+                            )
+                        },
+                    }}
+                    dataAttrKey={RESOURCE_TYPE}
+                />
+            </ScenePanelCommonActions>
+
+            <ScenePanelDivider />
+
             <SceneTextInput
                 name="name"
                 defaultValue={issue.name ?? ''}
@@ -65,23 +82,6 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
             {hasRelatedIssues && <RelatedIssues />}
-
-            <ScenePanelDivider />
-
-            <ScenePanelCommonActions>
-                <SceneCommonButtons
-                    comment
-                    share={{
-                        onClick: () => {
-                            void copyToClipboard(
-                                window.location.origin + urls.errorTrackingIssue(issue.id),
-                                'issue link'
-                            )
-                        },
-                    }}
-                    dataAttrKey={RESOURCE_TYPE}
-                />
-            </ScenePanelCommonActions>
         </div>
     ) : null
 }
