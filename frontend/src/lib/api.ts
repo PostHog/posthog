@@ -2943,6 +2943,12 @@ const api = {
                 .errorTrackingExternalReference()
                 .create({ data: { integration_id: integrationId, issue: issueId, config } })
         },
+
+        async getRelatedIssues(
+            issueId: ErrorTrackingIssue['id']
+        ): Promise<Array<{ id: string; title: string; description: string }>> {
+            return await new ApiRequest().errorTrackingIssues().addPathComponent(`related_issues/${issueId}`).get()
+        },
     },
 
     recordings: {

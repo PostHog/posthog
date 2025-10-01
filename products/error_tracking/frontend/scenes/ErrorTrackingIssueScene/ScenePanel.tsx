@@ -37,6 +37,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
     const hasTasks = useFeatureFlag('TASKS')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasRelatedIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
     return issue ? (
         <div className="flex flex-col gap-2">
             <SceneTextInput
@@ -62,6 +63,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
             {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
+            {hasRelatedIssues && <RelatedIssues />}
 
             <ScenePanelDivider />
 
@@ -164,6 +166,40 @@ const IssueExternalReference = (): JSX.Element => {
     return (
         <ScenePanelLabel title="External references">
             <ExternalReferences />
+        </ScenePanelLabel>
+    )
+}
+
+const RelatedIssues = (): JSX.Element => {
+    const { relatedIssues, relatedIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { loadRelatedIssues } = useActions(errorTrackingIssueSceneLogic)
+
+    useEffect(() => {
+        loadRelatedIssues()
+    }, [loadRelatedIssues])
+
+    return (
+        <ScenePanelLabel title="Related issues">
+            {relatedIssuesLoading ? (
+                <Spinner />
+            ) : relatedIssues.length > 0 ? (
+                <div className="flex flex-col gap-1">
+                    {relatedIssues.map((relatedIssue) => (
+                        <Link
+                            key={relatedIssue.id}
+                            to={urls.errorTrackingIssue(relatedIssue.id)}
+                            className="block p-2 border rounded hover:bg-gray-50"
+                        >
+                            <div className="font-medium text-sm">{relatedIssue.title}</div>
+                            {relatedIssue.description && (
+                                <div className="text-xs text-gray-600 truncate">{relatedIssue.description}</div>
+                            )}
+                        </Link>
+                    ))}
+                </div>
+            ) : (
+                <div className="text-sm text-gray-500">No related issues found</div>
+            )}
         </ScenePanelLabel>
     )
 }

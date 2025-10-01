@@ -260,6 +260,24 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue.merge(issue_ids=ids)
         return Response({"success": True})
 
+    @action(methods=["GET"], detail=False, url_path="related_issues/(?P<issue_id>[^/.]+)")
+    def related_issues(self, request: request.Request, **kwargs):
+        issue_id = kwargs.get("issue_id")
+
+        related_issues = []
+        if issue_id is not None:
+            issue_ids = [issue_id]
+            # fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
+            # TODO: query CH for related issues passing the fingerprints/stacktraces?
+            issues = ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids)
+
+            if issues is not None:
+                related_issues = [
+                    {"id": issue.id, "title": issue.name, "description": issue.description} for issue in issues
+                ]
+
+        return Response(related_issues)
+
     @action(methods=["POST"], detail=True)
     def split(self, request, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
