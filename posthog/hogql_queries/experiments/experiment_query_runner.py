@@ -1,4 +1,3 @@
-import os
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
@@ -40,7 +39,6 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
 )
-from posthog.hogql_queries.experiments.map_agg_query_builder import MapAggregationQueryBuilder
 from posthog.hogql_queries.experiments.map_agg_query_builder_hogql import MapAggregationQueryBuilderHogQL
 from posthog.hogql_queries.experiments.utils import (
     get_bayesian_experiment_result,
@@ -472,30 +470,15 @@ class ExperimentQueryRunner(QueryRunner):
         Branches to map aggregation implementation if enabled, otherwise uses legacy approach.
         """
         if self.is_map_aggregation_supported:
-            # Use new map aggregation query builder (single scan, no self-join)
-            # Choose between AST-based or HogQL string-based implementation
-            use_hogql_strings = os.getenv("EXPERIMENT_USE_HOGQL_STRINGS", "false").lower() == "true"
-
-            if use_hogql_strings:
-                builder = MapAggregationQueryBuilderHogQL(
-                    experiment=self.experiment,
-                    team=self.team,
-                    metric=self.metric,
-                    variants=self.variants,
-                    date_range_query=self.date_range_query,
-                    entity_key=self.entity_key,
-                    multiple_variant_handling=self.multiple_variant_handling,
-                )
-            else:
-                builder = MapAggregationQueryBuilder(
-                    experiment=self.experiment,
-                    team=self.team,
-                    metric=self.metric,
-                    variants=self.variants,
-                    date_range_query=self.date_range_query,
-                    entity_key=self.entity_key,
-                    multiple_variant_handling=self.multiple_variant_handling,
-                )
+            builder = MapAggregationQueryBuilderHogQL(
+                experiment=self.experiment,
+                team=self.team,
+                metric=self.metric,
+                variants=self.variants,
+                date_range_query=self.date_range_query,
+                entity_key=self.entity_key,
+                multiple_variant_handling=self.multiple_variant_handling,
+            )
             return builder.build_query()
 
         # Legacy implementation (self-join approach)
