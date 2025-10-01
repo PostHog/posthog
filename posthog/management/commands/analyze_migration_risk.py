@@ -34,7 +34,9 @@ class Command(BaseCommand):
             print("\n📋 POLICY VIOLATIONS:")
             for violation in batch_policy_violations:
                 print(f"  {violation}")
-            print()  # Add spacing before migration analysis
+            if options.get("fail_on_blocked"):
+                sys.exit(1)
+            return
 
         results = self.analyze_loaded_migrations(migrations)
 
@@ -46,7 +48,7 @@ class Command(BaseCommand):
 
         if options.get("fail_on_blocked"):
             blocked = [r for r in results if r.level == RiskLevel.BLOCKED]
-            if blocked or batch_policy_violations:
+            if blocked:
                 sys.exit(1)
 
     def check_batch_policies(self, migrations: list[tuple[str, migrations.Migration]]) -> list[str]:
