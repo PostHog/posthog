@@ -32,4 +32,4 @@ class DataWarehouseSnapshotConfig(CreatedMetaFields, UUIDTModel, DeletedMetaFiel
 class DataWarehouseSnapshotConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = DataWarehouseSnapshotConfig
-        fields = ["mode", "fields", "timestamp_field", "frequency", "merge_key", "partition_count", "partition_size"]
+        fields = ["mode", "fields", "timestamp_field", "frequency", "merge_key", "partition_count"]
