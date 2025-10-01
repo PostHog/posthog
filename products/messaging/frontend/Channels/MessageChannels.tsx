@@ -47,7 +47,7 @@ export function MessageChannels(): JSX.Element {
                         thingName="channel integration"
                         description="Configure channels to send messages from."
                         docsURL="https://posthog.com/docs/messaging"
-                        action={() => openSetupModal(undefined, 'sms')}
+                        action={() => openSetupModal(undefined, 'twilio')}
                         isEmpty
                     />
                 )}
