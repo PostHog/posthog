@@ -224,8 +224,13 @@ jobs:
                     -d "$COMMENT_BODY_JSON"
 
                   # Get risk analysis and post as separate comment
-                  # Only capture stdout (not stderr warnings) and check if it contains summary
-                  RISK_ANALYSIS=$(echo "$CHANGED_FILES" | grep -v migrations/0001_ | python manage.py analyze_migration_risk 2>/dev/null || true)
+                  # This automatically detects all unapplied migrations (including third-party)
+                  # Use --fail-on-blocked to also fail CI if blocked migrations are found
+                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null || echo "FAILED")
+                  if [ "$RISK_ANALYSIS" = "FAILED" ]; then
+                    echo "Migration risk analysis failed - blocked migrations found"
+                    exit 1
+                  fi
                   if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
                     # Delete previous risk analysis comments
                     echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
@@ -257,16 +262,8 @@ jobs:
               run: |
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
-                  # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
-                  # With `--name-status` we get the same, but including a column for status, respectively: A, D, M
-                  # In this check we exclusively care about files that were
-                  # added (A) in posthog/migrations/. We also want to ignore
-                  # initial migrations (0001_*) as these are guaranteed to be
-                  # run on initial setup where there is no data.
+                  # Check migration safety using old SQL-based checker (still uses stdin from git diff)
                   echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
-
-                  # Run risk analyzer with --fail-on-blocked to fail CI if blocked migrations found
-                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | python manage.py analyze_migration_risk --fail-on-blocked
 
             - name: Check CH migrations
               run: |

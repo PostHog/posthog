@@ -5,7 +5,6 @@ import sys
 from django.core.management.base import BaseCommand
 
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
-from posthog.management.migration_analysis.discovery import MigrationDiscovery
 from posthog.management.migration_analysis.formatters import ConsoleTreeFormatter
 from posthog.management.migration_analysis.models import MigrationRisk, RiskLevel
 from posthog.management.migration_analysis.policies import SingleMigrationPolicy
@@ -22,14 +21,14 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        migration_paths = self.get_migration_paths()
+        migrations = self.get_unapplied_migrations()
 
-        if not migration_paths:
+        if not migrations:
             # Return silently when no migrations to analyze (for CI)
             return
 
         # Check batch-level policies (e.g., multiple migrations)
-        batch_policy_violations = self.check_batch_policies(migration_paths)
+        batch_policy_violations = self.check_batch_policies(len(migrations))
         if batch_policy_violations:
             print("\n📋 POLICY VIOLATIONS:")
             for violation in batch_policy_violations:
@@ -38,7 +37,7 @@ class Command(BaseCommand):
                 sys.exit(1)
             return
 
-        results = self.analyze_migrations(migration_paths)
+        results = self.analyze_loaded_migrations(migrations)
 
         if not results:
             # Return silently when no results (for CI)
@@ -51,30 +50,30 @@ class Command(BaseCommand):
             if blocked:
                 sys.exit(1)
 
-    def get_migration_paths(self) -> list[str]:
-        """Read migration paths from stdin"""
-        return MigrationDiscovery.read_paths_from_stdin()
-
-    def check_batch_policies(self, migration_paths: list[str]) -> list[str]:
+    def check_batch_policies(self, migration_count: int) -> list[str]:
         """Check policies that apply to the batch of migrations."""
-        policy = SingleMigrationPolicy(len(migration_paths))
+        policy = SingleMigrationPolicy(migration_count)
         return policy.check_batch()
 
-    def analyze_migrations(self, migration_paths: list[str]) -> list[MigrationRisk]:
-        """Analyze a list of migration file paths"""
+    def get_unapplied_migrations(self) -> list[tuple[str, object]]:
+        """Get all unapplied migrations using Django's migration executor."""
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+
+        executor = MigrationExecutor(connection)
+        plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+
+        # Return list of (label, migration_object) tuples
+        # label is like "app_label.migration_name" for reporting
+        return [(f"{migration.app_label}.{migration.name}", migration) for migration, backwards in plan]
+
+    def analyze_loaded_migrations(self, migrations: list[tuple[str, object]]) -> list[MigrationRisk]:
+        """Analyze a list of loaded migrations."""
         analyzer = RiskAnalyzer()
         results = []
 
-        # Process paths and load migrations using shared utility
-        loaded_migrations = MigrationDiscovery.process_migration_paths(
-            migration_paths,
-            skip_invalid=False,
-            fail_on_ci=True,
-        )
-
-        # Analyze each migration
-        for migration_info, migration in loaded_migrations:
-            risk = analyzer.analyze_migration(migration, migration_info.path)
+        for label, migration in migrations:
+            risk = analyzer.analyze_migration(migration, label)
             results.append(risk)
 
         return results
