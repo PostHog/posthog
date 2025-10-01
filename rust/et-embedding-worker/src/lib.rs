@@ -82,10 +82,10 @@ pub async fn generate_embedding(
         .clone();
 
     Ok(EmbeddingRecord::new(
-        fingerprint.team_id(),
+        fingerprint.team_id,
         OPENAI_EMBEDDING_MODEL.to_string(),
         EMBEDDING_VERSION,
-        fingerprint.fingerprint().to_string(),
+        fingerprint.fingerprint.to_string(),
         embeddings,
     ))
 }

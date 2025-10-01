@@ -21,9 +21,9 @@ pub struct ContextLine {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewFingerprintEvent {
-    team_id: i32,
-    fingerprint: String,
-    exception_list: Vec<ExceptionData>,
+    pub team_id: i32,
+    pub fingerprint: String,
+    pub exception_list: Vec<ExceptionData>,
 }
 
 impl NewFingerprintEvent {
@@ -33,18 +33,6 @@ impl NewFingerprintEvent {
             fingerprint,
             exception_list,
         }
-    }
-
-    pub fn team_id(&self) -> i32 {
-        self.team_id
-    }
-
-    pub fn fingerprint(&self) -> &str {
-        &self.fingerprint
-    }
-
-    pub fn exception_list(&self) -> &[ExceptionData] {
-        &self.exception_list
     }
 }
 
