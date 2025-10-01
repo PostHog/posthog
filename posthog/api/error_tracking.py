@@ -37,9 +37,11 @@ from posthog.models.error_tracking import (
     ErrorTrackingStackFrame,
     ErrorTrackingSuppressionRule,
     ErrorTrackingSymbolSet,
+    resolve_fingerprints_for_issues,
 )
 from posthog.models.error_tracking.hogvm_stl import RUST_HOGVM_STL
 from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
+from posthog.models.plugin import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT, uuid7
 from posthog.storage import object_storage
@@ -266,19 +268,95 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue_id = kwargs.get("pk")
 
         related_issues = []
-        if issue_id is not None:
-            # issue_ids = [issue_id]
-            # fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
-            # TODO: query CH for related issues passing the fingerprints/stacktraces?
-            # issues = ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids)
-            issues = ErrorTrackingIssue.objects.filter(team=self.team)
+        if issue_id:
+            issue_ids = [issue_id]
+            # print(f"DEBUG: issue_ids = {issue_ids}")
+            issue_fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
+            # print(f"DEBUG: issue_fingerprints = {issue_fingerprints}")
 
-            if issues is not None:
-                # TODO: remove library mock
-                related_issues = [
-                    {"id": issue.id, "title": issue.name, "description": issue.description, "library": "posthog-js"}
-                    for issue in issues
-                ]
+            if issue_fingerprints:
+                # Query ClickHouse for matching fingerprints
+                query = """
+                    SELECT DISTINCT embeddings
+                    FROM error_tracking_issue_fingerprint_embeddings
+                    WHERE team_id = %(team_id)s
+                    AND fingerprint IN %(fingerprints)s
+                """
+
+                issue_embeddings = sync_execute(
+                    query,
+                    {
+                        "team_id": self.team.pk,
+                        "fingerprints": issue_fingerprints,
+                    },
+                )
+                # print(f"DEBUG: issue_embeddings count = {len(issue_embeddings) if issue_embeddings else 0}")
+
+                if issue_embeddings:
+                    all_similar_fingerprints = []
+
+                    # Search for similarities across all embeddings from the current issue
+                    for _, embedding_row in enumerate(issue_embeddings):
+                        embedding_vector = embedding_row[0]  # Get the embedding vector
+                        # print(f"DEBUG: Processing embedding {i+1}/{len(issue_embeddings)}")
+
+                        # Search for similar embeddings using cosine similarity
+                        query = """
+                            SELECT DISTINCT fingerprint, cosineDistance(embeddings, %(target_embedding)s) as distance
+                            FROM error_tracking_issue_fingerprint_embeddings
+                            WHERE team_id = %(team_id)s
+                            AND fingerprints NOT IN %(fingerprints)s
+                            ORDER BY distance ASC
+                            LIMIT 10
+                        """
+
+                        similar_embeddings = sync_execute(
+                            query,
+                            {
+                                "team_id": self.team.pk,
+                                "target_embedding": embedding_vector,
+                                "fingerprints": issue_fingerprints,
+                            },
+                        )
+                        # print(f"DEBUG: similar_embeddings count = {len(similar_embeddings) if similar_embeddings else 0}")
+
+                        if similar_embeddings:
+                            # Extract fingerprints from similarity results
+                            similar_fingerprints = [row[0] for row in similar_embeddings]
+                            # print(f"DEBUG: similar_fingerprints for embedding {i+1} = {similar_fingerprints}")
+                            all_similar_fingerprints.extend(similar_fingerprints)
+
+                    # Remove duplicates and use all collected similar fingerprints
+                    all_similar_fingerprints = list(set(all_similar_fingerprints))
+                    # print(f"DEBUG: total unique similar fingerprints = {len(all_similar_fingerprints)}")
+
+                    if all_similar_fingerprints:
+                        # Get issue IDs that have these fingerprints
+                        fingerprints_to_issue_ids = (
+                            ErrorTrackingIssueFingerprintV2.objects.filter(
+                                team_id=self.team.pk, fingerprint__in=all_similar_fingerprints
+                            )
+                            .values_list("issue_id", flat=True)
+                            .distinct()
+                        )
+                        # print(f"DEBUG: fingerprints_to_issue_ids = {list(fingerprints_to_issue_ids)}")
+
+                        if fingerprints_to_issue_ids:
+                            # Get the actual issues from PostgreSQL
+                            issues = ErrorTrackingIssue.objects.filter(team=self.team, id__in=fingerprints_to_issue_ids)
+                            # print(f"DEBUG: issues found = {list(issues.values_list('id', 'name'))}")
+
+                            if issues:
+                                related_issues = [
+                                    {
+                                        "id": issue.id,
+                                        "title": issue.name,
+                                        "description": issue.description,
+                                        "library": issue.library,
+                                    }
+                                    for issue in issues
+                                ]
+                                # print(f"DEBUG: final related_issues = {related_issues}")
 
         return Response(related_issues)
 
