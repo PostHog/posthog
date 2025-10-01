@@ -124,9 +124,14 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
         })
 
         try {
-            // Create a timeout promise
+            // Create a timeout promise that will abort the upload
+            let timeoutId: NodeJS.Timeout | undefined
             const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => {
+                timeoutId = setTimeout(() => {
+                    // Abort the upload to free resources
+                    void upload.abort().catch((abortError) => {
+                        logger.warn('Failed to abort heap dump upload', { error: abortError })
+                    })
                     reject(new Error(`Heap dump upload timed out after ${UPLOAD_TIMEOUT_MS / 1000} seconds`))
                 }, UPLOAD_TIMEOUT_MS)
             })
@@ -135,6 +140,11 @@ export async function createHeapDump(s3Client: S3Client, s3Bucket: string, s3Pre
             const result = (await Promise.race([upload.done(), timeoutPromise])) as Awaited<
                 ReturnType<typeof upload.done>
             >
+
+            // Clear the timeout if upload succeeds
+            if (timeoutId) {
+                clearTimeout(timeoutId)
+            }
 
             const duration = Date.now() - startTime
             const memoryAfter = process.memoryUsage()
