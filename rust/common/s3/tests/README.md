@@ -39,6 +39,7 @@ cargo test -- --ignored
 You can verify MinIO is running by visiting: http://localhost:19001 (MinIO Console)
 
 Login credentials:
+
 - Username: `object_storage_root_user`
 - Password: `object_storage_root_password`
 

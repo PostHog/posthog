@@ -648,7 +648,7 @@ describe('HogTransformer', () => {
             expect(result.event?.properties).not.toHaveProperty('$transformations_failed')
         })
 
-        it('should preserve existing transformation results when adding new ones', async () => {
+        it('should ignore existing transformation results when adding new ones', async () => {
             const successTemplate: HogFunctionTemplate = {
                 free: true,
                 status: 'beta',
@@ -685,7 +685,7 @@ describe('HogTransformer', () => {
                     event: 'test',
                     properties: {
                         $transformations_succeeded: ['Previous Success (prev-id)'],
-                        $transformations_failed: ['Previous Failure (prev-id)'],
+                        $transformations_failed: {}, // malformed value
                     },
                 },
                 teamId
@@ -695,10 +695,9 @@ describe('HogTransformer', () => {
 
             // Verify new results are appended to existing ones
             expect(result?.event?.properties?.$transformations_succeeded).toEqual([
-                'Previous Success (prev-id)',
                 `Success Template (${successFunction.id})`,
             ])
-            expect(result?.event?.properties?.$transformations_failed).toEqual(['Previous Failure (prev-id)'])
+            expect(result?.event?.properties?.$transformations_failed).toEqual(undefined)
         })
 
         it('should track skipped transformations when filter does not match', async () => {
@@ -740,7 +739,6 @@ describe('HogTransformer', () => {
                     event: 'does-not-match-me',
                     properties: {
                         original: true,
-                        $transformations_skipped: ['Previous Skip (prev-id)'],
                     },
                 },
                 teamId
@@ -751,7 +749,6 @@ describe('HogTransformer', () => {
             // Verify transformation was skipped and tracked
             expect(result.event?.properties?.should_not_be_set).toBeUndefined()
             expect(result.event?.properties?.$transformations_skipped).toEqual([
-                'Previous Skip (prev-id)',
                 `${hogFunction.name} (${hogFunction.id})`,
             ])
             expect(result.event?.properties?.original).toBe(true)

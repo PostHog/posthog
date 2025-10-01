@@ -624,7 +624,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
                 <div className="flex items-center gap-4">
-                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : <ElapsedTime />}
+                    <ElapsedTime />
+                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : null}
                 </div>
             </div>
             <RowDetailsModal
@@ -731,6 +732,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                 query={sourceQuery}
                 excludeDetail
                 title={error}
+                excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
                 fixWithAIComponent={
                     <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                 }

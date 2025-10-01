@@ -134,6 +134,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
+        LAZY_LOADER_TTL_MS: 1000 * 60 * 10, // 10 minutes
+        LAZY_LOADER_EVICTION_ENABLED: false,
+        LAZY_LOADER_MAX_SIZE: 10000, // Maximum entries per cache before LRU eviction
         CAPTURE_INTERNAL_URL: isProdEnv()
             ? 'http://capture.posthog.svc.cluster.local:3000/capture'
             : 'http://localhost:8010/capture',
@@ -204,6 +207,14 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
+
+        // Heap dump configuration
+        HEAP_DUMP_ENABLED: false,
+        HEAP_DUMP_S3_BUCKET: '',
+        HEAP_DUMP_S3_PREFIX: 'heap-dumps',
+        HEAP_DUMP_S3_ENDPOINT: '',
+        HEAP_DUMP_S3_REGION: '',
+
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
@@ -315,6 +326,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Messaging
         MAILJET_PUBLIC_KEY: '',
         MAILJET_SECRET_KEY: '',
+
+        // SES
+        SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
+        SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
+        SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
+        SES_REGION: 'us-east-1',
     }
 }
 

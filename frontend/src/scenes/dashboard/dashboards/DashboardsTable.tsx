@@ -3,10 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlAction, accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -90,9 +89,13 @@ export function DashboardsTable({
             title: 'Name',
             dataIndex: 'name',
             width: '40%',
-            render: function Render(_, { id, name, description, is_shared, effective_privilege_level }) {
+            render: function Render(_, { id, name, description, is_shared, user_access_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
-                const canEditDashboard = effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+                const canEditDashboard = accessLevelSatisfied(
+                    AccessControlResourceType.Dashboard,
+                    user_access_level,
+                    AccessControlLevel.Editor
+                )
                 return (
                     <LemonTableLink
                         to={urls.dashboard(id)}
