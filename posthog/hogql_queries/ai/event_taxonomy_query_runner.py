@@ -8,6 +8,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr
@@ -26,6 +27,11 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
 
     query: EventTaxonomyQuery
     cached_response: CachedEventTaxonomyQueryResponse
+    settings: HogQLGlobalSettings | None
+
+    def __init__(self, *args, settings: HogQLGlobalSettings | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.settings = settings
 
     def _calculate(self):
         query = self.to_query()
