@@ -179,17 +179,15 @@ impl DeduplicationStore {
                     DeduplicationType::Timestamp,
                     DeduplicationResultReason::SameEvent,
                 )
+            } else if similarity.different_fields.len() == 1
+                && similarity.different_fields[0].0 == DedupFieldName::Uuid
+            {
+                DeduplicationResult::ConfirmedDuplicate(
+                    DeduplicationType::Timestamp,
+                    DeduplicationResultReason::OnlyUuidDifferent,
+                )
             } else {
-                if similarity.different_fields.len() == 1
-                    && similarity.different_fields[0].0 == DedupFieldName::Uuid
-                {
-                    DeduplicationResult::ConfirmedDuplicate(
-                        DeduplicationType::Timestamp,
-                        DeduplicationResultReason::OnlyUuidDifferent,
-                    )
-                } else {
-                    DeduplicationResult::PotentialDuplicate(DeduplicationType::Timestamp)
-                }
+                DeduplicationResult::PotentialDuplicate(DeduplicationType::Timestamp)
             };
 
             // Log the duplicate
@@ -304,17 +302,15 @@ impl DeduplicationStore {
                     DeduplicationType::UUID,
                     DeduplicationResultReason::SameEvent,
                 )
+            } else if similarity.different_fields.len() == 1
+                && similarity.different_fields[0].0 == DedupFieldName::Timestamp
+            {
+                DeduplicationResult::ConfirmedDuplicate(
+                    DeduplicationType::UUID,
+                    DeduplicationResultReason::OnlyTimestampDifferent,
+                )
             } else {
-                if similarity.different_fields.len() == 1
-                    && similarity.different_fields[0].0 == DedupFieldName::Timestamp
-                {
-                    DeduplicationResult::ConfirmedDuplicate(
-                        DeduplicationType::UUID,
-                        DeduplicationResultReason::OnlyTimestampDifferent,
-                    )
-                } else {
-                    DeduplicationResult::PotentialDuplicate(DeduplicationType::UUID)
-                }
+                DeduplicationResult::PotentialDuplicate(DeduplicationType::UUID)
             };
 
             // Log the duplicate

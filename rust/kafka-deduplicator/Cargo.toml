@@ -44,3 +44,6 @@ tracing-subscriber = { workspace = true }
 [dev-dependencies]
 tempfile = "3.8"
 uuid = { version = "1.0", features = ["v4"] }
+
+[package.metadata.cargo-shear]
+ignored = ["strum"]
