@@ -1,5 +1,6 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { MOCK_FEEDBACK_ITEMS } from '../../mocks'
@@ -14,6 +15,7 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
         setTypeFilter: (type: FeedbackType | null) => ({ type }),
 
         loadFeedbackItems: true,
+        openFeedbackItem: (id: string) => ({ id }),
     }),
 
     reducers({
@@ -68,6 +70,12 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
         },
         statusFilter: () => {
             return actions.loadFeedbackItems()
+        },
+    })),
+
+    listeners(() => ({
+        openFeedbackItem: ({ id }) => {
+            router.actions.push(`/feedback/${id}`)
         },
     })),
 ])

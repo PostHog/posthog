@@ -1,8 +1,11 @@
+import { useActions } from 'kea'
+
 import { IconBug, IconQuestion } from '@posthog/icons'
 import { LemonBadge, LemonTag } from '@posthog/lemon-ui'
 
 import { IconFeedback } from '~/lib/lemon-ui/icons'
 
+import { feedbackListSceneLogic } from '../../scenes/FeedbackListScene/feedbackListSceneLogic'
 import { FeedbackItem, FeedbackStatus, FeedbackType } from '../../types'
 
 export interface FeedbackListItemProps {
@@ -27,8 +30,13 @@ const STATUS_CONFIG: Record<FeedbackStatus, { label: string; color: 'success' | 
 }
 
 export function FeedbackListItem({ feedback }: FeedbackListItemProps): JSX.Element {
+    const { openFeedbackItem } = useActions(feedbackListSceneLogic)
+
     return (
-        <div className="border-b last:border-b-0 p-4 hover:bg-surface-secondary transition-colors">
+        <div
+            className="border-b last:border-b-0 p-4 hover:bg-surface-secondary transition-colors cursor-pointer"
+            onClick={() => openFeedbackItem(feedback.id)}
+        >
             <div className="flex items-center justify-between">
                 <div className="flex-1">
                     <div className="flex items-center gap-2">

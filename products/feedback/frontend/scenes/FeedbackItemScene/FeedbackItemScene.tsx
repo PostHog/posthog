@@ -1,6 +1,9 @@
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { IconArrowLeft } from '@posthog/icons'
+
+import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -43,6 +46,11 @@ const Header = (): JSX.Element => {
                     type: 'feedback',
                 }}
             />
+            <div className="flex items-center gap-2 px-6 mb-4">
+                <Link to="/feedback">
+                    <IconArrowLeft /> Back to Feedback
+                </Link>
+            </div>
             <SceneDivider />
         </>
     )
