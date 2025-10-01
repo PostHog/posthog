@@ -25,7 +25,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import query_with_columns
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Filter, Person
+from posthog.models import Element, Filter, Person, PropertyDefinition
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
@@ -299,7 +299,7 @@ class EventViewSet(
                 hidden_property_exists = EnterprisePropertyDefinition.objects.filter(
                     team=team,
                     name=key,
-                    type=1,  # PropertyDefinition.Type.EVENT
+                    type=PropertyDefinition.Type.EVENT.value,
                     hidden=True,
                 ).exists()
                 if hidden_property_exists:
