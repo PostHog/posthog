@@ -2,8 +2,8 @@ import { actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import { FeedbackItem, FeedbackStatus, FeedbackType } from '../types'
-import type { filtersLogicType } from './filtersLogicType'
+import { FeedbackItem, FeedbackStatus, FeedbackType } from '../../types'
+import type { feedbackListSceneLogicType } from './feedbackListSceneLogicType'
 
 const MOCK_FEEDBACK_ITEMS: FeedbackItem[] = [
     {
@@ -48,8 +48,8 @@ const MOCK_FEEDBACK_ITEMS: FeedbackItem[] = [
     },
 ]
 
-export const filtersLogic = kea<filtersLogicType>([
-    path(['products', 'feedback', 'logics', 'filtersLogic']),
+export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
+    path(['products', 'feedback', 'scenes', 'FeedbackListScene', 'feedbackListSceneLogic']),
 
     actions({
         setStatusFilter: (status: FeedbackStatus | null) => ({ status }),

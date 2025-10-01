@@ -6,7 +6,7 @@ import { LemonBadge, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconFeedback } from '~/lib/lemon-ui/icons'
 
-import { filtersLogic } from '../../logics/filtersLogic'
+import { feedbackListSceneLogic } from '../../scenes/FeedbackListScene/feedbackListSceneLogic'
 import { FeedbackStatus, FeedbackType, StatusOption, TypeOption } from '../../types'
 
 const STATUS_LABELS: Record<StatusOption, { label: string; color: 'success' | 'warning' | 'muted' }> = {
@@ -26,23 +26,21 @@ export const FeedbackFilters = (): JSX.Element => {
     const statusOptions: StatusOption[] = ['all', FeedbackStatus.Visible, FeedbackStatus.Hidden]
     const typeOptions: TypeOption[] = ['all', FeedbackType.Question, FeedbackType.Feedback, FeedbackType.Bug]
 
-    const { statusFilter, typeFilter } = useValues(filtersLogic)
-    const { setStatusFilter, setTypeFilter } = useActions(filtersLogic)
+    const { statusFilter, typeFilter } = useValues(feedbackListSceneLogic)
+    const { setStatusFilter, setTypeFilter } = useActions(feedbackListSceneLogic)
 
     const statusOption = useMemo(() => {
         if (!statusFilter) {
             return 'all'
-        } else {
-            return statusFilter
         }
+        return statusFilter
     }, [statusFilter])
 
     const typeOption = useMemo(() => {
         if (!typeFilter) {
             return 'all'
-        } else {
-            return typeFilter
         }
+        return typeFilter
     }, [typeFilter])
 
     return (
