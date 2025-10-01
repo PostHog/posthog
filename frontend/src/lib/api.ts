@@ -1527,8 +1527,16 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('feedback_categories')
     }
 
+    public feedbackItemCategory(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.feedbackItemCategories(teamId).addPathComponent(id)
+    }
+
     public feedbackItemStatuses(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('feedback_statuses')
+    }
+
+    public feedbackItemStatus(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.feedbackItemStatuses(teamId).addPathComponent(id)
     }
 
     public feedbackItemTopic(id: string, teamId?: TeamType['id']): ApiRequest {
@@ -4214,11 +4222,29 @@ const api = {
             async list(): Promise<CountedPaginatedResponse<FeedbackItemCategory>> {
                 return await new ApiRequest().feedbackItemCategories().get()
             },
+            async create(data: Partial<FeedbackItemCategory>): Promise<FeedbackItemCategory> {
+                return await new ApiRequest().feedbackItemCategories().create({ data })
+            },
+            async update(id: string, data: Partial<FeedbackItemCategory>): Promise<FeedbackItemCategory> {
+                return await new ApiRequest().feedbackItemCategory(id).update({ data })
+            },
+            async delete(id: string): Promise<void> {
+                return await new ApiRequest().feedbackItemCategory(id).delete()
+            },
         },
 
         statuses: {
             async list(): Promise<CountedPaginatedResponse<FeedbackItemStatus>> {
                 return await new ApiRequest().feedbackItemStatuses().get()
+            },
+            async create(data: Partial<FeedbackItemStatus>): Promise<FeedbackItemStatus> {
+                return await new ApiRequest().feedbackItemStatuses().create({ data })
+            },
+            async update(id: string, data: Partial<FeedbackItemStatus>): Promise<FeedbackItemStatus> {
+                return await new ApiRequest().feedbackItemStatus(id).update({ data })
+            },
+            async delete(id: string): Promise<void> {
+                return await new ApiRequest().feedbackItemStatus(id).delete()
             },
         },
 

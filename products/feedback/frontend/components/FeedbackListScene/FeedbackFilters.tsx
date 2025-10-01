@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBadge, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBadge, LemonInput, LemonSelect, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { feedbackListSceneLogic } from '../../scenes/FeedbackListScene/feedbackListSceneLogic'
 import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSettingsLogic'
@@ -22,11 +22,14 @@ export const FeedbackFilters = (): JSX.Element => {
         ]
     }, [feedbackTopics])
 
-    const feedbackCategoriesToDisplay = useMemo(() => {
+    const categoryTabs = useMemo<LemonTab<string>[]>(() => {
         return [
-            { value: 'all', label: 'All categories' },
+            {
+                key: 'all',
+                label: 'All',
+            },
             ...feedbackCategories.map((category) => ({
-                value: category.id,
+                key: category.id,
                 label: category.name,
             })),
         ]
@@ -49,11 +52,8 @@ export const FeedbackFilters = (): JSX.Element => {
         return statusFilter
     }, [statusFilter])
 
-    const categoryOption = useMemo(() => {
-        if (!categoryFilter) {
-            return 'all'
-        }
-        return categoryFilter
+    const activeCategoryTab = useMemo(() => {
+        return categoryFilter || 'all'
     }, [categoryFilter])
 
     const topicOption = useMemo(() => {
@@ -64,7 +64,19 @@ export const FeedbackFilters = (): JSX.Element => {
     }, [topicFilter])
 
     return (
-        <div className="bg-bg-light border rounded p-4">
+        <div className="">
+            <LemonTabs
+                activeKey={activeCategoryTab}
+                onChange={(key) => {
+                    if (key === 'all') {
+                        setCategoryFilter(null)
+                    } else {
+                        setCategoryFilter(key)
+                    }
+                }}
+                tabs={categoryTabs}
+                size="medium"
+            />
             <div className="flex gap-2">
                 <LemonInput fullWidth type="search" placeholder="it doesn't do anything (yet)" />
                 <LemonSelect
@@ -85,22 +97,6 @@ export const FeedbackFilters = (): JSX.Element => {
                             setStatusFilter(null)
                         } else {
                             setStatusFilter(status)
-                        }
-                    }}
-                />
-                <LemonSelect
-                    value={categoryOption}
-                    placeholder="Select category"
-                    options={feedbackCategoriesToDisplay.map((category) => ({
-                        value: category.value,
-                        label: category.label,
-                    }))}
-                    size="small"
-                    onChange={(categoryValue) => {
-                        if (categoryValue === 'all') {
-                            setCategoryFilter(null)
-                        } else {
-                            setCategoryFilter(categoryValue)
                         }
                     }}
                 />

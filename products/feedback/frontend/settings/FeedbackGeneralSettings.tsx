@@ -73,7 +73,7 @@ export function FeedbackGeneralSettings(): JSX.Element {
                             {feedbackCategories.map((category) => (
                                 <div
                                     key={category.id}
-                                    className="border rounded p-2 bg-surface-primary flex items-center justify-between"
+                                    className="group border rounded p-2 bg-surface-primary flex items-center justify-between"
                                 >
                                     <div className="font-medium">{category.name}</div>
                                     <LemonButton
@@ -82,6 +82,7 @@ export function FeedbackGeneralSettings(): JSX.Element {
                                         status="danger"
                                         onClick={() => deleteFeedbackCategory(category.id)}
                                         tooltip="Delete category"
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity"
                                     />
                                 </div>
                             ))}
@@ -102,7 +103,7 @@ export function FeedbackGeneralSettings(): JSX.Element {
                             {feedbackTopics.map((topic) => (
                                 <div
                                     key={topic.id}
-                                    className="border rounded p-2 bg-surface-primary flex items-center justify-between"
+                                    className="group border rounded p-2 bg-surface-primary flex items-center justify-between"
                                 >
                                     <div className="font-medium">{topic.name}</div>
                                     <LemonButton
@@ -111,6 +112,7 @@ export function FeedbackGeneralSettings(): JSX.Element {
                                         status="danger"
                                         onClick={() => deleteFeedbackTopic(topic.id)}
                                         tooltip="Delete topic"
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity"
                                     />
                                 </div>
                             ))}
@@ -149,7 +151,7 @@ export function FeedbackGeneralSettings(): JSX.Element {
                                     category.statuses.map((status) => (
                                         <div
                                             key={status.id}
-                                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-surface-tertiary border rounded"
+                                            className="group inline-flex items-center gap-2 px-3 py-1.5 bg-surface-tertiary border rounded"
                                         >
                                             <span className="text-sm font-medium">{status.name}</span>
                                             <LemonButton
@@ -158,6 +160,7 @@ export function FeedbackGeneralSettings(): JSX.Element {
                                                 status="danger"
                                                 onClick={() => deleteFeedbackStatus(status.id)}
                                                 tooltip="Delete status"
+                                                className="opacity-0 group-hover:opacity-100 transition-opacity"
                                             />
                                         </div>
                                     ))

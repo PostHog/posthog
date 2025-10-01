@@ -5,7 +5,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { FeedbackFilters } from '../../components/FeedbackListScene/FeedbackFilters'
@@ -27,26 +26,17 @@ export function FeedbackListScene(): JSX.Element {
 
 const Header = (): JSX.Element => {
     return (
-        <>
-            <SceneTitleSection
-                name="Feedback"
-                resourceType={{
-                    type: 'feedback',
-                }}
-                actions={
-                    <>
-                        <LemonButton
-                            size="small"
-                            to={urls.feedbackConfiguration()}
-                            type="secondary"
-                            icon={<IconGear />}
-                        >
-                            Configure
-                        </LemonButton>
-                    </>
-                }
-            />
-            <SceneDivider />
-        </>
+        <SceneTitleSection
+            name="Feedback"
+            resourceType={{
+                type: 'feedback',
+            }}
+            description="Understand your users' needs and improve your product"
+            actions={
+                <LemonButton size="small" to={urls.feedbackConfiguration()} type="secondary" icon={<IconGear />}>
+                    Configure
+                </LemonButton>
+            }
+        />
     )
 }
