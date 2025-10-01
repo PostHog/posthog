@@ -360,7 +360,7 @@ async fn test_anon_distinct_id_from_person_properties() -> Result<()> {
         "User should initially evaluate to false"
     );
 
-    // Step 2: Use an ID that evaluates to true
+    // Step 2: Verify the anon ID evaluates to true
     let anon_id = "true_eval_user";
     let anon_payload = json!({
         "token": team.api_token,
@@ -376,7 +376,7 @@ async fn test_anon_distinct_id_from_person_properties() -> Result<()> {
     assert_eq!(
         anon_json["flags"]["experience-flag-test"]["enabled"],
         json!(true),
-        "Anon ID should evaluate to true"
+        "true_eval_user should evaluate to true"
     );
 
     // Step 3: Set override using $anon_distinct_id in person_properties
@@ -430,7 +430,7 @@ async fn test_top_level_anon_distinct_id_takes_precedence() -> Result<()> {
         .await
         .expect("Failed to insert team");
 
-    // Create flag (use same key as other tests for consistent hashing)
+    // Create flag
     let flag_row = FeatureFlagRow {
         id: 103,
         team_id: team.id,
@@ -486,6 +486,24 @@ async fn test_top_level_anon_distinct_id_takes_precedence() -> Result<()> {
         true_json["flags"]["experience-flag-test"]["enabled"],
         json!(true),
         "true_eval_id should evaluate to true"
+    );
+
+    // Verify the false_eval_id evaluates to false
+    let false_check = json!({
+        "token": team.api_token,
+        "distinct_id": false_eval_id,
+    });
+
+    let false_res = server
+        .send_flags_request(false_check.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(false_res.status(), StatusCode::OK);
+    let false_json = false_res.json::<Value>().await?;
+
+    assert_eq!(
+        false_json["flags"]["experience-flag-test"]["enabled"],
+        json!(false),
+        "false_eval_id should evaluate to false"
     );
 
     // Test with BOTH top-level and person_properties $anon_distinct_id

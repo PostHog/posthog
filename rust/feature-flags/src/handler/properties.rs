@@ -21,6 +21,9 @@ pub fn prepare_overrides(
     let group_property_overrides =
         get_group_property_overrides(groups.clone(), request.group_properties.clone());
 
+    // Determine hash key with precedence: top-level anon_distinct_id > person_properties.$anon_distinct_id
+    // Frontend SDKs automatically include anon_distinct_id at the top level.
+    // Backend SDKs manually override the anon_distinct_id in person_properties if needed.
     let hash_key_override = request.anon_distinct_id.clone().or_else(|| {
         request
             .person_properties
