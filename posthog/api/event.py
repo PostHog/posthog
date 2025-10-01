@@ -1,10 +1,11 @@
 import json
 import uuid
 import urllib
-import builtins
+import dataclasses
 from datetime import datetime
 from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
 
+from django.core.cache import cache
 from django.db.models.query import Prefetch
 from django.utils import timezone
 
@@ -41,6 +42,22 @@ from posthog.utils import convert_property_value, flatten, relative_date_parse
 tracer = trace.get_tracer(__name__)
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
+
+
+@dataclasses.dataclass(frozen=True)
+class EventValueQueryParams:
+    event_names: list[str]
+    is_column: bool
+    key: str
+    team: Team
+    items: Iterator[tuple[str, str]]
+    value: str | None
+
+    def cache_key(self, date_from: str | None = None, date_to: str | None = None) -> str:
+        # Create a unique cache key based on the parameters
+        items_str = "/".join(f"{k}={v}" for k, v in sorted(self.items))
+        date_str = f"{date_from}/{date_to}" if date_from and date_to else "no_date"
+        return f"event_values_response_cache:{self.team.pk}:{self.key}:{self.is_column}:{'/'.join(self.event_names)}:{self.value}:{items_str}:{date_str}"
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -277,32 +294,35 @@ class EventViewSet(
         event_names = request.GET.getlist("event_name", None)
         is_column = request.GET.get("is_column", "false").lower() == "true"
 
+        query_params = EventValueQueryParams(
+            event_names=event_names,
+            is_column=is_column,
+            key=key,
+            team=team,
+            items=request.GET.items(),
+            value=request.GET.get("value"),
+        )
+
         if key == "custom_event":
-            return self._custom_event_values(team)
+            return self._custom_event_values(query_params)
         else:
             # Check if this property is hidden (enterprise feature)
             if self._is_property_hidden(key, team):
                 return response.Response([])
 
-            return self._event_property_values(
-                event_names, is_column, key, team, request.GET.items(), request.GET.get("value")
-            )
+            return self._event_property_values(query_params)
 
     @tracer.start_as_current_span("events_api_event_property_values")
-    def _event_property_values(
-        self,
-        # list is defined locally so messy to use as a type :/
-        event_names: builtins.list[str],
-        is_column: bool,
-        key: str,
-        team: Team,
-        items: Iterator[tuple[str, str]],
-        value: str | None,
-    ) -> response.Response:
-        date_from = relative_date_parse("-7d", team.timezone_info).strftime("%Y-%m-%d 00:00:00")
+    def _event_property_values(self, query_params: EventValueQueryParams) -> response.Response:
+        date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
         date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
 
-        chain: list[str | int] = [key] if is_column else ["properties", key]
+        cache_key = query_params.cache_key(date_from, date_to)
+        cached_results = cache.get(cache_key)
+        if cached_results is not None:
+            return response.Response(cache.get(cache_key))
+
+        chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
         conditions: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -321,7 +341,7 @@ class EventViewSet(
             ),
         ]
         # Handle property filters from query parameters
-        for param_key, param_value in items:
+        for param_key, param_value in query_params.items:
             if param_key.startswith("properties_"):
                 property_key = param_key.replace("properties_", "", 1)
                 try:
@@ -333,29 +353,29 @@ class EventViewSet(
                 except json.JSONDecodeError:
                     # If not JSON, treat as single value
                     conditions.append(create_property_conditions(property_key, param_value))
-        if event_names and len(event_names) > 0:
+        if query_params.event_names and len(query_params.event_names) > 0:
             event_conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(chain=["event"]),
                     right=ast.Constant(value=event_name),
                 )
-                for event_name in event_names
+                for event_name in query_params.event_names
             ]
             if len(event_conditions) > 1:
                 conditions.append(ast.Or(exprs=event_conditions))
             else:
                 conditions.append(event_conditions[0])
-        if value:
+        if query_params.value:
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
                     left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                    right=ast.Constant(value=f"%{value}%"),
+                    right=ast.Constant(value=f"%{query_params.value}%"),
                 )
             )
         order_by = []
-        if value:
+        if query_params.value:
             order_by = [
                 ast.OrderExpr(
                     expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
@@ -370,7 +390,7 @@ class EventViewSet(
             order_by=order_by,
             limit=ast.Constant(value=10),
         )
-        result = execute_hogql_query(query, team=team)
+        result = execute_hogql_query(query, team=query_params.team)
         values = []
         for value in result.results:
             if isinstance(value[0], float | int | bool | uuid.UUID):
@@ -380,7 +400,13 @@ class EventViewSet(
                     values.append(json.loads(value[0]))
                 except json.JSONDecodeError:
                     values.append(value[0])
-        return response.Response([{"name": convert_property_value(value)} for value in flatten(values)])
+        results = [{"name": convert_property_value(value)} for value in flatten(values)]
+        if len(results) > 0:
+            # Cache for 30 seconds
+            # Generally we want this to be a short cache, as users will expect to see new values as they ingest them,
+            # but we can cache for each team since folk will be working at the same time and requesting roughly the same values
+            cache.set(cache_key, results, 30)
+        return response.Response(results)
 
     @tracer.start_as_current_span("events_api_is_property_hidden")
     def _is_property_hidden(self, key: str, team: Team) -> bool:
@@ -401,7 +427,12 @@ class EventViewSet(
         return property_is_hidden
 
     @tracer.start_as_current_span("events_api_custom_event_values")
-    def _custom_event_values(self, team: Team) -> response.Response:
+    def _custom_event_values(self, query_params: EventValueQueryParams) -> response.Response:
+        cache_key = query_params.cache_key()
+        cached_results = cache.get(cache_key)
+        if cached_results is not None:
+            return response.Response(cache.get(query_params.cache_key()))
+
         system_events = [
             event_name
             for event_name in CORE_FILTER_DEFINITIONS_BY_GROUP["events"].keys()
@@ -418,8 +449,17 @@ class EventViewSet(
             ),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["event"]), order="ASC")],
         )
-        result = execute_hogql_query(query, team=team)
-        return response.Response([{"name": event[0]} for event in result.results])
+
+        result = execute_hogql_query(query, team=query_params.team)
+        results_list = [{"name": event[0]} for event in result.results]
+
+        if len(results_list) > 0:
+            # Cache for 30 seconds
+            # Generally we want this to be a short cache, as users will expect to see new values as they ingest them,
+            # but we can cache for each team since folk will be working at the same time and requesting roughly the same values
+            cache.set(cache_key, results_list, 30)
+
+        return response.Response(results_list)
 
 
 class LegacyEventViewSet(EventViewSet):
