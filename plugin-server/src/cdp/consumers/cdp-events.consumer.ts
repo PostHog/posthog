@@ -29,12 +29,6 @@ export const counterParseError = new Counter({
     labelNames: ['error'],
 })
 
-export const counterMissingAddon = new Counter({
-    name: 'cdp_function_missing_addon',
-    help: 'A function invocation was missing an addon',
-    labelNames: ['team_id'],
-})
-
 const counterQuotaLimited = new Counter({
     name: 'cdp_function_quota_limited',
     help: 'A function invocation was quota limited',
@@ -191,14 +185,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     //     'hog_function'
                     // )
                     // return
-                }
-
-                if (
-                    !teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines') &&
-                    (await this.isAddonRequired(item.hogFunction))
-                ) {
-                    // NOTE: This will be removed in favour of the quota limited metric
-                    counterMissingAddon.labels({ team_id: item.teamId }).inc()
                 }
 
                 const state = states[item.hogFunction.id].state

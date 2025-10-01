@@ -12,41 +12,14 @@ logger = logging.getLogger(__name__)
 
 class SESProvider:
     def __init__(self):
-        self.access_key_id = self.get_access_key_id()
-        self.secret_access_key = self.get_secret_access_key()
-        self.region = self.get_region()
-        self.endpoint_url = self.get_endpoint_url()
-
         # Initialize SES client
         self.client = boto3.client(
             "ses",
-            aws_access_key_id=self.access_key_id,
-            aws_secret_access_key=self.secret_access_key,
-            region_name=self.region,
-            endpoint_url=self.endpoint_url if self.endpoint_url else None,
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
+            endpoint_url=settings.SES_ENDPOINT if settings.SES_ENDPOINT else None,
         )
-
-    @classmethod
-    def get_access_key_id(cls) -> str:
-        access_key_id = settings.SES_ACCESS_KEY_ID
-        if not access_key_id:
-            raise ValueError("SES_ACCESS_KEY_ID is not set in environment or settings")
-        return access_key_id
-
-    @classmethod
-    def get_secret_access_key(cls) -> str:
-        secret_access_key = settings.SES_SECRET_ACCESS_KEY
-        if not secret_access_key:
-            raise ValueError("SES_SECRET_ACCESS_KEY is not set in environment or settings")
-        return secret_access_key
-
-    @classmethod
-    def get_region(cls) -> str:
-        return settings.SES_REGION
-
-    @classmethod
-    def get_endpoint_url(cls) -> str | None:
-        return settings.SES_ENDPOINT
 
     def create_email_domain(self, domain: str, team_id: int):
         # NOTE: For sesv1 creation is done through verification
