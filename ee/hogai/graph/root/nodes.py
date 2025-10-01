@@ -6,8 +6,6 @@ from collections.abc import Sequence
 from typing import Any, Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
-from django.conf import settings
-
 import posthoganalytics
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
@@ -67,7 +65,7 @@ from .prompts import (
     SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT,
     SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT,
 )
-from .tools.read_taxonomy import ReadTaxonomyTool
+from .tools import ReadTaxonomyTool, SearchTool, SearchToolArgs
 
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
@@ -141,21 +139,6 @@ class RootNode(AssistantNode):
             system_prompt_template,
             flags=re.DOTALL,
         )
-        # Check if insight search is enabled for the user
-        if not self._has_insight_search_feature_flag():
-            # Remove the reference to search_insights in basic_functionality
-            system_prompt_template = re.sub(r"\n?\d+\. `search_insights`.*?[^\n]*", "", system_prompt_template)
-            # Remove the insight_search section from prompt using regex
-            system_prompt_template = re.sub(
-                r"\n?<insight_search>.*?</insight_search>", "", system_prompt_template, flags=re.DOTALL
-            )
-            # Remove the CRITICAL ROUTING LOGIC section when insight search is disabled
-            system_prompt_template = re.sub(
-                r"\n?CRITICAL ROUTING LOGIC:.*?(?=Follow these guidelines when retrieving data:)",
-                "",
-                system_prompt_template,
-                flags=re.DOTALL,
-            )
 
         system_prompts = ChatPromptTemplate.from_messages(
             [
@@ -203,18 +186,6 @@ class RootNode(AssistantNode):
         """
         return posthoganalytics.feature_enabled(
             "max-session-summarization",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
-
-    def _has_insight_search_feature_flag(self) -> bool:
-        """
-        Check if the user has the insight search feature flag enabled.
-        """
-        return posthoganalytics.feature_enabled(
-            "max-ai-insight-search",
             str(self._user.distinct_id),
             groups={"organization": str(self._team.organization_id)},
             group_properties={"organization": {"id": str(self._team.organization_id)}},
@@ -272,24 +243,20 @@ class RootNode(AssistantNode):
             create_and_query_insight,
             create_dashboard,
             get_contextual_tool_class,
-            search_documentation,
-            search_insights,
             session_summarization,
         )
 
         available_tools: list[type[BaseModel] | MaxTool] = [
             ReadTaxonomyTool(team=self._team, user=self._user, show_tool_call_message=False),
+            SearchTool(team=self._team, user=self._user, show_tool_call_message=False),
         ]
-        # Check if insight search is enabled for the user
-        if self._has_insight_search_feature_flag():
-            available_tools.append(search_insights)
+
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
             available_tools.append(session_summarization)
         # Add dashboard creation tool (always available)
         available_tools.append(create_dashboard)
-        if settings.INKEEP_API_KEY:
-            available_tools.append(search_documentation)
+
         tool_names = self.context_manager.get_contextual_tools().keys()
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         if not is_editing_insight:
@@ -538,15 +505,9 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_plan=tool_call.args["query_description"],
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif tool_call.name in ["search_documentation", "retrieve_billing_information"]:
+        elif tool_call.name == "retrieve_billing_information":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
-                root_tool_calls_count=tool_call_count + 1,
-            )
-        elif tool_call.name == "search_insights":
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                search_insights_query=tool_call.args["search_query"],
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif tool_call.name == "session_summarization":
@@ -584,6 +545,25 @@ class RootNodeTools(AssistantNode):
                 )
             if not isinstance(result, LangchainToolMessage | AssistantToolCallMessage):
                 raise TypeError(f"Expected a {LangchainToolMessage} or {AssistantToolCallMessage}, got {type(result)}")
+
+            # Handle the basic toolkit
+            if (
+                isinstance(result, LangchainToolMessage)
+                and result.name == "Search"
+                and isinstance(result.artifact, SearchToolArgs)
+            ):
+                match result.artifact.kind:
+                    case "insights":
+                        return PartialAssistantState(
+                            root_tool_call_id=tool_call.id,
+                            search_insights_query=result.artifact.query,
+                            root_tool_calls_count=tool_call_count + 1,
+                        )
+                    case "docs":
+                        return PartialAssistantState(
+                            root_tool_call_id=tool_call.id,
+                            root_tool_calls_count=tool_call_count + 1,
+                        )
 
             # If this is a navigation tool call, pause the graph execution
             # so that the frontend can re-initialise Max with a new set of contextual tools.

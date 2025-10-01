@@ -1,4 +1,4 @@
-from typing import Literal, Union
+from typing import Any, Literal, Union
 
 from pydantic import BaseModel, Field
 
@@ -126,7 +126,7 @@ class ReadTaxonomyTool(MaxTool):
     args_schema: type[BaseModel] = ReadTaxonomy
     show_tool_call_message: bool = False
 
-    def _run_impl(self, query: ReadTaxonomyQuery) -> tuple[str, str]:
+    def _run_impl(self, query: ReadTaxonomyQuery) -> tuple[str, Any]:
         toolkit = TaxonomyAgentToolkit(self._team)
         match query:
             case ReadEvents():
@@ -145,4 +145,4 @@ class ReadTaxonomyTool(MaxTool):
                 res = toolkit.retrieve_entity_property_values(schema.entity, schema.property_name)
             case _:
                 raise ValueError(f"Invalid query: {query.query}")
-        return res, res
+        return res, None

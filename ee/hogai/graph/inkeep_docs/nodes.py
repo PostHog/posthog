@@ -33,11 +33,11 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.INKEEP_DOCS
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
         prompt = ChatPromptTemplate(self._construct_messages(state))
         chain = prompt | self._get_model()
-        message: LangchainAIMessage = chain.invoke({}, config)
+        message: LangchainAIMessage = await chain.ainvoke({}, config)
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(

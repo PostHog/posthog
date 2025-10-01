@@ -92,6 +92,7 @@ class AssistantContextualTool(StrEnum):
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     READ_TAXONOMY = "ReadTaxonomy"
+    SEARCH = "Search"
 
 
 class AssistantDateRange(BaseModel):

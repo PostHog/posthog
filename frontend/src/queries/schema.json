@@ -789,7 +789,8 @@
                 "search_insights",
                 "session_summarization",
                 "create_dashboard",
-                "ReadTaxonomy"
+                "ReadTaxonomy",
+                "Search"
             ],
             "type": "string"
         },
