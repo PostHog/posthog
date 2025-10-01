@@ -28,7 +28,7 @@ from posthog.models.user import User
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
-from ee.hogai.utils.helpers import find_start_message, find_start_message_idx
+from ee.hogai.utils.helpers import find_start_message, insert_messages_before_start
 from ee.hogai.utils.types.base import AnyAssistantSupportedQuery, AssistantMessageUnion, BaseStateWithMessages
 
 from .prompts import (
@@ -378,5 +378,4 @@ class AssistantContextManager(AssistantContextMixin):
             ContextMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts
         ]
         # Insert context messages right before the start message
-        start_idx = find_start_message_idx(state.messages, state.start_id)
-        return [*state.messages[:start_idx], *context_messages, *state.messages[start_idx:]]
+        return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)

@@ -165,3 +165,16 @@ ROOT_BILLING_CONTEXT_ERROR_PROMPT = """
 If the user asks about billing, their subscription, their usage, or their spending, suggest them to talk to PostHog support.
 </billing_context>
 """.strip()
+
+CONTEXTUAL_TOOLS_REMINDER_PROMPT = """
+<system_reminder>
+Contextual tools that are available to you on this page are:
+{tools}
+IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.
+</system_reminder>
+""".strip()
+
+ROOT_CONVERSATION_SUMMARY_PROMPT = """
+This session continues from a prior conversation that exceeded the context window. A summary of that conversation is provided below:
+{summary}
+""".strip()

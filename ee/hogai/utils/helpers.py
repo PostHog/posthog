@@ -124,9 +124,6 @@ def should_output_assistant_message(candidate_message: AssistantMessageUnion) ->
     if isinstance(candidate_message, AssistantMessage) and not candidate_message.content:
         return False
 
-    if isinstance(candidate_message, HumanMessage) and candidate_message.visible is False:
-        return False
-
     # Filter out context messages
     if isinstance(candidate_message, ContextMessage):
         return False
@@ -267,3 +264,13 @@ def extract_stream_update(update: Any) -> Any:
 
     update = update[1:]  # we remove the first element, which is the node/subgraph node name
     return update
+
+
+def insert_messages_before_start(
+    messages: Sequence[AssistantMessageUnion],
+    new_messages: Sequence[AssistantMessageUnion],
+    start_id: str | None = None,
+) -> list[AssistantMessageUnion]:
+    # Insert context messages right before the start message
+    start_idx = find_start_message_idx(messages, start_id)
+    return [*messages[:start_idx], *new_messages, *messages[start_idx:]]
