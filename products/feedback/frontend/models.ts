@@ -1,11 +1,13 @@
 export interface FeedbackItemCategory {
     id: string
     name: string
+    statuses?: FeedbackItemStatus[]
 }
 
 export interface FeedbackItemStatus {
     id: string
     name: string
+    category?: string
 }
 
 export interface FeedbackItemTopic {

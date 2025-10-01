@@ -16,6 +16,12 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
 
         createFeedbackTopic: (name: string) => ({ name }),
         deleteFeedbackTopic: (id: string) => ({ id }),
+
+        createFeedbackCategory: (name: string) => ({ name }),
+        deleteFeedbackCategory: (id: string) => ({ id }),
+
+        createFeedbackStatus: (name: string, categoryId: string) => ({ name, categoryId }),
+        deleteFeedbackStatus: (id: string) => ({ id }),
     }),
 
     loaders(() => ({
@@ -56,6 +62,22 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
         deleteFeedbackTopic: async ({ id }) => {
             await api.feedback.topics.delete(id)
             actions.loadFeedbackTopics()
+        },
+        createFeedbackCategory: async ({ name }) => {
+            await api.feedback.categories.create({ name })
+            actions.loadFeedbackCategories()
+        },
+        deleteFeedbackCategory: async ({ id }) => {
+            await api.feedback.categories.delete(id)
+            actions.loadFeedbackCategories()
+        },
+        createFeedbackStatus: async ({ name, categoryId }) => {
+            await api.feedback.statuses.create({ name, category: categoryId })
+            actions.loadFeedbackCategories()
+        },
+        deleteFeedbackStatus: async ({ id }) => {
+            await api.feedback.statuses.delete(id)
+            actions.loadFeedbackCategories()
         },
     })),
 

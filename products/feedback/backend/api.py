@@ -25,16 +25,18 @@ logger = structlog.get_logger(__name__)
 FIVE_HUNDRED_MEGABYTES = 1024 * 1024 * 500
 
 
-class FeedbackItemCategorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = FeedbackItemCategory
-        fields = ["id", "name"]
-
-
 class FeedbackItemStatusSerializer(serializers.ModelSerializer):
     class Meta:
         model = FeedbackItemStatus
-        fields = ["id", "name"]
+        fields = ["id", "name", "category"]
+
+
+class FeedbackItemCategorySerializer(serializers.ModelSerializer):
+    statuses = FeedbackItemStatusSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = FeedbackItemCategory
+        fields = ["id", "name", "statuses"]
 
 
 class FeedbackItemTopicSerializer(serializers.ModelSerializer):
@@ -74,14 +76,20 @@ class FeedbackItemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 class FeedbackItemCategoryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "feedback_item_category"
-    queryset = FeedbackItemCategory.objects.all()
+    queryset = FeedbackItemCategory.objects.prefetch_related("statuses")
     serializer_class = FeedbackItemCategorySerializer
+
+    def perform_create(self, serializer):
+        serializer.save(team_id=self.team_id)
 
 
 class FeedbackItemStatusViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "feedback_item_status"
     queryset = FeedbackItemStatus.objects.all()
     serializer_class = FeedbackItemStatusSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(team_id=self.team_id)
 
 
 class FeedbackItemTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
