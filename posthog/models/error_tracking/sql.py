@@ -1,7 +1,10 @@
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
+from posthog.kafka_client.topics import (
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS,
+)
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 #
@@ -124,7 +127,7 @@ KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL = (
         table_name="kafka_" + ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
         cluster=CLICKHOUSE_CLUSTER,
         engine=kafka_engine(
-            KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT, group="clickhouse-error-tracking-fingerprint-embeddings"
+            KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS, group="clickhouse-error-tracking-fingerprint-embeddings"
         ),
         extra_fields="",
     )
