@@ -8,11 +8,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tags_context
 
 from dags.common import JobOwners, dagster_tags
-from dags.web_preaggregated_utils import (
-    TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS,
-    WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
-    format_clickhouse_settings,
-)
+from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS, WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS
 
 logger = structlog.get_logger(__name__)
 
@@ -136,12 +132,11 @@ def web_pre_aggregated_accuracy(context: AssetExecutionContext) -> list[dict]:
     context.log.info(f"Running accuracy comparison for team {team_id} from {start_date_str} to {end_date_str}")
 
     query = build_accuracy_comparison_query(team_id, start_date_str, end_date_str)
-    clickhouse_settings = format_clickhouse_settings(WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS)
 
     try:
         with tags_context(kind="dagster", dagster=dagster_tags(context)):
             context.log.info("Executing accuracy comparison query")
-            result = sync_execute(query, settings=clickhouse_settings)
+            result = sync_execute(query, settings=WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS)
 
         context.log.info(f"Query returned {len(result)} rows")
 
