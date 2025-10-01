@@ -39,6 +39,28 @@
   LIMIT 100
   '''
 # ---
+# name: TestQuery.test_hogql_groupby_unnecessary_ifnull
+  '''
+  -- ClickHouse
+  
+  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, count() AS cnt 
+  FROM events 
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10))) 
+  GROUP BY timestamp 
+  HAVING ifNull(greater(cnt, 10), 0) 
+  LIMIT 1 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
+  
+  -- HogQL
+  
+  SELECT toDate(timestamp) AS timestamp, count() AS cnt 
+  FROM events 
+  WHERE greaterOrEquals(timestamp, addDays(today(), -10)) 
+  GROUP BY timestamp 
+  HAVING greater(cnt, 10) 
+  LIMIT 1
+  '''
+# ---
 # name: TestQuery.test_hogql_lambdas
   '''
   -- ClickHouse
@@ -247,20 +269,18 @@
   '''
   -- ClickHouse
   
-  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, count() AS `count()` 
+  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, JSONExtractInt(events.properties, %(hogql_val_1)s) AS json_int 
   FROM events 
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10))) 
-  GROUP BY timestamp 
-  LIMIT 100 
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10)), equals(json_int, 17)) 
+  LIMIT 1 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
   
   -- HogQL
   
-  SELECT toDate(timestamp) AS timestamp, count() 
+  SELECT toDate(timestamp) AS timestamp, JSONExtractInt(properties, 'field') AS json_int 
   FROM events 
-  WHERE greaterOrEquals(timestamp, addDays(today(), -10)) 
-  GROUP BY timestamp 
-  LIMIT 100
+  WHERE and(greaterOrEquals(timestamp, addDays(today(), -10)), equals(json_int, 17)) 
+  LIMIT 1
   '''
 # ---
 # name: TestQuery.test_join_with_property_materialized_session_id

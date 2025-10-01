@@ -955,6 +955,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateSeriesIndex: [sharedListeners.selectedYAxis, sharedListeners.tabularColumnSettings],
         updateSeries: [sharedListeners.selectedYAxis, sharedListeners.tabularColumnSettings],
         deleteYSeries: [sharedListeners.selectedYAxis],
+        updateConditionalFormattingRule: [sharedListeners.conditionalFormattingRules],
     })),
     subscriptions(({ actions, values }) => ({
         columns: (value: Column[], oldValue: Column[]) => {

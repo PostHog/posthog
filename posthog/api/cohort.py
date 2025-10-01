@@ -1,4 +1,5 @@
 import csv
+import uuid
 from collections import defaultdict
 from collections.abc import Iterator
 from datetime import datetime
@@ -9,6 +10,7 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from pydantic import (
@@ -18,7 +20,7 @@ from pydantic import (
     model_validator,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -59,7 +61,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
-from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
+from posthog.models.cohort.util import get_all_cohort_dependencies, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
@@ -180,17 +182,28 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
+class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
+    person_ids = serializers.ListField(
+        child=serializers.UUIDField(), required=True, help_text="List of person UUIDs to add to the cohort"
+    )
+
+
+class RemovePersonRequestSerializer(serializers.Serializer):
+    person_id = serializers.UUIDField(required=True, help_text="Person UUID to remove from the cohort")
+
+
 class CSVConfig:
     """Configuration constants for CSV processing"""
 
     PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
+    EMAIL_HEADERS = ["email", "e-mail"]
     ENCODING = "utf-8"
 
     class ErrorMessages:
         EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
-        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person .id' (PostHog export format), 'distinct_id', or 'distinct-id'. Found columns: {columns}"
-        NO_VALID_IDS = "CSV file contains no valid person or distinct IDs. Please ensure your file has data rows with person IDs or distinct IDs."
+        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person .id' (PostHog export format), 'distinct_id', 'distinct-id', or 'email'. Found columns: {columns}"
+        NO_VALID_IDS = "CSV file contains no valid person IDs, distinct IDs, or email addresses. Please ensure your file has data rows with person IDs, distinct IDs, or email addresses."
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
         FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
@@ -311,9 +324,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
-            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
-
-            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+            cohort.enqueue_calculation(initiating_user=request.user)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -343,8 +354,13 @@ class CohortSerializer(serializers.ModelSerializer):
         person_id_headers_lower = [h.lower() for h in CSVConfig.PERSON_ID_HEADERS]
         return header.strip().lower() in person_id_headers_lower
 
+    def _is_email_header(self, header: str) -> bool:
+        """Check if header indicates email column"""
+        email_headers_lower = [h.lower() for h in CSVConfig.EMAIL_HEADERS]
+        return header.strip().lower() in email_headers_lower
+
     def _find_id_column(self, headers: list[str]) -> tuple[int, str] | None:
-        """Find the index and type of the ID column in headers with person_id preference over distinct_id"""
+        """Find the index and type of the ID column in headers, with preference order: person_id > distinct_id > email"""
         normalized_headers = [h.strip() for h in headers]
         normalized_lower_headers = [h.lower() for h in normalized_headers]
 
@@ -358,6 +374,12 @@ class CohortSerializer(serializers.ModelSerializer):
         for i, header in enumerate(normalized_lower_headers):
             if header in CSVConfig.DISTINCT_ID_HEADERS:
                 return i, "distinct_id"
+
+        # Finally, look for email columns
+        email_headers_lower = [h.lower() for h in CSVConfig.EMAIL_HEADERS]
+        for i, header in enumerate(normalized_lower_headers):
+            if header in email_headers_lower:
+                return i, "email"
 
         return None
 
@@ -442,6 +464,10 @@ class CohortSerializer(serializers.ModelSerializer):
                 if first_row and self._is_person_id_header(first_row[0]):
                     ids = self._extract_ids_single_column(first_row, reader, skip_header=True)
                     id_type = "person_id"
+                # Check if single column header indicates email
+                elif first_row and self._is_email_header(first_row[0]):
+                    ids = self._extract_ids_single_column(first_row, reader, skip_header=True)
+                    id_type = "email"
                 else:
                     # Single column format treated as distinct_ids for backwards compatibility
                     ids = self._extract_ids_single_column(first_row, reader, skip_header=False)
@@ -553,12 +579,12 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _validate_nested_cohort_behavioral_filters(self, prop: Any, cohort_used_in_flags: bool):
         nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
-        dependent_cohorts = get_dependent_cohorts(nested_cohort)
+        dependency_cohorts = get_all_cohort_dependencies(nested_cohort)
 
-        for dependent_cohort in [nested_cohort, *dependent_cohorts]:
-            if cohort_used_in_flags and any(p.type == "behavioral" for p in dependent_cohort.properties.flat):
+        for dependency_cohort in [nested_cohort, *dependency_cohorts]:
+            if cohort_used_in_flags and any(p.type == "behavioral" for p in dependency_cohort.properties.flat):
                 raise serializers.ValidationError(
-                    detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
+                    detail=f"A cohort dependency ({dependency_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
                     code="behavioral_cohort_found",
                 )
 
@@ -609,16 +635,11 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
-            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
-
-            if cohort.is_static:
+            if cohort.is_static and request.FILES.get("csv"):
                 # You can't update a static cohort using the trend/stickiness thing
-                if request.FILES.get("csv"):
-                    self._calculate_static_by_csv(request.FILES["csv"], cohort)
-                else:
-                    increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+                self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+                cohort.enqueue_calculation(initiating_user=request.user)
 
         report_user_action(
             request.user,
@@ -736,10 +757,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return graph, behavioral_cohorts
 
-    @action(
-        methods=["GET"],
-        detail=True,
-    )
+    @extend_schema(summary="Duplicate as static cohort", description="Create a static copy of a dynamic cohort")
+    @action(methods=["GET"], detail=True, required_scopes=["cohort:write"])
     def duplicate_as_static_cohort(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
         team = self.team
@@ -842,7 +861,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
-    @action(methods=["PATCH"], detail=True)
+    @extend_schema(request=AddPersonsToStaticCohortRequestSerializer)
+    @action(methods=["PATCH"], detail=True, required_scopes=["cohort:write"])
     def add_persons_to_static_cohort(self, request: request.Request, **kwargs):
         cohort: Cohort = self.get_object()
         if not cohort.is_static:
@@ -871,6 +891,47 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             item_id=str(cohort.id),
             scope="Cohort",
             activity="persons_added_manually",
+            detail=Detail(changes=[Change(type="Cohort", action="changed")]),
+        )
+        return Response({"success": True}, status=200)
+
+    @extend_schema(request=RemovePersonRequestSerializer)
+    @action(methods=["PATCH"], detail=True, required_scopes=["cohort:write"])
+    def remove_person_from_static_cohort(self, request: request.Request, **kwargs):
+        cohort: Cohort = self.get_object()
+        if not cohort.is_static:
+            raise ValidationError("Can only remove users from static cohorts")
+        person_id = request.data.get("person_id", None)
+        if not person_id:
+            raise ValidationError("person_id is required")
+        if not isinstance(person_id, str):
+            raise ValidationError("person_id must be a string")
+
+        # Validate UUID format
+        try:
+            uuid.UUID(person_id)
+        except ValueError:
+            raise ValidationError("person_id must be a valid UUID")
+
+        # Check if person exists and belongs to this team
+        try:
+            person_uuid = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=self.team_id, uuid=person_id).uuid
+        except Person.DoesNotExist:
+            raise NotFound("Person with this UUID does not exist in the cohort's team")
+
+        success = cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
+
+        if not success:
+            raise NotFound("Person is not part of the cohort")
+
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(cohort.id),
+            scope="Cohort",
+            activity="person_removed_manually",
             detail=Detail(changes=[Change(type="Cohort", action="changed")]),
         )
         return Response({"success": True}, status=200)

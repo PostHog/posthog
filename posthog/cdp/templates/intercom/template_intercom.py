@@ -180,7 +180,7 @@ if (empty(inputs.email)) {
 
 let regions := {
     'US': 'api.intercom.io',
-    'EU': 'api.eu.intercom.io',
+    'Europe': 'api.eu.intercom.io',
     'AU': 'api.au.intercom.io',
 }
 

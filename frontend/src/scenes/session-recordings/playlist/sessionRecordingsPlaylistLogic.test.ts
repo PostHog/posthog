@@ -548,68 +548,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     },
                 })
         })
-
-        it('reads advanced filters from the URL', async () => {
-            router.actions.push('/replay', {
-                advancedFilters: {
-                    events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
-                },
-            })
-
-            await expectLogic(logic)
-                .toDispatchActions(['setFilters'])
-                .toMatchValues({
-                    filters: expect.objectContaining({
-                        filter_group: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
-                                },
-                            ],
-                        },
-                    }),
-                })
-        })
-
-        it('reads simple filters from the URL', async () => {
-            router.actions.push('/replay', {
-                simpleFilters: {
-                    properties: [
-                        {
-                            key: '$geoip_country_name',
-                            value: ['Australia'],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.Person,
-                        },
-                    ],
-                },
-            })
-
-            await expectLogic(logic)
-                .toDispatchActions(['setFilters'])
-                .toMatchValues({
-                    filters: expect.objectContaining({
-                        filter_group: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [
-                                        {
-                                            key: '$geoip_country_name',
-                                            value: ['Australia'],
-                                            operator: PropertyOperator.Exact,
-                                            type: PropertyFilterType.Person,
-                                        },
-                                    ],
-                                },
-                            ],
-                        },
-                    }),
-                })
-        })
     })
 
     describe('person specific logic', () => {

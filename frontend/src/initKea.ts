@@ -7,7 +7,7 @@ import { subscriptionsPlugin } from 'kea-subscriptions'
 import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog, { PostHog } from 'posthog-js'
-import { posthogKeaLogger } from 'posthog-js/lib/src/customizations'
+import { posthogKeaLogger, sessionRecordingLoggerForPostHogInstance } from 'posthog-js/lib/src/customizations'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { hashCodeForString, identifierToHuman } from 'lib/utils'
@@ -145,10 +145,7 @@ export function initKea({
     if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
         plugins.push(
             posthogKeaLogger({
-                logger: (title, stateEvent) => {
-                    const ph: PostHog | undefined = window.posthog
-                    ph?.sessionRecording?.tryAddCustomEvent('app-state', { title, stateEvent })
-                },
+                logger: sessionRecordingLoggerForPostHogInstance(window.posthog),
             })
         )
     }

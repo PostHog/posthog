@@ -416,7 +416,8 @@ impl CheckpointManager {
             counter_for_partition = *counter_guard.get(partition).unwrap_or(&0_u32);
         }
 
-        if counter_for_partition % full_checkpoint_interval == 0 {
+        // when full_checkpoint_interval is 0, we default to always performing Full checkpoints
+        if counter_for_partition.is_multiple_of(full_checkpoint_interval) {
             CheckpointMode::Full
         } else {
             CheckpointMode::Incremental

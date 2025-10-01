@@ -26,14 +26,12 @@ from .api import (
     conversation,
     core_memory,
     dashboard_collaborator,
-    explicit_team_member,
-    feature_flag_role_access,
     hooks,
     license,
     sentry_stats,
     subscription,
 )
-from .api.rbac import organization_resource_access, role
+from .api.rbac import role
 
 
 def extend_api_router() -> None:
@@ -42,7 +40,6 @@ def extend_api_router() -> None:
         environments_router,
         legacy_project_dashboards_router,
         organizations_router,
-        project_feature_flags_router,
         register_grandfathered_environment_nested_viewset,
         router as root_router,
     )
@@ -64,27 +61,7 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
-    # Start: routes to be deprecated
-    project_feature_flags_router.register(
-        r"role_access",
-        feature_flag_role_access.FeatureFlagRoleAccessViewSet,
-        "project_feature_flag_role_access",
-        ["project_id", "feature_flag_id"],
-    )
-    organizations_router.register(
-        r"resource_access",
-        organization_resource_access.OrganizationResourceAccessViewSet,
-        "organization_resource_access",
-        ["organization_id"],
-    )
-    # End: routes to be deprecated
     register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
-    register_grandfathered_environment_nested_viewset(
-        r"explicit_members",
-        explicit_team_member.ExplicitTeamMemberViewSet,
-        "environment_explicit_members",
-        ["team_id"],
-    )
 
     environment_dashboards_router.register(
         r"collaborators",

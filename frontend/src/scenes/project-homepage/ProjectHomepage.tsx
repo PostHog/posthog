@@ -13,6 +13,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { NewTabScene } from 'scenes/new-tab/NewTabScene'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -29,7 +30,7 @@ export const scene: SceneExport = {
     logic: projectHomepageLogic,
 }
 
-export function ProjectHomepage(): JSX.Element {
+function HomePageContent(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showSceneDashboardChoiceModal } = useActions(
@@ -59,8 +60,13 @@ export function ProjectHomepage(): JSX.Element {
                 </span>
             )}
 
-            {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && <PosthogStoriesContainer />}
-            <SceneDivider />
+            {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && (
+                <>
+                    <PosthogStoriesContainer />
+                    <SceneDivider />
+                </>
+            )}
+
             <SceneTitleSection
                 name={dashboard?.name ?? 'Project Homepage'}
                 resourceType={{
@@ -116,4 +122,14 @@ export function ProjectHomepage(): JSX.Element {
             <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
         </SceneContent>
     )
+}
+
+export function ProjectHomepage(): JSX.Element {
+    const { dashboardLogicProps } = useValues(projectHomepageLogic)
+    // if there is no numeric dashboard id, the dashboard logic will throw...
+    // so we check it here first
+    if (dashboardLogicProps?.id) {
+        return <HomePageContent />
+    }
+    return <NewTabScene source="homepage" />
 }

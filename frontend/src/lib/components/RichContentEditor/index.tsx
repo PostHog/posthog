@@ -59,7 +59,7 @@ export const useRichContentEditor = ({
     onSelectionUpdate = () => {},
 }: RichContentEditorProps): TTEditor => {
     const editor = useEditor({
-        shouldRerenderOnTransaction: true,
+        shouldRerenderOnTransaction: false,
         extensions,
         editable: !disabled,
         content: initialContent,
