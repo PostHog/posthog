@@ -38,7 +38,6 @@ export function FeedbackPreview(): JSX.Element {
                             label: topic,
                         }))}
                         placeholder="Select topic"
-                        disabled
                     />
                 )}
 

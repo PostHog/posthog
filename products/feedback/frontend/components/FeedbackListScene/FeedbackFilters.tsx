@@ -8,7 +8,7 @@ import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSett
 import { FeedbackStatus, StatusOption } from '../../types'
 
 const STATUS_LABELS: Record<StatusOption, { label: string; color: 'success' | 'warning' | 'muted' }> = {
-    all: { label: 'All', color: 'muted' },
+    all: { label: 'All statuses', color: 'muted' },
     [FeedbackStatus.Visible]: { label: 'Visible', color: 'success' },
     [FeedbackStatus.Hidden]: { label: 'Hidden', color: 'warning' },
 }
@@ -73,11 +73,7 @@ export const FeedbackFilters = (): JSX.Element => {
                     placeholder="Select category"
                     options={categoryOptions.map((category) => ({
                         value: category,
-                        label: (
-                            <div className="flex items-center gap-2 text-sm">
-                                <span className="capitalize">{category === 'all' ? 'All categories' : category}</span>
-                            </div>
-                        ),
+                        label: category === 'all' ? 'All categories' : category,
                     }))}
                     size="small"
                     onChange={(category) => {
@@ -93,11 +89,7 @@ export const FeedbackFilters = (): JSX.Element => {
                     placeholder="Select topic"
                     options={topicOptions.map((topic) => ({
                         value: topic,
-                        label: (
-                            <div className="flex items-center gap-2 text-sm">
-                                <span>{topic === 'all' ? 'All topics' : topic}</span>
-                            </div>
-                        ),
+                        label: topic === 'all' ? 'All topics' : topic,
                     }))}
                     size="small"
                     onChange={(topic) => {
