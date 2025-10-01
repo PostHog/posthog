@@ -363,7 +363,7 @@ RESOURCE_INHERITANCE_MAP = {
 
 The `AccessControlViewSetMixin` automatically adds these endpoints:
 
-```
+```text
 GET    /api/projects/{project_id}/{resource}/{id}/access_controls/
 POST   /api/projects/{project_id}/{resource}/{id}/access_controls/
 DELETE /api/projects/{project_id}/{resource}/{id}/access_controls/

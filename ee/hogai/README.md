@@ -156,12 +156,15 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
 
     - Add a new formatter class in `query_executor/format.py` that implements query result formatting for AI consumption (see below, point 3)
     - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
+
         ```python
         elif isinstance(query, YourNewAssistantQuery | YourNewQuery):
             return YourNewResultsFormatter(query, response["results"]).format()
         ```
+
     - Add example prompts for your query type in `query_executor/prompts.py`, this explains to the LLM the query results formatting
     - Update `_get_example_prompt()` method in `query_executor/nodes.py` to handle your new query type:
+
         ```python
         if isinstance(viz_message.answer, YourNewAssistantQuery):
             return YOUR_NEW_EXAMPLE_PROMPT
@@ -169,6 +172,7 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
 
 2. **Update the root node** (`@ee/hogai/graph/root/`):
     - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
+
         ```python
         MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
             "TrendsQuery": TrendsQuery,

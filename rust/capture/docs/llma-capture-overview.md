@@ -43,6 +43,7 @@ These events can be processed through the regular pipeline without blob storage:
 ### Future Considerations
 
 The event schema is designed to accommodate future multimodal content types, including:
+
 - Images
 - Audio
 - Video
@@ -89,6 +90,7 @@ The `/ai` endpoint accepts multipart POST requests with the following structure:
 #### Request Format
 
 **Headers:**
+
 - `Content-Type: multipart/form-data; boundary=<boundary>`
 - Standard PostHog authentication headers
 
@@ -109,7 +111,7 @@ The `/ai` endpoint accepts multipart POST requests with the following structure:
 
 #### Example Request Structure
 
-```
+```http
 POST /ai HTTP/1.1
 Content-Type: multipart/form-data; boundary=----boundary123
 
@@ -183,7 +185,7 @@ All blobs for an event are stored as a single multipart file in S3:
 
 #### Bucket Structure
 
-```
+```text
 s3://<bucket>/
   llma/
     <team_id>/
@@ -192,7 +194,8 @@ s3://<bucket>/
 ```
 
 With retention prefixes:
-```
+
+```text
 s3://<bucket>/
   llma/
     <retention>/
@@ -217,6 +220,7 @@ s3://<bucket>/
 #### Event Property Format
 
 Properties contain S3 URLs with byte range parameters:
+
 ```json
 {
   "event": "$ai_generation",
@@ -238,13 +242,15 @@ Properties contain S3 URLs with byte range parameters:
 #### Example S3 paths
 
 Without retention prefix (default 30 days):
-```
+
+```text
 s3://posthog-llm-analytics/llma/123/2024-01-15/event_456_x7y9z.multipart
 s3://posthog-llm-analytics/llma/456/2024-01-15/event_789_a3b5c.multipart
 ```
 
 With retention prefixes:
-```
+
+```text
 s3://posthog-llm-analytics/llma/30d/123/2024-01-15/event_012_m2n4p.multipart
 s3://posthog-llm-analytics/llma/90d/456/2024-01-15/event_345_q6r8s.multipart
 s3://posthog-llm-analytics/llma/1y/789/2024-01-15/event_678_t1u3v.multipart
@@ -301,7 +307,8 @@ For uncompressed data received from SDKs:
 #### Example Headers
 
 Compressed blob part from SDK:
-```
+
+```http
 Content-Disposition: form-data; name="event.properties.$ai_input"; filename="blob_abc123"
 Content-Type: application/json
 Content-Encoding: gzip
@@ -375,9 +382,11 @@ Three approaches for handling data deletion requests:
    - Use S3's delete by prefix functionality to remove all objects for a team
    - Simple to implement but requires listing and deleting potentially many objects
    - Example: Delete all data for team 123:
-     ```
+
+     ```bash
      aws s3 rm s3://posthog-llm-analytics/llma/123/ --recursive
      ```
+
      Or using S3 API to delete objects with prefix `llma/123/`
 
 3. **Per-Team Encryption**
@@ -432,14 +441,15 @@ The capture service enforces strict validation on incoming events:
 ### WarpStream-based Processing
 
 **Architecture:**
+
 - Push entire request payloads (including large LLM content) to WarpStream, which supports large messages
 - A separate service consumes from WarpStream and uploads blobs to S3
 - Events are then forwarded to the regular ingestion pipeline
 
 **Downsides:**
+
 - WarpStream is less reliable than S3, reducing overall system availability
 - Additional transfer costs for moving data through WarpStream
 - Additional processing costs for the intermediate service
 - No meaningful batching opportunity - the service would upload files to S3 individually, same as direct upload from capture
 - Adds complexity and another point of failure without significant benefits
-

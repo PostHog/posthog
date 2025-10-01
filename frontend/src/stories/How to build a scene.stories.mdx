@@ -8,9 +8,9 @@ If you want to add a new scene in the PostHog App frontend, here are 7 easy step
 
 But first, you must answer one question: Does your scene depend on an `id` in the URL, like `/dashboard/:id`?
 
-## Option A: I'm buliding a global scene that does not depend on an `id` in the URL.
+## Option A: I'm buliding a global scene that does not depend on an `id` in the URL
 
-### 1. Create the component, logic and styles.
+### 1. Create the component, logic and styles
 
 Create a component like: `frontend/src/scenes/dashboard/Dashboards.tsx`
 
@@ -112,9 +112,9 @@ export const appScenes: Record<Scene, () => any> = {
 }
 ```
 
-## Option B: My scene depends on an `id` in the URL (`/dashboard/:id`).
+## Option B: My scene depends on an `id` in the URL (`/dashboard/:id`)
 
-### 1. Create the component, logic and styles.
+### 1. Create the component, logic and styles
 
 Create a component like: `frontend/src/scenes/dashboard/Dashboard.tsx`
 

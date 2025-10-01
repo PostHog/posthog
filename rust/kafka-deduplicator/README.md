@@ -25,7 +25,7 @@ The Kafka consumer is built as a stateful, partition-aware consumer that maintai
 When partitions are assigned or revoked (during rebalancing):
 
 1. **Partition Assignment**: Creates a new RocksDB store for each assigned partition at path: `{base_path}/{topic}_{partition}/`
-2. **Partition Revocation**: 
+2. **Partition Revocation**:
    - Marks the partition as "fenced" to reject new messages
    - Waits for in-flight messages to complete
    - Cleanly closes the RocksDB store
@@ -42,6 +42,7 @@ When partitions are assigned or revoked (during rebalancing):
 ## Deduplication Strategy
 
 Events are deduplicated based on a **composite key**:
+
 - Format: `timestamp:distinct_id:token:event_name`
 - Two events with the same composite key are considered duplicates
 - UUID is used only for Kafka partitioning, not deduplication
@@ -55,7 +56,7 @@ The service includes a comprehensive checkpoint system for backup, recovery, and
 - **Periodic snapshots**: Creates RocksDB checkpoints at configurable intervals (default: 5 minutes)
 - **Point-in-time consistency**: Checkpoints capture the complete deduplication state at a specific moment
 - **Multi-tier storage**: Local checkpoints for fast recovery, S3 uploads for durability and scaling
-- **Incremental vs Full uploads**: 
+- **Incremental vs Full uploads**:
   - **Incremental**: Upload only changed SST files since last checkpoint
   - **Full**: Upload complete checkpoint (every N incremental uploads, default: 10)
 
