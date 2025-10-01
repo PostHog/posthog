@@ -190,12 +190,44 @@ impl DeduplicationStore {
                 DeduplicationResult::PotentialDuplicate(DeduplicationType::Timestamp)
             };
 
+            // Format different fields for logging
+            let different_fields_str = if similarity.different_fields.is_empty() {
+                "none".to_string()
+            } else {
+                similarity
+                    .different_fields
+                    .iter()
+                    .map(|(field, orig, new)| format!("{}({}->{})", field, orig, new))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+
+            // Format different properties for logging
+            let different_properties_str = if similarity.different_properties.is_empty() {
+                "none".to_string()
+            } else {
+                similarity
+                    .different_properties
+                    .iter()
+                    .map(|(prop, values)| {
+                        if let Some((orig, new)) = values {
+                            format!("{}({}->{})", prop, orig, new)
+                        } else {
+                            prop.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+
             // Log the duplicate
             info!(
-                "Timestamp duplicate: {} for key {:?}, Similarity: {:.2}",
+                "Timestamp duplicate: {} for key {:?}, Similarity: {:.2}, Different fields: [{}], Different properties: [{}]",
                 metadata.get_metrics_summary(),
                 key,
-                similarity.overall_score
+                similarity.overall_score,
+                different_fields_str,
+                different_properties_str
             );
 
             // Emit metrics
@@ -313,11 +345,44 @@ impl DeduplicationStore {
                 DeduplicationResult::PotentialDuplicate(DeduplicationType::UUID)
             };
 
+            // Format different fields for logging
+            let different_fields_str = if similarity.different_fields.is_empty() {
+                "none".to_string()
+            } else {
+                similarity
+                    .different_fields
+                    .iter()
+                    .map(|(field, orig, new)| format!("{}({}->{})", field, orig, new))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+
+            // Format different properties for logging
+            let different_properties_str = if similarity.different_properties.is_empty() {
+                "none".to_string()
+            } else {
+                similarity
+                    .different_properties
+                    .iter()
+                    .map(|(prop, values)| {
+                        if let Some((orig, new)) = values {
+                            format!("{}({}->{})", prop, orig, new)
+                        } else {
+                            prop.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+
             // Log the duplicate
             info!(
-                "UUID duplicate: {} for key {:?}",
+                "UUID duplicate: {} for key {:?}, Similarity: {:.2}, Different fields: [{}], Different properties: [{}]",
                 metadata.get_metrics_summary(),
-                key
+                key,
+                similarity.overall_score,
+                different_fields_str,
+                different_properties_str
             );
 
             // Emit metrics

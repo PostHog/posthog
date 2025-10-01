@@ -188,6 +188,7 @@ pub enum DedupFieldName {
     Set,
     SetOnce,
     Uuid,
+    Properties,
 }
 
 /// Represents the similarity between two events
@@ -322,6 +323,13 @@ impl EventSimilarity {
         // Compare properties
         let (properties_similarity, different_properties) =
             Self::compare_properties(&original.properties, &new.properties);
+
+        // If properties differ, add them to different_fields
+        if !different_properties.is_empty() {
+            let orig_summary = format!("{} properties", original.properties.len());
+            let new_summary = format!("{} properties", new.properties.len());
+            different_fields.push((DedupFieldName::Properties, orig_summary, new_summary));
+        }
 
         let different_field_count = different_fields.len() as u32;
         let different_property_count = different_properties.len() as u32;
@@ -615,7 +623,7 @@ mod tests {
 
         let similarity = EventSimilarity::calculate(&event1, &event2).unwrap();
 
-        assert_eq!(similarity.different_field_count, 2); // UUID and timestamp differ
+        assert_eq!(similarity.different_field_count, 3); // UUID, timestamp, and properties differ
         assert!(similarity
             .different_fields
             .iter()
@@ -624,6 +632,10 @@ mod tests {
             .different_fields
             .iter()
             .any(|(field, _, _)| field == &DedupFieldName::Uuid));
+        assert!(similarity
+            .different_fields
+            .iter()
+            .any(|(field, _, _)| field == &DedupFieldName::Properties));
 
         assert_eq!(similarity.different_property_count, 2); // url differs, browser is new
         assert!(similarity
@@ -767,7 +779,7 @@ mod tests {
         metadata.update_duplicate(&duplicate1);
 
         // Verify similarity metrics
-        assert_eq!(similarity1.different_field_count, 1); // UUID differs
+        assert_eq!(similarity1.different_field_count, 2); // UUID and properties differ
         assert_eq!(similarity1.different_property_count, 2); // browser differs, session_id is new
         assert!(similarity1.properties_similarity < 1.0);
         assert!(similarity1.properties_similarity > 0.0);
