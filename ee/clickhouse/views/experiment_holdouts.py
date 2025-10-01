@@ -52,15 +52,11 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
 
     def validate_filters(self, filters):
         for filter in filters:
-            if "rollout_percentage" in filter:
-                rollout_percentage = filter.get("rollout_percentage")
-                if rollout_percentage is None:
-                    raise serializers.ValidationError("Rollout percentage must be present.")
-                if rollout_percentage < 0 or rollout_percentage > 100:
-                    raise serializers.ValidationError("Rollout percentage must be between 0 and 100.")
-
-            else:
+            rollout_percentage = filter.get("rollout_percentage")
+            if rollout_percentage is None:
                 raise serializers.ValidationError("Rollout percentage must be present.")
+            if rollout_percentage < 0 or rollout_percentage > 100:
+                raise serializers.ValidationError("Rollout percentage must be between 0 and 100.")
 
         return filters
 
