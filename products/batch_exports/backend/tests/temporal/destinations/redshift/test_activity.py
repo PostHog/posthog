@@ -310,7 +310,7 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
         expected_person_id = new_distinct_id_to_person_id.pop(distinct_id)
 
         assert inserted_person_id == expected_person_id
-    assert not new_distinct_id_to_person_id, f"One or more persons were not updated"
+    assert not new_distinct_id_to_person_id, "One or more persons were not updated"
 
 
 async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_runs(
