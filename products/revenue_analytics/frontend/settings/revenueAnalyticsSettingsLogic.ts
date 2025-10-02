@@ -98,6 +98,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         addGoal: (goal: RevenueAnalyticsGoal) => ({ goal }),
         deleteGoal: (index: number) => ({ index }),
         updateGoal: (index: number, goal: RevenueAnalyticsGoal) => ({ index, goal }),
+        setGoals: (goals: RevenueAnalyticsGoal[]) => ({ goals }),
 
         updateFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
 
@@ -176,6 +177,13 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                     const goals = sortByDueDate(state.goals.map((item, i) => (i === index ? goal : item)))
                     return { ...state, goals }
                 },
+                setGoals: (state: RevenueAnalyticsConfig | null, { goals }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return { ...state, goals }
+                },
+
                 updateFilterTestAccounts: (state: RevenueAnalyticsConfig | null, { filterTestAccounts }) => {
                     if (!state) {
                         return state

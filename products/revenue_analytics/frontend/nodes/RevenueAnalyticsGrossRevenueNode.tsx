@@ -59,7 +59,7 @@ export function RevenueAnalyticsGrossRevenueNode(props: {
 }
 
 const Tile = ({ context }: TileProps): JSX.Element => {
-    const { baseCurrency, revenueGoals, breakdownProperties } = useValues(revenueAnalyticsLogic)
+    const { baseCurrency, revenueGoals, breakdownProperties, displayRevenueGoals } = useValues(revenueAnalyticsLogic)
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     return (
@@ -97,7 +97,9 @@ const Tile = ({ context }: TileProps): JSX.Element => {
                             aggregationAxisFormat: 'numeric',
                             aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
                             aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
-                            goalLines: goalLinesFromRevenueGoals(revenueGoals, 'gross'),
+                            goalLines: displayRevenueGoals
+                                ? goalLinesFromRevenueGoals(revenueGoals, 'gross')
+                                : undefined,
                         }}
                     />
                 )

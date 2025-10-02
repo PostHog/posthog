@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconFilter, IconGraph, IconLineGraph, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOptions, Popover, Tooltip } from '@posthog/lemon-ui'
+import { IconPiggyBank } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonSelectOptions, LemonSwitch, Link, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -18,6 +19,7 @@ import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownT
 import MaxTool from 'scenes/max/MaxTool'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
+import { RevenueAnalyticsAssistantGoalsOutput } from '~/queries/schema/schema-assistant-revenue-analytics'
 import { RevenueAnalyticsBreakdown } from '~/queries/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
@@ -109,6 +111,7 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                         size="small"
                     />
 
+                    <RevenueGoalsSwitch />
                     <RevenueAnalyticsPropertyFilters />
                 </>
             }
@@ -271,5 +274,50 @@ const BreakdownPopover = ({
         >
             {children}
         </Popover>
+    )
+}
+
+const RevenueGoalsSwitch = (): JSX.Element => {
+    const { revenueGoals, displayRevenueGoals } = useValues(revenueAnalyticsLogic)
+    const { setDisplayRevenueGoals, setRevenueGoals } = useActions(revenueAnalyticsLogic)
+
+    return (
+        <Tooltip
+            title={
+                <>
+                    You can configure revenue goals to track your revenue targets in the{' '}
+                    <Link to="/settings/project-revenue-analytics#revenue-analytics-goals">
+                        revenue analytics settings
+                    </Link>
+                    .
+                </>
+            }
+            docLink="https://posthog.com/docs/revenue-analytics/dashboard#revenue-goals"
+            interactive
+        >
+            <MaxTool
+                identifier="manage_revenue_goals"
+                context={{ current_goals: revenueGoals }}
+                callback={(response: RevenueAnalyticsAssistantGoalsOutput) => {
+                    setRevenueGoals(response.goals)
+                }}
+                initialMaxPrompt="Show me my revenue goals"
+                suggestions={[
+                    'Show my revenue goals',
+                    'Add a new revenue goal for the next quarter',
+                    'Remove the revenue goal from 2024',
+                    'Update the revenue goal for the next quarter to 50M ARR',
+                ]}
+            >
+                <LemonButton icon={<IconPiggyBank />} type="secondary" size="small">
+                    <LemonSwitch
+                        label="Revenue goals"
+                        checked={displayRevenueGoals}
+                        onChange={setDisplayRevenueGoals}
+                        disabledReason={revenueGoals.length === 0 ? 'No revenue goals found' : undefined}
+                    />
+                </LemonButton>
+            </MaxTool>
+        </Tooltip>
     )
 }

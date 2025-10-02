@@ -71,7 +71,8 @@ export function RevenueAnalyticsMRRNode(props: {
 }
 
 const Tile = ({ context }: TileProps): JSX.Element => {
-    const { baseCurrency, breakdownProperties, revenueGoals, mrrMode } = useValues(revenueAnalyticsLogic)
+    const { baseCurrency, breakdownProperties, revenueGoals, mrrMode, displayRevenueGoals } =
+        useValues(revenueAnalyticsLogic)
 
     const logic = useMountedLogic(dataNodeLogic)
     const { response, responseLoading } = useValues(logic)
@@ -146,10 +147,12 @@ const Tile = ({ context }: TileProps): JSX.Element => {
                         aggregationAxisFormat: 'numeric',
                         aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
                         aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
-                        goalLines: goalLinesFromRevenueGoals(revenueGoals, 'mrr').map((goalLine) => ({
-                            ...goalLine,
-                            value: mrrMode === 'mrr' ? goalLine.value : goalLine.value * 12,
-                        })),
+                        goalLines: displayRevenueGoals
+                            ? goalLinesFromRevenueGoals(revenueGoals, 'mrr').map((goalLine) => ({
+                                  ...goalLine,
+                                  value: mrrMode === 'mrr' ? goalLine.value : goalLine.value * 12,
+                              }))
+                            : undefined,
                     }}
                 />
             )}
