@@ -21,6 +21,7 @@ from .activities.create_snapshot import CreateSnapshotInput, create_snapshot
 from .activities.execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
 from .activities.get_sandbox_for_setup import GetSandboxForSetupInput, get_sandbox_for_setup
 from .activities.get_task_details import TaskDetails, get_task_details
+from .activities.inject_github_token import InjectGitHubTokenInput, inject_github_token
 from .activities.setup_repository import SetupRepositoryInput, setup_repository
 
 logger = get_logger(__name__)
@@ -56,6 +57,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
             sandbox_id = await self._create_sandbox_from_snapshot(snapshot_id, task_id)
+
+            await self._inject_github_token(sandbox_id, task_details.github_integration_id)
 
             result = await self._execute_task_in_sandbox(sandbox_id, task_id, task_details.repository)
 
@@ -210,6 +213,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             create_sandbox_input,
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
+    async def _inject_github_token(self, sandbox_id: str, github_integration_id: int) -> None:
+        inject_token_input = InjectGitHubTokenInput(
+            sandbox_id=sandbox_id,
+            github_integration_id=github_integration_id,
+        )
+        await workflow.execute_activity(
+            inject_github_token,
+            inject_token_input,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
     async def _execute_task_in_sandbox(self, sandbox_id: str, task_id: str, repository: str) -> ExecuteTaskOutput:

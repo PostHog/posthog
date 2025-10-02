@@ -6,6 +6,7 @@ from .create_snapshot import create_snapshot
 from .execute_task_in_sandbox import execute_task_in_sandbox
 from .get_sandbox_for_setup import get_sandbox_for_setup
 from .get_task_details import get_task_details
+from .inject_github_token import inject_github_token
 from .setup_repository import setup_repository
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "execute_task_in_sandbox",
     "get_sandbox_for_setup",
     "get_task_details",
+    "inject_github_token",
     "setup_repository",
 ]
