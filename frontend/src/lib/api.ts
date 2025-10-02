@@ -4216,6 +4216,9 @@ const api = {
             async get(id: string): Promise<FeedbackItem> {
                 return await new ApiRequest().feedbackItem(id).get()
             },
+            async update(id: string, data: Partial<FeedbackItem>): Promise<FeedbackItem> {
+                return await new ApiRequest().feedbackItem(id).update({ data })
+            },
         },
 
         categories: {
