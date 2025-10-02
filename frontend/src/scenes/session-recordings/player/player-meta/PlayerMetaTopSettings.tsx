@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { memo } from 'react'
 
 import { IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
@@ -114,7 +115,7 @@ function TTLWarning(): JSX.Element | null {
     )
 }
 
-export function PlayerMetaTopSettings(): JSX.Element {
+export const PlayerMetaTopSettings = memo(function PlayerMetaTopSettings(): JSX.Element {
     const {
         logicProps: { noInspector },
         hoverModeIsEnabled,
@@ -165,4 +166,4 @@ export function PlayerMetaTopSettings(): JSX.Element {
             </SettingsBar>
         </div>
     )
-}
+})

@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FunctionComponent, isValidElement, useEffect, useRef } from 'react'
+import { FunctionComponent, isValidElement, memo, useEffect, useRef } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
@@ -127,7 +127,7 @@ export function eventToIcon(event: string | undefined | null) {
     return BaseIcon
 }
 
-function IconWithOptionalBadge({
+const IconWithOptionalBadge = memo(function IconWithOptionalBadge({
     TypeIcon,
     showBadge = false,
 }: {
@@ -145,7 +145,7 @@ function IconWithOptionalBadge({
     ) : (
         <div className="flex items-center p-0.5">{iconElement}</div>
     )
-}
+})
 
 function RowItemTitle({
     item,
@@ -222,171 +222,176 @@ function RowItemDetail({
     )
 }
 
-export function PlayerInspectorListItem({
-    item,
-    index,
-    onLayout,
-}: {
-    item: InspectorListItem
-    index: number
-    onLayout: (layout: { width: number; height: number }) => void
-}): JSX.Element {
-    const hoverRef = useRef<HTMLDivElement>(null)
+export const PlayerInspectorListItem = memo(
+    function PlayerInspectorListItem({
+        item,
+        index,
+        onLayout,
+    }: {
+        item: InspectorListItem
+        index: number
+        onLayout: (layout: { width: number; height: number }) => void
+    }): JSX.Element {
+        const hoverRef = useRef<HTMLDivElement>(null)
 
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
+        const { logicProps } = useValues(sessionRecordingPlayerLogic)
+        const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
-    const { end, expandedItems } = useValues(playerInspectorLogic(logicProps))
-    const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
+        const { end, expandedItems } = useValues(playerInspectorLogic(logicProps))
+        const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
 
-    const isExpanded = expandedItems.includes(index)
+        const isExpanded = expandedItems.includes(index)
 
-    // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
-    // Ceiling second is used since this is what's displayed to the user.
-    const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
+        // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
+        // Ceiling second is used since this is what's displayed to the user.
+        const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
 
-    const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
-    const { ref, width, height } = useResizeObserver({})
+        const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
+        const { ref, width, height } = useResizeObserver({})
 
-    const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
+        const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
 
-    // Height changes should lay out immediately but width ones (browser resize can be much slower)
-    useEffect(
-        () => {
-            if (!width || !totalHeight) {
-                return
-            }
-            onLayoutDebounced({ width, height: totalHeight })
-        },
-        // purposefully only triggering on width
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [width]
-    )
+        // Height changes should lay out immediately but width ones (browser resize can be much slower)
+        useEffect(
+            () => {
+                if (!width || !totalHeight) {
+                    return
+                }
+                onLayoutDebounced({ width, height: totalHeight })
+            },
+            // purposefully only triggering on width
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            [width]
+        )
 
-    useEffect(
-        () => {
-            if (!width || !totalHeight) {
-                return
-            }
-            onLayout({ width, height: totalHeight })
-        },
-        // purposefully only triggering on total height
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [totalHeight]
-    )
+        useEffect(
+            () => {
+                if (!width || !totalHeight) {
+                    return
+                }
+                onLayout({ width, height: totalHeight })
+            },
+            // purposefully only triggering on total height
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            [totalHeight]
+        )
 
-    const isHovering = useIsHovering(hoverRef)
+        const isHovering = useIsHovering(hoverRef)
 
-    let TypeIcon = typeToIconAndDescription[item.type].Icon
-    if (TypeIcon === undefined && item.type === 'events') {
-        // KLUDGE this is a hack to lean on this function, yuck
-        TypeIcon = eventToIcon(item.data.event)
-    }
+        let TypeIcon = typeToIconAndDescription[item.type].Icon
+        if (TypeIcon === undefined && item.type === 'events') {
+            // KLUDGE this is a hack to lean on this function, yuck
+            TypeIcon = eventToIcon(item.data.event)
+        }
 
-    return (
-        <div
-            ref={ref}
-            className={clsx(
-                'ml-1 flex flex-col items-center',
-                isExpanded && 'border border-accent',
-                isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                isHovering && 'bg-surface-primary'
-            )}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                zIndex: isExpanded ? 1 : 0,
-            }}
-        >
-            <div className="flex flex-row items-center w-full px-1">
-                <div
-                    className="flex flex-row flex-1 items-center overflow-hidden cursor-pointer"
-                    ref={hoverRef}
-                    onClick={() => seekToEvent()}
-                >
-                    {/*TODO this tooltip doesn't trigger whether its inside or outside of this hover container */}
-                    {item.windowNumber ? (
-                        <Tooltip
-                            placement="left"
-                            title={
-                                <>
-                                    <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
-
-                                    <>
-                                        <br />
-                                        {item.windowNumber !== '?' ? (
-                                            <>
-                                                {' '}
-                                                occurred in Window <b>{item.windowNumber}</b>
-                                            </>
-                                        ) : (
-                                            <>
-                                                {' '}
-                                                not linked to any specific window. Either an event tracked from the
-                                                backend or otherwise not able to be linked to a given window.
-                                            </>
-                                        )}
-                                    </>
-                                </>
-                            }
-                        >
-                            <IconWindow size="small" value={item.windowNumber || '?'} />
-                        </Tooltip>
-                    ) : null}
-
-                    {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
-                        <ItemTimeDisplay timestamp={item.timestamp} timeInRecording={item.timeInRecording} />
-                    )}
-
-                    <IconWithOptionalBadge TypeIcon={TypeIcon} showBadge={item.type === 'comment'} />
-
-                    <div
-                        className={clsx(
-                            'flex-1 overflow-hidden',
-                            item.highlightColor === 'danger' && `bg-fill-error-highlight`,
-                            item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
-                            item.highlightColor === 'primary' && `bg-fill-accent-highlight-secondary`
-                        )}
-                    >
-                        <RowItemTitle item={item} finalTimestamp={end} />
-                    </div>
-                </div>
-                {isExpanded && <RowItemMenu item={item} />}
-                {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
-                    <LemonButton
-                        icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                        size="small"
-                        noPadding
-                        onClick={() => setItemExpanded(index, !isExpanded)}
-                        data-attr="expand-inspector-row"
-                        disabledReason={
-                            item.type === 'offline-status' || item.type === 'browser-visibility'
-                                ? 'This event type does not have a detail view'
-                                : undefined
-                        }
-                    />
+        return (
+            <div
+                ref={ref}
+                className={clsx(
+                    'ml-1 flex flex-col items-center',
+                    isExpanded && 'border border-accent',
+                    isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
+                    isHovering && 'bg-surface-primary'
                 )}
-            </div>
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    zIndex: isExpanded ? 1 : 0,
+                }}
+            >
+                <div className="flex flex-row items-center w-full px-1">
+                    <div
+                        className="flex flex-row flex-1 items-center overflow-hidden cursor-pointer"
+                        ref={hoverRef}
+                        onClick={() => seekToEvent()}
+                    >
+                        {/*TODO this tooltip doesn't trigger whether its inside or outside of this hover container */}
+                        {item.windowNumber ? (
+                            <Tooltip
+                                placement="left"
+                                title={
+                                    <>
+                                        <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
 
-            {isExpanded ? (
-                <div
-                    className={clsx(
-                        'w-full mx-2 overflow-hidden',
-                        item.highlightColor && `bg-${item.highlightColor}-highlight`
-                    )}
-                >
-                    <div className="text-xs">
-                        <RowItemDetail item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
-                        <LemonDivider dashed />
+                                        <>
+                                            <br />
+                                            {item.windowNumber !== '?' ? (
+                                                <>
+                                                    {' '}
+                                                    occurred in Window <b>{item.windowNumber}</b>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {' '}
+                                                    not linked to any specific window. Either an event tracked from the
+                                                    backend or otherwise not able to be linked to a given window.
+                                                </>
+                                            )}
+                                        </>
+                                    </>
+                                }
+                            >
+                                <IconWindow size="small" value={item.windowNumber || '?'} />
+                            </Tooltip>
+                        ) : null}
+
+                        {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
+                            <ItemTimeDisplay timestamp={item.timestamp} timeInRecording={item.timeInRecording} />
+                        )}
+
+                        <IconWithOptionalBadge TypeIcon={TypeIcon} showBadge={item.type === 'comment'} />
 
                         <div
-                            className="flex justify-end cursor-pointer mx-2 my-1"
-                            onClick={() => setItemExpanded(index, false)}
+                            className={clsx(
+                                'flex-1 overflow-hidden',
+                                item.highlightColor === 'danger' && `bg-fill-error-highlight`,
+                                item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
+                                item.highlightColor === 'primary' && `bg-fill-accent-highlight-secondary`
+                            )}
                         >
-                            <span className="text-secondary">Collapse</span>
+                            <RowItemTitle item={item} finalTimestamp={end} />
                         </div>
                     </div>
+                    {isExpanded && <RowItemMenu item={item} />}
+                    {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
+                        <LemonButton
+                            icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                            size="small"
+                            noPadding
+                            onClick={() => setItemExpanded(index, !isExpanded)}
+                            data-attr="expand-inspector-row"
+                            disabledReason={
+                                item.type === 'offline-status' || item.type === 'browser-visibility'
+                                    ? 'This event type does not have a detail view'
+                                    : undefined
+                            }
+                        />
+                    )}
                 </div>
-            ) : null}
-        </div>
-    )
-}
+
+                {isExpanded ? (
+                    <div
+                        className={clsx(
+                            'w-full mx-2 overflow-hidden',
+                            item.highlightColor && `bg-${item.highlightColor}-highlight`
+                        )}
+                    >
+                        <div className="text-xs">
+                            <RowItemDetail item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
+                            <LemonDivider dashed />
+
+                            <div
+                                className="flex justify-end cursor-pointer mx-2 my-1"
+                                onClick={() => setItemExpanded(index, false)}
+                            >
+                                <span className="text-secondary">Collapse</span>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+            </div>
+        )
+    },
+    (prevProps, nextProps) => {
+        return prevProps.item.key === nextProps.item.key && prevProps.index === nextProps.index
+    }
+)

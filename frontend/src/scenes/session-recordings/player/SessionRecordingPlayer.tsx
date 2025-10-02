@@ -3,7 +3,7 @@ import './SessionRecordingPlayer.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -74,20 +74,35 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const playerRef = useRef<HTMLDivElement>(null)
     const playerMainRef = useRef<HTMLDivElement>(null)
 
-    const logicProps: SessionRecordingPlayerLogicProps = {
-        sessionRecordingId,
-        playerKey,
-        matchingEventsMatchType,
-        sessionRecordingData,
-        autoPlay,
-        noInspector,
-        playlistLogic,
-        mode,
-        playerRef,
-        pinned,
-        setPinned,
-        accessToken,
-    }
+    const logicProps: SessionRecordingPlayerLogicProps = useMemo(
+        () => ({
+            sessionRecordingId,
+            playerKey,
+            matchingEventsMatchType,
+            sessionRecordingData,
+            autoPlay,
+            noInspector,
+            playlistLogic,
+            mode,
+            playerRef,
+            pinned,
+            setPinned,
+            accessToken,
+        }),
+        [
+            sessionRecordingId,
+            playerKey,
+            matchingEventsMatchType,
+            sessionRecordingData,
+            autoPlay,
+            noInspector,
+            playlistLogic,
+            mode,
+            pinned,
+            setPinned,
+            accessToken,
+        ]
+    )
     const {
         incrementClickCount,
         setIsFullScreen,
@@ -235,6 +250,14 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         return () => clearTimeout(timeout)
     }, [sessionRecordingId])
 
+    const handleMouseMove = useCallback(() => {
+        setPlayNextAnimationInterrupted(true)
+    }, [setPlayNextAnimationInterrupted])
+
+    const handleMouseOut = useCallback(() => {
+        setPlayNextAnimationInterrupted(false)
+    }, [setPlayNextAnimationInterrupted])
+
     if (isNotFound) {
         return (
             <div className="text-center">
@@ -258,8 +281,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     `SessionRecordingPlayer--${size}`
                 )}
                 onClick={incrementClickCount}
-                onMouseMove={() => setPlayNextAnimationInterrupted(true)}
-                onMouseOut={() => setPlayNextAnimationInterrupted(false)}
+                onMouseMove={handleMouseMove}
+                onMouseOut={handleMouseOut}
             >
                 <FloatingContainerContext.Provider value={playerRef}>
                     {explorerMode ? (

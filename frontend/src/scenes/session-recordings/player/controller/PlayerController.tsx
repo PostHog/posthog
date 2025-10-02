@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
 import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
@@ -124,7 +125,7 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
     )
 }
 
-export function PlayerController(): JSX.Element {
+export const PlayerController = memo(function PlayerController(): JSX.Element {
     const { playlistLogic, logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
@@ -173,4 +174,4 @@ export function PlayerController(): JSX.Element {
             </div>
         </div>
     )
-}
+})

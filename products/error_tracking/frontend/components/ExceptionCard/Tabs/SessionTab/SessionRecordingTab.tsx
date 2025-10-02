@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { memo, useEffect } from 'react'
 import { match } from 'ts-pattern'
 
 import { Spinner } from '@posthog/lemon-ui'
@@ -31,7 +31,7 @@ export function SessionRecordingLoading(): JSX.Element {
     )
 }
 
-export function SessionRecordingContent(): JSX.Element {
+export const SessionRecordingContent = memo(function SessionRecordingContent(): JSX.Element {
     const { recordingProps, recordingTimestamp, isNotFound, sessionPlayerMetaDataLoading } = useValues(sessionTabLogic)
     const { seekToTimestamp, setPlay } = useActions(sessionTabLogic)
 
@@ -43,7 +43,7 @@ export function SessionRecordingContent(): JSX.Element {
             seekToTimestamp(recordingTimestamp)
         }
         setPlay()
-    }, [seekToTimestamp, recordingTimestamp, setPlay, isNotFound, sessionPlayerMetaDataLoading])
+    }, [recordingTimestamp, isNotFound, sessionPlayerMetaDataLoading])
 
     return (
         <div className="max-h-[500px] h-[500px] flex justify-center items-center">
@@ -57,4 +57,4 @@ export function SessionRecordingContent(): JSX.Element {
             />
         </div>
     )
-}
+})

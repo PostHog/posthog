@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { memo, useRef } from 'react'
 
 import { IconBottomPanel, IconSidePanel, IconX } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
@@ -17,7 +17,7 @@ import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 
-export function PlayerSidebar(): JSX.Element {
+export const PlayerSidebar = memo(function PlayerSidebar(): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -123,4 +123,4 @@ export function PlayerSidebar(): JSX.Element {
             )}
         </div>
     )
-}
+})

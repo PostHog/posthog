@@ -16,10 +16,10 @@ import { TimestampFormat, playerSettingsLogic } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
 function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Element {
-    const { logicProps, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
+    const { logicProps, currentPlayerTimeRounded, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { isScrubbing, scrubbingTimeRounded } = useValues(seekbarLogic(logicProps))
 
-    const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
+    const startTimeSeconds = ((isScrubbing ? scrubbingTimeRounded : currentPlayerTimeRounded) ?? 0) / 1000
     const endTimeSeconds = Math.floor(sessionPlayerData.durationMs / 1000)
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2

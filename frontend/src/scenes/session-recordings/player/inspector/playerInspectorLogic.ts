@@ -14,7 +14,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
+import { eventToDescription, hashCodeForString, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
 import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,
@@ -98,6 +98,8 @@ export type InspectorListItemBase = {
     windowId?: string
     windowNumber?: number | '?' | undefined
     type: InspectorListItemType
+    // stable key to be used to identify this item e.g. in a list key
+    key: string
 }
 
 export type InspectorListItemEvent = InspectorListItemBase & {
@@ -456,6 +458,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                     windowId: windowId,
                                     windowNumber: windowNumberForID(windowId),
                                     highlightColor: 'warning',
+                                    key: `${windowId}-${timestamp.valueOf()}-${tag}`,
                                 } satisfies InspectorListOfflineStatusChange)
                             }
 
@@ -470,6 +473,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                     windowId: windowId,
                                     windowNumber: windowNumberForID(windowId),
                                     highlightColor: 'warning',
+                                    key: `${windowId}-${timestamp.valueOf()}-${tag}`,
                                 } satisfies InspectorListBrowserVisibility)
                             }
 
@@ -492,6 +496,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                         windowId: windowId,
                                         windowNumber: windowNumberForID(windowId),
                                         stateEvent,
+                                        key: `${windowId}-${timestamp.valueOf()}-${tag}-${actionTitle}`,
                                     })
                                 }
                             }
@@ -518,6 +523,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                     windowId: windowId,
                                     windowNumber: windowNumberForID(windowId),
                                     data: getPayloadFor(customEvent, tag),
+                                    key: `${windowId}-${timestamp.valueOf()}-${niceify(tag)}`,
                                 })
                             }
                         }
@@ -535,6 +541,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 windowId: windowId,
                                 windowNumber: windowNumberForID(windowId),
                                 data: { snapshotSize: humanizeBytes(estimateSize(snapshot)) },
+                                key: `${windowId}-${timestamp.valueOf()}-full-snapshot-event`,
                             })
                         }
 
@@ -584,6 +591,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                             level === 'error' ? 'danger' : level === 'warn' ? 'warning' : undefined,
                                         windowId: windowId,
                                         windowNumber: windowNumberForID(windowId),
+                                        key: `${windowId}-${itemTimestamp.valueOf()}-console-${level}`,
                                     })
                                 }
                             }
@@ -600,6 +608,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         tag: 'count of snapshot types by window',
                         search: 'count of snapshot types by window',
                         data: snapshotCounts,
+                        key: `all-windows-${start.valueOf()}-snapshot-type-counts`,
                     })
                 }
 
@@ -644,6 +653,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             data: comment,
                             windowId: windowIdForTimestamp(timestamp.valueOf()),
                             windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
+                            key: `notebook-${comment.id}-${timestamp.valueOf()}`,
                         })
                     }
                 }
@@ -676,6 +686,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
                             data: comment,
                             search: getText(comment),
+                            key: `comment-${comment.id}-${timestamp.valueOf()}`,
                         }
                         items.push(item)
                     }
@@ -706,6 +717,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             timestamp,
                             timeInRecording,
                             search: 'inactiv',
+                            key: `inactivity-${segment.startTimestamp}-${segment.endTimestamp}`,
                         })
                     })
 
@@ -724,6 +736,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         clickCount: sessionPlayerMetaData?.click_count || null,
                         keypressCount: sessionPlayerMetaData?.keypress_count || null,
                         errorCount: 0,
+                        key: `inspector-summary-${start.valueOf()}`,
                     })
                 }
 
@@ -836,6 +849,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         highlightColor: (responseStatus || 0) >= 400 ? 'danger' : undefined,
                         windowId: event.window_id,
                         windowNumber: windowNumberForID(event.window_id),
+                        key: `performance-${timestamp.valueOf()}-${hashCodeForString(JSON.stringify(event))}`,
                     })
                 }
 
@@ -883,6 +897,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                               : undefined,
                         windowId: event.properties?.$window_id,
                         windowNumber: windowNumberForID(event.properties?.$window_id),
+                        key: `event-${event.id}-${timestamp.valueOf()}-${event.event}`,
                     })
                 }
 
@@ -1121,6 +1136,16 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        isLoading: [
+            (s) => [s.inspectorDataState],
+            (inspectorDataState): boolean => Object.values(inspectorDataState).some((state) => state === 'loading'),
+        ],
+
+        isAnyReady: [
+            (s) => [s.inspectorDataState],
+            (inspectorDataState): boolean => Object.values(inspectorDataState).some((state) => state === 'ready'),
+        ],
+
         playbackIndicatorIndex: [
             (s) => [s.currentPlayerTime, s.items],
             (playerTime, items): number => {
@@ -1160,6 +1185,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
                 return fuse.search(searchQuery).map((x) => x.item)
             },
+            { resultEqualityCheck: objectsEqual },
         ],
 
         allItemsList: [(s) => [s.allItems], (allItemsData): InspectorListItem[] => allItemsData.items],

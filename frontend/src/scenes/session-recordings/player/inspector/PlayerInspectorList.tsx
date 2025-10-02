@@ -2,7 +2,7 @@ import './PlayerInspectorList.scss'
 
 import { range } from 'd3'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
@@ -15,11 +15,11 @@ import { playerInspectorLogic } from './playerInspectorLogic'
 
 export const DEFAULT_INSPECTOR_ROW_HEIGHT = 40
 
-export function PlayerInspectorList(): JSX.Element {
+export const PlayerInspectorList = memo(function PlayerInspectorList(): JSX.Element {
     const { logicProps, snapshotsLoaded } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
-    const { items, inspectorDataState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollPaused } =
+    const { items, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollPaused, isLoading, isAnyReady } =
         useValues(inspectorLogic)
     const { setSyncScrollPaused } = useActions(inspectorLogic)
 
@@ -68,28 +68,29 @@ export function PlayerInspectorList(): JSX.Element {
         }
     }, [playbackIndicatorIndex]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
-        return (
-            <CellMeasurer cache={cellMeasurerCache} columnIndex={0} key={key} rowIndex={index} parent={parent}>
-                {({ measure, registerChild }) => (
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div ref={(r) => registerChild?.(r || undefined)} style={style}>
-                        <PlayerInspectorListItem
-                            key={index}
-                            item={items[index]}
-                            index={index}
-                            onLayout={({ height }) => {
-                                // Optimization to ensure that we only call measure if the dimensions have actually changed
-                                if (height !== cellMeasurerCache.getHeight(index, 0)) {
-                                    measure()
-                                }
-                            }}
-                        />
-                    </div>
-                )}
-            </CellMeasurer>
-        )
-    }
+    const renderRow: ListRowRenderer = useCallback(
+        ({ index, key, parent, style }) => {
+            return (
+                <CellMeasurer cache={cellMeasurerCache} columnIndex={0} key={key} rowIndex={index} parent={parent}>
+                    {({ measure, registerChild }) => (
+                        // eslint-disable-next-line react/forbid-dom-props
+                        <div ref={(r) => registerChild?.(r || undefined)} style={style}>
+                            <PlayerInspectorListItem
+                                item={items[index]}
+                                index={index}
+                                onLayout={({ height }) => {
+                                    if (height !== cellMeasurerCache.getHeight(index, 0)) {
+                                        measure()
+                                    }
+                                }}
+                            />
+                        </div>
+                    )}
+                </CellMeasurer>
+            )
+        },
+        [items, cellMeasurerCache]
+    )
 
     return (
         <div className="flex flex-col bg-primary flex-1 overflow-hidden relative">
@@ -107,7 +108,7 @@ export function PlayerInspectorList(): JSX.Element {
                                 height={height}
                                 width={width}
                                 deferredMeasurementCache={cellMeasurerCache}
-                                overscanRowCount={20}
+                                overscanRowCount={5}
                                 rowCount={items.length}
                                 rowHeight={cellMeasurerCache.rowHeight}
                                 rowRenderer={renderRow}
@@ -126,18 +127,14 @@ export function PlayerInspectorList(): JSX.Element {
                         )}
                     </AutoSizer>
                 </div>
-            ) : inspectorDataState['events'] === 'loading' ||
-              inspectorDataState['console'] === 'loading' ||
-              inspectorDataState['network'] === 'loading' ? (
+            ) : isLoading ? (
                 <div className="p-2">
                     <LemonSkeleton className="my-1 h-8" repeat={20} fade />
                 </div>
-            ) : inspectorDataState['events'] === 'ready' ||
-              inspectorDataState['console'] === 'ready' ||
-              inspectorDataState['network'] === 'ready' ? (
+            ) : isAnyReady ? (
                 // If we are "ready" but with no results this must mean some results are filtered out
                 <div className="p-16 text-center text-secondary">No results matching your filters.</div>
             ) : null}
         </div>
     )
-}
+})

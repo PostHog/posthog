@@ -107,6 +107,12 @@ export const seekbarLogic = kea<seekbarLogicType>([
                 return 0
             },
         ],
+        scrubbingTimeRounded: [
+            (selectors) => [selectors.scrubbingTime],
+            (scrubbingTime) => {
+                return Math.floor(scrubbingTime / 1000) * 1000
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         setCurrentTimestamp: () => {

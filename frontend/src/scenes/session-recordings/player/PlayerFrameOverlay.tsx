@@ -1,6 +1,7 @@
 import './PlayerFrameOverlay.scss'
 
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
 import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 
@@ -17,7 +18,7 @@ import { Screenshot } from './controller/PlayerController'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
-const PlayerFrameOverlayActions = (): JSX.Element | null => {
+const PlayerFrameOverlayActions = memo(function PlayerFrameOverlayActions(): JSX.Element | null {
     const { setQuickEmojiIsOpen } = useActions(sessionRecordingPlayerLogic)
     const { quickEmojiIsOpen } = useValues(sessionRecordingPlayerLogic)
 
@@ -36,7 +37,7 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
             <ClipRecording className="text-2xl text-white" data-attr="replay-overlay-clip" />
         </div>
     )
-}
+})
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const { currentPlayerState, endReached, logicProps } = useValues(sessionRecordingPlayerLogic)

@@ -2,7 +2,7 @@ import './PlayerUpNext.scss'
 
 import clsx from 'clsx'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 
 import { IconPlay } from '@posthog/icons'
 
@@ -18,7 +18,7 @@ export interface PlayerUpNextProps {
     playlistLogic: BuiltLogic<sessionRecordingsPlaylistLogicType>
 }
 
-export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element | null {
+export const PlayerUpNext = memo(function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element | null {
     const timeoutRef = useRef<any>()
     const { endReached, playNextAnimationInterrupted } = useValues(sessionRecordingPlayerLogic)
     const { reportNextRecordingTriggered, setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic)
@@ -96,4 +96,4 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
             </div>
         </Tooltip>
     )
-}
+})

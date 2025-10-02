@@ -2,6 +2,7 @@ import './PlayerMeta.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
 import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 
@@ -88,7 +89,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
 
 export type PlayerMetaBreakpoints = 'small' | 'normal'
 
-export function PlayerMeta(): JSX.Element {
+export const PlayerMeta = memo(function PlayerMeta(): JSX.Element {
     const { isCinemaMode } = useValues(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
@@ -185,4 +186,4 @@ export function PlayerMeta(): JSX.Element {
             </div>
         </DraggableToNotebook>
     )
-}
+})
