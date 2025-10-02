@@ -392,21 +392,29 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
             return query
 
+        # Use the appropriate interval for the upper bound based on query interval
+        if self.query_date_range.interval_name == "minute":
+            upper_bound_interval = "INTERVAL 1 MINUTE"
+        elif self.query_date_range.interval_name == "hour":
+            upper_bound_interval = "INTERVAL 1 HOUR"
+        else:
+            upper_bound_interval = "INTERVAL 1 DAY"
+
         query = parse_select(
-            """
+            f"""
                 SELECT
                     d.timestamp,
                     COUNT(DISTINCT actor_id) AS counts
-                FROM {cross_join_select_query} e
+                FROM {{cross_join_select_query}} e
                 CROSS JOIN (
                     SELECT
-                        {date_to_start_of_interval} - {number_interval_period} AS timestamp
+                        {{date_to_start_of_interval}} - {{number_interval_period}} AS timestamp
                     FROM
-                        numbers(dateDiff({interval}, {date_from_start_of_interval} - {inclusive_lookback}, {date_to}))
+                        numbers(dateDiff({{interval}}, {{date_from_start_of_interval}} - {{inclusive_lookback}}, {{date_to}}))
                 ) d
                 WHERE
-                    e.timestamp < d.timestamp + INTERVAL 1 DAY AND
-                    e.timestamp > d.timestamp - {inclusive_lookback}
+                    e.timestamp < d.timestamp + {upper_bound_interval} AND
+                    e.timestamp > d.timestamp - {{inclusive_lookback}}
                 GROUP BY d.timestamp
                 ORDER BY d.timestamp
             """,
