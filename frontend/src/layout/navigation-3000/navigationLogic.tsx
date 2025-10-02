@@ -39,7 +39,7 @@ import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -71,7 +71,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['sceneConfig'],
             navigationLogic,
             ['mobileLayout'],
-            savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home }),
+            sessionRecordingSavedFiltersLogic,
             ['savedFilters', 'savedFiltersLoading'],
             organizationLogic,
             ['isCurrentOrganizationUnavailable'],

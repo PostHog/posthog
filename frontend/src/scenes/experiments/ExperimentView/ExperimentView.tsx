@@ -8,6 +8,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
 import { ActivityScope } from '~/types'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
@@ -29,12 +30,7 @@ import {
     ResultsQuery,
 } from '../components/ResultsBreakdown'
 import { experimentLogic } from '../experimentLogic'
-import {
-    appendMetricToOrderingArray,
-    isLegacyExperiment,
-    isLegacyExperimentQuery,
-    removeMetricFromOrderingArray,
-} from '../utils'
+import { isLegacyExperiment, isLegacyExperimentQuery, removeMetricFromOrderingArray } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -60,6 +56,7 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
+        usesNewQueryRunner,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -91,9 +88,11 @@ const MetricsTab = (): JSX.Element => {
 
     return (
         <>
-            <div className="w-full mb-4">
-                <Exposures />
-            </div>
+            {usesNewQueryRunner && (
+                <div className="w-full mb-4">
+                    <Exposures />
+                </div>
+            )}
 
             {/* Show overview if there's only a single primary metric */}
             {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
@@ -200,7 +199,8 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft } =
+        useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
@@ -214,7 +214,7 @@ export function ExperimentView(): JSX.Element {
                 <LoadingState />
             ) : (
                 <>
-                    <Info />
+                    {usesNewQueryRunner ? <Info /> : <LegacyExperimentInfo />}
                     {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                     <LemonTabs
                         activeKey={activeTabKey}
@@ -226,11 +226,15 @@ export function ExperimentView(): JSX.Element {
                                 label: 'Metrics',
                                 content: <MetricsTab />,
                             },
-                            {
-                                key: 'code',
-                                label: 'Code',
-                                content: <CodeTab />,
-                            },
+                            ...(!isExperimentDraft
+                                ? [
+                                      {
+                                          key: 'code',
+                                          label: 'Code',
+                                          content: <CodeTab />,
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'variants',
                                 label: 'Variants',
@@ -261,36 +265,19 @@ export function ExperimentView(): JSX.Element {
                             <ExperimentMetricModal
                                 experimentId={experimentId}
                                 onSave={(metric, context) => {
-                                    // Check if this is an edit (metric with same UUID already exists) or create
-                                    const existingMetricIndex = experiment[context.field].findIndex(
-                                        (m) => m.uuid === metric.uuid
-                                    )
-                                    const isEdit = existingMetricIndex !== -1
-
-                                    let newMetrics
-                                    let newOrderingArray
-
-                                    if (isEdit) {
-                                        // Replace existing metric
-                                        newMetrics = experiment[context.field].map((m) =>
-                                            m.uuid === metric.uuid ? metric : m
-                                        )
-                                        // Keep existing ordering for edits
-                                        newOrderingArray = experiment[context.orderingField]
-                                    } else {
-                                        // Add new metric
-                                        newMetrics = [...experiment[context.field], metric]
-                                        // Add to ordering array for new metrics
-                                        newOrderingArray = appendMetricToOrderingArray(
-                                            experiment,
-                                            metric.uuid!,
-                                            context.type === 'secondary'
-                                        )
-                                    }
+                                    const metrics = experiment[context.field]
+                                    const isNew = !metrics.some(({ uuid }) => uuid === metric.uuid)
 
                                     setExperiment({
-                                        [context.field]: newMetrics,
-                                        [context.orderingField]: newOrderingArray,
+                                        [context.field]: isNew
+                                            ? [...metrics, metric]
+                                            : metrics.map((m) => (m.uuid === metric.uuid ? metric : m)),
+                                        ...(isNew && {
+                                            [context.orderingField]: [
+                                                ...(experiment[context.orderingField] ?? []),
+                                                metric.uuid,
+                                            ],
+                                        }),
                                     })
 
                                     updateExperimentMetrics()
@@ -302,17 +289,15 @@ export function ExperimentView(): JSX.Element {
                                         return
                                     }
 
-                                    const newOrderingArray = removeMetricFromOrderingArray(
-                                        experiment,
-                                        metric.uuid,
-                                        context.type === 'secondary'
-                                    )
-
-                                    const newMetrics = experiment[context.field].filter((m) => m.uuid !== metric.uuid)
-
                                     setExperiment({
-                                        [context.field]: newMetrics,
-                                        [context.orderingField]: newOrderingArray,
+                                        [context.field]: experiment[context.field].filter(
+                                            (m) => m.uuid !== metric.uuid
+                                        ),
+                                        [context.orderingField]: removeMetricFromOrderingArray(
+                                            experiment,
+                                            metric.uuid,
+                                            context.type === 'secondary'
+                                        ),
                                     })
 
                                     updateExperimentMetrics()
