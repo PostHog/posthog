@@ -293,7 +293,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         model_name: str,
         embedding_version: str,
         issue_fingerprints: list[str],
-        distance_threshold: float,
+        min_distance_threshold: float,
     ):
         """Get similar embeddings using cosine similarity."""
         query = """
@@ -306,7 +306,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                AND fingerprint NOT IN %(fingerprints)s
                AND length(embeddings) = length(target)
              GROUP BY fingerprint
-            HAVING distance <= %(distance_threshold)s
+            HAVING distance <= %(min_distance_threshold)s
              ORDER BY distance ASC
              LIMIT 10;
         """
@@ -319,7 +319,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 "model_name": model_name,
                 "embedding_version": embedding_version,
                 "fingerprints": issue_fingerprints,
-                "distance_threshold": distance_threshold,
+                "min_distance_threshold": min_distance_threshold,
             },
         )
         return similar_embeddings
