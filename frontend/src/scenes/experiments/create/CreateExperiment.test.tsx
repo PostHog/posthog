@@ -116,18 +116,18 @@ describe('CreateExperiment Integration', () => {
                     description: 'Test hypothesis',
                 })
                 logic.actions.submitExperiment()
-            }).toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
-
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            })
+                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
 
             expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
         })
 
         it('clears errors after successful submission', async () => {
-            logic.actions.setExperiment({ ...NEW_EXPERIMENT, name: '', description: '' })
-            logic.actions.submitExperiment()
-
-            await expectLogic(logic).toMatchValues({
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({ ...NEW_EXPERIMENT, name: '', description: '' })
+                logic.actions.submitExperiment()
+            }).toMatchValues({
                 experimentErrors: expect.objectContaining({
                     name: 'Name is required',
                 }),

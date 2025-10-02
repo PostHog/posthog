@@ -150,7 +150,7 @@ describe('ExperimentTypePanel', () => {
             expect(mockSetExperimentType).toHaveBeenCalledWith('web')
         })
 
-        it('does not call setExperimentType when clicking already selected option', async () => {
+        it('calls setExperimentType even when clicking already selected option', async () => {
             const { container } = render(
                 <ExperimentTypePanel
                     experiment={{ ...NEW_EXPERIMENT, type: 'product' }}
