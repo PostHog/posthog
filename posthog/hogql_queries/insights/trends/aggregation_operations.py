@@ -396,20 +396,20 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         # For example, hourly WAU for 2024/03/10 06:00:00 shows events with 2024/03/03 06:00:00 <= timestamp < 2024/03/10 06:00:00
         # MAU is the same but for 30 days
         query = parse_select(
-            f"""
+            """
                 SELECT
                     d.timestamp,
                     COUNT(DISTINCT actor_id) AS counts
-                FROM {{cross_join_select_query}} e
+                FROM {cross_join_select_query} e
                 CROSS JOIN (
                     SELECT
-                        {{date_to_start_of_interval}} - {{number_interval_period}} AS timestamp
+                        {date_to_start_of_interval} - {number_interval_period} AS timestamp
                     FROM
-                        numbers(dateDiff({{interval}}, {{date_from_start_of_interval}} - {{inclusive_lookback}}, {{date_to}}))
+                        numbers(dateDiff({interval}, {date_from_start_of_interval} - {inclusive_lookback}, {date_to}))
                 ) d
                 WHERE
                     e.timestamp <= d.timestamp AND
-                    e.timestamp > d.timestamp - {{inclusive_lookback}}
+                    e.timestamp > d.timestamp - {inclusive_lookback}
                 GROUP BY d.timestamp
                 ORDER BY d.timestamp
             """,
