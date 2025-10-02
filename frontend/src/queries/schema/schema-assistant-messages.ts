@@ -173,13 +173,18 @@ export enum TaskExecutionStatus {
     Failed = 'failed',
 }
 
+export interface TaskExecutionProgress {
+    content: string
+    substeps?: string[]
+}
+
 export interface TaskExecutionItem {
     id: string
     description: string
     prompt: string
     status: TaskExecutionStatus
     artifact_ids?: string[]
-    progress_text?: string
+    progress?: TaskExecutionProgress
     task_type: string
 }
 

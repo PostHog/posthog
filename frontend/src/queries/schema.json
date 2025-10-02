@@ -24792,8 +24792,8 @@
                 "id": {
                     "type": "string"
                 },
-                "progress_text": {
-                    "type": "string"
+                "progress": {
+                    "$ref": "#/definitions/TaskExecutionProgress"
                 },
                 "prompt": {
                     "type": "string"
@@ -24826,6 +24826,22 @@
                 }
             },
             "required": ["type", "tasks"],
+            "type": "object"
+        },
+        "TaskExecutionProgress": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "substeps": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["content"],
             "type": "object"
         },
         "TaskExecutionStatus": {

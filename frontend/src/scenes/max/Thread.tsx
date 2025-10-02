@@ -6,6 +6,7 @@ import { twMerge } from 'tailwind-merge'
 
 import {
     IconCheck,
+    IconChevronRight,
     IconCollapse,
     IconExpand,
     IconEye,
@@ -59,6 +60,7 @@ import {
     NotebookUpdateMessage,
     PlanningMessage,
     PlanningStepStatus,
+    ReasoningMessage,
     TaskExecutionMessage,
     TaskExecutionStatus,
     VisualizationItem,
@@ -261,23 +263,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         return <MultiVisualizationAnswer key={key} message={message} />
                     } else if (isReasoningMessage(message)) {
                         return (
-                            <MessageTemplate key={key} type="ai">
-                                <div className="flex items-center gap-2">
-                                    <img
-                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
-                                    />
-                                    <span className="font-medium">{message.content}…</span>
-                                </div>
-                                {message.substeps?.map((substep, substepIndex) => (
-                                    <MarkdownMessage
-                                        key={substepIndex}
-                                        id={message.id || messageIndex.toString()}
-                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
-                                        content={substep}
-                                    />
-                                ))}
-                            </MessageTemplate>
+                            <ReasoningAnswer key={key} id={message.id || messageIndex.toString()} message={message} />
                         )
                     } else if (isNotebookUpdateMessage(message)) {
                         return <NotebookUpdateAnswer key={key} message={message} />
@@ -555,97 +541,167 @@ function PlanningAnswer({ message }: PlanningAnswerProps): JSX.Element {
     )
 }
 
-interface TaskExecutionAnswerProps {
+function ReasoningComponent({
+    id,
+    content,
+    substeps,
+    state,
+}: {
+    id: string
+    content: string
+    substeps: string[]
+    state: TaskExecutionStatus
+}): JSX.Element {
+    const [isExpanded, setIsExpanded] = useState(false)
+    const isPending = state === 'pending'
+    const isInProgress = state === 'in_progress'
+    const isCompleted = state === 'completed'
+    const isFailed = state === 'failed'
+    const hasMultipleSteps = substeps.length > 1
+
+    return (
+        <>
+            <div
+                className={clsx(
+                    'transition-all duration-500',
+                    isPending && 'text-muted',
+                    !isInProgress && !isPending && !isFailed && 'text-default',
+                    isCompleted && 'text-muted-alt line-through',
+                    isFailed && 'text-danger'
+                )}
+            >
+                {isInProgress ? (
+                    <span
+                        className="bg-clip-text text-transparent"
+                        style={{
+                            backgroundImage:
+                                'linear-gradient(90deg, var(--brand-blue), var(--brand-yellow), var(--brand-red), var(--brand-blue))',
+                            backgroundSize: '200% 100%',
+                            animation: 'shimmer 3s linear infinite',
+                        }}
+                    >
+                        {content}
+                    </span>
+                ) : (
+                    content
+                )}
+                {hasMultipleSteps && (
+                    <button
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        className="cursor-pointer inline-flex items-center ml-1 hover:opacity-70 transition-opacity"
+                        aria-label={isExpanded ? 'Collapse history' : 'Expand history'}
+                    >
+                        <span className={`mr-1 transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                            <IconChevronRight />
+                        </span>
+                    </button>
+                )}
+            </div>
+            {isExpanded && (
+                <div className="text-xs mt-0.5 font-medium">
+                    {substeps?.map((substep, substepIndex) => {
+                        const isCurrentSubstep = substepIndex === substeps.length - 1
+                        const isCompletedSubstep = substepIndex < substeps.length - 1 || isCompleted
+
+                        return (
+                            <div
+                                key={substepIndex}
+                                className="animate-fade-in"
+                                style={{
+                                    animationDelay: `${substepIndex * 50}ms`,
+                                }}
+                            >
+                                <MarkdownMessage
+                                    id={id}
+                                    className={clsx(
+                                        'mt-1.5 leading-6 px-1 text-[0.6875rem] font-medium bg-surface-secondary rounded w-fit',
+                                        // Color-coded states
+                                        isFailed && 'text-danger opacity-90',
+                                        !isFailed && isCompletedSubstep && 'opacity-50',
+                                        !isFailed && isCurrentSubstep && !isCompleted && 'opacity-80'
+                                    )}
+                                    content={substep ?? ''}
+                                />
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
+        </>
+    )
+}
+
+interface ReasoningAnswerProps {
+    message: ReasoningMessage
+    id: string
+}
+
+function ReasoningAnswer({ message, id }: ReasoningAnswerProps): JSX.Element {
+    return (
+        <MessageTemplate type="ai">
+            <ReasoningComponent
+                id={id}
+                content={message.content}
+                substeps={message.substeps ?? []}
+                state={TaskExecutionStatus.InProgress}
+            />
+        </MessageTemplate>
+    )
+}
+
+interface ToolExecutionAnswerProps {
     message: TaskExecutionMessage
 }
 
-function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element {
+function TaskExecutionAnswer({ message }: ToolExecutionAnswerProps): JSX.Element {
     const completedCount = message.tasks.filter((t) => t.status === TaskExecutionStatus.Completed).length
     const totalCount = message.tasks.length
 
     return (
         <MessageTemplate type="ai">
-            <div className="flex flex-col gap-2 pb-2">
-                <div className="flex items-center justify-between">
+            {totalCount > 1 ? (
+                <div className="flex items-center justify-between w-full">
                     <h4 className="m-0 text-xs font-semibold">Tasks</h4>
                     <span className="text-xs text-muted">
                         {completedCount}/{totalCount}
                     </span>
                 </div>
-
+            ) : null}
+            <div className="flex flex-col gap-2">
                 <div className="flex flex-col gap-2">
-                    {message.tasks.map((task, index) => (
-                        <div
-                            key={index}
-                            className={clsx(
-                                'flex items-center gap-2 rounded transition-all duration-300 py-1',
-                                task.status === TaskExecutionStatus.InProgress && 'bg-accent-highlight-primary/20',
-                                task.status === TaskExecutionStatus.Completed && 'opacity-60'
-                            )}
-                        >
-                            <div className="flex-shrink-0 flex items-center justify-center size-7">
-                                {task.status === TaskExecutionStatus.Completed && (
-                                    <IconCheck className="text-success size-3.5" />
+                    {message.tasks.map((toolExecution, index) => {
+                        const allSteps = [
+                            ...(toolExecution.progress?.content !== undefined ? [toolExecution.progress.content] : []),
+                            ...(toolExecution.progress?.substeps ?? []),
+                        ]
+                        const isCompleted = toolExecution.status === TaskExecutionStatus.Completed
+                        const isFailed = toolExecution.status === TaskExecutionStatus.Failed
+                        return (
+                            <div
+                                key={index}
+                                className={clsx(
+                                    'flex items-center gap-2 rounded transition-all duration-500 py-1',
+                                    isCompleted && 'opacity-50'
                                 )}
-                                {task.status === TaskExecutionStatus.InProgress && (
-                                    <div className="size-3 rounded-full bg-border animate-pulse" />
+                            >
+                                {(message.tasks.length > 1 || isCompleted || isFailed) && (
+                                    <div className="flex-shrink-0 flex items-center justify-center size-7">
+                                        {isCompleted && <IconCheck className="text-success size-3.5" />}
+                                        {isFailed && <IconX className="text-danger size-3.5" />}
+                                    </div>
                                 )}
-                                {task.status === TaskExecutionStatus.Pending && (
-                                    <div className="size-3 rounded-full bg-border" />
-                                )}
-                                {task.status === TaskExecutionStatus.Failed && (
-                                    <IconX className="text-danger size-3.5" />
-                                )}
-                            </div>
 
-                            <div className="flex-1 min-w-0">
-                                <div
-                                    className={clsx(
-                                        'text-xs transition-all duration-300',
-                                        task.status === TaskExecutionStatus.Pending && 'text-muted',
-                                        task.status === TaskExecutionStatus.InProgress &&
-                                            'font-semibold text-primary animate-pulse',
-                                        task.status === TaskExecutionStatus.Completed && 'text-muted-alt line-through',
-                                        task.status === TaskExecutionStatus.Failed && 'text-danger'
-                                    )}
-                                >
-                                    {task.description}
+                                <div className="flex-1 min-w-0">
+                                    <ReasoningComponent
+                                        id={toolExecution.id}
+                                        content={toolExecution.description}
+                                        substeps={allSteps}
+                                        state={toolExecution.status}
+                                    />
                                 </div>
-
-                                {task.prompt && (
-                                    <div
-                                        className={clsx(
-                                            'text-xs mt-0.5 transition-all duration-300',
-                                            task.status === TaskExecutionStatus.InProgress
-                                                ? 'text-muted-alt animate-pulse'
-                                                : 'text-muted',
-                                            task.status === TaskExecutionStatus.Completed && 'line-through opacity-50'
-                                        )}
-                                    >
-                                        {task.prompt}
-                                    </div>
-                                )}
-
-                                {task.progress_text && task.status !== TaskExecutionStatus.Pending && (
-                                    <div
-                                        className={`text-xs mt-0.5 font-medium ${
-                                            task.status === TaskExecutionStatus.InProgress
-                                                ? 'text-primary-alt animate-pulse'
-                                                : task.status === TaskExecutionStatus.Completed
-                                                  ? 'text-success'
-                                                  : 'text-danger'
-                                        }`}
-                                    >
-                                        <MarkdownMessage
-                                            id={index.toString()}
-                                            className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
-                                            content={task.progress_text}
-                                        />
-                                    </div>
-                                )}
                             </div>
-                        </div>
-                    ))}
+                        )
+                    })}
                 </div>
             </div>
         </MessageTemplate>

@@ -2686,6 +2686,14 @@ class SurveyWidgetType(StrEnum):
     SELECTOR = "selector"
 
 
+class TaskExecutionProgress(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    substeps: Optional[list[str]] = None
+
+
 class TaskExecutionStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
@@ -5010,7 +5018,7 @@ class TaskExecutionItem(BaseModel):
     artifact_ids: Optional[list[str]] = None
     description: str
     id: str
-    progress_text: Optional[str] = None
+    progress: Optional[TaskExecutionProgress] = None
     prompt: str
     status: TaskExecutionStatus
     task_type: str

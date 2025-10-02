@@ -14,6 +14,7 @@ from posthog.schema import (
     HumanMessage,
     ReasoningMessage,
     TaskExecutionMessage,
+    TaskExecutionProgress,
     TaskExecutionStatus,
     VisualizationMessage,
 )
@@ -50,7 +51,7 @@ class TestTaskExecutorNode(TestCase):
             prompt=prompt,
             status=status,
             artifact_ids=artifact_ids,
-            progress_text=progress_text,
+            progress=TaskExecutionProgress(content=progress_text) if progress_text else None,
             task_type="create_insight",
         )
 

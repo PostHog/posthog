@@ -164,7 +164,7 @@ class DashboardCreationNode(AssistantNode):
                     prompt=query_metadata[query_id].query.description,
                     status=TaskExecutionStatus.PENDING,
                     description=f"Creating insight `{query_metadata[query_id].query.name}`",
-                    progress_text="Creating insight...",
+                    progress={"content": "Creating insight..."},
                     task_type="create_insight",
                 )
                 for query_id in left_to_create.keys()
@@ -189,7 +189,7 @@ class DashboardCreationNode(AssistantNode):
                 prompt=query_metadata.query.description,
                 status=TaskExecutionStatus.PENDING,
                 description=f"Searching for insight `{query_metadata.query.name}`",
-                progress_text="Searching for existing insights...",
+                progress={"content": "Searching for existing insights..."},
                 task_type="search_insights",
             )
             for query_id, query_metadata in queries_metadata.items()
