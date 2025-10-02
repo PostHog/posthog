@@ -100,7 +100,12 @@ fn generate_text_representation(fingerprint: &NewFingerprintEvent) -> String {
         // Add exception type and value
         text_parts.push(format!(
             "{}: {}",
-            exception.exception_type, exception.exception_value
+            exception.exception_type,
+            exception
+                .exception_value
+                .chars()
+                .take(300)
+                .collect::<String>()
         ));
 
         // Add frame information
