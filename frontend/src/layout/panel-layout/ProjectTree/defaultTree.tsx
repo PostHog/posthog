@@ -388,13 +388,6 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('destinations'),
     } as FileSystemImport,
-    {
-        path: `Activity logs`,
-        category: 'Activity',
-        iconType: 'team_activity',
-        href: urls.advancedActivityLogs(),
-        flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
-    } as FileSystemImport,
 ]
 
 export const getDefaultTreeProducts = (): FileSystemImport[] =>

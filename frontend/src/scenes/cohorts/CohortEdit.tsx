@@ -164,20 +164,24 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         <IconCopy /> Duplicate as static cohort
                     </ButtonPrimitive>
                 </ScenePanelActionsSection>
-                <ScenePanelDivider />
-                <ScenePanelActionsSection>
-                    <ButtonPrimitive
-                        onClick={() => {
-                            deleteCohort()
-                        }}
-                        variant="danger"
-                        menuItem
-                        data-attr={`${RESOURCE_TYPE}-delete`}
-                    >
-                        <IconTrash />
-                        Delete
-                    </ButtonPrimitive>
-                </ScenePanelActionsSection>
+                {!isNewCohort && (
+                    <>
+                        <ScenePanelDivider />
+                        <ScenePanelActionsSection>
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    deleteCohort()
+                                }}
+                                variant="danger"
+                                menuItem
+                                data-attr={`${RESOURCE_TYPE}-delete`}
+                            >
+                                <IconTrash />
+                                Delete
+                            </ButtonPrimitive>
+                        </ScenePanelActionsSection>
+                    </>
+                )}
             </ScenePanel>
 
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
@@ -296,8 +300,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     isNewCohort
                                         ? `Upload a CSV file to add users to your cohort. For single-column files, include
                                         one distinct ID per row (all rows will be processed as data). For multi-column
-                                        files, include a header row with a 'distinct_id' column containing the user
-                                        identifiers.`
+                                        files, include a header row with a 'person_id', 'distinct_id', or 'email' column
+                                        containing the user identifiers.`
                                         : undefined
                                 }
                                 className={cn('ph-ignore-input')}
@@ -308,8 +312,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         <span className="max-w-prose">
                                             Upload a CSV file to add users to your cohort. For single-column files,
                                             include one distinct ID per row (all rows will be processed as data). For
-                                            multi-column files, include a header row with a 'distinct_id' column
-                                            containing the user identifiers.
+                                            multi-column files, include a header row with a 'person_id', 'distinct_id',
+                                            or 'email' column containing the user identifiers.
                                         </span>
                                     </div>
                                 )}

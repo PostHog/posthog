@@ -811,6 +811,17 @@ def try_workflow_info() -> temporalio.workflow.Info | None:
         return workflow_info
 
 
+BATCH_EXPORT_WORKFLOW_TYPES = {
+    "s3-export",
+    "bigquery-export",
+    "snowflake-export",
+    "postgres-export",
+    "http-export",
+    "redshift-export",
+    "databricks-export",
+}
+
+
 def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None, str | None]:
     """Resolves `log_source` and `log_source_id` from workflow parameters.
 
@@ -847,14 +858,7 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
         # This works because the WorkflowID is made up like f"{saved_query_id}-{data_interval_end}"
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "data_modeling_run"
-    elif workflow_type in (
-        "s3-export",
-        "bigquery-export",
-        "snowflake-export",
-        "postgres-export",
-        "http-export",
-        "redshift-export",
-    ):
+    elif workflow_type in BATCH_EXPORT_WORKFLOW_TYPES:
         # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
         # Since 'data_interval_end' is an iso formatted datetime string, it has two '-' to separate the
         # date. Plus one more leaves us at the end of right at the end of 'batch_export_id'.

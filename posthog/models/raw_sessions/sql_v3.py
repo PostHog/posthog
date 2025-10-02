@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- this is fine since even if the distinct_id changes during a session
     distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
     person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
+    distinct_ids AggregateFunction(groupUniqArray, String),
 
     min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
@@ -255,7 +256,7 @@ WITH parsed_events AS (
     SELECT
         team_id,
         `$session_id`,
-        distinct_id,
+        distinct_id AS _distinct_id,
         person_id,
         timestamp,
         inserted_at,
@@ -275,8 +276,9 @@ SELECT
    team_id,
     toUUID(`$session_id`) as session_id_v7,
 
-    initializeAggregation('argMaxState', distinct_id, timestamp) as distinct_id,
+    initializeAggregation('argMaxState', _distinct_id, timestamp) as distinct_id,
     initializeAggregation('argMaxState', person_id, timestamp) as person_id,
+    initializeAggregation('groupUniqArrayState', _distinct_id) as distinct_ids,
 
     timestamp AS min_timestamp,
     timestamp AS max_timestamp,
@@ -345,8 +347,8 @@ FROM parsed_events
     )
 
 
-RAW_SESSIONS_TABLE_MV_SQL_V3 = (
-    lambda: """
+def RAW_SESSIONS_TABLE_MV_SQL_V3(where=True):
+    return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}
 TO {database}.{target_table}
 AS
@@ -355,9 +357,9 @@ AS
         table_name=f"{TABLE_BASE_NAME_V3}_mv",
         target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         database=settings.CLICKHOUSE_DATABASE,
-        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where),
     )
-)
+
 
 RAW_SESSION_TABLE_UPDATE_SQL_V3 = (
     lambda: """
@@ -424,13 +426,14 @@ SELECT
 
     argMaxMerge(distinct_id) as distinct_id,
     argMaxMerge(person_id) as person_id,
+    groupUniqArrayMerge(distinct_ids) AS distinct_ids,
 
     min(min_timestamp) as min_timestamp,
     max(max_timestamp) as max_timestamp,
     max(max_inserted_at) as max_inserted_at,
 
     -- urls
-    arrayDistinct(arrayFlatten(groupArray(urls)) )AS urls,
+    arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
     argMinMerge(entry_url) as entry_url,
     argMaxMerge(end_url) as end_url,
     argMaxMerge(last_external_click_url) as last_external_click_url,
