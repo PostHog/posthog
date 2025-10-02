@@ -36,6 +36,8 @@ from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
 from posthog.utils_cors import cors_response
 
+from products.feedback.backend.api import get_categories_for_remote_config
+
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -196,6 +198,18 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         "autocaptureExceptions": True if team.autocapture_exceptions_opt_in else False,
         "suppressionRules": suppression_rules,
     }
+
+    feedback_categories = []
+    if not skip_db:
+        with tracer.start_as_current_span("feedback_categories"):
+            try:
+                with execute_with_timeout(200):
+                    feedback_categories = get_categories_for_remote_config(team)
+            except Exception:
+                pass
+
+    if feedback_categories:
+        response["feedbackCategories"] = feedback_categories
 
     site_apps = []
     # errors mean the database is unavailable, bail in this case

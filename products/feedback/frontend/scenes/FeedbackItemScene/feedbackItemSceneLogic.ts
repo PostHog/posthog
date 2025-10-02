@@ -1,7 +1,10 @@
-import { actions, afterMount, kea, key, listeners, path, props } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityScope } from '~/types'
 
 import { FeedbackItem } from '../../models'
 import type { feedbackItemSceneLogicType } from './feedbackItemSceneLogicType'
@@ -54,6 +57,18 @@ export const feedbackItemSceneLogic = kea<feedbackItemSceneLogicType>([
             actions.loadFeedbackItem()
         },
     })),
+
+    selectors({
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (_, p) => [p.feedbackItemId],
+            (feedbackItemId): SidePanelSceneContext => {
+                return {
+                    activity_scope: ActivityScope.FEEDBACK_ITEM,
+                    activity_item_id: feedbackItemId,
+                }
+            },
+        ],
+    }),
 
     afterMount(({ actions }) => {
         actions.loadFeedbackItem()

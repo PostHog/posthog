@@ -188,3 +188,8 @@ class PublicFeedbackItemViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet
 
 def generate_feedback_item_attachment_file_key():
     return f"{settings.OBJECT_STORAGE_FEEDBACK_ITEM_ATTACHMENTS_FOLDER}/{str(uuid7())}"
+
+
+def get_categories_for_remote_config(team: Team) -> list[dict]:
+    categories = FeedbackItemCategory.objects.filter(team=team).values("id", "name")
+    return list(categories)

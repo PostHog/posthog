@@ -28,6 +28,8 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
+from products.feedback.backend.models import FeedbackItemCategory
+
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
 
@@ -129,6 +131,8 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
+
+        from products.feedback.backend.api import get_categories_for_remote_config
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -261,6 +265,11 @@ class RemoteConfig(UUIDTModel):
                 config["surveys"] = False
         else:
             config["surveys"] = False
+
+        # MARK: Feedback
+        feedback_categories = get_categories_for_remote_config(team)
+        if feedback_categories:
+            config["feedbackCategories"] = feedback_categories
 
         config["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
@@ -517,6 +526,16 @@ def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
 
 @receiver(post_save, sender=Survey)
 def survey_saved(sender, instance: "Survey", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender=FeedbackItemCategory)
+def feedback_category_saved(sender, instance: "FeedbackItemCategory", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_delete, sender=FeedbackItemCategory)
+def feedback_category_deleted(sender, instance: "FeedbackItemCategory", **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
