@@ -1595,7 +1595,14 @@ dependencies = [
 name = "common-alloc"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "axum 0.7.5",
+ "flate2",
+ "jemalloc_pprof",
+ "pprof",
+ "serde",
  "tikv-jemallocator",
+ "tokio",
 ]
 
 [[package]]
@@ -3932,7 +3939,6 @@ dependencies = [
  "flate2",
  "futures",
  "health",
- "jemalloc_pprof",
  "metrics",
  "metrics-exporter-prometheus",
  "num_cpus",
@@ -3940,7 +3946,6 @@ dependencies = [
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.22.1",
- "pprof",
  "rdkafka",
  "rocksdb",
  "serde",

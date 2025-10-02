@@ -4,6 +4,9 @@ pub use std::alloc::System as DefaultAllocator;
 #[cfg(not(target_env = "msvc"))]
 pub use tikv_jemallocator::Jemalloc as DefaultAllocator;
 
+pub mod pprof;
+pub mod router;
+
 #[macro_export]
 macro_rules! used {
     () => {

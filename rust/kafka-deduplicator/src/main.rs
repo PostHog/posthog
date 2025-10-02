@@ -20,14 +20,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
-use kafka_deduplicator::{
-    config::Config,
-    service::KafkaDeduplicatorService,
-    utils::pprof::{
-        handle_allocation_report, handle_alloctaion_flamegraph, handle_profile_flamegraph,
-        handle_profile_report,
-    },
-};
+use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
 
 common_alloc::used_with_profiling!();
 
@@ -133,11 +126,7 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
         );
 
     let router = if config.enable_pprof {
-        router
-            .route("/pprof/profile/report", get(handle_profile_report))
-            .route("/pprof/profile/flamegraph", get(handle_profile_flamegraph))
-            .route("/pprof/heap/report", get(handle_allocation_report))
-            .route("/pprof/heap/flamegraph", get(handle_alloctaion_flamegraph))
+        common_alloc::router::apply_pprof_routes(router)
     } else {
         router
     };

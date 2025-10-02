@@ -7,5 +7,13 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+flate2 = { workspace = true }
+jemalloc_pprof = { version = "0.8", features = ["flamegraph"] }
+pprof = { version = "0.15", features = ["protobuf-codec", "flamegraph"] }
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { version = "0.6", features = ["profiling", "unprefixed_malloc_on_supported_platforms"] }
+tokio = { workspace = true }
+serde = { workspace = true }
+
