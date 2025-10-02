@@ -200,8 +200,8 @@ async def assert_clickhouse_records_in_redshift(
                 expected_records.append(expected_record)
 
     if expected_duplicates_threshold > 0.0:
-        inserted_records = remove_duplicates_from_records(inserted_records, primary_key)
         unduplicated_len = len(inserted_records)
+        inserted_records = remove_duplicates_from_records(inserted_records, primary_key)
         assert (unduplicated_len - len(inserted_records)) / len(inserted_records) < expected_duplicates_threshold
 
     inserted_column_names = list(inserted_records[0].keys())
