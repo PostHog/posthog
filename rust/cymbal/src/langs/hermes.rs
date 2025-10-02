@@ -1,12 +1,13 @@
 use std::fmt::Display;
 
+use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use sourcemap::Token;
 
 use crate::{
     error::{FrameError, HermesError, ResolveError, UnhandledError},
-    frames::{Frame, FrameId},
+    frames::Frame,
     langs::{
         utils::{add_raw_to_junk, get_token_context},
         CommonFrameMetadata,

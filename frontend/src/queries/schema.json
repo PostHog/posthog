@@ -435,6 +435,18 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                 }
             ],
             "description": "The union type with all supported base queries for the assistant."
@@ -788,7 +800,8 @@
                 "search_docs",
                 "search_insights",
                 "session_summarization",
-                "create_dashboard"
+                "create_dashboard",
+                "filter_revenue_analytics"
             ],
             "type": "string"
         },
@@ -16666,6 +16679,19 @@
             "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
             "type": "string"
         },
+        "NamedQueryLastExecutionTimesRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["names"],
+            "type": "object"
+        },
         "NamedQueryRequest": {
             "additionalProperties": false,
             "properties": {
@@ -22042,6 +22068,28 @@
                 }
             },
             "required": ["count"],
+            "type": "object"
+        },
+        "RevenueAnalyticsAssistantFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsBreakdown"
+                    },
+                    "type": "array"
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                }
+            },
+            "required": ["properties", "breakdown"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse>": {

@@ -41,8 +41,8 @@ Best of all, all of this is free to use with a [generous monthly free tier](http
 - [PostHog is an all-in-one, open source platform for building successful products](#posthog-is-an-all-in-one-open-source-platform-for-building-successful-products)
 - [Table of Contents](#table-of-contents)
 - [Getting started with PostHog](#getting-started-with-posthog)
-    - [PostHog Cloud (Recommended)](#posthog-cloud-recommended)
-    - [Self-hosting the open-source hobby deploy (Advanced)](#self-hosting-the-open-source-hobby-deploy-advanced)
+  - [PostHog Cloud (Recommended)](#posthog-cloud-recommended)
+  - [Self-hosting the open-source hobby deploy (Advanced)](#self-hosting-the-open-source-hobby-deploy-advanced)
 - [Setting up PostHog](#setting-up-posthog)
 - [Learning more about PostHog](#learning-more-about-posthog)
 - [Contributing](#contributing)
@@ -106,7 +106,7 @@ Need _absolutely 💯% FOSS_? Check out our [posthog-foss](https://github.com/Po
 
 The pricing for our paid plan is completely transparent and available on [our pricing page](https://posthog.com/pricing).
 
-## We’re hiring!
+## We're hiring!
 
 <img src="https://res.cloudinary.com/dmukukwp6/image/upload/v1/posthog.com/src/components/Home/images/mission-control-hog" alt="Hedgehog working on a Mission Control Center" width="350px"/>
 

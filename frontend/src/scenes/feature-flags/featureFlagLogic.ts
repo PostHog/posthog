@@ -118,6 +118,7 @@ export const NEW_FLAG: FeatureFlagType = {
     version: 0,
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    evaluation_tags: [],
 }
 const NEW_VARIANT = {
     key: '',
