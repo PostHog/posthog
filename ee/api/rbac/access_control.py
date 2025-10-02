@@ -15,6 +15,7 @@ from posthog.rbac.user_access_control import (
     UserAccessControl,
     default_access_level,
     highest_access_level,
+    minimum_access_level,
     ordered_access_levels,
 )
 from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
@@ -209,6 +210,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 if is_resource_level
                 else ordered_access_levels(resource),
                 "default_access_level": "editor" if is_resource_level else default_access_level(resource),
+                "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
                 "user_access_level": user_access_level,
                 "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
             }

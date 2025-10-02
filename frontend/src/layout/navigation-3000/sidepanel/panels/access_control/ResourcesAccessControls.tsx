@@ -202,11 +202,17 @@ export function ResourcesAccessControls(): JSX.Element {
                 const organization_member = getMember(item)
                 const ac = accessControlByResource[resource]
 
-                const options: { value: string | null; label: string }[] = availableLevels.map(
-                    (level: AccessControlLevel) => ({
-                        value: level,
-                        label: capitalizeFirstLetter(level ?? ''),
-                    })
+                const minimumLevel = resource === 'action' ? 'viewer' : null
+                const options: { value: string | null; label: string; disabledReason?: string }[] = availableLevels.map(
+                    (level: AccessControlLevel) => {
+                        const isDisabled =
+                            minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)
+                        return {
+                            value: level,
+                            label: capitalizeFirstLetter(level ?? ''),
+                            disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
+                        }
+                    }
                 )
                 options.push({
                     value: null,
@@ -462,22 +468,6 @@ function AddResourceAccessControlModal(props: {
         }))
     }
 
-    // Create options for the access level dropdown
-    const getLevelOptions = (): { value: AccessControlLevel | null; label: string }[] => {
-        const options: { value: AccessControlLevel | null; label: string }[] = availableLevels.map((level) => ({
-            value: level as AccessControlLevel,
-            label: capitalizeFirstLetter(level ?? ''),
-        }))
-
-        // Add "No override" option
-        options.push({
-            value: null,
-            label: 'No override',
-        })
-
-        return options
-    }
-
     // Get appropriate title based on the type (member or role)
     const getModalTitle = (): string => {
         return props.type === 'member' ? 'Configure member resource access' : 'Configure role resource access'
@@ -517,22 +507,39 @@ function AddResourceAccessControlModal(props: {
 
                 <div className="space-y-2">
                     <h5 className="mb-2">Resource access levels</h5>
-                    {resources.map((resource) => (
-                        <div key={resource} className="flex gap-2 items-center justify-between">
-                            <div className="font-medium">{capitalizeFirstLetter(pluralizeResource(resource))}</div>
-                            <div className="min-w-[8rem]">
-                                <LemonSelect
-                                    placeholder="No override"
-                                    value={resourceLevels[resource]}
-                                    onChange={(newValue) =>
-                                        updateResourceLevel(resource, newValue as AccessControlLevel | null)
-                                    }
-                                    options={getLevelOptions()}
-                                    disabled={!canEditRoleBasedAccessControls}
-                                />
+                    {resources.map((resource) => {
+                        const minimumLevel = resource === 'action' ? 'viewer' : null
+                        const levelOptions = availableLevels.map((level) => {
+                            const isDisabled =
+                                minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)
+                            return {
+                                value: level as AccessControlLevel,
+                                label: capitalizeFirstLetter(level ?? ''),
+                                disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
+                            }
+                        })
+                        levelOptions.push({
+                            value: null,
+                            label: 'No override',
+                        } as any)
+
+                        return (
+                            <div key={resource} className="flex gap-2 items-center justify-between">
+                                <div className="font-medium">{capitalizeFirstLetter(pluralizeResource(resource))}</div>
+                                <div className="min-w-[8rem]">
+                                    <LemonSelect
+                                        placeholder="No override"
+                                        value={resourceLevels[resource]}
+                                        onChange={(newValue) =>
+                                            updateResourceLevel(resource, newValue as AccessControlLevel | null)
+                                        }
+                                        options={levelOptions}
+                                        disabled={!canEditRoleBasedAccessControls}
+                                    />
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        )
+                    })}
                 </div>
             </div>
         </LemonModal>
