@@ -1,7 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from posthog.schema import MrrOrGross, RevenueAnalyticsAssistantGoalsOutput, RevenueAnalyticsGoal
+from posthog.schema import RevenueAnalyticsAssistantGoalsOutput, RevenueAnalyticsGoal
 
 from posthog.models import Team, User
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -15,6 +15,33 @@ from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import GOALS_DESCRIPTION_PROMPT, GOALS_EXAMPLES_PROMPT
+
+
+class final_answer(base_final_answer[RevenueAnalyticsAssistantGoalsOutput]):
+    __doc__ = base_final_answer.__doc__
+
+
+class add_revenue_goal(BaseModel):
+    """Add a new revenue goal."""
+
+    goal: RevenueAnalyticsGoal = Field(description="Goal object. Make sure due_date is in YYYY-MM-DD format")
+
+
+class update_revenue_goal(BaseModel):
+    """Update an existing revenue goal."""
+
+    goal_name: str = Field(description="Name of the goal to update")
+    new_goal: RevenueAnalyticsGoal = Field(description="New goal object we should update the goal with.")
+
+
+class remove_revenue_goal(BaseModel):
+    """Remove a revenue goal."""
+
+    goal_name: str = Field(description="Name of the goal to remove")
+
+
+class list_revenue_goals(BaseModel):
+    """List all revenue goals."""
 
 
 class RevenueGoalsToolkit(TaxonomyAgentToolkit):
@@ -39,61 +66,28 @@ class RevenueGoalsToolkit(TaxonomyAgentToolkit):
         return super().handle_tools(tool_name, tool_input)
 
     def _get_custom_tools(self) -> list:
-        class final_answer(base_final_answer[RevenueAnalyticsAssistantGoalsOutput]):
-            __doc__ = base_final_answer.__doc__
-
-        class add_revenue_goal(BaseModel):
-            """Add a new revenue goal."""
-
-            name: str = Field(description="Name of the goal")
-            goal: float = Field(description="Goal amount")
-            due_date: str = Field(description="Due date in YYYY-MM-DD format", pattern=r"^\d{4}-\d{2}-\d{2}$")
-            mrr_or_gross: str = Field(description="Whether this is MRR or gross revenue goal", pattern=r"^(mrr|gross)$")
-
-        class update_revenue_goal(BaseModel):
-            """Update an existing revenue goal."""
-
-            goal_name: str = Field(description="Name of the goal to update")
-            name: str = Field(description="New name for the goal")
-            goal: float = Field(description="New goal amount")
-            due_date: str = Field(description="New due date in YYYY-MM-DD format", pattern=r"^\d{4}-\d{2}-\d{2}$")
-            mrr_or_gross: str = Field(description="New MRR or gross setting", pattern=r"^(mrr|gross)$")
-
-        class remove_revenue_goal(BaseModel):
-            """Remove a revenue goal."""
-
-            goal_name: str = Field(description="Name of the goal to remove")
-
-        class list_revenue_goals(BaseModel):
-            """List all revenue goals."""
-
         return [final_answer, add_revenue_goal, update_revenue_goal, remove_revenue_goal, list_revenue_goals]
 
     def get_tools(self) -> list:
         """Returns the list of tools available in this toolkit."""
         return [*self._get_custom_tools(), ask_user_for_help]
 
-    def _add_revenue_goal(self, args) -> str:
+    def _add_revenue_goal(self, args: add_revenue_goal) -> str:
         """Add a new revenue goal."""
         try:
             config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self._team)
             current_goals = config.goals
 
-            # Create the goal object - the AI will have already validated the data
-            new_goal = RevenueAnalyticsGoal(
-                name=args.name, goal=args.goal, due_date=args.due_date, mrr_or_gross=MrrOrGross(args.mrr_or_gross)
-            )
-
             # Add the new goal
-            current_goals.append(new_goal)
+            current_goals.append(args.goal)
             config.goals = [goal.model_dump() for goal in current_goals]
             config.save()
             config.team.save()  # Force team cache to update
-            return f"✅ Added revenue goal: {args.name} (${args.goal:,.2f} due {args.due_date})"
+            return f"✅ Added revenue goal: {args.goal.name} (${args.goal.goal:,.2f} due {args.goal.due_date})"
         except Exception as e:
             return f"❌ Failed to add revenue goal: {str(e)}"
 
-    def _update_revenue_goal(self, args) -> str:
+    def _update_revenue_goal(self, args: update_revenue_goal) -> str:
         """Update an existing revenue goal."""
         try:
             config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self._team)
@@ -103,17 +97,7 @@ class RevenueGoalsToolkit(TaxonomyAgentToolkit):
             updated = False
             for i, existing_goal in enumerate(current_goals):
                 if existing_goal.name == args.goal_name:
-                    updated_goal_data = existing_goal.model_dump()
-                    if args.name:
-                        updated_goal_data["name"] = args.name
-                    if args.goal is not None:
-                        updated_goal_data["goal"] = args.goal
-                    if args.due_date:
-                        updated_goal_data["due_date"] = args.due_date
-                    if args.mrr_or_gross:
-                        updated_goal_data["mrr_or_gross"] = MrrOrGross(args.mrr_or_gross)
-
-                    current_goals[i] = RevenueAnalyticsGoal.model_validate(updated_goal_data)
+                    current_goals[i] = args.new_goal
                     updated = True
                     break
 
@@ -127,7 +111,7 @@ class RevenueGoalsToolkit(TaxonomyAgentToolkit):
         except Exception as e:
             return f"❌ Failed to update revenue goal: {str(e)}"
 
-    def _remove_revenue_goal(self, args) -> str:
+    def _remove_revenue_goal(self, args: remove_revenue_goal) -> str:
         """Remove a revenue goal."""
         try:
             config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self._team)
