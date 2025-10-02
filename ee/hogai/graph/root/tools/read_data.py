@@ -92,13 +92,13 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 if not has_access:
                     return BILLING_INSUFFICIENT_ACCESS_PROMPT, None
                 # used for routing
-                return "", ReadDataToolArgs(kind=kind).model_dump()
+                return "", self.args_schema(kind=kind).model_dump()
             case "datawarehouse_schema":
                 return await self._serialize_database_schema(), None
 
     @classmethod
     @database_sync_to_async
-    def _check_user_has_billing_access(self, team: Team, user: User) -> bool:
+    def _check_user_has_billing_access(cls, team: Team, user: User) -> bool:
         """
         Check if the user has access to the billing tool.
         """
