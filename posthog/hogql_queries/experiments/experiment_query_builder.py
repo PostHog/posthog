@@ -278,147 +278,99 @@ class ExperimentQueryBuilder:
 
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
-        Builds query for funnel metrics using AST construction.
+        Builds query for funnel metrics.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
-        # Build exposures CTE
-        exposures_cte = self._build_exposures_cte()
-
-        # Build metric_events CTE for funnels
-        metric_events_cte = self._build_funnel_metric_events_cte()
-
-        # Build entity_metrics CTE
-        entity_metrics_cte = self._build_funnel_entity_metrics_cte(exposures_cte, metric_events_cte)
-
-        # Build final aggregation query
         num_steps = len(self.metric.series)
-        final_query = ast.SelectQuery(
-            select=[
-                ast.Alias(alias="variant", expr=ast.Field(chain=["entity_metrics", "variant"])),
-                ast.Alias(
-                    alias="num_users",
-                    expr=ast.Call(name="count", args=[ast.Field(chain=["entity_metrics", "entity_id"])]),
-                ),
-                ast.Alias(
-                    alias="total_sum",
-                    expr=parse_expr(f"countIf(entity_metrics.value.1 = {num_steps - 1})"),
-                ),
-                ast.Alias(
-                    alias="total_sum_of_squares",
-                    expr=parse_expr(f"countIf(entity_metrics.value.1 = {num_steps - 1})"),
-                ),
-            ],
-            select_from=ast.JoinExpr(table=entity_metrics_cte, alias="entity_metrics"),
-            group_by=[ast.Field(chain=["entity_metrics", "variant"])],
-        )
 
-        return final_query
-
-    def _build_exposures_cte(self) -> ast.SelectQuery:
-        """
-        Builds the exposures CTE (same for both mean and funnel metrics).
-        """
-        return parse_select(
+        # Build the base query using parse_select
+        query = parse_select(
             """
+            WITH exposures AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
+                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
+                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+            ),
+
+            metric_events AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    timestamp,
+                    uuid,
+                    properties.$session_id AS session_id
+                FROM events
+                WHERE {funnel_steps_filter}
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+                    any(exposures.exposure_session_id) AS exposure_session_id,
+                    {funnel_aggregation} AS value,
+                    {uuid_to_session_map} AS uuid_to_session
+                FROM exposures
+                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
+                    AND metric_events.timestamp >= exposures.first_exposure_time
+                GROUP BY exposures.entity_id, exposures.variant
+            )
+
             SELECT
-                {entity_key} AS entity_id,
-                {variant_expr} AS variant,
-                minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
-                argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
-                argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
-            FROM events
-            WHERE {exposure_predicate}
-            GROUP BY entity_id
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                countIf(entity_metrics.value.1 = {num_steps_minus_1}) AS total_sum,
+                countIf(entity_metrics.value.1 = {num_steps_minus_1}) AS total_sum_of_squares
+            FROM entity_metrics
+            GROUP BY entity_metrics.variant
             """,
             placeholders={
                 "entity_key": parse_expr(self.entity_key),
                 "variant_expr": self._build_variant_expr(),
                 "exposure_predicate": self._build_exposure_predicate(),
+                "funnel_steps_filter": self._build_funnel_steps_filter(),
+                "funnel_aggregation": self._build_funnel_aggregation_expr(),
+                "uuid_to_session_map": self._build_uuid_to_session_map(),
+                "num_steps_minus_1": ast.Constant(value=num_steps - 1),
             },
         )
 
-    def _build_funnel_metric_events_cte(self) -> ast.SelectQuery:
+        assert isinstance(query, ast.SelectQuery)
+
+        # Now manually inject step columns into the metric_events CTE
+        # Find the metric_events CTE in the query
+        if query.ctes and "metric_events" in query.ctes:
+            metric_events_cte = query.ctes["metric_events"]
+            if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
+                # Add step columns to the SELECT
+                step_columns = self._build_funnel_step_columns()
+                metric_events_cte.expr.select.extend(step_columns)
+
+        return query
+
+    def _build_funnel_step_columns(self) -> list[ast.Expr]:
         """
-        Builds the metric_events CTE specifically for funnel metrics.
+        Builds list of step column AST expressions: step_0, step_1, etc.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
-        # Build base select fields
-        select_fields = [
-            ast.Alias(alias="entity_id", expr=parse_expr(self.entity_key)),
-            ast.Field(chain=["timestamp"]),
-            ast.Field(chain=["uuid"]),
-            ast.Alias(alias="session_id", expr=ast.Field(chain=["properties", "$session_id"])),
-        ]
-
-        # Add step columns
+        step_columns = []
         for i, funnel_step in enumerate(self.metric.series):
             step_filter = event_or_action_to_filter(self.team, funnel_step)
             step_column = ast.Alias(
                 alias=f"step_{i}",
                 expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
             )
-            select_fields.append(step_column)
+            step_columns.append(step_column)
 
-        return ast.SelectQuery(
-            select=select_fields,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=self._build_funnel_steps_filter(),
-        )
-
-    def _build_funnel_entity_metrics_cte(
-        self, exposures_cte: ast.SelectQuery, metric_events_cte: ast.SelectQuery
-    ) -> ast.SelectQuery:
-        """
-        Builds the entity_metrics CTE for funnel metrics with LEFT JOIN.
-        """
-        return ast.SelectQuery(
-            select=[
-                ast.Alias(alias="entity_id", expr=ast.Field(chain=["exposures", "entity_id"])),
-                ast.Alias(alias="variant", expr=ast.Field(chain=["exposures", "variant"])),
-                ast.Alias(
-                    alias="exposure_event_uuid",
-                    expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_event_uuid"])]),
-                ),
-                ast.Alias(
-                    alias="exposure_session_id",
-                    expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_session_id"])]),
-                ),
-                ast.Alias(alias="value", expr=self._build_funnel_aggregation_expr()),
-                ast.Alias(alias="uuid_to_session", expr=self._build_uuid_to_session_map()),
-            ],
-            select_from=ast.JoinExpr(
-                table=exposures_cte,
-                alias="exposures",
-                next_join=ast.JoinExpr(
-                    table=metric_events_cte,
-                    alias="metric_events",
-                    join_type="LEFT JOIN",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.And(
-                            exprs=[
-                                ast.CompareOperation(
-                                    left=ast.Field(chain=["exposures", "entity_id"]),
-                                    right=ast.Field(chain=["metric_events", "entity_id"]),
-                                    op=ast.CompareOperationOp.Eq,
-                                ),
-                                ast.CompareOperation(
-                                    left=ast.Field(chain=["metric_events", "timestamp"]),
-                                    right=ast.Field(chain=["exposures", "first_exposure_time"]),
-                                    op=ast.CompareOperationOp.GtEq,
-                                ),
-                            ]
-                        ),
-                        constraint_type="ON",
-                    ),
-                ),
-            ),
-            group_by=[
-                ast.Field(chain=["exposures", "entity_id"]),
-                ast.Field(chain=["exposures", "variant"]),
-            ],
-        )
+        return step_columns
 
     def _build_funnel_steps_filter(self) -> ast.Expr:
         """
