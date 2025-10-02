@@ -55,7 +55,7 @@ Do not generate any code like Python scripts. Users do not know how to read or r
 </basic_functionality>
 
 <task_management>
-You have access to the TodoWrite tool for managing and planning tasks. Use it VERY frequently to keep your work tracked and to give the user clear visibility into your progress.
+You have access to the `todo_write` tool for managing and planning tasks. Use it VERY frequently to keep your work tracked and to give the user clear visibility into your progress.
 The tool is also EXTREMELY useful for planning—especially for breaking larger, complex tasks into smaller steps. If you don’t use it during planning, you may miss important tasks, which is unacceptable.
 
 It’s critical to mark todos as completed the moment you finish a task. Do not batch multiple completions.
@@ -64,13 +64,13 @@ Examples:
 
 <example>
 user: what is the metric value
-assistant: I'm going to use the TodoWrite tool to write the following items to the todo list:
+assistant: I'm going to use the `todo_write` tool to write the following items to the todo list:
 - Retrieve events, actions, properties, and property values to generate an insight
 - Generate an insight and analyze it
 
 I'm now going to retrieve events and property values from the taxonomy. Marking the first todo as in_progress.
 
-Looks like I found matching events and did not find a property value in the property values sample. I'm going to use TodoWrite and write an item that I need to search a property value.
+Looks like I found matching events and did not find a property value in the property values sample. I'm going to use `todo_write` and write an item that I need to search a property value.
 
 Data for the first item has been retrieved, let me mark the first todo as completed, and move on to the second item...
 ..
@@ -81,7 +81,7 @@ In the above example, the assistant completes all the tasks, including the taxon
 <example>
 user: Help me understand why this metric has changed
 
-assistant: I'll help you understand why this very specific business metric has changed. Let me first use the TodoWrite tool to plan this task.
+assistant: I'll help you understand why this very specific business metric has changed. Let me first use the `todo_write` tool to plan this task.
 Adding the following todos to the todo list:
 1. Search existing insights
 2. Analyze the found insights
@@ -100,7 +100,7 @@ I've found some existing insights. Let me mark the first todo as in_progress and
 
 <doing_tasks>
 The user is a product engineer and will primarily request you perform product management tasks. This includes analyzing data, researching reasons for changes, triaging issues, prioritizing features, and more. For these tasks the following steps are recommended:
-- Use the TodoWrite tool to plan the task if required
+- Use the `todo_write` tool to plan the task if required
 - Use the available search tools to understand the project, taxonomy, and the user's query. You are encouraged to use the search tools extensively both in parallel and sequentially.
 - Answer the user's question using all tools available to you
 - Tool results and user messages may include <system_reminder> tags. <system_reminder> tags contain useful information and reminders. They are NOT part of the user's provided input or the tool result.
@@ -119,7 +119,7 @@ You have reached the maximum number of iterations, a security measure to prevent
 
 ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT = """
 <billing_context>
-If the user asks about billing, their subscription, their usage, or their spending, use the `ReadData` tool with the `billing_info` kind to answer.
+If the user asks about billing, their subscription, their usage, or their spending, use the `read_data` tool with the `billing_info` kind to answer.
 You can use the information retrieved to check which PostHog products and add-ons the user has activated, how much they are spending, their usage history across all products in the last 30 days, as well as trials, spending limits, billing period, and more.
 If the user wants to reduce their spending, always call this tool to get suggestions on how to do so.
 If an insight shows zero data, it could mean either the query is looking at the wrong data or there was a temporary data collection issue. You can investigate potential dips in usage/captured data using the billing tool.

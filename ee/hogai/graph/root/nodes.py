@@ -492,7 +492,7 @@ class RootNodeTools(AssistantNode):
             # Handle the basic toolkit
             if (
                 isinstance(result, LangchainToolMessage)
-                and result.name == "Search"
+                and result.name == "search"
                 and isinstance(result.artifact, dict)
             ):
                 match result.artifact.get("kind"):
@@ -510,7 +510,7 @@ class RootNodeTools(AssistantNode):
 
             if (
                 isinstance(result, LangchainToolMessage)
-                and result.name == "ReadData"
+                and result.name == "read_data"
                 and isinstance(result.artifact, dict)
                 and result.artifact.get("kind") == "billing_info"
             ):
@@ -571,7 +571,7 @@ class RootNodeTools(AssistantNode):
             if tool_calls and len(tool_calls) > 0:
                 tool_call = tool_calls[0]
                 tool_call_name = tool_call.name
-                if tool_call_name == "ReadData" and tool_call.args.get("kind") == "billing_info":
+                if tool_call_name == "read_data" and tool_call.args.get("kind") == "billing_info":
                     return "billing"
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"

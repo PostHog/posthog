@@ -789,10 +789,10 @@
                 "search_insights",
                 "session_summarization",
                 "create_dashboard",
-                "ReadTaxonomy",
-                "Search",
-                "ReadData",
-                "TodoWrite"
+                "read_taxonomy",
+                "search",
+                "read_data",
+                "todo_write"
             ],
             "type": "string"
         },

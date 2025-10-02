@@ -6,6 +6,44 @@ from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.helpers import format_events_yaml
 
+READ_TAXONOMY_TOOL_DESCRIPTION = """
+Use this tool to explore the user's taxonomy (i.e. data schema).
+The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc.
+Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else.
+Events or properties starting from "$" are system properties automatically captured by SDKs.
+
+# Examples of when to use the read_taxonomy tool
+
+<example>
+User: What event can I use to track revenue?
+Assistant: I'm going to retrieve events and event properties to help you find the event you're looking for.
+*Retrieves events*
+Assistant: I've found a few matching events. I'm going to retrieve event properties to help you find the event you're looking for.
+*Retrieves event properties for each event*
+Assistant: I've found a few matching properties. I'm going to retrieve sample property values for each property to verify they can be used for revenue tracking.
+*Retrieves sample property values for each event property*
+Assistant: I've found matching combinations...
+
+<reasoning>
+The assistant used the read_taxonomy tool because:
+1. The user is asking about **their custom data schema** in PostHog.
+2. The assistant needs to find a specific combination of events, properties, and property values that can be used to track revenue.
+</reasoning>
+</example>
+
+# Examples of when NOT to use the read_taxonomy tool
+
+<example>
+User: What system properties does PostHog capture?
+Assistant: I'm going to search PostHog documentation to find the system properties that are automatically captured by SDKs.
+*Begins searching PostHog documentation*
+
+<reasoning>
+The assistant did not use the read_taxonomy tool because it is an informational request. The user is simply asking for documentation search.
+</reasoning>
+</example>
+""".strip()
+
 
 class ReadEvents(BaseModel):
     """Returns the list of available events."""
@@ -73,57 +111,18 @@ ReadTaxonomyQuery = Union[
 ]
 
 
-class ReadTaxonomy(BaseModel):
+class ReadTaxonomyToolArgs(BaseModel):
     query: ReadTaxonomyQuery = Field(..., discriminator="kind")
 
 
-READ_TAXONOMY_TOOL_DESCRIPTION = """
-Use this tool to explore the user's taxonomy (i.e. data schema).
-The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc.
-Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else.
-Events or properties starting from "$" are system properties automatically captured by SDKs.
-
-# Examples of when to use the ReadTaxonomy tool
-
-<example>
-User: What event can I use to track revenue?
-Assistant: I'm going to retrieve events and event properties to help you find the event you're looking for.
-*Retrieves events*
-Assistant: I've found a few matching events. I'm going to retrieve event properties to help you find the event you're looking for.
-*Retrieves event properties for each event*
-Assistant: I've found a few matching properties. I'm going to retrieve sample property values for each property to verify they can be used for revenue tracking.
-*Retrieves sample property values for each event property*
-Assistant: I've found matching combinations...
-
-<reasoning>
-The assistant used the ReadTaxonomy tool because:
-1. The user is asking about **their custom data schema** in PostHog.
-2. The assistant needs to find a specific combination of events, properties, and property values that can be used to track revenue.
-</reasoning>
-</example>
-
-# Examples of when NOT to use the ReadTaxonomy tool
-
-<example>
-User: What system properties does PostHog capture?
-Assistant: I'm going to search PostHog documentation to find the system properties that are automatically captured by SDKs.
-*Begins searching PostHog documentation*
-
-<reasoning>
-The assistant did not use the ReadTaxonomy tool because it is an informational request. The user is simply asking for documentation search.
-</reasoning>
-</example>
-""".strip()
-
-
 class ReadTaxonomyTool(MaxTool):
-    name: Literal["ReadTaxonomy"] = "ReadTaxonomy"
+    name: Literal["read_taxonomy"] = "read_taxonomy"
     description: str = READ_TAXONOMY_TOOL_DESCRIPTION
     root_system_prompt_template: str = (
         "Explores the user's events, actions, properties, and property values (i.e. taxonomy)."
     )
     thinking_message: str = "Searching the taxonomy"
-    args_schema: type[BaseModel] = ReadTaxonomy
+    args_schema: type[BaseModel] = ReadTaxonomyToolArgs
     show_tool_call_message: bool = False
 
     def _run_impl(self, query: ReadTaxonomyQuery) -> tuple[str, Any]:

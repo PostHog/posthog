@@ -60,7 +60,7 @@ class SearchToolArgs(BaseModel):
 
 
 class SearchTool(MaxTool):
-    name: Literal["Search"] = "Search"
+    name: Literal["search"] = "search"
     description: str = SEARCH_TOOL_PROMPT
     thinking_message: str = "Searching for information"
     root_system_prompt_template: str = "Searches documentation or user data in PostHog (insights)"

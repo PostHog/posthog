@@ -149,7 +149,7 @@ class TodoWriteToolArgs(BaseModel):
 
 
 class TodoWriteTool(MaxTool):
-    name: Literal["TodoWrite"] = "TodoWrite"
+    name: Literal["todo_write"] = "todo_write"
     description: str = TODO_WRITE_PROMPT
     thinking_message: str = "Building and maintaining a structured to-do list"
     args_schema: type[BaseModel] = TodoWriteToolArgs

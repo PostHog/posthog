@@ -56,7 +56,7 @@ class ReadDataAdminAccessToolArgs(BaseModel):
 
 
 class ReadDataTool(HogQLDatabaseMixin, MaxTool):
-    name: Literal["ReadData"] = "ReadData"
+    name: Literal["read_data"] = "read_data"
     description: str = READ_DATA_PROMPT
     thinking_message: str = "Reading your PostHog data"
     root_system_prompt_template: str = "Reads user data created in PostHog (data warehouse schema, billing information)"

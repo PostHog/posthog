@@ -244,10 +244,10 @@ export type AssistantContextualTool =
     | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
-    | 'ReadTaxonomy'
-    | 'Search'
-    | 'ReadData'
-    | 'TodoWrite'
+    | 'read_taxonomy'
+    | 'search'
+    | 'read_data'
+    | 'todo_write'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
