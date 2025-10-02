@@ -1,5 +1,6 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { objectsEqual } from 'lib/utils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -59,6 +60,11 @@ export const MiniFilters: SharedListMiniFilter[] = [
         type: 'console',
         key: 'console-error',
         name: 'Error',
+    },
+    {
+        type: 'console',
+        key: 'console-app-state',
+        name: 'App state',
     },
     {
         type: 'network',
@@ -206,6 +212,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     enabled: selectedMiniFilters.includes(x.key),
                 }))
             },
+            { resultEqualityCheck: objectsEqual },
         ],
 
         miniFiltersByKey: [
@@ -216,6 +223,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     return acc
                 }, {})
             },
+            { resultEqualityCheck: objectsEqual },
         ],
 
         miniFiltersForTypeByKey: [

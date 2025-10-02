@@ -103,7 +103,6 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 SELECT properties.$ai_trace_id as trace_id
                 FROM events
                 WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-                  AND properties.$ai_trace_id IS NOT NULL
                   AND {subquery_conditions}
                 ORDER BY timestamp DESC
                 LIMIT 1 BY properties.$ai_trace_id
@@ -119,10 +118,19 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     argMin(person.properties, timestamp)
                 ) AS first_person,
                 round(
-                    sumIf(toFloat(properties.$ai_latency),
-                        properties.$ai_parent_id IS NULL
-                        OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
-                    ), 2
+                    CASE
+                        -- If all events with latency are generations, sum them all
+                        WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
+                             AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
+                        THEN sumIf(toFloat(properties.$ai_latency),
+                                   event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
+                             )
+                        -- Otherwise sum the direct children of the trace
+                        ELSE sumIf(toFloat(properties.$ai_latency),
+                                   properties.$ai_parent_id IS NULL
+                                   OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                             )
+                    END, 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
                       event = '$ai_generation'
@@ -273,10 +281,16 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         )
 
     def _get_subquery_filter(self) -> ast.Expr:
+        exprs: list[ast.Expr] = [
+            ast.Call(name="isNotNull", args=[ast.Field(chain=["properties", "$ai_trace_id"])]),
+            self._get_where_clause(),
+        ]
+
         properties_filter = self._get_properties_filter()
-        if properties_filter is None:
-            return self._get_where_clause()
-        return ast.And(exprs=[self._get_where_clause(), properties_filter])
+        if properties_filter is not None:
+            exprs.append(properties_filter)
+
+        return ast.And(exprs=exprs)
 
     def _get_properties_filter(self) -> ast.Expr | None:
         property_filters: list[ast.Expr] = []

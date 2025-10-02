@@ -104,7 +104,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self,
         team: Team,
         query: RecordingsQuery,
-        hogql_query_modifiers: Optional[HogQLQueryModifiers],
+        hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
+        allow_event_property_expansion: bool = False,
         **_,
     ):
         # TRICKY: we need to make sure we init test account filters only once,
@@ -119,6 +120,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             limit=expanded_query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=expanded_query.offset or 0
         )
         self._hogql_query_modifiers = hogql_query_modifiers
+        self._allow_event_property_expansion = allow_event_property_expansion
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -265,7 +267,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         optional_exprs: list[ast.Expr] = []
 
         # if in PoE mode then we should be pushing person property queries into here
-        events_sub_queries = ReplayFiltersEventsSubQuery(self._team, self._query).get_queries_for_session_id_matching()
+        events_sub_queries = ReplayFiltersEventsSubQuery(
+            self._team, self._query, self._allow_event_property_expansion
+        ).get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
             optional_exprs.append(
                 ast.CompareOperation(

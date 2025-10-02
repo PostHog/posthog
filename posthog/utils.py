@@ -59,7 +59,7 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Dashboard, InsightVariable, Team, User
+    from posthog.models import Dashboard, DashboardTile, InsightVariable, Team, User
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -330,7 +330,6 @@ def get_context_for_template(
     request: HttpRequest,
     context: Optional[dict] = None,
     team_for_public_context: Optional["Team"] = None,
-    template_name: Optional[str] = None,
 ) -> dict:
     if context is None:
         context = {}
@@ -346,29 +345,18 @@ def get_context_for_template(
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_branch"] = get_git_branch()
-        # Add vite dev scripts for development only when explicitly using Vite
-        if not settings.E2E_TESTING and os.environ.get("POSTHOG_USE_VITE"):
-            # Choose the correct entry point based on template
-            entry_point = "src/index.tsx"
-            if template_name == "exporter.html":
-                entry_point = "src/exporter/index.tsx"
-
-            # Use dynamic host logic like get_js_url
-            vite_host = "localhost:8234"
-            if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
-                vite_host = f"{request.get_host().split(':')[0]}:8234"
-
-            context["vite_dev_scripts"] = f"""
+        # Add vite dev scripts for development
+        context["vite_dev_scripts"] = """
         <script type="module">
-            import RefreshRuntime from 'http://{vite_host}/@react-refresh'
+            import RefreshRuntime from 'http://localhost:8234/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
-            window.$RefreshReg$ = () => {{}}
+            window.$RefreshReg$ = () => {}
             window.$RefreshSig$ = () => (type) => type
             window.__vite_plugin_react_preamble_installed__ = true
         </script>
         <!-- Vite development server -->
-        <script type="module" src="http://{vite_host}/@vite/client"></script>
-        <script type="module" src="http://{vite_host}/{entry_point}"></script>"""
+        <script type="module" src="http://localhost:8234/@vite/client"></script>
+        <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
 
     context["js_posthog_ui_host"] = ""
 
@@ -389,6 +377,7 @@ def get_context_for_template(
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
+    context["js_app_state_logging_sample_rate"] = settings.APP_STATE_LOGGING_SAMPLE_RATE
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
@@ -522,7 +511,7 @@ def render_template(
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
     """
 
-    context = get_context_for_template(request, context, team_for_public_context, template_name)
+    context = get_context_for_template(request, context, team_for_public_context)
     template = get_template(template_name)
 
     html = template.render(context, request=request)
@@ -1220,6 +1209,26 @@ def variables_override_requested_by_client(
         raise serializers.ValidationError({"variables_override": "Invalid JSON passed in variables_override parameter"})
 
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
+
+
+def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
+    from posthog.auth import SharingAccessTokenAuthentication
+
+    tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
+    raw_override = request.query_params.get("tile_filters_override")
+
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+        return tile_filters
+
+    try:
+        request_filters = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError(
+            {"tile_filters_override": "Invalid JSON passed in tile_filters_override parameter"}
+        )
+
+    return {**tile_filters, **request_filters}
 
 
 def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:

@@ -10,6 +10,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::{
+    checkpoint::config::CheckpointConfig,
+    checkpoint::export::CheckpointExporter,
+    checkpoint::s3_uploader::S3Uploader,
     checkpoint_manager::CheckpointManager,
     config::Config,
     deduplication_processor::{DeduplicationConfig, DeduplicationProcessor},
@@ -38,7 +41,7 @@ pub struct KafkaDeduplicatorService {
 
 impl KafkaDeduplicatorService {
     /// Create a new service from configuration
-    pub fn new(config: Config, liveness: HealthRegistry) -> Result<Self> {
+    pub async fn new(config: Config, liveness: HealthRegistry) -> Result<Self> {
         // Validate configuration
         config.validate().with_context(|| format!("Configuration validation failed for service with consumer topic '{}' and group '{}'", config.kafka_consumer_topic, config.kafka_consumer_group))?;
 
@@ -69,14 +72,36 @@ impl KafkaDeduplicatorService {
             None
         };
 
-        // Create checkpoint manager with the store manager
+        // Create checkpoint manager and inject an exporter to enable uploads
+        let checkpoint_config = CheckpointConfig {
+            checkpoint_interval: config.checkpoint_interval(),
+            cleanup_interval: config.checkpoint_cleanup_interval(),
+            local_checkpoint_dir: config.local_checkpoint_dir.clone(),
+            s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
+            s3_key_prefix: config.s3_key_prefix.clone(),
+            full_upload_interval: config.checkpoint_full_upload_interval,
+            aws_region: config.aws_region.clone(),
+            max_local_checkpoints: config.max_local_checkpoints,
+            max_checkpoint_retention_hours: config.max_checkpoint_retention_hours,
+            max_concurrent_checkpoints: config.max_concurrent_checkpoints,
+            checkpoint_gate_interval: config.checkpoint_gate_interval(),
+            checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
+            s3_timeout: config.s3_timeout(),
+        };
+
+        // create exporter conditionally if S3 config is populated
+        let exporter = if !config.aws_region.is_empty() && config.s3_bucket.is_some() {
+            let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
+            Some(Arc::new(CheckpointExporter::new(
+                checkpoint_config.clone(),
+                uploader,
+            )))
+        } else {
+            None
+        };
+
         let checkpoint_manager =
-            CheckpointManager::new(store_manager.clone(), config.flush_interval());
-        // checkpoint_manager.start();
-        info!(
-            "Started checkpoint manager with flush interval: {:?}",
-            config.flush_interval()
-        );
+            CheckpointManager::new(checkpoint_config, store_manager.clone(), exporter);
 
         Ok(Self {
             config,
@@ -127,6 +152,7 @@ impl KafkaDeduplicatorService {
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
                 .with_tls(self.config.kafka_tls)
+                .with_sticky_partition_assignment(self.config.pod_hostname.as_deref())
                 .offset_reset(&self.config.kafka_consumer_offset_reset)
                 .build();
 
@@ -148,6 +174,46 @@ impl KafkaDeduplicatorService {
             .liveness
             .register("processor_pool".to_string(), Duration::from_secs(30))
             .await;
+
+        // start checkpoint manager and async work loop threads, register health monitor
+        let checkpoint_health_reporter = self.checkpoint_manager.as_mut().unwrap().start();
+
+        // if health reporter is Some, this is the first time initializing
+        // the checkpoint manager, and we should start the health monitor thread
+        if checkpoint_health_reporter.is_some() {
+            let checkpoint_health_handle = self
+                .liveness
+                .register("checkpoint_manager".to_string(), Duration::from_secs(30))
+                .await;
+            let cancellation = self.health_task_cancellation.child_token();
+            let handle = tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(10));
+                loop {
+                    tokio::select! {
+                        _ = cancellation.cancelled() => {
+                            break;
+                        }
+                        _ = interval.tick() => {
+                            if checkpoint_health_reporter.as_ref().unwrap().load(Ordering::SeqCst) {
+                                checkpoint_health_handle.report_healthy().await;
+                            } else {
+                                // Explicitly report unhealthy when a worker dies
+                                checkpoint_health_handle.report_status(health::ComponentStatus::Unhealthy).await;
+                                error!("Checkpoint manager is unhealthy - checkpoint and/or cleanup loops died");
+                            }
+                        }
+                    }
+                }
+            });
+            self.health_task_handles.push(handle);
+        }
+
+        info!(
+            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?}, checkpoint_cleanup interval = {:?})",
+            self.checkpoint_manager.as_ref().unwrap().export_enabled(),
+            self.config.checkpoint_interval(),
+            self.config.checkpoint_cleanup_interval(),
+        );
 
         // Spawn task to report processor pool health
         let pool_health_reporter = pool_health.clone();
@@ -402,39 +468,5 @@ impl KafkaDeduplicatorService {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         Ok(())
-    }
-}
-
-/// Builder for easier service configuration in tests
-pub struct ServiceBuilder {
-    config: Config,
-    liveness: HealthRegistry,
-}
-
-impl ServiceBuilder {
-    pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            liveness: HealthRegistry::new("test_liveness"),
-        }
-    }
-
-    pub fn with_output_topic(mut self, topic: String) -> Self {
-        self.config.output_topic = Some(topic);
-        self
-    }
-
-    pub fn with_store_path(mut self, path: String) -> Self {
-        self.config.store_path = path;
-        self
-    }
-
-    pub fn with_liveness(mut self, liveness: HealthRegistry) -> Self {
-        self.liveness = liveness;
-        self
-    }
-
-    pub fn build(self) -> Result<KafkaDeduplicatorService> {
-        KafkaDeduplicatorService::new(self.config, self.liveness)
     }
 }

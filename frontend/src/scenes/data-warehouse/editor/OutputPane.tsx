@@ -10,6 +10,7 @@ import {
     IconBolt,
     IconBrackets,
     IconCode,
+    IconCode2,
     IconCopy,
     IconDownload,
     IconExpand45,
@@ -54,9 +55,10 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
+import { QueryEndpoint } from './output-pane-tabs/QueryEndpoint'
+import { QueryInfo } from './output-pane-tabs/QueryInfo'
+import { QueryVariables } from './output-pane-tabs/QueryVariables'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
-import { QueryInfo } from './sidebar/QueryInfo'
-import { QueryVariables } from './sidebar/QueryVariables'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -454,23 +456,31 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             label: 'Materialization',
                             icon: <IconBolt />,
                         },
-                    ].map((tab) => (
-                        <div
-                            key={tab.key}
-                            className={clsx(
-                                'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
-                                {
-                                    'font-semibold !border-brand-yellow': tab.key === activeTab,
-                                    'border-transparent': tab.key !== activeTab,
-                                    'opacity-50 cursor-not-allowed': tab.disabled,
-                                }
-                            )}
-                            onClick={() => !tab.disabled && setActiveTab(tab.key)}
-                        >
-                            <span className="mr-1">{tab.icon}</span>
-                            {tab.label}
-                        </div>
-                    ))}
+                        {
+                            key: OutputTab.QueryEndpoint,
+                            label: 'Query endpoint',
+                            icon: <IconCode2 />,
+                            flag: FEATURE_FLAGS.EMBEDDED_ANALYTICS,
+                        },
+                    ]
+                        .filter((tab) => !tab.flag || featureFlags[tab.flag])
+                        .map((tab) => (
+                            <div
+                                key={tab.key}
+                                className={clsx(
+                                    'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
+                                    {
+                                        'font-semibold !border-brand-yellow': tab.key === activeTab,
+                                        'border-transparent': tab.key !== activeTab,
+                                        'opacity-50 cursor-not-allowed': tab.disabled,
+                                    }
+                                )}
+                                onClick={() => !tab.disabled && setActiveTab(tab.key)}
+                            >
+                                <span className="mr-1">{tab.icon}</span>
+                                {tab.label}
+                            </div>
+                        ))}
                 </div>
                 <div className="flex gap-2 py-2 px-4 flex-shrink-0">
                     {showLegacyFilters && (
@@ -614,7 +624,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
                 <div className="flex items-center gap-4">
-                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : <ElapsedTime />}
+                    <ElapsedTime />
+                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : null}
                 </div>
             </div>
             <RowDetailsModal
@@ -721,6 +732,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                 query={sourceQuery}
                 excludeDetail
                 title={error}
+                excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
                 fixWithAIComponent={
                     <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                 }
@@ -751,6 +763,8 @@ const Content = ({
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
     const { editingView } = useValues(multitabEditorLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -800,6 +814,15 @@ const Content = ({
             <TabScroller>
                 <div className="px-6 py-4 border-t max-w-1/2">
                     <QueryVariables />
+                </div>
+            </TabScroller>
+        )
+    }
+    if (featureFlags[FEATURE_FLAGS.EMBEDDED_ANALYTICS] && activeTab === OutputTab.QueryEndpoint) {
+        return (
+            <TabScroller>
+                <div className="px-6 py-4 border-t">
+                    <QueryEndpoint tabId={tabId} />
                 </div>
             </TabScroller>
         )

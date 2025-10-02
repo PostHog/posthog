@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft, IconTrash } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDivider, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 
@@ -72,7 +72,6 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                         <span className="flex gap-1 items-center font-medium rounded-md mr-3">
                             <span className="text-lg">{Step?.icon}</span>
                             <span className="font-semibold whitespace-nowrap">{selectedNode.data.name}</span>step
-                            <LemonDivider vertical />
                             {validationResult?.valid === false && (
                                 <Tooltip title="Some fields need attention">
                                     <div>

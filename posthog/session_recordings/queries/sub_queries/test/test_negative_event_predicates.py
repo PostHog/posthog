@@ -195,7 +195,7 @@ class TestNegativeEventPredicates:
 
         team = BaseTest().team
 
-        result = negative_event_predicates(team, entities)
+        result = negative_event_predicates(entities, team)
         if expected_sql:
             self._compare_with_snapshot(result, expected_sql)
         else:
@@ -217,7 +217,7 @@ class TestNegativeEventPredicates:
         with pytest.raises(
             NotImplementedError, match="DataWarehouseNode is not supported in negative event predicates"
         ):
-            negative_event_predicates(team, entities)
+            negative_event_predicates(entities, team)
 
     def test_entity_with_mixed_operators_creates_single_expression(self):
         from posthog.test.base import BaseTest
@@ -233,7 +233,7 @@ class TestNegativeEventPredicates:
         entity = EventsNode(event="click", properties=properties)
         entities = cast(list[EventsNode | ActionsNode | DataWarehouseNode | str], [entity])
 
-        result = negative_event_predicates(team, entities)
+        result = negative_event_predicates(entities, team)
 
         self._compare_with_snapshot(
             result,
@@ -264,7 +264,7 @@ class TestNegativeEventPredicates:
         )
 
         entities = cast(list[EventsNode | ActionsNode | DataWarehouseNode | str], [entity1, entity2])
-        result = negative_event_predicates(team, entities)
+        result = negative_event_predicates(entities, team)
 
         self._compare_with_snapshot(
             result,
@@ -292,7 +292,7 @@ class TestNegativeEventPredicates:
         )
 
         entities = cast(list[EventsNode | ActionsNode | DataWarehouseNode | str], [entity])
-        result = negative_event_predicates(team, entities)
+        result = negative_event_predicates(entities, team)
 
         self._compare_with_snapshot(
             result,
@@ -321,7 +321,7 @@ class TestNegativeEventPredicates:
         )
 
         entities = cast(list[EventsNode | ActionsNode | DataWarehouseNode | str], [entity_positive, entity_negative])
-        result = negative_event_predicates(team, entities)
+        result = negative_event_predicates(entities, team)
 
         # Should only return expression for entity with negative operators
         assert len(result) == 1, "Should only create expressions for entities with negative operators"
@@ -342,7 +342,7 @@ class TestNegativeEventPredicates:
         )
 
         entities = cast(list[EventsNode | ActionsNode | DataWarehouseNode | str], [entity])
-        result = negative_event_predicates(team, entities)
+        result = negative_event_predicates(entities, team)
 
         self._compare_with_snapshot(
             result, "sql(or(equals(events.properties.user_email, NULL), not(JSONHas(events.properties, 'user_email'))))"
@@ -361,7 +361,7 @@ class TestNegativeEventPredicates:
         )
 
         entities = cast(list[EventsNode | ActionsNode | DataWarehouseNode | str], [entity])
-        result = negative_event_predicates(team, entities)
+        result = negative_event_predicates(entities, team)
 
         self._compare_with_snapshot(result, "sql(notEquals(events.properties.browser, 'safari'))")
 
@@ -378,7 +378,7 @@ class TestNegativeEventPredicates:
         )
 
         entities = cast(list[EventsNode | ActionsNode | DataWarehouseNode | str], [entity])
-        result = negative_event_predicates(team, entities)
+        result = negative_event_predicates(entities, team)
 
         self._compare_with_snapshot(
             result, "sql(ifNull(not(match(toString(events.properties.url), '.*\\\\.pdf$')), 1))"

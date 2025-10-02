@@ -42,6 +42,7 @@ export function processEvent(event: PluginEvent, { logger }: LegacyTransformatio
                 term: term?.toLowerCase(),
                 referrer_parser: 'utm',
                 $set: {
+                    ...event.properties?.$set,
                     medium: medium?.toLowerCase(),
                     source: source?.toLowerCase(),
                     campaign: campaign?.toLowerCase(),
@@ -50,6 +51,7 @@ export function processEvent(event: PluginEvent, { logger }: LegacyTransformatio
                     referrer_parser: 'utm',
                 },
                 $set_once: {
+                    ...event.properties?.$set_once,
                     initial_medium: medium?.toLowerCase(),
                     initial_source: source?.toLowerCase(),
                     initial_campaign: campaign?.toLowerCase(),
@@ -73,10 +75,12 @@ export function processEvent(event: PluginEvent, { logger }: LegacyTransformatio
                 source: 'direct',
                 referrer_parser: 'direct_and_own_domains',
                 $set: {
+                    ...event.properties?.$set,
                     source: 'direct',
                     referrer_parser: 'direct_and_own_domains',
                 },
                 $set_once: {
+                    ...event.properties?.$set_once,
                     initial_source: 'direct',
                     initial_referrer_parser: 'direct_and_own_domains',
                     initial_medium: 'undefined',
@@ -104,12 +108,14 @@ export function processEvent(event: PluginEvent, { logger }: LegacyTransformatio
             term: searchQuery,
             referrer_parser: 'snowplow',
             $set: {
+                ...event.properties?.$set,
                 medium: referrerData.medium.toLowerCase(),
                 source: referrerData.source.toLowerCase(),
                 term: searchQuery,
                 referrer_parser: 'snowplow',
             },
             $set_once: {
+                ...event.properties?.$set_once,
                 initial_medium: referrerData.medium.toLowerCase(),
                 initial_source: referrerData.source.toLowerCase(),
                 initial_term: searchQuery,

@@ -10,6 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 
 import { CampaignMetrics } from './CampaignMetrics'
 import { CampaignSceneHeader } from './CampaignSceneHeader'
@@ -75,6 +76,7 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
     return (
         <SceneContent className="flex flex-col">
             <CampaignSceneHeader {...props} />
+            <SceneDivider />
             {/* Only show Logs and Metrics tabs if the campaign has already been created */}
             {!props.id || props.id === 'new' ? (
                 <CampaignWorkflow {...props} />
@@ -83,6 +85,7 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
                     activeKey={currentTab}
                     onChange={(tab) => router.actions.push(urls.messagingCampaign(props.id ?? 'new', tab))}
                     tabs={tabs}
+                    sceneInset
                 />
             )}
         </SceneContent>

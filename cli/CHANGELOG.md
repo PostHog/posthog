@@ -1,5 +1,9 @@
 # posthog-cli
 
+## 0.4.8
+
+- fix bug where directory ends with a javascript extension
+
 ## 0.4.4
 
 - process uploads in batches

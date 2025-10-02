@@ -53,6 +53,12 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
                 return aggregationLabel(logicProps.groupTypeIndex).singular
             },
         ],
+        groupTypeNamePlural: [
+            (s) => [s.aggregationLabel, s.logicProps],
+            (aggregationLabel, logicProps): string => {
+                return aggregationLabel(logicProps.groupTypeIndex).plural
+            },
+        ],
         breadcrumbs: [
             (s) => [s.logicProps, s.groupTypeName],
             (logicProps, groupTypeName): Breadcrumb[] => {
@@ -61,10 +67,12 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
                         key: Scene.Groups,
                         name: capitalizeFirstLetter(groupTypeName),
                         path: urls.groups(logicProps.groupTypeIndex),
+                        iconType: 'group',
                     },
                     {
                         key: Scene.GroupsNew,
                         name: `Create ${groupTypeName}`,
+                        iconType: 'group',
                     },
                 ]
             },

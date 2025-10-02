@@ -1,25 +1,29 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
+import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatusTag'
+
+import { HogFunctionTemplateType } from '~/types'
 
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { HogFlowAction } from '../types'
 
 export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
-    {
-        type: 'function_email',
-        name: 'Email',
-        description: 'Send an email to the user.',
-        config: {
-            template_id: 'template-email',
-            inputs: {},
-        },
-    },
+    // TODO: Re-enable email action once we have full SES support
+    // {
+    //     type: 'function_email',
+    //     name: 'Email',
+    //     description: 'Send an email to the user.',
+    //     config: {
+    //         template_id: 'template-email',
+    //         inputs: {},
+    //     },
+    // },
     {
         type: 'function_sms',
         name: 'SMS',
@@ -135,9 +139,11 @@ const TEMPLATE_IDS_AT_TOP_LEVEL: string[] = [
 function HogFlowEditorToolbarNode({
     action,
     onDragStart: onDragStartProp,
+    children,
 }: {
     action: CreateActionType
     onDragStart?: (event: React.DragEvent) => void
+    children?: React.ReactNode
 }): JSX.Element | null {
     const { setNewDraggingNode } = useActions(hogFlowEditorLogic)
 
@@ -161,14 +167,32 @@ function HogFlowEditorToolbarNode({
                 sideIcon={<IconDrag />}
                 fullWidth
             >
-                {action.name}
+                {children ?? action.name}
             </LemonButton>
         </div>
     )
 }
 
+// For now we only want to show destinations that do not have secrets and not coming soon
+const customFilterFunction = (template: HogFunctionTemplateType): boolean => {
+    if (template.type !== 'destination' || TEMPLATE_IDS_AT_TOP_LEVEL.includes(template.id)) {
+        return false
+    }
+
+    if (template.type === 'destination' && template.inputs_schema?.some((input) => input.secret)) {
+        return false
+    }
+
+    if (template.status === 'coming_soon') {
+        return false
+    }
+
+    return true
+}
+
 function HogFunctionTemplatesChooser(): JSX.Element {
-    const logic = hogFunctionTemplateListLogic({ type: 'destination' })
+    const logic = hogFunctionTemplateListLogic({ type: 'destination', customFilterFunction })
+
     const { loading, filteredTemplates, filters } = useValues(logic)
     const { loadHogFunctionTemplates, setFilters } = useActions(logic)
 
@@ -177,31 +201,6 @@ function HogFunctionTemplatesChooser(): JSX.Element {
     useEffect(() => {
         loadHogFunctionTemplates()
     }, [loadHogFunctionTemplates])
-
-    const actions = useMemo(
-        () =>
-            filteredTemplates
-                .filter((template) => {
-                    if (template.type !== 'destination' || TEMPLATE_IDS_AT_TOP_LEVEL.includes(template.id)) {
-                        return false
-                    }
-
-                    // TODO: For now hide all templates that have secret values as we dont support secret management yet
-                    if (template.type === 'destination' && template.inputs_schema?.some((input) => input.secret)) {
-                        return false
-                    }
-                    return true
-                })
-                .map(
-                    (template): CreateActionType => ({
-                        type: 'function',
-                        name: template.name,
-                        description: typeof template.description === 'string' ? template.description : '',
-                        config: { template_id: template.id, inputs: {} },
-                    })
-                ),
-        [filteredTemplates]
-    )
 
     return (
         <div>
@@ -215,7 +214,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                         <LemonInput
                             placeholder="Search..."
                             value={filters.search ?? ''}
-                            onChange={(e) => setFilters({ search: e })}
+                            onChange={(e) => setFilters({ ...filters, search: e })}
                             autoFocus
                         />
 
@@ -223,12 +222,27 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                             <SpinnerOverlay />
                         ) : (
                             <ul className="overflow-y-auto flex-1">
-                                {actions.map((template) => (
+                                {filteredTemplates.map((template) => (
                                     <li key={template.type}>
                                         <HogFlowEditorToolbarNode
-                                            action={template}
-                                            // onDragStart={() => setPopoverOpen(false)}
-                                        />
+                                            action={{
+                                                type: 'function',
+                                                name: template.name,
+                                                description:
+                                                    typeof template.description === 'string'
+                                                        ? template.description
+                                                        : '',
+                                                config: { template_id: template.id, inputs: {} },
+                                            }}
+                                        >
+                                            <div className="py-1 flex items-center gap-1 flex-1">
+                                                <div className="flex-1">
+                                                    <div>{template.name}</div>
+                                                    <div className="text-xs text-muted">{template.description}</div>
+                                                </div>
+                                                {template.status && <HogFunctionStatusTag status={template.status} />}
+                                            </div>
+                                        </HogFlowEditorToolbarNode>
                                     </li>
                                 ))}
                             </ul>
@@ -237,7 +251,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                 }
             >
                 <LemonButton fullWidth onClick={() => setPopoverOpen(!popoverOpen)}>
-                    More actions
+                    More
                 </LemonButton>
             </LemonDropdown>
         </div>
@@ -248,7 +262,7 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
     return (
         <div className="flex overflow-y-auto flex-col gap-px p-2">
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
-                Actions <LemonDivider className="flex-1" />
+                Dispatch <LemonDivider className="flex-1" />
             </span>
             {ACTION_NODES_TO_SHOW.map((node, index) => (
                 <HogFlowEditorToolbarNode key={`${node.type}-${index}`} action={node} />

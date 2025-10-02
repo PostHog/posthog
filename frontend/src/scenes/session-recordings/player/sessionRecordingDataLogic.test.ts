@@ -32,16 +32,10 @@ import { snapshotDataLogic } from './snapshotDataLogic'
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
 const BLOB_SOURCE: SessionRecordingSnapshotSource = {
-    source: 'blob',
+    source: 'blob_v2',
     start_timestamp: '2023-08-11T12:03:36.097000Z',
     end_timestamp: '2023-08-11T12:04:52.268000Z',
-    blob_key: '1691755416097-1691755492268',
-}
-const REALTIME_SOURCE: SessionRecordingSnapshotSource = {
-    source: 'realtime',
-    start_timestamp: '2024-01-28T21:19:49.217000Z',
-    end_timestamp: undefined,
-    blob_key: undefined,
+    blob_key: '0',
 }
 
 describe('sessionRecordingDataLogic', () => {
@@ -54,27 +48,14 @@ describe('sessionRecordingDataLogic', () => {
             get: {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
                     // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
-                    } else if (req.url.searchParams.get('source') === 'realtime') {
-                        if (req.params.id === 'has-only-empty-realtime') {
-                            return res(ctx.json([]))
-                        }
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     }
 
-                    // with no source requested should return sources
-                    let sources = [BLOB_SOURCE]
-                    if (req.params.id === 'has-real-time-too') {
-                        sources.push(REALTIME_SOURCE)
-                    }
-                    if (req.params.id === 'has-only-empty-realtime') {
-                        sources = [REALTIME_SOURCE]
-                    }
                     return [
                         200,
                         {
-                            sources,
+                            sources: [BLOB_SOURCE],
                         },
                     ]
                 },
@@ -90,8 +71,7 @@ describe('sessionRecordingDataLogic', () => {
         initKeaTests()
         const props = {
             sessionRecordingId: '2',
-            // we don't want to wait for the default real-time polling interval in tests
-            realTimePollingIntervalMilliseconds: 10,
+            blobV2PollingDisabled: true,
         }
         logic = sessionRecordingDataLogic(props)
         snapshotLogic = snapshotDataLogic(props)
@@ -212,8 +192,7 @@ describe('sessionRecordingDataLogic', () => {
             initKeaTests()
             const props = {
                 sessionRecordingId: '2',
-                // we don't want to wait for the default real time polling interval in tests
-                realTimePollingIntervalMilliseconds: 10,
+                blobV2PollingDisabled: true,
             }
             logic = sessionRecordingDataLogic(props)
             snapshotLogic = snapshotDataLogic(props)

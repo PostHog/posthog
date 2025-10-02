@@ -20,6 +20,7 @@ export function BatchExportConfigurationSaveButton(): JSX.Element {
                       ? 'Saving in progress…'
                       : undefined
             }
+            size="small"
         >
             {isNew ? 'Create' : 'Save'}
         </LemonButton>
@@ -42,6 +43,7 @@ export function BatchExportConfigurationClearChangesButton(): JSX.Element | null
             disabledReason={
                 !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
             }
+            size="small"
         >
             {isNew ? 'Reset' : 'Clear changes'}
         </LemonButton>

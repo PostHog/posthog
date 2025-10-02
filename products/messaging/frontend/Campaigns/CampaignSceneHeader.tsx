@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-
-import { PageHeader } from 'lib/components/PageHeader'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
@@ -12,30 +10,38 @@ import { CampaignSceneLogicProps } from './campaignSceneLogic'
 export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.Element => {
     const logic = campaignLogic(props)
     const { campaign, campaignChanged, isCampaignSubmitting, campaignLoading, campaignHasErrors } = useValues(logic)
-    const { saveCampaign, submitCampaign, discardChanges, setCampaignValue } = useActions(logic)
+    const { saveCampaignPartial, submitCampaign, discardChanges, setCampaignValue } = useActions(logic)
 
     const isSavedCampaign = props.id && props.id !== 'new'
 
     return (
         <>
-            <PageHeader
-                buttons={
+            <SceneTitleSection
+                name={campaign?.name}
+                description={campaign?.description}
+                resourceType={{ type: 'messaging' }}
+                canEdit
+                onNameChange={(name) => setCampaignValue('name', name)}
+                onDescriptionChange={(description) => setCampaignValue('description', description)}
+                isLoading={campaignLoading}
+                renameDebounceMs={200}
+                actions={
                     <>
                         {isSavedCampaign && (
                             <>
                                 <LemonButton
                                     type="primary"
                                     onClick={() =>
-                                        saveCampaign({
+                                        saveCampaignPartial({
                                             status: campaign?.status === 'draft' ? 'active' : 'draft',
                                         })
                                     }
+                                    size="small"
                                     loading={campaignLoading}
                                     disabledReason={campaignChanged ? 'Save changes first' : undefined}
                                 >
                                     {campaign?.status === 'draft' ? 'Enable' : 'Disable'}
                                 </LemonButton>
-                                <LemonDivider vertical />
                             </>
                         )}
 
@@ -45,6 +51,7 @@ export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.El
                                     data-attr="discard-campaign-changes"
                                     type="secondary"
                                     onClick={() => discardChanges()}
+                                    size="small"
                                 >
                                     Discard changes
                                 </LemonButton>
@@ -53,6 +60,7 @@ export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.El
 
                         <LemonButton
                             type="primary"
+                            size="small"
                             htmlType="submit"
                             form="campaign"
                             onClick={submitCampaign}
@@ -69,16 +77,6 @@ export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.El
                         </LemonButton>
                     </>
                 }
-            />
-            <SceneTitleSection
-                name={campaign?.name}
-                description={campaign?.description}
-                resourceType={{ type: 'messaging' }}
-                canEdit
-                onNameChange={(name) => setCampaignValue('name', name)}
-                onDescriptionChange={(description) => setCampaignValue('description', description)}
-                isLoading={campaignLoading}
-                renameDebounceMs={200}
             />
         </>
     )

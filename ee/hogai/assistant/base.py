@@ -34,7 +34,11 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.utils.exceptions import GenerationCanceled
-from ee.hogai.utils.helpers import extract_content_from_ai_message, should_output_assistant_message
+from ee.hogai.utils.helpers import (
+    extract_content_from_ai_message,
+    extract_stream_update,
+    should_output_assistant_message,
+)
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -323,24 +327,21 @@ class BaseAssistant(ABC):
     async def _node_to_reasoning_message(
         self, node_name: MaxNodeName, input: AssistantMaxGraphState
     ) -> Optional[ReasoningMessage]:
+        if node_name not in self.THINKING_NODES:
+            return None
         async_callable = self._graph.aget_reasoning_message_by_node_name.get(node_name)
         if async_callable:
             return await async_callable(input, self._last_reasoning_headline or "")
         return None
 
     async def _process_update(self, update: Any) -> list[BaseModel] | None:
-        if update[1] == "custom":
-            # Custom streams come from a tool call
-            # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
-            update = update[2]
-
-        update = update[1:]  # we remove the first element, which is the node/subgraph node name
+        update = extract_stream_update(update)
         if is_state_update(update):
             _, new_state = update
             self._state = validate_state_update(new_state, self._state_type)
         elif is_value_update(update) and (new_messages := self._process_value_update(update)):
             return new_messages
-        elif is_message_update(update) and (new_message := self._process_message_update(update)):
+        elif is_message_update(update) and (new_message := await self._aprocess_message_update(update)):
             return [new_message]
         elif is_task_started_update(update) and (new_message := await self._process_task_started_update(update)):
             return [new_message]
@@ -377,11 +378,18 @@ class BaseAssistant(ABC):
 
         return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)]
 
-    def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
+    async def _aprocess_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
 
         # Return ready messages as is
         if isinstance(langchain_message, get_args(AssistantMessageUnion)):
+            # Persist selected streamed messages
+            try:
+                node_name = cast(MaxNodeName, langgraph_state["langgraph_node"])
+                if self._should_persist_stream_message(langchain_message, node_name):
+                    await self._persist_stream_message(node_name, langchain_message)
+            except Exception as e:
+                logger.warning("Failed to persist streamed message", error=str(e))
             return langchain_message
 
         # If not ready message or chunk, return None
@@ -391,12 +399,22 @@ class BaseAssistant(ABC):
         node_name = cast(MaxNodeName, langgraph_state["langgraph_node"])
 
         # Check for commentary in tool call chunks first
-        if commentary := self._extract_commentary_from_tool_call_chunk(langchain_message):
-            return AssistantMessage(content=commentary)
+        if extracted := self._extract_commentary_from_tool_call_chunk(langchain_message):
+            commentary_text, is_complete = extracted
+            message = AssistantMessage(content=commentary_text)
+            try:
+                if is_complete and self._should_persist_commentary_message(node_name):
+                    await self._persist_stream_message(node_name, message)
+            except Exception as e:
+                logger.warning("Failed to persist streamed commentary", error=str(e))
+            if is_complete:
+                return None
+            return message
         # Check for reasoning content first (for all nodes that support it)
-        if reasoning := langchain_message.additional_kwargs.get("reasoning"):
-            if reasoning_headline := self._chunk_reasoning_headline(reasoning):
-                return ReasoningMessage(content=reasoning_headline)
+        if node_name in self.THINKING_NODES:
+            if reasoning := langchain_message.additional_kwargs.get("reasoning"):
+                if reasoning_headline := self._chunk_reasoning_headline(reasoning):
+                    return ReasoningMessage(content=reasoning_headline)
 
         # Only process streaming nodes
         if node_name not in self.STREAMING_NODES:
@@ -411,6 +429,35 @@ class BaseAssistant(ABC):
             return None
 
         return AssistantMessage(content=message_content)
+
+    def _build_root_config_for_persistence(self) -> RunnableConfig:
+        """
+        Return a RunnableConfig that forces checkpoint writes onto the root conversation namespace.
+        Streaming messages may originate from nested subgraphs. By pinning the `checkpoint_ns`
+        to root, we ensure the partial update lands on the root graph so that persisted chunks are
+        discoverable when the conversation state is rehydrated later.
+        """
+        return {
+            "configurable": {
+                "thread_id": self._conversation.id,
+                # Force root graph to avoid subgraph namespaces when persisting mid-stream
+                "checkpoint_ns": "",
+            }
+        }
+
+    async def _persist_stream_message(self, node_name: MaxNodeName, message: AssistantMessageUnion) -> None:
+        """Persist a single streamed message as a partial state update on the root graph."""
+        root_config = self._build_root_config_for_persistence()
+        partial_update = self._partial_state_type(messages=[message])
+        await self._graph.aupdate_state(root_config, partial_update, as_node=node_name)
+
+    def _should_persist_stream_message(self, message: BaseModel, node_name: MaxNodeName) -> bool:
+        """Subclasses can opt-in to persisting specific streamed messages."""
+        return False
+
+    def _should_persist_commentary_message(self, node_name: MaxNodeName) -> bool:
+        """Subclasses can opt-in to persisting completed commentary messages."""
+        return False
 
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it.
@@ -473,11 +520,11 @@ class BaseAssistant(ABC):
                 self._reasoning_headline_chunk += summary_text_chunk
                 return None
 
-    def _extract_commentary_from_tool_call_chunk(self, langchain_message: AIMessageChunk) -> Optional[str]:
+    def _extract_commentary_from_tool_call_chunk(self, langchain_message: AIMessageChunk) -> Optional[tuple[str, bool]]:
         """Extract commentary from tool call chunks.
 
-        Handles partial JSON parsing for "commentary": "some text" patterns
-        Returns the commentary content when a complete or partial one is found.
+        Handles partial JSON parsing for "commentary": "some text" patterns.
+        Returns a tuple (text, is_complete) when commentary is found.
         """
         if not langchain_message.tool_call_chunks:
             return None
@@ -519,12 +566,15 @@ class BaseAssistant(ABC):
                         commentary = value_buffer[:closing_quote_idx]
                         # Reset buffer for next commentary
                         self._commentary_chunk = None
-                        return commentary
+                        return (
+                            commentary,
+                            True,
+                        )
                     else:
                         # Partial commentary - return what we have so far
                         # But only if there's actual content
                         if value_buffer:
-                            return value_buffer
+                            return value_buffer, False
 
         return None
 

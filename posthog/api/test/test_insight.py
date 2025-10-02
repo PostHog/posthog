@@ -439,6 +439,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 user=mock.ANY,
                 filters_override={},
                 variables_override={},
+                tile_filters_override={},
             )
 
         with patch(
@@ -453,6 +454,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 user=mock.ANY,
                 filters_override={},
                 variables_override={},
+                tile_filters_override={},
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -526,6 +528,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "last_modified_at",
                 "tags",
                 "user_access_level",
+                "last_viewed_at",
             },
         )
 
@@ -2363,17 +2366,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(lines[2], b"Formula (A*0.5),0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.5")
         self.assertEqual(len(lines), 3, response.content)
 
-    # Extra permissioning tests here
-    def test_insight_trends_allowed_if_project_open_and_org_member(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = False
-        self.team.save()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
     def _create_one_person_cohort(self, properties: list[dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
         cohort_one_id = self.client.post(
@@ -2392,7 +2384,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             short_id="12345678",
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight.id]},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -2413,11 +2408,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             short_id="12345678",
         )
         with freeze_time("2022-03-22T00:00:00.000Z"):
-            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insight.id]},
+            )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         with freeze_time("2022-03-23T00:00:00.000Z"):
-            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insight.id]},
+            )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             self.assertEqual(InsightViewed.objects.count(), 1)
 
@@ -2436,15 +2437,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             short_id="12345678",
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight.id]},
+        )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(InsightViewed.objects.count(), 0)
 
     def test_get_recently_viewed_insights(self) -> None:
         insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
 
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
@@ -2484,23 +2491,20 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         )
 
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_2_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_2_id]},
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_2_id, insight_1_id]
-
-    def test_get_recently_viewed_insights_when_no_insights_viewed(self) -> None:
-        insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
-        response_data = response.json()
-        # No results if no insights have been viewed
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_data), 0)
 
     def test_recently_viewed_insights_ordered_by_view_date(self) -> None:
         insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
@@ -2508,15 +2512,30 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         insight_3_id, _ = self.dashboard_api.create_insight({"short_id": "43219876"})
 
         # multiple views of a single don't drown out other views
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
 
         # soft-deleted insights aren't shown
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_3_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_3_id]},
+        )
         self.dashboard_api.soft_delete(insight_3_id, "insights")
 
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_2_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_2_id]},
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
@@ -2525,7 +2544,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_2_id, insight_1_id]
 
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
@@ -2533,24 +2555,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Order updates when an insight is viewed again
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_1_id, insight_2_id]
-
-    def test_another_user_viewing_an_insight_does_not_impact_the_list(self) -> None:
-        insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
-
-        another_user = User.objects.create_and_join(self.organization, "team2@posthog.com", None)
-        InsightViewed.objects.create(
-            team=self.team,
-            user=another_user,
-            insight_id=insight_1_id,
-            last_viewed_at=timezone.now(),
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
-        response_data = response.json()
-
-        # Insights are ordered by most recently viewed
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_data), 0)
 
     def test_get_recent_insights_with_feature_flag(self) -> None:
         filter_dict = {

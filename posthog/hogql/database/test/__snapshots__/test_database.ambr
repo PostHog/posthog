@@ -146,8 +146,8 @@
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id",
-         "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -324,8 +324,8 @@
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id",
-         "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -1783,6 +1783,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "exception_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "exception_name",
+                  "id": null,
+                  "name": "exception_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "is_personal_api_key_request": {
                   "chain": null,
                   "fields": null,
@@ -1939,7 +1949,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "filters": {
                   "chain": null,
@@ -2007,7 +2017,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "filters": {
                   "chain": null,
@@ -2087,7 +2097,7 @@
                   "name": "is_static",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               }
           },
           "id": "system.cohorts",
@@ -2175,7 +2185,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "saved": {
                   "chain": null,
@@ -2185,7 +2195,7 @@
                   "name": "saved",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "created_at": {
                   "chain": null,
@@ -2313,7 +2323,7 @@
                   "name": "archived",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "feature_flag_id": {
                   "chain": null,
@@ -2328,6 +2338,54 @@
           },
           "id": "system.experiments",
           "name": "system.experiments",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.exports": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "export_format": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "export_format",
+                  "id": null,
+                  "name": "export_format",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "export_context": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "export_context",
+                  "id": null,
+                  "name": "export_context",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              }
+          },
+          "id": "system.exports",
+          "name": "system.exports",
           "row_count": null,
           "type": "system"
       },
@@ -2391,7 +2449,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "deleted_at": {
                   "chain": null,
@@ -2479,7 +2537,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               }
           },
           "id": "system.feature_flags",
@@ -4183,6 +4241,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "exception_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "exception_name",
+                  "id": null,
+                  "name": "exception_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "is_personal_api_key_request": {
                   "chain": null,
                   "fields": null,
@@ -4339,7 +4407,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "filters": {
                   "chain": null,
@@ -4407,7 +4475,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "filters": {
                   "chain": null,
@@ -4487,7 +4555,7 @@
                   "name": "is_static",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               }
           },
           "id": "system.cohorts",
@@ -4575,7 +4643,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "saved": {
                   "chain": null,
@@ -4585,7 +4653,7 @@
                   "name": "saved",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "created_at": {
                   "chain": null,
@@ -4713,7 +4781,7 @@
                   "name": "archived",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "feature_flag_id": {
                   "chain": null,
@@ -4728,6 +4796,54 @@
           },
           "id": "system.experiments",
           "name": "system.experiments",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.exports": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "export_format": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "export_format",
+                  "id": null,
+                  "name": "export_format",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "export_context": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "export_context",
+                  "id": null,
+                  "name": "export_context",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              }
+          },
+          "id": "system.exports",
+          "name": "system.exports",
           "row_count": null,
           "type": "system"
       },
@@ -4791,7 +4907,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               },
               "deleted_at": {
                   "chain": null,
@@ -4879,7 +4995,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "boolean"
+                  "type": "expression"
               }
           },
           "id": "system.feature_flags",

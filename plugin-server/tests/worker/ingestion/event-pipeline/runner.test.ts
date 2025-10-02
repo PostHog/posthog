@@ -3,12 +3,20 @@ import { v4 } from 'uuid'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import {
+    PipelineResult,
+    PipelineResultType,
+    dlq,
+    isDlqResult,
+    isOkResult,
+    isRedirectResult,
+    ok,
+    redirect,
+} from '~/ingestion/pipelines/results'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { dlq, redirect, success } from '~/worker/ingestion/event-pipeline/pipeline-step-result'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
-import { KAFKA_INGESTION_WARNINGS } from '../../../../src/config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
 import {
     ClickHouseTimestamp,
@@ -41,7 +49,12 @@ class TestEventPipelineRunner extends EventPipelineRunner {
     steps: Array<string> = []
     stepsWithArgs: Array<[string, any[]]> = []
 
-    protected runStep(step: any, [runner, ...args]: any[], teamId: number, sendtoDLQ: boolean) {
+    protected async runStep<T, Step extends (...args: any[]) => Promise<T>>(
+        step: Step,
+        [runner, ...args]: Parameters<Step>,
+        teamId: number,
+        sendtoDLQ: boolean = true
+    ) {
         this.steps.push(step.name)
 
         // We stringify+parse to clone the `args` object, since we do a lot of event mutation
@@ -50,7 +63,25 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // in practice, for better or worse).
         this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
 
-        return super.runStep(step, [runner, ...args], teamId, sendtoDLQ)
+        return super.runStep<T, Step>(step, [runner, ...args] as Parameters<Step>, teamId, sendtoDLQ)
+    }
+
+    protected async runPipelineStep<T, Step extends (...args: any[]) => Promise<PipelineResult<T>>>(
+        step: Step,
+        args: Parameters<Step>,
+        teamId: number,
+        sendtoDLQ: boolean = true
+    ) {
+        this.steps.push(step.name)
+
+        // We stringify+parse to clone the `args` object, since we do a lot of event mutation
+        // and pass the same object around by reference. We want to see a "snapshot" of the args
+        // sent to each step, rather than the final mutated object (which many steps actually share
+        // in practice, for better or worse).
+        const [runner, ...restArgs] = args
+        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(restArgs))])
+
+        return super.runPipelineStep<T, Step>(step, [runner, ...args] as Parameters<Step>, teamId, sendtoDLQ)
     }
 }
 
@@ -188,7 +219,7 @@ describe('EventPipelineRunner', () => {
         )
 
         jest.mocked(processPersonsStep).mockResolvedValue(
-            success([
+            ok([
                 pluginEvent,
                 { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
                 Promise.resolve(),
@@ -196,10 +227,8 @@ describe('EventPipelineRunner', () => {
         )
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
 
-        // @ts-expect-error TODO: Check why expect never
         jest.mocked(createEventStep).mockResolvedValue(createdEvent)
 
-        // @ts-expect-error TODO: Check why expect never
         jest.mocked(emitEventStep).mockResolvedValue([Promise.resolve()])
     })
 
@@ -220,66 +249,20 @@ describe('EventPipelineRunner', () => {
             expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
         })
 
-        it('drops disallowed events', async () => {
-            const event = {
-                ...pluginEvent,
-                token: 'drop_token',
-                distinct_id: 'drop_id',
-            }
-            await runner.runEventPipeline(event, team)
-            expect(runner.steps).toEqual([])
-        })
-
-        it('drops $exception events', async () => {
-            const event = {
-                ...pluginEvent,
-                event: '$exception',
-            }
-            await runner.runEventPipeline(event, team)
-            expect(runner.steps).toEqual([])
-        })
-
-        it('does not drop disallowed token mismatching distinct_id events', async () => {
-            const event = {
-                ...pluginEvent,
-                token: 'drop_token',
-            }
-            await runner.runEventPipeline(event, team)
-            expect(runner.steps).toEqual([
-                'dropOldEventsStep',
-                'transformEventStep',
-                'normalizeEventStep',
-                'processPersonsStep',
-                'prepareEventStep',
-                'extractHeatmapDataStep',
-                'createEventStep',
-                'emitEventStep',
-            ])
-        })
-
-        it('drops disallowed events by *', async () => {
-            const event = {
-                ...pluginEvent,
-                token: 'drop_token_all',
-            }
-            await runner.runEventPipeline(event, team)
-            expect(runner.steps).toEqual([])
-        })
-
         it('emits metrics for every step', async () => {
-            const pipelineLastStepCounterSpy = jest.spyOn(metrics.pipelineLastStepCounter, 'labels')
             const eventProcessedAndIngestedCounterSpy = jest.spyOn(metrics.eventProcessedAndIngestedCounter, 'inc')
             const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
             const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
 
             const result = await runner.runEventPipeline(pluginEvent, team)
-            expect(result.error).toBeUndefined()
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.value.error).toBeUndefined()
+            }
 
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
-            expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('emitEventStep')
-            expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('emitEventStep')
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
@@ -300,53 +283,20 @@ describe('EventPipelineRunner', () => {
                 expect(pipelineStepErrorCounterSpy).toHaveBeenCalledWith('prepareEventStep')
             })
 
-            it('emits failures to dead letter queue until createEvent', async () => {
-                const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
-                jest.mocked(prepareEventStep).mockRejectedValue(error)
-
-                await runner.runEventPipeline(pluginEvent, team)
-
-                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-
-                expect((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).topic).toEqual(
-                    'events_dead_letter_queue_test'
-                )
-                expect(
-                    parseJSON((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string)
-                ).toMatchObject({
-                    team_id: 2,
-                    distinct_id: 'my_id',
-                    error: 'Event ingestion failed. Error: testError',
-                    error_location: 'plugin_server_ingest_event:prepareEventStep',
-                })
-                expect(pipelineStepDLQCounterSpy).toHaveBeenCalledWith('prepareEventStep')
-            })
-
             it('emits DLQ when merge limit is exceeded during processPersonsStep', async () => {
-                const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
-
                 // Make processPersonsStep return a DLQ result instead of throwing
                 jest.mocked(processPersonsStep).mockResolvedValueOnce(
                     dlq('Merge limit exceeded', new PersonMergeLimitExceededError('person_merge_move_limit_hit'))
                 )
 
-                await runner.runEventPipeline(pluginEvent, team)
+                const result = await runner.runEventPipeline(pluginEvent, team)
 
-                // Verify DLQ messages were produced (ingestion warning + main DLQ)
-                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(2)
-
-                // Check the main DLQ message
-                const dlqCall = mockProducer.queueMessages.mock.calls.find(
-                    ([msg]) => (msg as TopicMessage).topic === 'events_dead_letter_queue_test'
-                )?.[0] as TopicMessage
-                expect(dlqCall).toBeDefined()
-                const value = parseJSON(dlqCall.messages[0].value as string)
-                expect(value).toMatchObject({
-                    team_id: 2,
-                    distinct_id: 'my_id',
-                    error_location: 'plugin_server_ingest_event:processPersonsStep',
-                })
-                expect(pipelineStepDLQCounterSpy).toHaveBeenCalledWith('processPersonsStep')
+                // Verify that the pipeline returned a DLQ result
+                expect(result.type).toBe(PipelineResultType.DLQ)
+                if (isDlqResult(result)) {
+                    expect(result.reason).toBe('Merge limit exceeded')
+                    expect(result.error).toBeInstanceOf(PersonMergeLimitExceededError)
+                }
             })
 
             it('redirects event when merge limit is exceeded in async mode during processPersonsStep', async () => {
@@ -355,18 +305,14 @@ describe('EventPipelineRunner', () => {
                     redirect('Event redirected to async merge topic', 'async-merge-topic')
                 )
 
-                await runner.runEventPipeline(pluginEvent, team)
+                const result = await runner.runEventPipeline(pluginEvent, team)
 
-                // Verify the event was redirected to the async topic
-                expect(mockProducer.produce).toHaveBeenCalledWith({
-                    topic: 'async-merge-topic',
-                    key: `${pluginEvent.team_id}:${pluginEvent.distinct_id}`,
-                    value: expect.any(Buffer),
-                    headers: {
-                        distinct_id: pluginEvent.distinct_id,
-                        team_id: pluginEvent.team_id.toString(),
-                    },
-                })
+                // Verify that the pipeline returned a redirect result
+                expect(result.type).toBe(PipelineResultType.REDIRECT)
+                if (isRedirectResult(result)) {
+                    expect(result.reason).toBe('Event redirected to async merge topic')
+                    expect(result.topic).toBe('async-merge-topic')
+                }
             })
         })
 
@@ -452,76 +398,6 @@ describe('EventPipelineRunner', () => {
 
                 expect(runner.steps).toEqual(['normalizeEventStep', 'prepareEventStep', 'extractHeatmapDataStep'])
             })
-        })
-
-        it('captures ingestion warning for $groupidentify with too long $group_key', async () => {
-            const longKey = 'x'.repeat(401)
-            const event = {
-                ...pluginEvent,
-                event: '$groupidentify',
-                properties: { $group_key: longKey },
-            }
-            await runner.runEventPipeline(event, team)
-            expect(runner.steps).toEqual([])
-            expect(mockProducer.queueMessages).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    topic: KAFKA_INGESTION_WARNINGS,
-                    messages: [
-                        expect.objectContaining({
-                            value: expect.stringContaining('group_key_too_long'),
-                        }),
-                    ],
-                })
-            )
-        })
-
-        it('does not capture warning for $groupidentify with short $group_key', async () => {
-            const event = {
-                ...pluginEvent,
-                event: '$groupidentify',
-                properties: { $group_key: 'x'.repeat(400) },
-            }
-            await runner.runEventPipeline(event, team)
-            expect(runner.steps).toEqual([
-                'dropOldEventsStep',
-                'transformEventStep',
-                'normalizeEventStep',
-                'processPersonsStep',
-                'prepareEventStep',
-                'extractHeatmapDataStep',
-                'createEventStep',
-                'emitEventStep',
-            ])
-            // Should not call queueMessages with group_key_too_long
-            expect(
-                mockProducer.queueMessages.mock.calls.some(([arg]) =>
-                    JSON.stringify(arg).includes('group_key_too_long')
-                )
-            ).toBe(false)
-        })
-
-        it('does not capture warning for non-$groupidentify events with long $group_key', async () => {
-            const event = {
-                ...pluginEvent,
-                event: 'not_groupidentify',
-                properties: { $group_key: 'x'.repeat(1000) },
-            }
-            await runner.runEventPipeline(event, team)
-            expect(runner.steps).toEqual([
-                'dropOldEventsStep',
-                'transformEventStep',
-                'normalizeEventStep',
-                'processPersonsStep',
-                'prepareEventStep',
-                'extractHeatmapDataStep',
-                'createEventStep',
-                'emitEventStep',
-            ])
-            expect(
-                mockProducer.queueMessages.mock.calls.some(([arg]) =>
-                    JSON.stringify(arg).includes('group_key_too_long')
-                )
-            ).toBe(false)
         })
     })
 

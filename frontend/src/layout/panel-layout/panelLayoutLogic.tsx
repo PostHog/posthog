@@ -23,9 +23,10 @@ export const PANEL_LAYOUT_MIN_WIDTH: number = 160
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
     connect(() => ({
-        values: [navigation3000Logic, ['mobileLayout']],
+        values: [navigation3000Logic, ['mobileLayout'], router, ['location']],
     })),
     actions({
+        closePanel: true,
         showLayoutNavBar: (visible: boolean) => ({ visible }),
         showLayoutPanel: (visible: boolean) => ({ visible }),
         toggleLayoutPanelPinned: (pinned: boolean) => ({ pinned }),
@@ -148,6 +149,10 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        closePanel: () => {
+            actions.showLayoutPanel(false)
+            actions.clearActivePanelIdentifier()
+        },
         setPanelIsResizing: ({ isResizing }) => {
             // If we're not resizing and the panel is at or below the minimum width, hide it
             if (!isResizing && values.panelWidth <= PANEL_LAYOUT_MIN_WIDTH - 1) {
@@ -215,6 +220,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 return ''
             },
         ],
+        pathname: [(s) => [s.location], (location): string => location.pathname],
     }),
     afterMount(({ actions, cache, values }) => {
         const handleResize = (): void => {

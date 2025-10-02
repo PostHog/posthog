@@ -5,33 +5,71 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { tasksLogic } from '../tasksLogic'
 import { TaskCard } from './TaskCard'
 import { TaskCreateModal } from './TaskCreateModal'
-import { TaskModal } from './TaskModal'
+import { TaskSummariesMaxTool } from './TaskSummariesMaxTool'
 
 export function BacklogView(): JSX.Element {
-    const { backlogTasks, selectedTask, isCreateModalOpen } = useValues(tasksLogic)
-    const { scopeTask, openTaskModal, closeTaskModal, openCreateModal, closeCreateModal } = useActions(tasksLogic)
+    const { unassignedTasks, assignedTasks, isCreateModalOpen, allWorkflows } = useValues(tasksLogic)
+    const { assignTaskToWorkflow, openTaskDetail, openCreateModal, closeCreateModal } = useActions(tasksLogic)
+
+    const totalTasks = unassignedTasks.length + assignedTasks.length
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-6">
             <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">Backlog</h2>
+                <div>
+                    <h2 className="text-xl font-semibold">All Tasks</h2>
+                </div>
                 <div className="flex items-center gap-3">
-                    <span className="text-sm text-muted">{backlogTasks.length} tasks</span>
+                    <span className="text-sm text-muted">{totalTasks} tasks</span>
                     <LemonButton type="primary" onClick={openCreateModal}>
                         Create Task
                     </LemonButton>
                 </div>
             </div>
 
-            <div className="space-y-2">
-                {backlogTasks.map((task) => (
-                    <TaskCard key={task.id} task={task} onScope={scopeTask} onClick={openTaskModal} />
-                ))}
-            </div>
+            {/* Unassigned Tasks Section */}
+            {unassignedTasks.length > 0 && (
+                <div className="space-y-3">
+                    <h3 className="font-semibold text-muted">Unassigned Tasks ({unassignedTasks.length})</h3>
+                    <div className="space-y-2">
+                        {unassignedTasks.map((task) => (
+                            <TaskCard
+                                key={task.id}
+                                task={task}
+                                onAssignToWorkflow={assignTaskToWorkflow}
+                                onClick={openTaskDetail}
+                                workflows={allWorkflows}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
 
-            {backlogTasks.length === 0 && <div className="text-center py-8 text-muted">No tasks in backlog</div>}
+            {/* Assigned Tasks Section */}
+            {assignedTasks.length > 0 && (
+                <div className="space-y-3">
+                    <h3 className="font-semibold text-muted">Assigned Tasks ({assignedTasks.length})</h3>
+                    <div className="space-y-2">
+                        {assignedTasks.map((task) => (
+                            <TaskCard
+                                key={task.id}
+                                task={task}
+                                onAssignToWorkflow={assignTaskToWorkflow}
+                                onClick={openTaskDetail}
+                                workflows={allWorkflows}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
 
-            {selectedTask && <TaskModal task={selectedTask} onClose={closeTaskModal} />}
+            {totalTasks === 0 && (
+                <div className="text-center py-8 text-muted">
+                    <span>No tasks created yet. Create a task to get started.</span>
+                    <TaskSummariesMaxTool />
+                </div>
+            )}
+
             <TaskCreateModal isOpen={isCreateModalOpen} onClose={closeCreateModal} />
         </div>
     )

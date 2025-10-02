@@ -49,7 +49,7 @@ class MaxChatOpenAI(ChatOpenAI):
         project_timezone = self._team.timezone
         project_datetime = datetime.datetime.now(tz=pytz.timezone(project_timezone))
 
-        region = CLOUD_DEPLOYMENT or "us"
+        region = CLOUD_DEPLOYMENT or "US"
         if region in ["US", "EU"]:
             region = region.lower()
         else:

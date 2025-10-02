@@ -29,14 +29,11 @@ export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
 # Check for minimal mode - disable OpenTelemetry for minimal mode
 if [[ "$*" == *"--minimal"* ]]; then
     export OTEL_SDK_DISABLED="true"
-elif [[ "$*" == *"--enable-tracing"* ]]; then
+else
     export OTEL_SDK_DISABLED="false"
     export OTEL_TRACES_SAMPLER="parentbased_traceidratio"
     export OTEL_TRACES_SAMPLER_ARG="1"
     echo "👉 Tracing enabled, see http://localhost:16686 for Jaeger UI"
-else
-    export OTEL_SDK_DISABLED="true"
-    echo "👉 To start with tracing enabled: bin/start --enable-tracing"
 fi
 
 if [[ "$*" == *"--skip-typegen"* ]]; then

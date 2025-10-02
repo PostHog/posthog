@@ -23,10 +23,12 @@ export const cohortSceneLogic = kea<cohortSceneLogicType>([
                         key: 'cohorts',
                         name: 'Cohorts',
                         path: urls.cohorts(),
+                        iconType: 'cohort',
                     },
                     {
                         key: [Scene.Cohort, cohortId || 'loading'],
                         name: cohortId && cohortId !== 'new' ? cohortsById[cohortId]?.name || 'Untitled' : 'Untitled',
+                        iconType: 'cohort',
                     },
                 ]
             },

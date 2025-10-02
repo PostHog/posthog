@@ -95,6 +95,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
         Basic (open-ended question)
+        - `id`: The question ID
         - `type`: `open`
         - `question`: The text of the question.
         - `description`: Optional description of the question.
@@ -104,6 +105,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Link (a question with a link)
+        - `id`: The question ID
         - `type`: `link`
         - `question`: The text of the question.
         - `description`: Optional description of the question.
@@ -114,6 +116,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Rating (a question with a rating scale)
+        - `id`: The question ID
         - `type`: `rating`
         - `question`: The text of the question.
         - `description`: Optional description of the question.
@@ -127,6 +130,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice
+        - `id`: The question ID
         - `type`: `single_choice` or `multiple_choice`
         - `question`: The text of the question.
         - `description`: Optional description of the question.

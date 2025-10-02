@@ -89,13 +89,14 @@ pub async fn get_decide_site_apps(
 
 #[cfg(test)]
 mod tests {
-    use common_database::PostgresWriter;
+    use common_database::Client;
+    use std::sync::Arc;
 
     use super::*;
-    use crate::utils::test_utils::{insert_new_team_in_pg, setup_pg_reader_client};
+    use crate::utils::test_utils::TestContext;
 
     async fn insert_plugin_in_pg(
-        client: PostgresWriter,
+        client: Arc<dyn Client + Send + Sync>,
         organization_id: &str,
         name: &str,
     ) -> Result<i32, sqlx::Error> {
@@ -121,7 +122,7 @@ mod tests {
     }
 
     async fn insert_plugin_source_file_in_pg(
-        client: PostgresWriter,
+        client: Arc<dyn Client + Send + Sync>,
         plugin_id: i32,
         filename: &str,
         status: &str,
@@ -143,7 +144,7 @@ mod tests {
     }
 
     async fn insert_posthog_pluginconfig_in_pg(
-        client: PostgresWriter,
+        client: Arc<dyn Client + Send + Sync>,
         plugin_id: i32,
         team_id: i32,
         enabled: bool,
@@ -167,22 +168,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_decide_site_apps_returns_empty_for_team_with_no_apps() {
-        let client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
 
-        let result = get_decide_site_apps(client, team.id).await.unwrap();
+        let result = get_decide_site_apps(context.non_persons_reader, team.id)
+            .await
+            .unwrap();
 
         assert!(result.is_empty());
     }
 
     #[tokio::test]
     async fn test_get_decide_site_apps_returns_apps_for_team() {
-        let client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             "019026a4-be80-0000-5bf3-171d00629163", // Use same org ID as in test utils
             "Test Site App",
         )
@@ -190,13 +193,18 @@ mod tests {
         .unwrap();
 
         // Insert plugin source file with TRANSPILED status
-        insert_plugin_source_file_in_pg(client.clone(), plugin_id, "site.ts", "TRANSPILED")
-            .await
-            .unwrap();
+        insert_plugin_source_file_in_pg(
+            context.non_persons_writer.clone(),
+            plugin_id,
+            "site.ts",
+            "TRANSPILED",
+        )
+        .await
+        .unwrap();
 
         // Insert enabled plugin config
         let config_id = insert_posthog_pluginconfig_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             plugin_id,
             team.id,
             true,
@@ -205,7 +213,9 @@ mod tests {
         .await
         .unwrap();
 
-        let result = get_decide_site_apps(client, team.id).await.unwrap();
+        let result = get_decide_site_apps(context.non_persons_reader, team.id)
+            .await
+            .unwrap();
 
         assert_eq!(result.len(), 1);
         let site_app = &result[0];
@@ -217,12 +227,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_decide_site_apps_ignores_disabled_configs() {
-        let client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             "019026a4-be80-0000-5bf3-171d00629163",
             "Test Site App",
         )
@@ -230,13 +240,18 @@ mod tests {
         .unwrap();
 
         // Insert plugin source file with TRANSPILED status
-        insert_plugin_source_file_in_pg(client.clone(), plugin_id, "site.ts", "TRANSPILED")
-            .await
-            .unwrap();
+        insert_plugin_source_file_in_pg(
+            context.non_persons_writer.clone(),
+            plugin_id,
+            "site.ts",
+            "TRANSPILED",
+        )
+        .await
+        .unwrap();
 
         // Insert disabled plugin config
         insert_posthog_pluginconfig_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             plugin_id,
             team.id,
             false, // disabled
@@ -245,19 +260,21 @@ mod tests {
         .await
         .unwrap();
 
-        let result = get_decide_site_apps(client, team.id).await.unwrap();
+        let result = get_decide_site_apps(context.non_persons_reader, team.id)
+            .await
+            .unwrap();
 
         assert!(result.is_empty());
     }
 
     #[tokio::test]
     async fn test_get_decide_site_apps_ignores_non_transpiled_files() {
-        let client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             "019026a4-be80-0000-5bf3-171d00629163",
             "Test Site App",
         )
@@ -265,13 +282,18 @@ mod tests {
         .unwrap();
 
         // Insert plugin source file with ERROR status (not TRANSPILED)
-        insert_plugin_source_file_in_pg(client.clone(), plugin_id, "site.ts", "ERROR")
-            .await
-            .unwrap();
+        insert_plugin_source_file_in_pg(
+            context.non_persons_writer.clone(),
+            plugin_id,
+            "site.ts",
+            "ERROR",
+        )
+        .await
+        .unwrap();
 
         // Insert enabled plugin config
         insert_posthog_pluginconfig_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             plugin_id,
             team.id,
             true,
@@ -280,19 +302,21 @@ mod tests {
         .await
         .unwrap();
 
-        let result = get_decide_site_apps(client, team.id).await.unwrap();
+        let result = get_decide_site_apps(context.non_persons_reader, team.id)
+            .await
+            .unwrap();
 
         assert!(result.is_empty());
     }
 
     #[tokio::test]
     async fn test_get_decide_site_apps_ignores_non_site_files() {
-        let client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             "019026a4-be80-0000-5bf3-171d00629163",
             "Test Site App",
         )
@@ -300,13 +324,18 @@ mod tests {
         .unwrap();
 
         // Insert plugin source file with different filename (not site.ts)
-        insert_plugin_source_file_in_pg(client.clone(), plugin_id, "plugin.ts", "TRANSPILED")
-            .await
-            .unwrap();
+        insert_plugin_source_file_in_pg(
+            context.non_persons_writer.clone(),
+            plugin_id,
+            "plugin.ts",
+            "TRANSPILED",
+        )
+        .await
+        .unwrap();
 
         // Insert enabled plugin config
         insert_posthog_pluginconfig_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             plugin_id,
             team.id,
             true,
@@ -315,31 +344,38 @@ mod tests {
         .await
         .unwrap();
 
-        let result = get_decide_site_apps(client, team.id).await.unwrap();
+        let result = get_decide_site_apps(context.non_persons_reader, team.id)
+            .await
+            .unwrap();
 
         assert!(result.is_empty());
     }
 
     #[tokio::test]
     async fn test_get_decide_site_apps_returns_multiple_apps() {
-        let client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
 
         // Insert first plugin
         let plugin_id_1 = insert_plugin_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             "019026a4-be80-0000-5bf3-171d00629163",
             "First Site App",
         )
         .await
         .unwrap();
 
-        insert_plugin_source_file_in_pg(client.clone(), plugin_id_1, "site.ts", "TRANSPILED")
-            .await
-            .unwrap();
+        insert_plugin_source_file_in_pg(
+            context.non_persons_writer.clone(),
+            plugin_id_1,
+            "site.ts",
+            "TRANSPILED",
+        )
+        .await
+        .unwrap();
 
         let config_id_1 = insert_posthog_pluginconfig_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             plugin_id_1,
             team.id,
             true,
@@ -350,19 +386,24 @@ mod tests {
 
         // Insert second plugin
         let plugin_id_2 = insert_plugin_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             "019026a4-be80-0000-5bf3-171d00629163",
             "Second Site App",
         )
         .await
         .unwrap();
 
-        insert_plugin_source_file_in_pg(client.clone(), plugin_id_2, "site.ts", "TRANSPILED")
-            .await
-            .unwrap();
+        insert_plugin_source_file_in_pg(
+            context.non_persons_writer.clone(),
+            plugin_id_2,
+            "site.ts",
+            "TRANSPILED",
+        )
+        .await
+        .unwrap();
 
         let config_id_2 = insert_posthog_pluginconfig_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             plugin_id_2,
             team.id,
             true,
@@ -371,7 +412,9 @@ mod tests {
         .await
         .unwrap();
 
-        let result = get_decide_site_apps(client, team.id).await.unwrap();
+        let result = get_decide_site_apps(context.non_persons_reader, team.id)
+            .await
+            .unwrap();
 
         assert_eq!(result.len(), 2);
 
@@ -389,24 +432,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_decide_site_apps_url_format() {
-        let client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             "019026a4-be80-0000-5bf3-171d00629163",
             "Test Site App",
         )
         .await
         .unwrap();
 
-        insert_plugin_source_file_in_pg(client.clone(), plugin_id, "site.ts", "TRANSPILED")
-            .await
-            .unwrap();
+        insert_plugin_source_file_in_pg(
+            context.non_persons_writer.clone(),
+            plugin_id,
+            "site.ts",
+            "TRANSPILED",
+        )
+        .await
+        .unwrap();
 
         let config_id = insert_posthog_pluginconfig_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             plugin_id,
             team.id,
             true,
@@ -415,7 +463,9 @@ mod tests {
         .await
         .unwrap();
 
-        let result = get_decide_site_apps(client, team.id).await.unwrap();
+        let result = get_decide_site_apps(context.non_persons_reader, team.id)
+            .await
+            .unwrap();
 
         assert_eq!(result.len(), 1);
         let site_app = &result[0];
@@ -435,36 +485,49 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_decide_site_apps_filters_by_team() {
-        let client = setup_pg_reader_client(None).await;
-        let team1 = insert_new_team_in_pg(client.clone(), None).await.unwrap();
-        let team2 = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team1 = context.insert_new_team(None).await.unwrap();
+        let team2 = context.insert_new_team(None).await.unwrap();
 
         // Insert plugin
         let plugin_id = insert_plugin_in_pg(
-            client.clone(),
+            context.non_persons_writer.clone(),
             "019026a4-be80-0000-5bf3-171d00629163",
             "Test Site App",
         )
         .await
         .unwrap();
 
-        insert_plugin_source_file_in_pg(client.clone(), plugin_id, "site.ts", "TRANSPILED")
-            .await
-            .unwrap();
+        insert_plugin_source_file_in_pg(
+            context.non_persons_writer.clone(),
+            plugin_id,
+            "site.ts",
+            "TRANSPILED",
+        )
+        .await
+        .unwrap();
 
         // Insert config for team1 only
-        insert_posthog_pluginconfig_in_pg(client.clone(), plugin_id, team1.id, true, "team1_token")
-            .await
-            .unwrap();
+        insert_posthog_pluginconfig_in_pg(
+            context.non_persons_writer.clone(),
+            plugin_id,
+            team1.id,
+            true,
+            "team1_token",
+        )
+        .await
+        .unwrap();
 
         // Query for team1 should return the app
-        let result1 = get_decide_site_apps(client.clone(), team1.id)
+        let result1 = get_decide_site_apps(context.non_persons_reader.clone(), team1.id)
             .await
             .unwrap();
         assert_eq!(result1.len(), 1);
 
         // Query for team2 should return empty
-        let result2 = get_decide_site_apps(client, team2.id).await.unwrap();
+        let result2 = get_decide_site_apps(context.non_persons_reader, team2.id)
+            .await
+            .unwrap();
         assert!(result2.is_empty());
     }
 }

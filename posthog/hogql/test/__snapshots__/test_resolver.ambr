@@ -40,6 +40,9 @@
                           $session_id: {
                             hidden: False
                           },
+                          $session_id_uuid: {
+                            hidden: False
+                          },
                           $window_id: {
                             hidden: False
                           },
@@ -876,8 +879,8 @@
                         ]
                         name: "empty"
                         return_type: {
-                          data_type: "unknown"
-                          nullable: True
+                          data_type: "int"
+                          nullable: False
                         }
                       }
                     }
@@ -1175,8 +1178,8 @@
                         ]
                         name: "empty"
                         return_type: {
-                          data_type: "unknown"
-                          nullable: True
+                          data_type: "int"
+                          nullable: False
                         }
                       }
                     }
@@ -1374,6 +1377,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -1692,8 +1698,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -2089,8 +2095,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -3204,6 +3210,9 @@
                           $session_id: {
                             hidden: False
                           },
+                          $session_id_uuid: {
+                            hidden: False
+                          },
                           $window_id: {
                             hidden: False
                           },
@@ -4041,8 +4050,8 @@
                           ]
                           name: "empty"
                           return_type: {
-                            data_type: "unknown"
-                            nullable: True
+                            data_type: "int"
+                            nullable: False
                           }
                         }
                       }
@@ -4340,8 +4349,8 @@
                           ]
                           name: "empty"
                           return_type: {
-                            data_type: "unknown"
-                            nullable: True
+                            data_type: "int"
+                            nullable: False
                           }
                         }
                       }
@@ -4501,6 +4510,9 @@
                               hidden: False
                             },
                             $session_id: {
+                              hidden: False
+                            },
+                            $session_id_uuid: {
                               hidden: False
                             },
                             $window_id: {
@@ -4816,8 +4828,8 @@
                               ]
                               name: "empty"
                               return_type: {
-                                data_type: "unknown"
-                                nullable: True
+                                data_type: "int"
+                                nullable: False
                               }
                             }
                           }
@@ -5213,8 +5225,8 @@
                               ]
                               name: "empty"
                               return_type: {
-                                data_type: "unknown"
-                                nullable: True
+                                data_type: "int"
+                                nullable: False
                               }
                             }
                           }
@@ -5697,6 +5709,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $session_id_uuid: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -6010,8 +6025,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -6407,8 +6422,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -6627,6 +6642,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -6943,8 +6961,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -7340,8 +7358,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -7563,6 +7581,9 @@
                       $session_id: {
                         hidden: False
                       },
+                      $session_id_uuid: {
+                        hidden: False
+                      },
                       $window_id: {
                         hidden: False
                       },
@@ -7751,6 +7772,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -8253,6 +8277,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $session_id_uuid: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -8473,6 +8500,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -8699,6 +8729,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -8961,6 +8994,9 @@
                                 hidden: False
                               },
                               $session_id: {
+                                hidden: False
+                              },
+                              $session_id_uuid: {
                                 hidden: False
                               },
                               $window_id: {
@@ -9231,6 +9267,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $session_id_uuid: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -9460,6 +9499,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -9694,6 +9736,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $session_id_uuid: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -9910,6 +9955,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -10227,6 +10275,9 @@
                     $session_id: {
                       hidden: False
                     },
+                    $session_id_uuid: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -10410,6 +10461,9 @@
                           hidden: False
                         },
                         $session_id: {
+                          hidden: False
+                        },
+                        $session_id_uuid: {
                           hidden: False
                         },
                         $window_id: {
@@ -10607,6 +10661,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {

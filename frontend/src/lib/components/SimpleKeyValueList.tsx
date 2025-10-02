@@ -15,6 +15,7 @@ export interface SimpleKeyValueListProps {
      * keys are otherwise rendered in alphabetical order.
      */
     promotedKeys?: string[]
+    sortItems?: boolean
 }
 
 export function SimpleKeyValueList({
@@ -22,23 +23,26 @@ export function SimpleKeyValueList({
     emptyMessage = 'No properties to display',
     promotedKeys,
     header,
+    sortItems = true,
 }: SimpleKeyValueListProps): JSX.Element {
     const [sortedItemsPromotedFirst, setSortedItemsPromotedFirst] = useState<[string, any][]>([])
 
     useEffect(() => {
-        const sortedItems = Object.entries(item).sort((a, b) => {
-            // if this is a posthog property we want to sort by its label
-            const left = getCoreFilterDefinition(a[0], TaxonomicFilterGroupType.EventProperties)?.label || a[0]
-            const right = getCoreFilterDefinition(b[0], TaxonomicFilterGroupType.EventProperties)?.label || b[0]
+        const sortedItems = sortItems
+            ? Object.entries(item).sort((a, b) => {
+                  // if this is a posthog property we want to sort by its label
+                  const left = getCoreFilterDefinition(a[0], TaxonomicFilterGroupType.EventProperties)?.label || a[0]
+                  const right = getCoreFilterDefinition(b[0], TaxonomicFilterGroupType.EventProperties)?.label || b[0]
 
-            if (left < right) {
-                return -1
-            }
-            if (left > right) {
-                return 1
-            }
-            return 0
-        })
+                  if (left < right) {
+                      return -1
+                  }
+                  if (left > right) {
+                      return 1
+                  }
+                  return 0
+              })
+            : Object.entries(item)
 
         // promoted items are shown in the order provided
         const promotedItems = promotedKeys?.length
@@ -52,7 +56,7 @@ export function SimpleKeyValueList({
             : sortedItems
 
         setSortedItemsPromotedFirst([...promotedItems, ...nonPromotedItems])
-    }, [item, promotedKeys])
+    }, [item, promotedKeys, sortItems])
 
     return (
         <div className="text-xs deprecated-space-y-1 max-w-full">

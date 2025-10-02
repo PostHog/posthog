@@ -53,6 +53,7 @@ from posthog.auth import (
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_updated, report_user_verified_email
+from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
@@ -581,6 +582,7 @@ class UserViewSet(
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
         form.save()
         otp_login(request, default_device(request.user))
+        set_two_factor_verified_in_session(request)
 
         send_two_factor_auth_enabled_email.delay(request.user.id)
 
