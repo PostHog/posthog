@@ -245,7 +245,7 @@ function TraceSidebar({
 
     return (
         <aside
-            className="sticky top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] max-h-[calc(100vh-var(--scene-layout-header-height)-var(--scene-padding)*2)] border-primary bg-surface-primary border rounded overflow-hidden flex flex-col w-full @md:w-80"
+            className="sticky top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] h-fit max-h-[calc(100vh-var(--scene-layout-header-height)-var(--scene-padding)*2)] border-primary bg-surface-primary border rounded overflow-hidden flex flex-col w-full @md:w-80"
             ref={ref}
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
