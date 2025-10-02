@@ -140,6 +140,7 @@ fn generate_text_representation(
         tokens = encoder.encode_with_special_tokens(type_and_value);
 
         if tokens.len() > max_tokens {
+            tokens.truncate(max_tokens);
             return Ok(encoder.decode(tokens)?);
         }
 
