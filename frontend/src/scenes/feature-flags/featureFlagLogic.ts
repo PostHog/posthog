@@ -71,6 +71,8 @@ import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
+import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
+import { createScheduleReleaseConditionsLogicKey } from './featureFlagUtils'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
@@ -1134,6 +1136,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
+                if (values.featureFlag.id != null) {
+                    const releaseConditionsLogic = featureFlagReleaseConditionsLogic.findMounted({
+                        id: createScheduleReleaseConditionsLogicKey(values.featureFlag.id),
+                    })
+                    releaseConditionsLogic?.actions.resetAffectedUsers()
+                }
             }
         },
         setScheduledChangeOperation: () => {
