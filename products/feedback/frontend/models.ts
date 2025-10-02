@@ -27,6 +27,12 @@ export interface FeedbackItemAssignment {
     role: number | null
 }
 
+export interface FeedbackItemAttachment {
+    id: string
+    storage_ptr: string | null
+    created_at: string
+}
+
 export interface FeedbackItem {
     id: string
     content: string
@@ -34,6 +40,6 @@ export interface FeedbackItem {
     topic: FeedbackItemTopic | null
     status: FeedbackItemStatus | null
     assignment: FeedbackItemAssignment | null
-    attachments: string[]
+    attachments: FeedbackItemAttachment[]
     created_at: string
 }

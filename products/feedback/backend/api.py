@@ -17,6 +17,7 @@ from posthog.storage import object_storage
 from products.feedback.backend.models import (
     FeedbackItem,
     FeedbackItemAssignment,
+    FeedbackItemAttachment,
     FeedbackItemCategory,
     FeedbackItemStatus,
     FeedbackItemTopic,
@@ -47,6 +48,12 @@ class FeedbackItemTopicSerializer(serializers.ModelSerializer):
         fields = ["id", "name"]
 
 
+class FeedbackItemAttachmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeedbackItemAttachment
+        fields = ["id", "storage_ptr", "created_at"]
+
+
 class FeedbackItemAssignmentSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
 
@@ -60,7 +67,7 @@ class FeedbackItemSerializer(serializers.ModelSerializer):
     topic = FeedbackItemTopicSerializer(read_only=True)
     status = FeedbackItemStatusSerializer(read_only=True)
     assignment = FeedbackItemAssignmentSerializer(read_only=True)
-    attachments = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    attachments = FeedbackItemAttachmentSerializer(many=True, read_only=True)
     category_id = serializers.PrimaryKeyRelatedField(
         queryset=FeedbackItemCategory.objects.all(), source="category", write_only=True, required=False, allow_null=True
     )
