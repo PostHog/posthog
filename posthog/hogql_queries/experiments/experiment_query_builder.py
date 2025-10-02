@@ -156,39 +156,31 @@ class ExperimentQueryBuilder:
         """
         Builds the exposure predicate as an AST expression.
         """
-        predicates = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=self.date_range_query.date_from_as_hogql(),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=self.date_range_query.date_to_as_hogql(),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=self.exposure_event),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["properties", self.feature_flag_variant_property]),
-                right=ast.Constant(value=self.variants),
-            ),
-        ]
+        base_predicate = parse_expr(
+            """
+            timestamp >= {date_from}
+            AND timestamp <= {date_to}
+            AND event = {exposure_event}
+            AND {variant_property} IN {variants}
+            """,
+            placeholders={
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+                "exposure_event": ast.Constant(value=self.exposure_event),
+                "variant_property": ast.Field(chain=["properties", self.feature_flag_variant_property]),
+                "variants": ast.Constant(value=self.variants),
+            },
+        )
 
+        # Add feature flag filter for $feature_flag_called events
         if self.exposure_event == "$feature_flag_called":
-            predicates.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["properties", "$feature_flag"]),
-                    right=ast.Constant(value=self.feature_flag.key),
-                )
+            flag_filter = parse_expr(
+                "properties.`$feature_flag` = {flag_key}",
+                placeholders={"flag_key": ast.Constant(value=self.feature_flag.key)},
             )
+            return ast.And(exprs=[base_predicate, flag_filter])
 
-        return ast.And(exprs=predicates) if len(predicates) > 1 else predicates[0]
+        return base_predicate
 
     def _build_metric_predicate(self) -> ast.Expr:
         """
@@ -202,42 +194,22 @@ class ExperimentQueryBuilder:
                 self.metric.conversion_window,
                 self.metric.conversion_window_unit,
             )
-            time_upper_bound = ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Call(
-                    name="plus",
-                    args=[
-                        self.date_range_query.date_to_as_hogql(),
-                        ast.Call(
-                            name="toIntervalSecond",
-                            args=[ast.Constant(value=conversion_window_seconds)],
-                        ),
-                    ],
-                ),
-            )
         else:
-            time_upper_bound = ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"]),
-                right=self.date_range_query.date_to_as_hogql(),
-            )
+            conversion_window_seconds = 0
 
-        predicates: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=self.date_range_query.date_from_as_hogql(),
-            ),
-            time_upper_bound,
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=event_name),
-            ),
-        ]
-
-        return ast.And(exprs=predicates)
+        return parse_expr(
+            """
+            timestamp >= {date_from}
+            AND timestamp < {date_to} + toIntervalSecond({conversion_window_seconds})
+            AND event = {event_name}
+            """,
+            placeholders={
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                "event_name": ast.Constant(value=event_name),
+            },
+        )
 
     def _build_value_expr(self, math_type: ExperimentMetricMathType) -> ast.Expr:
         """
