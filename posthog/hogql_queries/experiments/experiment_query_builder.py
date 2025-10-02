@@ -49,41 +49,45 @@ class ExperimentQueryBuilder:
         # Build the query with placeholders
         query = parse_select(
             """
-            WITH events_enriched as (
+            WITH exposures AS (
                 SELECT
                     {entity_key} AS entity_id,
                     {variant_expr} AS variant,
                     minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
                     argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id,
-                    groupArrayIf(
-                        tuple(timestamp, {value_expr}),
-                        {metric_predicate}
-                    ) AS metric_events_array
+                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
                 FROM events
-                WHERE ({exposure_predicate} OR {metric_predicate})
+                WHERE {exposure_predicate}
                 GROUP BY entity_id
             ),
 
-            metric_events as (
+            metric_events AS (
                 SELECT
-                    events_enriched.entity_id AS entity_id,
-                    events_enriched.variant AS variant,
-                    events_enriched.exposure_event_uuid AS exposure_event_uuid,
-                    events_enriched.exposure_session_id AS exposure_session_id,
-                    arrayFilter(x -> x.1 >= events_enriched.first_exposure_time, events_enriched.metric_events_array) AS metric_after_exposure,
+                    {entity_key} AS entity_id,
+                    timestamp,
+                    {value_expr} AS value
+                FROM events
+                WHERE {metric_predicate}
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
                     {value_agg} AS value
-                FROM events_enriched
-                WHERE events_enriched.first_exposure_time IS NOT NULL
+                FROM exposures
+                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
+                    AND metric_events.timestamp >= exposures.first_exposure_time
+                GROUP BY exposures.entity_id, exposures.variant
             )
 
             SELECT
-                metric_events.variant AS variant,
-                count(metric_events.entity_id) AS num_users,
-                sum(metric_events.value) AS total_sum,
-                sum(power(metric_events.value, 2)) AS total_sum_of_squares
-            FROM metric_events
-            GROUP BY metric_events.variant
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                sum(entity_metrics.value) AS total_sum,
+                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+            FROM entity_metrics
+            GROUP BY entity_metrics.variant
             """,
             placeholders={
                 "entity_key": parse_expr(self.entity_key),
@@ -229,15 +233,19 @@ class ExperimentQueryBuilder:
         Returns the value aggregation expression based on math type.
         """
         if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
-            return parse_expr("toFloat(length(arrayDistinct(arrayMap(x -> x.2, metric_after_exposure))))")
+            return parse_expr(
+                "toFloat(length(arrayDistinct(groupArrayIf(metric_events.value, and(isNotNull(metric_events.value), notEquals(toString(metric_events.value), ''))))))"
+            )
         elif math_type in [ExperimentMetricMathType.DAU, ExperimentMetricMathType.UNIQUE_GROUP]:
-            return parse_expr("toFloat(length(arrayDistinct(arrayMap(x -> x.2, metric_after_exposure))))")
+            return parse_expr(
+                "toFloat(length(arrayDistinct(groupArrayIf(metric_events.value, and(isNotNull(metric_events.value), notEquals(toString(metric_events.value), ''))))))"
+            )
         elif math_type == ExperimentMetricMathType.MIN:
-            return parse_expr("arrayMin(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))")
+            return parse_expr("coalesce(min(toFloat(metric_events.value)), 0.0)")
         elif math_type == ExperimentMetricMathType.MAX:
-            return parse_expr("arrayMax(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))")
+            return parse_expr("coalesce(max(toFloat(metric_events.value)), 0.0)")
         elif math_type == ExperimentMetricMathType.AVG:
-            return parse_expr("arrayAvg(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))")
+            return parse_expr("coalesce(avg(toFloat(metric_events.value)), 0.0)")
         else:
             # Default: SUM or TOTAL
-            return parse_expr("arraySum(arrayMap(x -> coalesce(toFloat(x.2), 0), metric_after_exposure))")
+            return parse_expr("coalesce(sum(toFloat(metric_events.value)), 0.0)")
