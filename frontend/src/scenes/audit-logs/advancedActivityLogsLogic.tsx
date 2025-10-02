@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { ADVANCED_ACTIVITY_PAGE_SIZE, FEATURE_FLAGS } from 'lib/constants'
+import { ADVANCED_ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,6 +12,7 @@ import { dateStringToDayJs, objectClean } from 'lib/utils'
 
 import { ActivityScope } from '~/types'
 
+import { userLogic } from '../userLogic'
 import type { advancedActivityLogsLogicType } from './advancedActivityLogsLogicType'
 
 export interface DetailFilter {
@@ -83,7 +84,7 @@ const ADVANCED_FILTERS = ['was_impersonated', 'is_system', 'item_ids', 'detail_f
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     path(['scenes', 'audit-logs', 'advancedActivityLogsLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
     })),
 
     actions({
@@ -229,11 +230,6 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     })),
 
     selectors({
-        isFeatureFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: any): boolean => !!featureFlags[FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS],
-        ],
-
         hasActiveFilters: [
             (s) => [s.filters],
             (filters: AdvancedActivityLogFilters): boolean => {
