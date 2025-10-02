@@ -114,7 +114,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
             } else if (props.evaluationId === 'new') {
                 // Initialize new evaluation
-                const newEvaluation: Partial<EvaluationConfig> = {
+                const newEvaluation: EvaluationConfig = {
+                    id: '',
                     name: '',
                     description: '',
                     enabled: false,
@@ -126,8 +127,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             properties: [],
                         },
                     ],
+                    total_runs: 0,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
                 }
-                actions.loadEvaluationSuccess(newEvaluation as EvaluationConfig)
+                actions.loadEvaluationSuccess(newEvaluation)
             }
         },
 
@@ -150,23 +154,16 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
 
                 if (props.evaluationId === 'new') {
-                    // Create new evaluation
                     const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
                     actions.saveEvaluationSuccess(response)
-
-                    // Navigate to evaluations list
-                    router.actions.replace(urls.llmAnalyticsEvaluations())
                 } else {
-                    // Update existing evaluation
                     const response = await api.update(
                         `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
                         values.evaluation!
                     )
                     actions.saveEvaluationSuccess(response)
-
-                    // Navigate back to evaluations list
-                    router.actions.push(urls.llmAnalyticsEvaluations())
                 }
+                router.actions.push(urls.llmAnalyticsEvaluations())
             } catch (error) {
                 console.error('Failed to save evaluation:', error)
             }

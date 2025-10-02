@@ -52,7 +52,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(Evaluation.objects.count(), 1)
 
         evaluation_config = Evaluation.objects.first()
-        assert evaluation_config is not None
+        self.assertIsNotNone(evaluation_config)
         self.assertEqual(evaluation_config.name, "Test Evaluation")
         self.assertEqual(evaluation_config.description, "Test Description")
         self.assertEqual(evaluation_config.enabled, True)

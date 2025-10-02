@@ -104,9 +104,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 if (!teamId) {
                     return
                 }
-
-                // Note: API uses ForbidDestroyModel, so this will return 405
-                // In a real implementation, this would set deleted=true via PATCH
                 await api.update(`/api/environments/${teamId}/evaluations/${id}/`, { deleted: true })
                 actions.deleteEvaluationSuccess(id)
             } catch (error) {
