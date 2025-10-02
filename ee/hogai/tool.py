@@ -81,9 +81,9 @@ class MaxTool(AssistantContextMixin, BaseTool):
         user: User,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
-        args_schema: type[BaseModel] | None = None,
         name: str | None = None,
         description: str | None = None,
+        args_schema: type[BaseModel] | None = None,
         context_manager: AssistantContextManager | None = None,
         **kwargs,
     ):
