@@ -88,7 +88,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
         ],
         sampleGlobals: [
-            null as string | null,
+            null as CyclotronJobInvocationGlobals | null,
             {
                 setSampleGlobals: (previousGlobals, { globals }) => {
                     try {
