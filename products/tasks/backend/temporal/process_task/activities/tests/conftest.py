@@ -129,7 +129,7 @@ async def test_task(ateam, task_workflow, github_integration):
         current_stage=backlog_stage,
         position=0,
         github_integration=github_integration,
-        repository_config={"organization": "test-owner", "repository": "test-repo"},
+        repository_config={"organization": "PostHog", "repository": "posthog-js"},
     )
 
     yield task

@@ -1,5 +1,7 @@
 import json
+from dataclasses import dataclass
 from datetime import timedelta
+from typing import Optional
 
 import temporalio
 from temporalio import workflow
@@ -16,12 +18,20 @@ from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.clone_repository import CloneRepositoryInput, clone_repository
 from .activities.create_sandbox_from_snapshot import CreateSandboxFromSnapshotInput, create_sandbox_from_snapshot
 from .activities.create_snapshot import CreateSnapshotInput, create_snapshot
-from .activities.execute_task_in_sandbox import ExecuteTaskInput, execute_task_in_sandbox
+from .activities.execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
 from .activities.get_sandbox_for_setup import GetSandboxForSetupInput, get_sandbox_for_setup
 from .activities.get_task_details import TaskDetails, get_task_details
 from .activities.setup_repository import SetupRepositoryInput, setup_repository
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class ProcessTaskOutput:
+    success: bool
+    task_result: Optional[ExecuteTaskOutput] = None
+    error: Optional[str] = None
+    sandbox_id: Optional[str] = None
 
 
 @temporalio.workflow.defn(name="process-task")
@@ -32,7 +42,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return loaded["task_id"]
 
     @temporalio.workflow.run
-    async def run(self, task_id: str) -> dict:
+    async def run(self, task_id: str) -> ProcessTaskOutput:
         sandbox_id = None
 
         try:
@@ -47,22 +57,28 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             sandbox_id = await self._create_sandbox_from_snapshot(snapshot_id, task_id)
 
-            await self._execute_task_in_sandbox(sandbox_id, task_id, task_details.repository)
+            result = await self._execute_task_in_sandbox(sandbox_id, task_id, task_details.repository)
 
-            return {
-                "success": True,
-            }
+            return ProcessTaskOutput(
+                success=True,
+                task_result=result,
+                error=None,
+                sandbox_id=sandbox_id,
+            )
 
         except Exception as e:
             logger.exception(f"Agent workflow failed: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-            }
+            return ProcessTaskOutput(
+                success=False,
+                task_result=None,
+                error=str(e),
+                sandbox_id=sandbox_id,
+            )
 
         finally:
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
+                sandbox_id = None
 
     async def _get_task_details(self, task_id: str) -> TaskDetails:
         logger.info(f"Getting task details for task {task_id}")
@@ -196,7 +212,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    async def _execute_task_in_sandbox(self, sandbox_id: str, task_id: str, repository: str) -> None:
+    async def _execute_task_in_sandbox(self, sandbox_id: str, task_id: str, repository: str) -> ExecuteTaskOutput:
         execute_input = ExecuteTaskInput(
             sandbox_id=sandbox_id,
             task_id=task_id,

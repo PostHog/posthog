@@ -61,7 +61,7 @@ class TestGetTaskDetailsActivity:
         self, activity_environment, ateam, task_workflow, github_integration
     ):
         task = await self._create_task_with_repo(
-            ateam, task_workflow, github_integration, {"organization": "posthog", "repository": "posthog"}
+            ateam, task_workflow, github_integration, {"organization": "posthog", "repository": "posthog-js"}
         )
 
         try:
