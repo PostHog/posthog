@@ -57,10 +57,23 @@ class FeedbackItemSerializer(serializers.ModelSerializer):
     status = FeedbackItemStatusSerializer(read_only=True)
     assignment = FeedbackItemAssignmentSerializer(read_only=True)
     attachments = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    status_id = serializers.PrimaryKeyRelatedField(
+        queryset=FeedbackItemStatus.objects.all(), source="status", write_only=True, required=False, allow_null=True
+    )
 
     class Meta:
         model = FeedbackItem
-        fields = ["id", "content", "category", "topic", "status", "assignment", "attachments", "created_at"]
+        fields = [
+            "id",
+            "content",
+            "category",
+            "topic",
+            "status",
+            "status_id",
+            "assignment",
+            "attachments",
+            "created_at",
+        ]
         read_only_fields = ["id", "content", "created_at"]
 
 

@@ -1,11 +1,14 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonBadge, LemonTag } from '@posthog/lemon-ui'
+import { LemonBadge, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { feedbackItemSceneLogic } from '../../scenes/FeedbackItemScene/feedbackItemSceneLogic'
+import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSettingsLogic'
 
 export function FeedbackSummary(): JSX.Element {
     const { feedbackItem, feedbackItemLoading } = useValues(feedbackItemSceneLogic)
+    const { feedbackStatuses } = useValues(feedbackGeneralSettingsLogic)
+    const { updateStatus } = useActions(feedbackItemSceneLogic)
 
     if (feedbackItemLoading) {
         return (
@@ -33,7 +36,15 @@ export function FeedbackSummary(): JSX.Element {
                         </LemonTag>
                         <div className="flex items-center gap-1.5">
                             <LemonBadge status="success" size="small" />
-                            <span className="text-xs text-muted">{feedbackItem.status?.name}</span>
+                            <LemonSelect
+                                value={feedbackItem.status?.id}
+                                onChange={(value) => value && updateStatus(value)}
+                                options={feedbackStatuses.map((status) => ({
+                                    label: status.name,
+                                    value: status.id,
+                                }))}
+                                size="small"
+                            />
                         </div>
                     </div>
                 </div>

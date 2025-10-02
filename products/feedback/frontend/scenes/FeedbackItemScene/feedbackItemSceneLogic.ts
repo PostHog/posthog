@@ -1,4 +1,4 @@
-import { afterMount, kea, key, path, props } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -15,6 +15,11 @@ export const feedbackItemSceneLogic = kea<feedbackItemSceneLogicType>([
     props({} as FeedbackItemSceneLogicProps),
     key((props) => props.feedbackItemId),
 
+    actions({
+        loadFeedbackItem: true,
+        updateStatus: (statusId: string) => ({ statusId }),
+    }),
+
     loaders(({ props }) => ({
         feedbackItem: [
             null as FeedbackItem | null,
@@ -26,6 +31,13 @@ export const feedbackItemSceneLogic = kea<feedbackItemSceneLogicType>([
                 },
             },
         ],
+    })),
+
+    listeners(({ actions, props }) => ({
+        updateStatus: async ({ statusId }) => {
+            await api.feedback.items.update(props.feedbackItemId, { status_id: statusId } as any)
+            actions.loadFeedbackItem()
+        },
     })),
 
     afterMount(({ actions }) => {
