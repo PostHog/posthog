@@ -14,6 +14,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction, userHasAccess } from 'lib/components/AccessControlAction'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -35,7 +36,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { FeatureFlagType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, FeatureFlagType } from '~/types'
 
 import { experimentLogic } from './experimentLogic'
 import { featureFlagEligibleForExperiment } from './utils'
@@ -61,7 +62,11 @@ const ExperimentFormFields = (): JSX.Element => {
                 resourceType={{
                     type: 'experiment',
                 }}
-                canEdit
+                canEdit={userHasAccess(
+                    AccessControlResourceType.Experiment,
+                    AccessControlLevel.Editor,
+                    experiment.user_access_level
+                )}
                 onNameChange={(name) => {
                     setExperiment({ name })
                 }}
@@ -455,14 +460,20 @@ const ExperimentFormFields = (): JSX.Element => {
                     </div>
                 </>
             )}
-            <LemonButton
-                className={cn('w-fit')}
-                type="primary"
-                data-attr="save-experiment"
-                onClick={() => submitExperiment()}
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Experiment}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={experiment.user_access_level}
             >
-                Save as draft
-            </LemonButton>
+                <LemonButton
+                    className={cn('w-fit')}
+                    type="primary"
+                    data-attr="save-experiment"
+                    onClick={() => submitExperiment()}
+                >
+                    Save as draft
+                </LemonButton>
+            </AccessControlAction>
         </SceneContent>
     )
 }

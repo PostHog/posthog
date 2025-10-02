@@ -239,6 +239,7 @@ class PostgreSQLClient:
         fields: Fields,
         exists_ok: bool = True,
         primary_key: Fields | None = None,
+        log_statements: bool = False,
     ) -> None:
         """Create a table in PostgreSQL.
 
@@ -248,6 +249,7 @@ class PostgreSQLClient:
             fields: An iterable of PostgreSQL fields for the table.
             exists_ok: Whether to ignore if the table already exists.
             primary_key: Optionally set a primary key on these fields, needed for merges.
+            log_statements: If `True`, log the statements executed (useful for debugging)
         """
         if schema:
             table_identifier = sql.Identifier(schema, table_name)
@@ -268,19 +270,22 @@ class PostgreSQLClient:
             async with self.connection.cursor() as cursor:
                 await cursor.execute("SET TRANSACTION READ WRITE")
 
-                await cursor.execute(
-                    sql.SQL(base_query).format(
-                        pkey=primary_key_clause if primary_key else sql.SQL(""),
-                        table=table_identifier,
-                        fields=sql.SQL(",").join(
-                            sql.SQL("{field} {type}").format(
-                                field=sql.Identifier(field),
-                                type=sql.SQL(field_type),
-                            )
-                            for field, field_type in fields
-                        ),
-                    )
+                query = sql.SQL(base_query).format(
+                    pkey=primary_key_clause if primary_key else sql.SQL(""),
+                    table=table_identifier,
+                    fields=sql.SQL(",").join(
+                        sql.SQL("{field} {type}").format(
+                            field=sql.Identifier(field),
+                            type=sql.SQL(field_type),
+                        )
+                        for field, field_type in fields
+                    ),
                 )
+
+                if log_statements:
+                    LOGGER.info("Executing create table statement: %s", query.as_string(cursor))
+
+                await cursor.execute(query)
 
     async def adelete_table(self, schema: str | None, table_name: str, not_found_ok: bool = True) -> None:
         """Delete a table in PostgreSQL.
@@ -338,6 +343,7 @@ class PostgreSQLClient:
         not_found_ok: bool = True,
         delete: bool = True,
         create: bool = True,
+        log_statements: bool = False,
     ) -> collections.abc.AsyncGenerator[str, None]:
         """Manage a table in PostgreSQL by ensure it exists while in context.
 
@@ -353,9 +359,12 @@ class PostgreSQLClient:
             not_found_ok: Whether to ignore if the table doesn't exist.
             delete: If `False`, do not delete the table on exiting context manager.
             create: If `False`, do not attempt to create the table.
+            log_statements: If `True`, log the statements executed (useful for debugging)
         """
         if create is True:
-            await self.acreate_table(schema, table_name, fields, exists_ok, primary_key=primary_key)
+            await self.acreate_table(
+                schema, table_name, fields, exists_ok, primary_key=primary_key, log_statements=log_statements
+            )
 
         try:
             yield table_name
@@ -793,7 +802,12 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchEx
 
             async with (
                 pg_client.managed_table(
-                    inputs.schema, inputs.table_name, table_fields, delete=False, primary_key=primary_key
+                    inputs.schema,
+                    inputs.table_name,
+                    table_fields,
+                    delete=False,
+                    primary_key=primary_key,
+                    log_statements=True,
                 ) as pg_table,
                 pg_client.managed_table(
                     inputs.schema,

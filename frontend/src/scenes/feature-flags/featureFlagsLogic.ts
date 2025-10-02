@@ -5,7 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { objectsEqual, toParams } from 'lib/utils'
+import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -42,6 +42,7 @@ export interface FeatureFlagsFilters {
     order?: string
     page?: number
     evaluation_runtime?: string
+    tags?: string[]
 }
 
 const DEFAULT_FILTERS: FeatureFlagsFilters = {
@@ -52,6 +53,7 @@ const DEFAULT_FILTERS: FeatureFlagsFilters = {
     order: undefined,
     page: 1,
     evaluation_runtime: undefined,
+    tags: undefined,
 }
 
 export interface FlagLogicProps {
@@ -204,7 +206,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number> = {
+            const searchParams: Record<string, string | number | string[]> = {
                 ...values.filters,
             }
 
@@ -235,13 +237,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 actions.setActiveTab(tabInURL)
             }
 
-            const { page, created_by_id, active, type, search, order, evaluation_runtime } = searchParams
+            const { page, created_by_id, active, type, search, order, evaluation_runtime, tags } = searchParams
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
                 created_by_id,
                 type,
                 search,
                 order,
                 evaluation_runtime,
+                tags: parseTagsFilter(tags),
             }
 
             pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined

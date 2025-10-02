@@ -50,6 +50,7 @@ import {
 } from '~/types'
 
 import { createMaxToolSurveyConfig } from './FeatureFlag'
+import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
@@ -251,6 +252,7 @@ export function OverViewTab({
     const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
@@ -294,8 +296,21 @@ export function OverViewTab({
                   {
                       title: 'Tags',
                       dataIndex: 'tags' as keyof FeatureFlagType,
-                      render: function Render(tags: FeatureFlagType['tags']) {
-                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
+                      render: function Render(_, featureFlag: FeatureFlagType) {
+                          const tags = featureFlag.tags
+                          if (!tags || tags.length === 0) {
+                              return null
+                          }
+                          return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                              <FeatureFlagEvaluationTags
+                                  tags={tags}
+                                  evaluationTags={featureFlag.evaluation_tags || []}
+                                  staticOnly
+                                  flagId={featureFlag.id}
+                              />
+                          ) : (
+                              <ObjectTags tags={tags} staticOnly />
+                          )
                       },
                   } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
               ]
@@ -401,6 +416,7 @@ export function OverViewTab({
                 type: true,
                 status: true,
                 createdBy: true,
+                tags: true,
                 runtime: true,
             }}
         />

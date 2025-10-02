@@ -119,16 +119,18 @@ jobs:
                   python-version: 3.11.13
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Install SAML (python3-saml) dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - name: Install uv
+              id: setup-uv
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   version: 0.7.8
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
@@ -157,7 +159,7 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Check migrations and post comment
+            - name: Check migrations and post SQL comment
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -223,14 +225,23 @@ jobs:
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
                     -d "$COMMENT_BODY_JSON"
 
-                  # Get risk analysis and post as separate comment
-                  # This automatically detects all unapplied migrations (including third-party)
+            - name: Run migration risk analysis and post comment
+              if: github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  # Get risk analysis for all unapplied migrations (including third-party)
                   set +e  # Don't exit immediately on error
                   RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null)
                   EXIT_CODE=$?
                   set -e  # Re-enable exit on error
 
                   if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
+                    # Get existing comments
+                    COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+
                     # Delete previous risk analysis comments
                     echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
                       echo "Deleting risk analysis comment $comment_id"
@@ -542,18 +553,19 @@ jobs:
                   python-version: ${{ matrix.python-version }}
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Install SAML (python3-saml) dependencies
-              if: ${{ needs.changes.outputs.backend == 'true' }}
-              shell: bash
-              run: |
-                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - name: Install uv
               if: ${{ needs.changes.outputs.backend == 'true' }}
+              id: setup-uv-tests
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   version: 0.7.8
+
+            - name: Install SAML (python3-saml) dependencies
+              if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
+              shell: bash
+              run: |
+                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Determine if hogql-parser has changed compared to master
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -821,16 +833,19 @@ jobs:
                   python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Install SAML (python3-saml) dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - name: Install uv
+              id: setup-uv-async
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   version: 0.7.8
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv-async.outputs.cache-hit != 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
             - name: Install python dependencies
               shell: bash
               run: |

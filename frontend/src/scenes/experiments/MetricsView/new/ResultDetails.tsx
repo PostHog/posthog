@@ -114,7 +114,9 @@ export function ResultDetails({
     isSecondary: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const useExperimentFunnelChart = featureFlags[FEATURE_FLAGS.EXPERIMENTS_FUNNEL_CHART] === 'test'
+    // If feature flag is enabled _and_ the result contains the step_counts data, we use the new funnel chart
+    const useExperimentFunnelChart =
+        featureFlags[FEATURE_FLAGS.EXPERIMENTS_FUNNEL_CHART] === 'test' && result.baseline.step_counts !== undefined
 
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {

@@ -254,16 +254,36 @@ export function isLiteLLMResponse(input: unknown): input is LiteLLMResponse {
         input.choices.every(isLiteLLMChoice)
     )
 }
+
+export const roleMap: Record<string, string> = {
+    user: 'user',
+    human: 'user',
+
+    assistant: 'assistant',
+    model: 'assistant',
+    ai: 'assistant',
+    bot: 'assistant',
+
+    system: 'system',
+    instructions: 'system',
+}
+
+export function normalizeRole(rawRole: unknown, fallback: string): string {
+    if (typeof rawRole !== 'string') {
+        return fallback
+    }
+    const lowercased = rawRole.toLowerCase()
+    return roleMap[lowercased] || lowercased
+}
+
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Analytics schema.
  *
  * @param output - Original message from an LLM provider.
- * @param defaultRole - Optional default role to use if the message doesn't have one.
+ * @param defaultRole - The default role to use if the message doesn't have one.
  * @returns The normalized message.
  */
-export function normalizeMessage(output: unknown, defaultRole?: string): CompatMessage[] {
-    const role = defaultRole || 'user'
-
+export function normalizeMessage(output: unknown, defaultRole: string): CompatMessage[] {
     // Handle new array-based content format (unified format with structured objects)
     // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
     if (
@@ -284,7 +304,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     ) {
         return [
             {
-                role: output.role === 'user' ? 'user' : 'assistant',
+                role: normalizeRole(output.role, defaultRole),
                 content: output.content,
             },
         ]
@@ -298,7 +318,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isVercelSDKTextMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.content,
             },
         ]
@@ -308,7 +328,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isVercelSDKInputImageMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: [
                     {
                         type: 'image',
@@ -323,7 +343,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isVercelSDKInputTextMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.text,
             },
         ]
@@ -334,7 +354,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         return [
             {
                 ...output,
-                role: output.role,
+                role: normalizeRole(output.role, defaultRole),
                 content: output.content,
                 tool_calls: isOpenAICompatToolCallsArray(output.tool_calls)
                     ? parseOpenAIToolCalls(output.tool_calls)
@@ -349,7 +369,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicTextMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.text,
             },
         ]
@@ -358,7 +378,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicToolCallMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: '',
                 tool_calls: [
                     {
@@ -377,7 +397,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicThinkingMessage(output)) {
         return [
             {
-                role: 'assistant (thinking)',
+                role: normalizeRole('assistant (thinking)', defaultRole),
                 content: output.thinking,
             },
         ]
@@ -386,7 +406,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicToolResultMessage(output)) {
         if (Array.isArray(output.content)) {
             return output.content
-                .map((content) => normalizeMessage(content, role))
+                .map((content) => normalizeMessage(content, defaultRole))
                 .flat()
                 .map((message) => ({
                     ...message,
@@ -395,7 +415,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         }
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.content,
                 tool_call_id: output.tool_use_id,
             },
@@ -406,12 +426,12 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicRoleBasedMessage(output)) {
         // Content is a nested array (tool responses, etc.)
         if (Array.isArray(output.content)) {
-            return output.content.map((content) => normalizeMessage(content, output.role)).flat()
+            return output.content.map((content) => normalizeMessage(content, defaultRole)).flat()
         }
 
         return [
             {
-                role: output.role,
+                role: normalizeRole(output.role, defaultRole),
                 content: output.content,
             },
         ]
@@ -431,10 +451,10 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     } else {
         cajoledContent = JSON.stringify(output)
     }
-    return [{ role, content: cajoledContent }]
+    return [{ role: defaultRole, content: cajoledContent }]
 }
 
-export function normalizeMessages(messages: unknown, defaultRole?: string, tools?: unknown): CompatMessage[] {
+export function normalizeMessages(messages: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
     const normalizedMessages: CompatMessage[] = []
 
     if (tools) {
@@ -455,7 +475,7 @@ export function normalizeMessages(messages: unknown, defaultRole?: string, tools
         normalizedMessages.push(...messages.choices.map((message) => normalizeMessage(message, defaultRole)).flat())
     } else if (typeof messages === 'string') {
         normalizedMessages.push({
-            role: defaultRole || 'user',
+            role: defaultRole,
             content: messages,
         })
     } else if (typeof messages === 'object' && messages !== null) {

@@ -55,6 +55,7 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
+        usesNewQueryRunner,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -86,9 +87,11 @@ const MetricsTab = (): JSX.Element => {
 
     return (
         <>
-            <div className="w-full mb-4">
-                <Exposures />
-            </div>
+            {usesNewQueryRunner && (
+                <div className="w-full mb-4">
+                    <Exposures />
+                </div>
+            )}
 
             {/* Show overview if there's only a single primary metric */}
             {hasSinglePrimaryMetric && hasMinimumExposureForResults && (

@@ -619,6 +619,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     rawConsoleLogs: consoleLogs,
                 }
             },
+            { resultEqualityCheck: objectsEqual },
         ],
 
         notebookCommentItems: [
@@ -648,6 +649,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
                 return items
             },
+            { resultEqualityCheck: objectsEqual },
         ],
 
         commentItems: [
@@ -680,6 +682,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
                 return items
             },
+            { resultEqualityCheck: objectsEqual },
         ],
 
         allContextItems: [
@@ -729,6 +732,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 return items
             },
+            { resultEqualityCheck: objectsEqual },
         ],
 
         allItems: [
@@ -921,6 +925,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     itemsByType,
                 }
             },
+            { resultEqualityCheck: objectsEqual },
         ],
 
         filteredItems: [
@@ -963,6 +968,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     return acc
                 }, [] as InspectorListItem[])
             },
+            { resultEqualityCheck: objectsEqual },
         ],
 
         seekbarItems: [

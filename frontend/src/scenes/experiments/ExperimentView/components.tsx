@@ -19,6 +19,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { userHasAccess } from 'lib/components/AccessControlAction'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -48,6 +49,8 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     ActionFilter,
     AnyPropertyFilter,
     Experiment,
@@ -428,7 +431,11 @@ export function PageHeaderCustom(): JSX.Element {
                 isLoading={experimentLoading}
                 onNameChange={(name) => updateExperiment({ name })}
                 onDescriptionChange={(description) => updateExperiment({ description })}
-                canEdit
+                canEdit={userHasAccess(
+                    AccessControlResourceType.Experiment,
+                    AccessControlLevel.Editor,
+                    experiment.user_access_level
+                )}
                 renameDebounceMs={1000}
                 actions={
                     <>

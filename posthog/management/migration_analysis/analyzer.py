@@ -206,11 +206,7 @@ class RiskAnalyzer:
         violations = []
 
         for policy in POSTHOG_POLICIES:
-            # Check each operation
-            for op in migration.operations:
-                violations.extend(policy.check_operation(op))
-
-            # Check migration-level policies
+            # Check migration-level policies (which internally check operations as needed)
             violations.extend(policy.check_migration(migration))
 
         return violations

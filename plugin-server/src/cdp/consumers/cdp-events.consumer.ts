@@ -164,7 +164,10 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     logger.error('🔴', 'Error checking rate limit for hog function', { err: e })
                 }
 
-                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(item.teamId, 'cdp_invocations')
+                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(
+                    item.teamId,
+                    'cdp_trigger_events'
+                )
 
                 // The legacy addon was not usage based so we skip dropping if they are on it
                 const isTeamOnLegacyAddon = !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')

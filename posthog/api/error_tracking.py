@@ -1,3 +1,4 @@
+import json
 import hashlib
 from typing import Any, Optional, Protocol, TypeVar
 
@@ -23,6 +24,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.error_tracking import (
@@ -36,9 +38,11 @@ from posthog.models.error_tracking import (
     ErrorTrackingStackFrame,
     ErrorTrackingSuppressionRule,
     ErrorTrackingSymbolSet,
+    resolve_fingerprints_for_issues,
 )
 from posthog.models.error_tracking.hogvm_stl import RUST_HOGVM_STL
 from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
+from posthog.models.plugin import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT, uuid7
 from posthog.storage import object_storage
@@ -51,6 +55,11 @@ JS_DATA_MAGIC = b"posthog_error_tracking"
 JS_DATA_VERSION = 1
 JS_DATA_TYPE_SOURCE_AND_MAP = 2
 PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
+
+# Error tracking embedding configuration defaults
+DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-large"
+DEFAULT_EMBEDDING_VERSION = 1
+DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
 
 logger = structlog.get_logger(__name__)
 
@@ -259,6 +268,209 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
         return Response({"success": True})
+
+    def _get_issue_embeddings(self, issue_fingerprints: list[str], model_name: str, embedding_version: int):
+        """Get embeddings along with model info for given fingerprints."""
+        query = """
+            SELECT DISTINCT embeddings
+            FROM error_tracking_issue_fingerprint_embeddings
+            WHERE team_id = %(team_id)s
+            AND fingerprint IN %(fingerprints)s
+            AND model_name = %(model_name)s
+            AND embedding_version = %(embedding_version)s
+        """
+
+        issue_embeddings = sync_execute(
+            query,
+            {
+                "team_id": self.team.pk,
+                "fingerprints": issue_fingerprints,
+                "model_name": model_name,
+                "embedding_version": embedding_version,
+            },
+        )
+
+        return issue_embeddings
+
+    def _get_similar_embeddings(
+        self,
+        embedding_vector,
+        model_name: str,
+        embedding_version: int,
+        issue_fingerprints: list[str],
+        min_distance_threshold: float,
+    ):
+        """Get similar embeddings using cosine similarity."""
+        query = """
+              WITH %(target_embedding)s as target
+            SELECT fingerprint, MIN(cosineDistance(embeddings, target)) as distance
+              FROM error_tracking_issue_fingerprint_embeddings
+             WHERE team_id = %(team_id)s
+               AND model_name = %(model_name)s
+               AND embedding_version = %(embedding_version)s
+               AND fingerprint NOT IN %(fingerprints)s
+               AND length(embeddings) = length(target)
+             GROUP BY fingerprint
+            HAVING distance <= %(min_distance_threshold)s
+             ORDER BY distance ASC
+             LIMIT 10;
+        """
+
+        similar_embeddings = sync_execute(
+            query,
+            {
+                "team_id": self.team.pk,
+                "target_embedding": embedding_vector,
+                "model_name": model_name,
+                "embedding_version": embedding_version,
+                "fingerprints": issue_fingerprints,
+                "min_distance_threshold": min_distance_threshold,
+            },
+        )
+        return similar_embeddings
+
+    def _get_embedding_configuration(self) -> tuple[float, str, int]:
+        """Get embedding configuration from remote config or return defaults."""
+        min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+        model_name = DEFAULT_EMBEDDING_MODEL_NAME
+        embedding_version = DEFAULT_EMBEDDING_VERSION
+
+        # Try to get configuration from remote config, fall back to defaults if not available
+        try:
+            config_json = posthoganalytics.get_remote_config_payload("error-tracking-embedding-configuration")
+            if config_json:
+                config_payload = json.loads(config_json)
+
+                # Validate that config_payload is a dict
+                if config_payload and isinstance(config_payload, dict):
+                    min_distance_threshold = config_payload.get(
+                        "min_distance_threshold", DEFAULT_MIN_DISTANCE_THRESHOLD
+                    )
+                    model_name = config_payload.get("model_name", DEFAULT_EMBEDDING_MODEL_NAME)
+                    embedding_version = config_payload.get("embedding_version", DEFAULT_EMBEDDING_VERSION)
+
+                    # Validate types
+                    if not isinstance(min_distance_threshold, (int | float)):
+                        min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+                    if not isinstance(model_name, str):
+                        model_name = DEFAULT_EMBEDDING_MODEL_NAME
+                    if not isinstance(embedding_version, int):
+                        embedding_version = DEFAULT_EMBEDDING_VERSION
+        except Exception:
+            # Fall back to defaults on any error (JSON parsing, network, etc.)
+            min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+            model_name = DEFAULT_EMBEDDING_MODEL_NAME
+            embedding_version = DEFAULT_EMBEDDING_VERSION
+
+        return min_distance_threshold, model_name, embedding_version
+
+    def _serialize_issues_to_related_issues(self, issues):
+        """Serialize ErrorTrackingIssue objects to related issues format."""
+        return [
+            {
+                "id": issue.id,
+                "title": issue.name,
+                "description": issue.description,
+                # TODO: library isn't part of the issue
+                # "library": issue.library,
+            }
+            for issue in issues
+        ]
+
+    def _process_embeddings_for_similarity(
+        self,
+        issue_embeddings,
+        issue_fingerprints: list[str],
+        min_distance_threshold: float,
+        model_name: str,
+        embedding_version: int,
+    ) -> list[str]:
+        """Process all embeddings to find similar fingerprints and return top 10 most similar."""
+        all_similar_results = []
+
+        # Search for similarities across all embeddings from the current issue
+        for _, embedding_row in enumerate(issue_embeddings):
+            embedding_vector = embedding_row[0]  # Get the embedding vector
+
+            # Search for similar embeddings using cosine similarity
+            similar_embeddings = self._get_similar_embeddings(
+                embedding_vector, model_name, embedding_version, issue_fingerprints, min_distance_threshold
+            )
+
+            if not similar_embeddings or len(similar_embeddings) == 0:
+                continue
+
+            # Collect both fingerprint and distance
+            for row in similar_embeddings:
+                fingerprint, distance = row[0], row[1]
+                all_similar_results.append((fingerprint, distance))
+
+        if not all_similar_results or len(all_similar_results) == 0:
+            return []
+
+        # Remove duplicates by fingerprint, keeping the best (smallest) distance for each
+        fingerprint_best_distance: dict[str, float] = {}
+        for fingerprint, distance in all_similar_results:
+            if fingerprint not in fingerprint_best_distance or distance < fingerprint_best_distance[fingerprint]:
+                fingerprint_best_distance[fingerprint] = distance
+
+        if not fingerprint_best_distance:
+            return []
+
+        # Sort by distance (ascending - smaller distance = more similar) and take top 10
+        sorted_results = sorted(fingerprint_best_distance.items(), key=lambda x: x[1])[:10]
+        all_similar_fingerprints = [fingerprint for fingerprint, _ in sorted_results]
+
+        return all_similar_fingerprints
+
+    @action(methods=["GET"], detail=True)
+    def related_issues(self, request: request.Request, **kwargs):
+        issue_id = kwargs.get("pk")
+
+        if not issue_id:
+            return Response({"error": "issue_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        issue_ids = [issue_id]
+        issue_fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
+
+        if not issue_fingerprints or len(issue_fingerprints) == 0:
+            return Response([])
+
+        # Get model configuration from feature flag
+        min_distance_threshold, model_name, embedding_version = self._get_embedding_configuration()
+
+        issue_embeddings = self._get_issue_embeddings(issue_fingerprints, model_name, embedding_version)
+
+        if not issue_embeddings or len(issue_embeddings) == 0:
+            return Response([])
+
+        all_similar_fingerprints = self._process_embeddings_for_similarity(
+            issue_embeddings, issue_fingerprints, min_distance_threshold, model_name, embedding_version
+        )
+
+        if not all_similar_fingerprints or len(all_similar_fingerprints) == 0:
+            return Response([])
+
+        # Get issue IDs that have these fingerprints
+        fingerprints_to_issue_ids = (
+            ErrorTrackingIssueFingerprintV2.objects.filter(
+                team_id=self.team.pk, fingerprint__in=all_similar_fingerprints
+            )
+            .values_list("issue_id", flat=True)
+            .distinct()
+        )
+
+        if not fingerprints_to_issue_ids or len(fingerprints_to_issue_ids) == 0:
+            return Response([])
+
+        # Get the actual issues from PostgreSQL
+        issues = ErrorTrackingIssue.objects.filter(team=self.team, id__in=fingerprints_to_issue_ids)
+
+        if not issues or len(issues) == 0:
+            return Response([])
+
+        related_issues = self._serialize_issues_to_related_issues(issues)
+        return Response(related_issues)
 
     @action(methods=["POST"], detail=True)
     def split(self, request, **kwargs):
@@ -767,6 +979,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                     pass
 
             raise
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_uploaded",
+            distinct_id=request.user.pk,
+            groups=groups(self.team.organization, self.team),
+        )
 
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 

@@ -1,5 +1,5 @@
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import serializers, viewsets
+from rest_framework import pagination, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -33,9 +33,14 @@ class InsightVariableSerializer(serializers.ModelSerializer):
         return InsightVariable.objects.create(**validated_data)
 
 
+class InsightVariablePagination(pagination.PageNumberPagination):
+    default_limit = 500
+
+
 class InsightVariableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = InsightVariable.objects.all()
+    pagination_class = InsightVariablePagination
     serializer_class = InsightVariableSerializer
     filter_backends = [DjangoFilterBackend]
 

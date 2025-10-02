@@ -1,9 +1,9 @@
 """
-Dagster asset and automation for experiment timeseries analysis.
+Dagster asset and automation for experiment regular metrics timeseries analysis.
 
 This module defines:
-- One asset (experiment_timeseries) with dynamic partitions for experiment-metric combinations
-- Automatic discovery and processing of new experiment-metric combinations
+- One asset (experiment_regular_metrics_timeseries) with dynamic partitions for experiment-metric combinations
+- Automatic discovery and processing of new experiment-regular metric combinations
 - Sensors and schedules for continuous timeseries calculation
 """
 
@@ -24,6 +24,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
 )
 
+from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.experiment import Experiment, ExperimentMetricResult
 
@@ -33,26 +34,31 @@ from dags.common import JobOwners
 # Dynamic Partitions Setup
 # =============================================================================
 
-# Create dynamic partitions definition for experiment-metric combinations
-experiment_timeseries_partitions_def = dagster.DynamicPartitionsDefinition(name="experiment_timeseries")
+# Create dynamic partitions definition for regular metric combinations
+EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME = "experiment_regular_metrics"
+experiment_regular_metrics_partitions_def = dagster.DynamicPartitionsDefinition(
+    name=EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME
+)
 
 # =============================================================================
 # Asset
 # =============================================================================
 
 
-def _get_experiment_metrics(context: dagster.SensorEvaluationContext) -> list[tuple[int, str, str, dict[str, Any]]]:
+def _get_experiment_regular_metrics_timeseries(
+    context: dagster.SensorEvaluationContext,
+) -> list[tuple[int, str, str, dict[str, Any]]]:
     """
-    Discover active experiment-metric combinations from the database.
+    Discover active experiment-regular metric combinations from the database.
 
-    Each combination will become a dynamic partition for the experiment_timeseries asset.
+    Each combination will become a dynamic partition for the experiment_regular_metrics_timeseries asset.
 
     Args:
         context: Dagster context for logging to UI.
 
     Returns:
         List of tuples containing (experiment_id, metric_uuid, fingerprint, metric_dict)
-        for all valid experiment-metric combinations that should be processed.
+        for all valid experiment-regular metric combinations that should be processed.
     """
     experiment_metrics = []
 
@@ -69,19 +75,23 @@ def _get_experiment_metrics(context: dagster.SensorEvaluationContext) -> list[tu
     )
 
     for experiment in experiments:
-        metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+        # Extract regular metrics from metrics and metrics_secondary fields
+        all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
 
-        for metric in metrics:
+        for metric in all_metrics:
+            # Skip if metric doesn't have a UUID (shouldn't happen but being safe)
             metric_uuid = metric.get("uuid")
             if not metric_uuid:
+                context.log.warning(f"Metric in experiment {experiment.id} has no UUID, skipping")
                 continue
-            fingerprint = metric.get("fingerprint")
-            if not fingerprint:
-                context.log.error(
-                    f"Metric {metric_uuid} for experiment {experiment.id} is missing fingerprint. "
-                    "Skipping this metric. Metrics must have fingerprints computed during creation/update."
-                )
-                continue
+
+            # Compute fingerprint for this metric in context of this experiment
+            fingerprint = compute_metric_fingerprint(
+                metric,
+                experiment.start_date,
+                experiment.stats_config,
+                experiment.exposure_criteria,
+            )
 
             experiment_metrics.append((experiment.id, metric_uuid, fingerprint, metric))
 
@@ -102,7 +112,7 @@ def _remove_step_sessions_from_experiment_result(result: ExperimentQueryResponse
     return result
 
 
-def _parse_partition_key(partition_key: str) -> tuple[int, str, str]:
+def _parse_regular_metric_timeseries_partition_key(partition_key: str) -> tuple[int, str, str]:
     """
     Parse partition key to extract experiment ID, metric UUID, and fingerprint.
 
@@ -122,62 +132,69 @@ def _parse_partition_key(partition_key: str) -> tuple[int, str, str]:
 
 
 @dagster.asset(
-    partitions_def=experiment_timeseries_partitions_def,
+    partitions_def=experiment_regular_metrics_partitions_def,
     group_name="experiments",
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
 )
-def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, Any]:
+def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext) -> dict[str, Any]:
     """
-    Calculate timeseries analysis results for a specific experiment-metric combination.
+    Calculate timeseries analysis results for a specific experiment-regular metric combination.
 
-    This is a single asset with dynamic partitions - one partition per experiment-metric
-    combination. Each partition computes timeseries analysis for one metric from one
+    This is a single asset with dynamic partitions - one partition per experiment-regular metric
+    combination. Each partition computes timeseries analysis for one regular metric from one
     experiment using ExperimentQueryRunner.
-
-    Returns:
-        Dictionary containing experiment metadata, metric definition, and timeseries results.
     """
     # Parse partition key to get experiment and metric info
     if not context.partition_key:
         raise dagster.Failure("This asset must be run with a partition key")
 
-    experiment_id, metric_uuid, fingerprint = _parse_partition_key(context.partition_key)
+    experiment_id, metric_uuid, fingerprint = _parse_regular_metric_timeseries_partition_key(context.partition_key)
 
     context.log.info(
         f"Computing timeseries results for experiment {experiment_id}, metric {metric_uuid}, fingerprint {fingerprint}"
     )
 
-    # Load experiment and metric configuration from database
+    # Load experiment from database
     try:
         experiment = Experiment.objects.get(id=experiment_id, deleted=False)
-        all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
-        if not all_metrics or metric_uuid not in [m.get("uuid") for m in all_metrics]:
-            raise dagster.Failure(f"Metric UUID {metric_uuid} not found for experiment {experiment_id}")
-
-        metric = next(m for m in all_metrics if m.get("uuid") == metric_uuid)
-
     except Experiment.DoesNotExist:
         raise dagster.Failure(f"Experiment {experiment_id} not found or deleted")
 
-    metric_type = metric.get("metric_type")
-    metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
-    if metric_type == "mean":
-        metric_obj = ExperimentMeanMetric(**metric)
-    elif metric_type == "funnel":
-        metric_obj = ExperimentFunnelMetric(**metric)
-    elif metric_type == "ratio":
-        metric_obj = ExperimentRatioMetric(**metric)
-    else:
-        raise dagster.Failure(f"Unknown metric type: {metric_type}")
+    # Find the metric with matching UUID in experiment's metrics
+    all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+    metric_dict = None
+    for metric in all_metrics:
+        if metric.get("uuid") == metric_uuid:
+            metric_dict = metric
+            break
 
+    if not metric_dict:
+        raise dagster.Failure(f"Metric {metric_uuid} not found in experiment {experiment_id}")
+
+    # Convert metric dict to appropriate Pydantic model
     try:
+        metric_type = metric_dict.get("metric_type")
+        metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+        if metric_type == "mean":
+            metric_obj = ExperimentMeanMetric(**metric_dict)
+        elif metric_type == "funnel":
+            metric_obj = ExperimentFunnelMetric(**metric_dict)
+        elif metric_type == "ratio":
+            metric_obj = ExperimentRatioMetric(**metric_dict)
+        else:
+            raise dagster.Failure(f"Unknown metric type: {metric_type}")
+
         experiment_query = ExperimentQuery(
             experiment_id=experiment_id,
             metric=metric_obj,
         )
 
         # Cumulative calculation: from experiment start to current time
-        query_from_utc = experiment.start_date if experiment.start_date else experiment.created_at
+        if not experiment.start_date:
+            raise dagster.Failure(
+                f"Experiment {experiment_id} has no start_date - only launched experiments should be processed"
+            )
+        query_from_utc = experiment.start_date
         query_to_utc = datetime.now(ZoneInfo("UTC"))
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team)
@@ -187,6 +204,7 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
 
         completed_at = datetime.now(ZoneInfo("UTC"))
 
+        # Store the result in the database
         experiment_metric_result, created = ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -210,13 +228,13 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
                 "metric_uuid": metric_uuid,
                 "fingerprint": fingerprint,
                 "metric_type": metric_type,
-                "metric_name": metric.get("name", f"Metric {metric_uuid}"),
+                "metric_name": metric_dict.get("name", f"Metric {metric_uuid}"),
                 "experiment_name": experiment.name,
                 "experiment_start_date": experiment.start_date.isoformat() if experiment.start_date else None,
                 "experiment_exposure_criteria": json.dumps(experiment.exposure_criteria)
                 if experiment.exposure_criteria
                 else None,
-                "metric_definition": str(metric),
+                "metric_definition": str(metric_dict),
                 "query_from": query_from_utc.isoformat(),
                 "query_to": query_to_utc.isoformat(),
                 "results_status": "success",
@@ -226,14 +244,18 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
             "experiment_id": experiment_id,
             "metric_uuid": metric_uuid,
             "fingerprint": fingerprint,
-            "metric_definition": metric,
+            "metric_definition": metric_dict,
             "query_from": query_from_utc.isoformat(),
             "query_to": query_to_utc.isoformat(),
             "result": result.model_dump(),
         }
 
     except Exception as e:
-        query_from_utc = experiment.start_date if experiment.start_date else experiment.created_at
+        if not experiment.start_date:
+            raise dagster.Failure(
+                f"Experiment {experiment_id} has no start_date - only launched experiments should be processed"
+            )
+        query_from_utc = experiment.start_date
         query_to_utc = datetime.now(ZoneInfo("UTC"))
 
         ExperimentMetricResult.objects.update_or_create(
@@ -255,34 +277,34 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
 
 
 # =============================================================================
-# Job and automation for timeseries calculation
+# Job and automation for regular metrics timeseries calculation
 # =============================================================================
 
-experiment_timeseries_job = dagster.define_asset_job(
-    name="experiment_timeseries_job",
-    selection=[experiment_timeseries],
+experiment_regular_metrics_timeseries_job = dagster.define_asset_job(
+    name="experiment_regular_metrics_timeseries_job",
+    selection=[experiment_regular_metrics_timeseries],
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
 )
 
 
 @dagster.sensor(
-    job=experiment_timeseries_job,
+    job=experiment_regular_metrics_timeseries_job,
     minimum_interval_seconds=30,
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
 )
-def experiment_discovery_sensor(context: dagster.SensorEvaluationContext):
+def experiment_regular_metrics_timeseries_discovery_sensor(context: dagster.SensorEvaluationContext):
     """
-    Automatically discover new experiment-metric combinations and trigger timeseries calculation.
+    Automatically discover new experiment-regular metric combinations and trigger timeseries calculation.
 
-    This sensor continuously monitors for new experiments or metrics that need timeseries
+    This sensor continuously monitors for new experiments or regular metrics that need timeseries
     analysis. When new combinations are found, it creates dynamic partitions for the
-    experiment_timeseries asset and triggers processing only for the new partitions.
+    experiment_regular_metrics_timeseries asset and triggers processing only for the new partitions.
     """
     try:
-        current_experiment_metrics = _get_experiment_metrics(context)
+        current_experiment_metrics = _get_experiment_regular_metrics_timeseries(context)
         if not current_experiment_metrics:
-            context.log.debug("No experiment-metrics found for timeseries analysis")
-            return dagster.SkipReason("No experiments with metrics found")
+            context.log.debug("No experiment-regular metrics found for timeseries analysis")
+            return dagster.SkipReason("No experiments with regular metrics found")
 
         # Generate partition keys in format: experiment_{id}_metric_{uuid}_{fingerprint}
         current_partition_keys = [
@@ -291,7 +313,7 @@ def experiment_discovery_sensor(context: dagster.SensorEvaluationContext):
         ]
 
         # Check which partitions are new
-        existing_partitions = set(context.instance.get_dynamic_partitions(experiment_timeseries_partitions_def.name))
+        existing_partitions = set(context.instance.get_dynamic_partitions(EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME))
         new_partitions = [key for key in current_partition_keys if key not in existing_partitions]
 
         # Build response
@@ -300,10 +322,12 @@ def experiment_discovery_sensor(context: dagster.SensorEvaluationContext):
 
         if new_partitions:
             context.log.info(
-                f"Discovered {len(new_partitions)} new experiment-metric combinations for timeseries analysis"
+                f"Discovered {len(new_partitions)} new experiment-regular metric combinations for timeseries analysis"
             )
             # Add new partitions
-            dynamic_partitions_requests.append(experiment_timeseries_partitions_def.build_add_request(new_partitions))
+            dynamic_partitions_requests.append(
+                experiment_regular_metrics_partitions_def.build_add_request(new_partitions)
+            )
             # Create run requests for new partitions only
             run_requests = [
                 dagster.RunRequest(
@@ -313,8 +337,8 @@ def experiment_discovery_sensor(context: dagster.SensorEvaluationContext):
                 for partition_key in new_partitions
             ]
         else:
-            context.log.debug("No new experiment-metrics discovered for timeseries analysis")
-            return dagster.SkipReason("No new experiments to process")
+            context.log.debug("No new experiment-regular metrics discovered for timeseries analysis")
+            return dagster.SkipReason("No new regular metric experiments to process")
 
         return dagster.SensorResult(
             run_requests=run_requests,
@@ -322,35 +346,35 @@ def experiment_discovery_sensor(context: dagster.SensorEvaluationContext):
         )
 
     except Exception as e:
-        context.log.exception("Failed to discover experiments")
-        return dagster.SkipReason(f"Failed to discover experiments: {e}")
+        context.log.exception("Failed to discover regular metric experiments")
+        return dagster.SkipReason(f"Failed to discover regular metric experiments: {e}")
 
 
 @dagster.schedule(
-    job=experiment_timeseries_job,
+    job=experiment_regular_metrics_timeseries_job,
     cron_schedule="0 2 * * *",  # Daily at 02:00 UTC
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
 )
-def daily_experiment_full_refresh_schedule(context: dagster.ScheduleEvaluationContext):
+def experiment_regular_metrics_timeseries_refresh_schedule(context: dagster.ScheduleEvaluationContext):
     """
-    This schedule runs daily and reprocesses all known experiment-metric combinations.
+    This schedule runs daily and reprocesses all known experiment-regular metric combinations.
     """
     try:
-        existing_partitions = list(context.instance.get_dynamic_partitions(experiment_timeseries_partitions_def.name))
+        existing_partitions = list(context.instance.get_dynamic_partitions(EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME))
 
         if not existing_partitions:
-            return dagster.SkipReason("No experiment timeseries partitions exist")
+            return dagster.SkipReason("No experiment regular metrics partitions exist")
 
-        context.log.info(f"Scheduling full refresh for {len(existing_partitions)} timeseries partitions")
+        context.log.info(f"Scheduling full refresh for {len(existing_partitions)} regular metrics partitions")
         return [
             dagster.RunRequest(
-                run_key=f"full_refresh_{partition_key}_{context.scheduled_execution_time.strftime('%Y%m%d')}",
+                run_key=f"regular_metrics_refresh_{partition_key}_{context.scheduled_execution_time.strftime('%Y%m%d')}",
                 partition_key=partition_key,
             )
             for partition_key in existing_partitions
         ]
 
     except Exception as e:
-        context.log.exception("Failed to schedule full refresh")
-        return dagster.SkipReason(f"Failed to schedule full refresh: {e}")
+        context.log.exception("Failed to schedule regular metrics refresh")
+        return dagster.SkipReason(f"Failed to schedule regular metrics refresh: {e}")

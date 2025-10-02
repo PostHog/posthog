@@ -224,7 +224,7 @@ jobs:
               # so pointing to v1.1.0 to remove warnings about node version with v1
               # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
               uses: iFaxity/wait-on-action@a7d13170ec542bdca4ef8ac4b15e9c6aa00a6866 # v1.2.1
-              timeout-minutes: 3
+              timeout-minutes: 5
               with:
                   verbose: true
                   log: true
@@ -289,21 +289,21 @@ jobs:
 
                     while [ $attempt -le $max_attempts ]; do
                         echo "Attempt $attempt of $max_attempts to start stack..."
-                        
+
                         if docker compose -f docker-compose.dev.yml down && \
                           docker compose -f docker-compose.dev.yml up -d; then
                             echo "Stack started successfully"
                             exit 0
                         fi
-                        
+
                         echo "Failed to start stack on attempt $attempt"
-                        
+
                         if [ $attempt -lt $max_attempts ]; then
                             sleep_time=$((delay * 2 ** (attempt - 1)))
                             echo "Waiting ${sleep_time} seconds before retry..."
                             sleep $sleep_time
                         fi
-                        
+
                         attempt=$((attempt + 1))
                     done
 
