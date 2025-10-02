@@ -75,7 +75,6 @@ function PlayerSeekbarTick({
             onClick={onClick}
         >
             <Tooltip
-                visible={true}
                 placement="top-start"
                 delayMs={10}
                 onOpen={() => {
