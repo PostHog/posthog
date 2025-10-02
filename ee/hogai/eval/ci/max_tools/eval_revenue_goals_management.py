@@ -26,7 +26,7 @@ DUMMY_CURRENT_GOALS = RevenueAnalyticsAssistantGoalsOutput(
         RevenueAnalyticsGoal(
             name="Q2 MRR Target",
             goal=50000.0,
-            due_date="2024-06-31",
+            due_date="2024-06-30",
             mrr_or_gross=MrrOrGross.MRR,
         ),
         RevenueAnalyticsGoal(
@@ -130,23 +130,23 @@ class AskUserForHelp(Scorer):
         return "ask_user_for_help_scorer"
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
-        if "output" not in output or output["output"] is None:
-            if (
-                "intermediate_steps" in output
-                and len(output["intermediate_steps"]) > 0
-                and output["intermediate_steps"][-1][0].tool == "ask_user_for_help"
-            ):
-                return Score(
-                    name=self._name(), score=1, metadata={"reason": "LLM returned valid ask_user_for_help response"}
-                )
-            else:
-                return Score(
-                    name=self._name(),
-                    score=0,
-                    metadata={"reason": "LLM did not return valid ask_user_for_help response"},
-                )
-        else:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned goals output"})
+        if (
+            "intermediate_steps" in output
+            and len(output["intermediate_steps"]) > 0
+            and output["intermediate_steps"][-1][0].tool == "ask_user_for_help"
+        ):
+            return Score(
+                name=self._name(), score=1, metadata={"reason": "LLM returned valid ask_user_for_help response"}
+            )
+
+        if "output" in output and output["output"] is not None:
+            return Score(name=self._name(), score=0, metadata={"reason": "LLM returned goals output"})
+
+        return Score(
+            name=self._name(),
+            score=0,
+            metadata={"reason": "LLM did not return valid ask_user_for_help response"},
+        )
 
 
 class GoalsActionCorrectness(Scorer):
@@ -216,7 +216,7 @@ async def eval_tool_manage_revenue_goals(call_manage_revenue_goals, pytestconfig
                         RevenueAnalyticsGoal(
                             name="Q2 MRR Target",  # Existing goal
                             goal=50000.0,
-                            due_date="2024-06-31",
+                            due_date="2024-06-30",
                             mrr_or_gross=MrrOrGross.MRR,
                         ),
                         RevenueAnalyticsGoal(
@@ -242,7 +242,7 @@ async def eval_tool_manage_revenue_goals(call_manage_revenue_goals, pytestconfig
                         RevenueAnalyticsGoal(
                             name="Q2 MRR Target",
                             goal=60000.0,
-                            due_date="2024-06-31",
+                            due_date="2024-06-30",
                             mrr_or_gross=MrrOrGross.MRR,
                         ),
                         RevenueAnalyticsGoal(
@@ -262,7 +262,7 @@ async def eval_tool_manage_revenue_goals(call_manage_revenue_goals, pytestconfig
                         RevenueAnalyticsGoal(
                             name="Q2 MRR Target",
                             goal=50000.0,
-                            due_date="2024-06-31",
+                            due_date="2024-06-30",
                             mrr_or_gross=MrrOrGross.MRR,
                         ),
                     ]
@@ -281,7 +281,7 @@ async def eval_tool_manage_revenue_goals(call_manage_revenue_goals, pytestconfig
                         RevenueAnalyticsGoal(
                             name="Q2 MRR Target",
                             goal=50000.0,
-                            due_date="2024-06-31",
+                            due_date="2024-06-30",
                             mrr_or_gross=MrrOrGross.MRR,
                         ),
                         RevenueAnalyticsGoal(
@@ -307,7 +307,7 @@ async def eval_tool_manage_revenue_goals(call_manage_revenue_goals, pytestconfig
                         RevenueAnalyticsGoal(
                             name="Q2 MRR Target",
                             goal=50000.0,
-                            due_date="2024-06-31",
+                            due_date="2024-06-30",
                             mrr_or_gross=MrrOrGross.MRR,
                         ),
                         RevenueAnalyticsGoal(
