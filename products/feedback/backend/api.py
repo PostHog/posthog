@@ -61,6 +61,9 @@ class FeedbackItemSerializer(serializers.ModelSerializer):
     status = FeedbackItemStatusSerializer(read_only=True)
     assignment = FeedbackItemAssignmentSerializer(read_only=True)
     attachments = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    category_id = serializers.PrimaryKeyRelatedField(
+        queryset=FeedbackItemCategory.objects.all(), source="category", write_only=True, required=False, allow_null=True
+    )
     status_id = serializers.PrimaryKeyRelatedField(
         queryset=FeedbackItemStatus.objects.all(), source="status", write_only=True, required=False, allow_null=True
     )
@@ -74,6 +77,7 @@ class FeedbackItemSerializer(serializers.ModelSerializer):
             "id",
             "content",
             "category",
+            "category_id",
             "topic",
             "status",
             "status_id",

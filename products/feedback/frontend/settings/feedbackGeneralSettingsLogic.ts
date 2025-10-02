@@ -1,4 +1,4 @@
-import { actions, events, kea, listeners, path } from 'kea'
+import { actions, events, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -53,6 +53,13 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
             },
         ],
     })),
+
+    selectors({
+        getStatusesForCategory: [
+            (s) => [s.feedbackStatuses],
+            (statuses) => (categoryId: string) => statuses.filter((status) => status.category === categoryId),
+        ],
+    }),
 
     listeners(({ actions }) => ({
         createFeedbackTopic: async ({ name }) => {

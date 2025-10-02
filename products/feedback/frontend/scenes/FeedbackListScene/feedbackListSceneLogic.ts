@@ -19,6 +19,8 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
         loadFeedbackItems: true,
         openFeedbackItem: (id: string) => ({ id }),
         updateStatus: (feedbackItemId: string, statusId: string) => ({ feedbackItemId, statusId }),
+        updateAssignment: (feedbackItemId: string, userId: number | null) => ({ feedbackItemId, userId }),
+        updateCategory: (feedbackItemId: string, categoryId: string) => ({ feedbackItemId, categoryId }),
     }),
 
     reducers({
@@ -77,6 +79,14 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
         },
         updateStatus: async ({ feedbackItemId, statusId }) => {
             await api.feedback.items.update(feedbackItemId, { status_id: statusId } as any)
+            actions.loadFeedbackItems()
+        },
+        updateAssignment: async ({ feedbackItemId, userId }) => {
+            await api.feedback.items.update(feedbackItemId, { assigned_user_id: userId } as any)
+            actions.loadFeedbackItems()
+        },
+        updateCategory: async ({ feedbackItemId, categoryId }) => {
+            await api.feedback.items.update(feedbackItemId, { category_id: categoryId, status_id: null } as any)
             actions.loadFeedbackItems()
         },
     })),

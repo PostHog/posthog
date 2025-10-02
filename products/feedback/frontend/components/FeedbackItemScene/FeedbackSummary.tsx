@@ -9,7 +9,7 @@ import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSett
 
 export function FeedbackSummary(): JSX.Element {
     const { feedbackItem, feedbackItemLoading } = useValues(feedbackItemSceneLogic)
-    const { feedbackStatuses } = useValues(feedbackGeneralSettingsLogic)
+    const { getStatusesForCategory } = useValues(feedbackGeneralSettingsLogic)
     const { updateStatus, updateAssignment } = useActions(feedbackItemSceneLogic)
 
     if (feedbackItemLoading) {
@@ -66,11 +66,16 @@ export function FeedbackSummary(): JSX.Element {
                         <LemonSelect
                             value={feedbackItem.status?.id}
                             onChange={(value) => value && updateStatus(value)}
-                            options={feedbackStatuses.map((status) => ({
-                                label: status.name,
-                                value: status.id,
-                            }))}
+                            options={
+                                feedbackItem.category?.id
+                                    ? getStatusesForCategory(feedbackItem.category.id).map((status) => ({
+                                          label: status.name,
+                                          value: status.id,
+                                      }))
+                                    : []
+                            }
                             size="small"
+                            placeholder="Select status"
                         />
                     </div>
                     <div>
