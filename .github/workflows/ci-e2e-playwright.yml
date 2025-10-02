@@ -550,8 +550,15 @@ jobs:
               shell: bash
               run: |
                   PATHS_FLAPPING=()
-                  last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1)
+                  last_human_commit=$(git log --pretty=format:"%H %an" | grep -v "github-actions" | head -1 | cut -d' ' -f1)
                   echo "Last human commit identified: $last_human_commit"
+
+                  if [ -z "$last_human_commit" ]; then
+                      echo "No human commit found, cannot detect flapping"
+                      echo "flapping=false" >> $GITHUB_OUTPUT
+                      echo "Paths flapping: none"
+                      exit 0
+                  fi
 
                   for screenshot_path in $(git diff --name-only HEAD playwright/__snapshots__); do
                       echo "Checking screenshot path: $screenshot_path"
