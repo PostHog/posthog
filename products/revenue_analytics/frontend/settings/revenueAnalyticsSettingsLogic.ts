@@ -181,7 +181,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                     if (!state) {
                         return state
                     }
-                    return { ...state, goals }
+                    return { ...state, goals: sortByDueDate(goals) }
                 },
 
                 updateFilterTestAccounts: (state: RevenueAnalyticsConfig | null, { filterTestAccounts }) => {
