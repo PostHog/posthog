@@ -34,7 +34,6 @@ pub async fn handle_batch(
     results.into_iter().collect()
 }
 
-const OPENAI_EMBEDDING_MODEL: &str = "text-embedding-3-large";
 const EMBEDDING_VERSION: i64 = 1;
 
 #[derive(Serialize)]
@@ -87,7 +86,7 @@ pub async fn generate_embedding(
 
     Ok(EmbeddingRecord::new(
         fingerprint.team_id,
-        OPENAI_EMBEDDING_MODEL.to_string(),
+        model,
         EMBEDDING_VERSION,
         fingerprint.fingerprint.to_string(),
         embeddings,

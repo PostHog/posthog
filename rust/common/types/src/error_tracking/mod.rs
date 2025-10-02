@@ -82,7 +82,7 @@ pub struct NewFingerprintEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingRecord {
     team_id: i32,
-    model_name: String,
+    model_name: EmbeddingModel,
     embedding_version: i64,
     fingerprint: String,
     embeddings: Vec<f64>,
@@ -91,7 +91,7 @@ pub struct EmbeddingRecord {
 impl EmbeddingRecord {
     pub fn new(
         team_id: i32,
-        model_name: String,
+        model_name: EmbeddingModel,
         embedding_version: i64,
         fingerprint: String,
         embeddings: Vec<f64>,
