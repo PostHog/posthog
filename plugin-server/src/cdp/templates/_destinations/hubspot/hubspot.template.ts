@@ -117,6 +117,6 @@ if (res.status >= 400) {
         },
     ],
     filters: {
-        events: [{ id: '$groupidentify', type: 'events' }],
+        events: [{ id: '$groupidentify', type: 'events', name: 'Group identify' }],
     },
 }
