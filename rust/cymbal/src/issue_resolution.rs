@@ -397,11 +397,13 @@ async fn send_new_fingerprint_event(
     issue: &Issue,
     output_props: &OutputErrProps,
 ) -> Result<(), UnhandledError> {
-    let event = NewFingerprintEvent::new(
-        issue.team_id,
-        output_props.fingerprint.clone(),
-        (&output_props.exception_list).into(),
-    );
+    let event = NewFingerprintEvent {
+        team_id: issue.team_id,
+        fingerprint: output_props.fingerprint.clone(),
+        models: context.config.embedding_models.0.clone(),
+        exception_list: (&output_props.exception_list).into(),
+    };
+
     let res = send_iter_to_kafka(
         &context.immediate_producer,
         &context.config.new_fingerprints_topic,

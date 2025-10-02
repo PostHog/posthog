@@ -1,3 +1,4 @@
+import json
 import hashlib
 from typing import Any, Optional, Protocol, TypeVar
 
@@ -54,6 +55,11 @@ JS_DATA_MAGIC = b"posthog_error_tracking"
 JS_DATA_VERSION = 1
 JS_DATA_TYPE_SOURCE_AND_MAP = 2
 PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
+
+# Error tracking embedding configuration defaults
+DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-large"
+DEFAULT_EMBEDDING_VERSION = 1
+DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
 
 logger = structlog.get_logger(__name__)
 
@@ -263,13 +269,15 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue.merge(issue_ids=ids)
         return Response({"success": True})
 
-    def _get_issue_embeddings(self, issue_fingerprints: list[str]):
+    def _get_issue_embeddings(self, issue_fingerprints: list[str], model_name: str, embedding_version: int):
         """Get embeddings along with model info for given fingerprints."""
         query = """
-            SELECT DISTINCT embeddings, model_name, embedding_version
+            SELECT DISTINCT embeddings
             FROM error_tracking_issue_fingerprint_embeddings
             WHERE team_id = %(team_id)s
             AND fingerprint IN %(fingerprints)s
+            AND model_name = %(model_name)s
+            AND embedding_version = %(embedding_version)s
         """
 
         issue_embeddings = sync_execute(
@@ -277,26 +285,35 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             {
                 "team_id": self.team.pk,
                 "fingerprints": issue_fingerprints,
+                "model_name": model_name,
+                "embedding_version": embedding_version,
             },
         )
 
         return issue_embeddings
 
     def _get_similar_embeddings(
-        self, embedding_vector, model_name: str, embedding_version: str, issue_fingerprints: list[str]
+        self,
+        embedding_vector,
+        model_name: str,
+        embedding_version: int,
+        issue_fingerprints: list[str],
+        min_distance_threshold: float,
     ):
         """Get similar embeddings using cosine similarity."""
-        # TODO: add a where clause to only return when the distance is small enough
-        # we don't want totally unrelated issues being listed
         query = """
-            SELECT DISTINCT fingerprint, cosineDistance(embeddings, %(target_embedding)s) as distance
-            FROM error_tracking_issue_fingerprint_embeddings
-            WHERE team_id = %(team_id)s
-            AND model_name = %(model_name)s
-            AND embedding_version = %(embedding_version)s
-            AND fingerprint NOT IN %(fingerprints)s
-            ORDER BY distance ASC
-            LIMIT 10
+              WITH %(target_embedding)s as target
+            SELECT fingerprint, MIN(cosineDistance(embeddings, target)) as distance
+              FROM error_tracking_issue_fingerprint_embeddings
+             WHERE team_id = %(team_id)s
+               AND model_name = %(model_name)s
+               AND embedding_version = %(embedding_version)s
+               AND fingerprint NOT IN %(fingerprints)s
+               AND length(embeddings) = length(target)
+             GROUP BY fingerprint
+            HAVING distance <= %(min_distance_threshold)s
+             ORDER BY distance ASC
+             LIMIT 10;
         """
 
         similar_embeddings = sync_execute(
@@ -307,9 +324,45 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 "model_name": model_name,
                 "embedding_version": embedding_version,
                 "fingerprints": issue_fingerprints,
+                "min_distance_threshold": min_distance_threshold,
             },
         )
         return similar_embeddings
+
+    def _get_embedding_configuration(self) -> tuple[float, str, int]:
+        """Get embedding configuration from remote config or return defaults."""
+        min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+        model_name = DEFAULT_EMBEDDING_MODEL_NAME
+        embedding_version = DEFAULT_EMBEDDING_VERSION
+
+        # Try to get configuration from remote config, fall back to defaults if not available
+        try:
+            config_json = posthoganalytics.get_remote_config_payload("error-tracking-embedding-configuration")
+            if config_json:
+                config_payload = json.loads(config_json)
+
+                # Validate that config_payload is a dict
+                if config_payload and isinstance(config_payload, dict):
+                    min_distance_threshold = config_payload.get(
+                        "min_distance_threshold", DEFAULT_MIN_DISTANCE_THRESHOLD
+                    )
+                    model_name = config_payload.get("model_name", DEFAULT_EMBEDDING_MODEL_NAME)
+                    embedding_version = config_payload.get("embedding_version", DEFAULT_EMBEDDING_VERSION)
+
+                    # Validate types
+                    if not isinstance(min_distance_threshold, (int | float)):
+                        min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+                    if not isinstance(model_name, str):
+                        model_name = DEFAULT_EMBEDDING_MODEL_NAME
+                    if not isinstance(embedding_version, int):
+                        embedding_version = DEFAULT_EMBEDDING_VERSION
+        except Exception:
+            # Fall back to defaults on any error (JSON parsing, network, etc.)
+            min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+            model_name = DEFAULT_EMBEDDING_MODEL_NAME
+            embedding_version = DEFAULT_EMBEDDING_VERSION
+
+        return min_distance_threshold, model_name, embedding_version
 
     def _serialize_issues_to_related_issues(self, issues):
         """Serialize ErrorTrackingIssue objects to related issues format."""
@@ -324,19 +377,24 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             for issue in issues
         ]
 
-    def _process_embeddings_for_similarity(self, issue_embeddings, issue_fingerprints: list[str]) -> list[str]:
+    def _process_embeddings_for_similarity(
+        self,
+        issue_embeddings,
+        issue_fingerprints: list[str],
+        min_distance_threshold: float,
+        model_name: str,
+        embedding_version: int,
+    ) -> list[str]:
         """Process all embeddings to find similar fingerprints and return top 10 most similar."""
         all_similar_results = []
 
         # Search for similarities across all embeddings from the current issue
         for _, embedding_row in enumerate(issue_embeddings):
             embedding_vector = embedding_row[0]  # Get the embedding vector
-            model_name = embedding_row[1]  # Get the model name for this embedding
-            embedding_version = embedding_row[2]  # Get the embedding version for this embedding
 
             # Search for similar embeddings using cosine similarity
             similar_embeddings = self._get_similar_embeddings(
-                embedding_vector, model_name, embedding_version, issue_fingerprints
+                embedding_vector, model_name, embedding_version, issue_fingerprints, min_distance_threshold
             )
 
             if not similar_embeddings or len(similar_embeddings) == 0:
@@ -378,12 +436,17 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if not issue_fingerprints or len(issue_fingerprints) == 0:
             return Response([])
 
-        issue_embeddings = self._get_issue_embeddings(issue_fingerprints)
+        # Get model configuration from feature flag
+        min_distance_threshold, model_name, embedding_version = self._get_embedding_configuration()
+
+        issue_embeddings = self._get_issue_embeddings(issue_fingerprints, model_name, embedding_version)
 
         if not issue_embeddings or len(issue_embeddings) == 0:
             return Response([])
 
-        all_similar_fingerprints = self._process_embeddings_for_similarity(issue_embeddings, issue_fingerprints)
+        all_similar_fingerprints = self._process_embeddings_for_similarity(
+            issue_embeddings, issue_fingerprints, min_distance_threshold, model_name, embedding_version
+        )
 
         if not all_similar_fingerprints or len(all_similar_fingerprints) == 0:
             return Response([])
