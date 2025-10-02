@@ -3,11 +3,11 @@ mod frame;
 
 use std::{fmt::Display, str::FromStr};
 
-use anyhow::anyhow;
 pub use exception::*;
 pub use frame::*;
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Context {
@@ -26,18 +26,17 @@ pub struct ContextLine {
 pub struct EmbeddingModelList(pub Vec<EmbeddingModel>);
 
 impl FromStr for EmbeddingModelList {
-    type Err = anyhow::Error;
+    type Err = ModelParsingError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.split(',')
             .map(|s| s.parse())
-            .collect::<anyhow::Result<Vec<_>>>()
+            .collect::<Result<Vec<_>, ModelParsingError>>()
             .map(EmbeddingModelList)
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum EmbeddingModel {
     #[serde(rename = "text-embedding-3-small")]
     OpenAITextEmbeddingSmall,
@@ -45,14 +44,22 @@ pub enum EmbeddingModel {
     OpenAITextEmbeddingLarge,
 }
 
+#[derive(Error, Debug, Clone)]
+#[error("Invalid Model: {model}")]
+pub struct ModelParsingError {
+    pub model: String,
+}
+
 impl FromStr for EmbeddingModel {
-    type Err = anyhow::Error;
+    type Err = ModelParsingError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim() {
             "text-embedding-3-small" => Ok(EmbeddingModel::OpenAITextEmbeddingSmall),
             "text-embedding-3-large" => Ok(EmbeddingModel::OpenAITextEmbeddingLarge),
-            _ => Err(anyhow!("Invalid embedding model")),
+            m => Err(ModelParsingError {
+                model: m.to_string(),
+            }),
         }
     }
 }
