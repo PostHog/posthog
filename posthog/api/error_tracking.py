@@ -385,7 +385,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         )
 
         # Return dict mapping issue_id to library
-        return dict(results)
+        return dict(results) if results else {}
 
     def _serialize_issues_to_related_issues(self, issues, library_data: dict[str, str]):
         """Serialize ErrorTrackingIssue objects to related issues format."""
