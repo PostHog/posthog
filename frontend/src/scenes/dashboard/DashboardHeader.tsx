@@ -149,7 +149,7 @@ export function DashboardHeader(): JSX.Element | null {
                       }
                     : undefined,
             }}
-            active={!!dashboard}
+            active={!!dashboard && canEditDashboard}
             callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
         >
             <>

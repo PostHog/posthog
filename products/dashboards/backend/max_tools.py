@@ -90,7 +90,6 @@ IMPORTANT: When adding insights, you must provide a complete description of what
     @database_sync_to_async
     @transaction.atomic
     def _update_dashboard_name(self, dashboard: Dashboard, new_name: str) -> Dashboard:
-        """Update the dashboard name."""
         dashboard.name = new_name
         dashboard.save(update_fields=["name"])
         return dashboard
