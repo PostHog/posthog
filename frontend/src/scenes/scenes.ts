@@ -180,7 +180,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.GroupsNew]: { projectBased: true, defaultDocsPath: '/docs/product-analytics/group-analytics' },
     [Scene.Groups]: { projectBased: true, name: 'Groups', defaultDocsPath: '/docs/product-analytics/group-analytics' },
     [Scene.Heatmaps]: { projectBased: true, name: 'Heatmaps' },
-    [Scene.HogFunction]: { projectBased: true, name: 'Hog function' },
+    [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
