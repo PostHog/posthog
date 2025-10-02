@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -10,24 +10,16 @@ import { inStorybookTestRunner } from 'lib/utils'
 import { AppMetricsLogicProps, appMetricsLogic } from './appMetricsLogic'
 
 export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
-    // Disable automatic loading on prop changes to control loading manually
-    const logic = appMetricsLogic({ ...props, loadOnChanges: false })
+    const logic = appMetricsLogic(props)
     const { appMetricsTrends, appMetricsTrendsLoading, params } = useValues(logic)
     const { loadAppMetricsTrends } = useActions(logic)
-
-    const hasLoadedRef = useRef(false)
-    const { ref: inViewRef, inView } = useInView({
-        threshold: 0.1, // Lower threshold to start loading a bit earlier
-        triggerOnce: true,
-        rootMargin: '100px', // Start loading 100px before visible for smoother UX
-    })
+    const { ref: inViewRef, inView } = useInView()
 
     useEffect(() => {
-        if ((inStorybookTestRunner() || inView) && !hasLoadedRef.current && !appMetricsTrendsLoading) {
-            hasLoadedRef.current = true
+        if ((inStorybookTestRunner() || inView) && !appMetricsTrendsLoading) {
             loadAppMetricsTrends()
         }
-    }, [inView, appMetricsTrendsLoading, loadAppMetricsTrends])
+    }, [inView])
 
     const displayData: SparklineTimeSeries[] = useMemo(() => {
         // We sort the series based on the given metricKind
@@ -55,7 +47,7 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
 
     return (
         <div ref={inViewRef}>
-            {!inView && !appMetricsTrends ? (
+            {!inView ? (
                 <div className="h-8 max-w-24" />
             ) : !appMetricsTrends || appMetricsTrendsLoading ? (
                 <LemonSkeleton className="h-8 max-w-24" />
