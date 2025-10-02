@@ -58,10 +58,10 @@ When listing goals, no parameters are needed. This will show all current goals w
 
 - Always use YYYY-MM-DD format for dates
 - Goal amounts should be positive numbers
-- Goal names should be descriptive and unique
-- When updating, only provide the fields that need to change
+- Goal names should be descriptive and unique, feel free to derive a name yourself usually in the "Q4 Goal"/"Y2025 Goal" format
 - If the users asks you to set an ARR goal, you should tell them we only support MRR at the moment and request an MRR amount instead. DO NOT attempt to convert the ARR amount to MRR.
-- Do NOT assume you know what the current date is. If the user says something like "the end of the year", "the end of the quarter", etc., ask for confirmation first.
+- Do NOT assume you know what the CURRENT month or year is. If the user says something like "the end of this year", "the end of the current quarter", etc., ask for confirmation first.
+- If they do mention a specific number for the current year or month, then you don't need to ask for confirmation and can assume they're aware of the current date.
 - Always confirm the action was successful or explain any errors
 </examples_and_rules>
 """.strip()
