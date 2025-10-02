@@ -64,7 +64,7 @@ export const FeedbackFilters = (): JSX.Element => {
     }, [topicFilter])
 
     return (
-        <div className="">
+        <div className="flex flex-col">
             <LemonTabs
                 activeKey={activeCategoryTab}
                 onChange={(key) => {
