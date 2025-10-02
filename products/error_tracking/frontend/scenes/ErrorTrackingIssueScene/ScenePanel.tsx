@@ -207,7 +207,7 @@ const RelatedIssues = (): JSX.Element => {
                         return (
                             <div
                                 key={relatedIssue.id}
-                                className="flex items-center justify-between p-2 border rounded hover:bg-gray-50 bg-surface-primary"
+                                className="flex items-center justify-between p-2 border rounded bg-surface-primary"
                             >
                                 <Link
                                     to={urls.errorTrackingIssue(relatedIssue.id)}
@@ -221,7 +221,9 @@ const RelatedIssues = (): JSX.Element => {
                                         <div className="font-medium text-sm truncate">{relatedIssue.title}</div>
                                     </div>
                                     {relatedIssue.description && (
-                                        <div className="text-xs text-gray-600 truncate">{relatedIssue.description}</div>
+                                        <div className="text-xs text-secondary truncate">
+                                            {relatedIssue.description}
+                                        </div>
                                     )}
                                 </Link>
                                 <ButtonPrimitive
