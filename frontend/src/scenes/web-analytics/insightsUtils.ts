@@ -18,6 +18,13 @@ export const getNewInsightUrlFactory = (tiles: WebAnalyticsTile[]) => {
                     hidePersonsModal: undefined,
                 }
             }
+            if (query.kind === NodeKind.DataTableNode) {
+                return {
+                    ...query,
+                    embedded: undefined,
+                    full: undefined,
+                }
+            }
             return query
         }
 

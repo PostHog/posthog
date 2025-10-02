@@ -1130,6 +1130,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             showActions: true,
                             columns,
                         },
+                        canOpenInsight: true,
                     }
                 }
 
@@ -2050,7 +2051,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   columns: ['breakdown_value', 'visitors', 'views', 'cross_sell'],
                               },
                               insightProps: createInsightProps(TileId.GOALS),
-                              canOpenInsight: false,
+                              canOpenInsight: true,
                               docs: {
                                   url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
                                   title: 'Goals',
@@ -2144,7 +2145,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
                               canOpenModal: true,
-                              canOpenInsight: false,
+                              canOpenInsight: true,
                               docs: {
                                   title: 'Frustrating Pages',
                                   description: (
