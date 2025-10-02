@@ -550,12 +550,16 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               shell: bash
               run: |
+                  set +e  # Don't exit on error, we'll handle errors explicitly
                   PATHS_FLAPPING=()
-                  last_human_commit=$(git log --pretty=format:"%H %an" | grep -v "github-actions" | head -1 | cut -d' ' -f1)
+
+                  # Find last human commit (not github-actions bot)
+                  last_human_commit=$(git log --pretty=format:"%H %an" | grep -v "github-actions" | head -1 | cut -d' ' -f1 || true)
                   echo "Last human commit identified: $last_human_commit"
 
                   if [ -z "$last_human_commit" ]; then
-                      echo "No human commit found, cannot detect flapping"
+                      echo "No human commit found in history, cannot detect flapping"
+                      echo "This is expected for bot-only commits or shallow checkouts"
                       echo "flapping=false" >> $GITHUB_OUTPUT
                       echo "Paths flapping: none"
                       exit 0
