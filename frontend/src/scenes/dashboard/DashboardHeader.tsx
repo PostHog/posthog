@@ -17,11 +17,8 @@ import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
-import { privilegeLevelToName } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
-import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -46,20 +43,11 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DashboardMode,
-    DashboardType,
-    ExporterFormat,
-    QueryBasedInsightModel,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
 
-import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
-import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
@@ -442,12 +430,6 @@ export function DashboardHeader(): JSX.Element | null {
                                 <>
                                     {dashboard && (
                                         <>
-                                            {dashboard.access_control_version === 'v1' && (
-                                                <CollaboratorBubbles
-                                                    dashboard={dashboard}
-                                                    onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                                                />
-                                            )}
                                             <LemonButton
                                                 type="secondary"
                                                 data-attr="dashboard-share-button"
@@ -509,44 +491,4 @@ export function DashboardHeader(): JSX.Element | null {
             </>
         </MaxTool>
     ) : null
-}
-
-function CollaboratorBubbles({
-    dashboard,
-    onClick,
-}: {
-    dashboard: DashboardType<QueryBasedInsightModel>
-    onClick: () => void
-}): JSX.Element | null {
-    const { allCollaborators } = useValues(dashboardCollaboratorsLogic({ dashboardId: dashboard.id }))
-
-    if (!dashboard) {
-        return null
-    }
-
-    const effectiveRestrictionLevelOption = DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level]
-    const tooltipParts: string[] = []
-    if (
-        isLemonSelectSection(effectiveRestrictionLevelOption) &&
-        typeof effectiveRestrictionLevelOption?.title === 'string'
-    ) {
-        tooltipParts.push(effectiveRestrictionLevelOption.title)
-    }
-    if (dashboard.is_shared) {
-        tooltipParts.push('Shared publicly')
-    }
-
-    return (
-        <ProfileBubbles
-            people={allCollaborators.map((collaborator) => ({
-                email: collaborator.user.email,
-                name: collaborator.user.first_name,
-                title: `${collaborator.user.first_name} <${collaborator.user.email}> (${
-                    privilegeLevelToName[collaborator.level]
-                })`,
-            }))}
-            tooltip={tooltipParts.join(' • ')}
-            onClick={onClick}
-        />
-    )
 }

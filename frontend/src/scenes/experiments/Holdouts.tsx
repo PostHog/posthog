@@ -51,6 +51,9 @@ export function Holdouts(): JSX.Element {
         if (holdout.filters?.[0]?.rollout_percentage === undefined) {
             return 'Rollout percentage is required'
         }
+        if (holdout.filters?.[0]?.rollout_percentage < 0 || holdout.filters?.[0]?.rollout_percentage > 100) {
+            return 'Rollout percentage should be between 0 and 100'
+        }
     }
 
     const columns = [
