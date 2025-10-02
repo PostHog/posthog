@@ -111,7 +111,6 @@ IMPORTANT: When adding insights, you must provide a complete description of what
     @database_sync_to_async
     @transaction.atomic
     def _update_dashboard_description(self, dashboard: Dashboard, new_description: str) -> Dashboard:
-        """Update the dashboard description."""
         dashboard.description = new_description
         dashboard.save(update_fields=["description"])
         return dashboard
