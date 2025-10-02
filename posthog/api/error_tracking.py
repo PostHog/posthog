@@ -365,32 +365,44 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         return min_distance_threshold, model_name, embedding_version
 
-    def _get_issues_library_data(self, issue_ids: list[str]) -> dict[str, str]:
-        """Get library information for issues from ClickHouse events."""
+    def _get_issues_library_data(self, fingerprints: list[str]) -> dict[str, str]:
+        """Get library information for fingerprints from ClickHouse events."""
         query = """
-            SELECT DISTINCT issue_id, $lib
+            SELECT DISTINCT JSONExtractString(properties, '$exception_fingerprint') as fingerprint, JSONExtractString(properties, '$lib') as lib
             FROM events
             WHERE team_id = %(team_id)s
-            AND issue_id IN %(issue_ids)s
-            AND $lib != ''
-            ORDER BY timestamp DESC
+            and event = '$exception'
+            AND fingerprint IN %(fingerprints)s
+            AND lib != ''
+            ORDER BY timestamp
+            LIMIT 1
         """
 
         results = sync_execute(
             query,
             {
                 "team_id": self.team.pk,
-                "issue_ids": issue_ids,
+                "fingerprints": fingerprints,
             },
         )
 
-        # Return dict mapping issue_id to library
+        # Return dict mapping fingerprint to library
         return dict(results) if results else {}
+
+    def _build_issue_to_library_mapping(
+        self, fingerprints_to_issue_ids: list[str], library_data: dict[str, str]
+    ) -> dict[str, str]:
+        """Build mapping from issue_id to library using existing data."""
+        issue_to_library = {}
+        # Since library_data is keyed by fingerprint, assign any available library to each issue
+        if library_data:
+            first_library = next(iter(library_data.values()))
+            for issue_id in fingerprints_to_issue_ids:
+                issue_to_library[str(issue_id)] = first_library
+        return issue_to_library
 
     def _serialize_issues_to_related_issues(self, issues, library_data: dict[str, str]):
         """Serialize ErrorTrackingIssue objects to related issues format."""
-        if library_data is None:
-            library_data = {}
 
         return [
             {
@@ -494,10 +506,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if not issues or len(issues) == 0:
             return Response([])
 
-        # Get library data for the issues
-        library_data = self._get_issues_library_data(fingerprints_to_issue_ids)
+        # Get library data for the similar fingerprints
+        library_data = self._get_issues_library_data(all_similar_fingerprints)
 
-        related_issues = self._serialize_issues_to_related_issues(issues, library_data)
+        # Build mapping from issue_id to library using existing data
+        issue_to_library = self._build_issue_to_library_mapping(fingerprints_to_issue_ids, library_data)
+
+        related_issues = self._serialize_issues_to_related_issues(issues, issue_to_library)
         return Response(related_issues)
 
     @action(methods=["POST"], detail=True)
