@@ -368,13 +368,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 actions.startTrackingLoading()
 
                 let normalizedUrl = url.trim()
-                try {
-                    const urlObj = new URL(normalizedUrl)
-                    // If it's just the domain with no path, add trailing slash
-                    if (urlObj.pathname === '') {
-                        normalizedUrl = `${urlObj.origin}/`
-                    }
-                } catch (error) {}
+
+                const urlObj = new URL(normalizedUrl)
+                // If it's just the domain with no path, add trailing slash
+                if (urlObj.pathname === '') {
+                    normalizedUrl = `${urlObj.origin}/`
+                }
 
                 actions.setHref(normalizedUrl)
 
