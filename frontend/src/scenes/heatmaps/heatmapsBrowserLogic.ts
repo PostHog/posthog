@@ -45,6 +45,11 @@ export interface ReplayIframeData {
 // team id is always available on window
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 
+// Helper function to detect if a URL contains regex pattern characters
+const isUrlPattern = (url: string): boolean => {
+    return /[*+?^${}()|[\]\\]/.test(url)
+}
+
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
@@ -294,8 +299,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (replayIframeData && replayIframeData.url) {
                 actions.setHref(replayIframeData.url)
                 // Auto-detect match type for replay data URLs too
-                const hasWildcards = replayIframeData.url.includes('*')
-                actions.setHrefMatchType(hasWildcards ? 'pattern' : 'exact')
+                const isPattern = isUrlPattern(replayIframeData.url)
+                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
@@ -305,8 +310,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             await breakpoint(200)
             actions.loadBrowserSearchResults()
 
-            // Also update match type based on search term if it has wildcards
-            if (searchTerm && searchTerm.includes('*')) {
+            // Also update match type based on search term if it has regex patterns
+            if (searchTerm && isUrlPattern(searchTerm)) {
                 actions.setHrefMatchType('pattern')
                 actions.setHref(searchTerm)
             }
@@ -329,8 +334,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             actions.setHref(url)
 
             // Ensure match type is set correctly when iframe loads
-            const hasWildcards = url.includes('*')
-            actions.setHrefMatchType(hasWildcards ? 'pattern' : 'exact')
+            const isPattern = isUrlPattern(url)
+            actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
 
             actions.loadHeatmap()
             posthog.capture('in-app heatmap iframe loaded', {
@@ -352,8 +357,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (url?.trim().length) {
                 actions.setHref(url)
                 // Auto-detect match type for replay URLs too
-                const hasWildcards = url.includes('*')
-                actions.setHrefMatchType(hasWildcards ? 'pattern' : 'exact')
+                const isPattern = isUrlPattern(url)
+                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
             }
         },
 
@@ -376,9 +381,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
                 actions.setHref(normalizedUrl)
 
-                // Auto-detect match type based on wildcards
-                const hasWildcards = normalizedUrl.includes('*')
-                actions.setHrefMatchType(hasWildcards ? 'pattern' : 'exact')
+                // Auto-detect match type based on regex patterns
+                const isPattern = isUrlPattern(normalizedUrl)
+                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
             }
         },
 
