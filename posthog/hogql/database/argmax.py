@@ -13,29 +13,32 @@ def argmax_select(
     deleted_field: Optional[str] = None,
     timestamp_field_to_clamp: Optional[str] = None,
 ) -> "SelectQuery":
+    """
+    Note: ClickHouse argmax will try to return the closest non null value which means
+    if the value corresponding to the highest argmax is null, it won't be returned
+    This select alters that to return the maximum argmax value even if null
+
+    ┌─a────┬────b─┐
+    │ a    │    1 │
+    │ b    │    2 │
+    │ c    │    2 │
+    │ ᴺᵁᴸᴸ │    3 │
+    │ ᴺᵁᴸᴸ │ ᴺᵁᴸᴸ │
+    │ d    │ ᴺᵁᴸᴸ │
+    └──────┴──────┘
+
+    SELECT argMax(a, b), max(b) FROM test;
+
+    ┌─argMax(a, b)─┬─max(b)─┐
+    │ b            │      3 │ -- argMax = 'b' because it the first not Null value, max(b) is from another row!
+    └──────────────┴────────┘
+
+    see more: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/argmax
+
+    we use tuple to force nulls to be treated as values and tupleElement select it after the call
+    """
     from posthog.hogql import ast
 
-    # Note: argmax will try to return the closest non null value which means
-    # if the value corresponding to the highest argmax is null, it won't be returned
-    #
-    # ┌─a────┬────b─┐
-    # │ a    │    1 │
-    # │ b    │    2 │
-    # │ c    │    2 │
-    # │ ᴺᵁᴸᴸ │    3 │
-    # │ ᴺᵁᴸᴸ │ ᴺᵁᴸᴸ │
-    # │ d    │ ᴺᵁᴸᴸ │
-    # └──────┴──────┘
-
-    # SELECT argMax(a, b), max(b) FROM test;
-    #
-    # ┌─argMax(a, b)─┬─max(b)─┐
-    # │ b            │      3 │ -- argMax = 'b' because it the first not Null value, max(b) is from another row!
-    # └──────────────┴────────┘
-
-    # see more: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/argmax
-
-    # we use tuple to force nulls to be treated as values and tupleElement select it after the call
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
         name="tupleElement",
         args=[

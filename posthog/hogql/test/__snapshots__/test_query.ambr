@@ -5,11 +5,11 @@
   
   SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s)) AS id, count(DISTINCT events.uuid) AS occurrences, count(DISTINCT nullIf(events.`$session_id`, %(hogql_val_3)s)) AS sessions, count(DISTINCT events.distinct_id) AS users, max(toTimeZone(events.timestamp, %(hogql_val_4)s)) AS last_seen, min(toTimeZone(events.timestamp, %(hogql_val_5)s)) AS first_seen, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_6)s, toStartOfHour(toTimeZone(events.timestamp, %(hogql_val_7)s)), toStartOfHour(now64(6, %(hogql_val_8)s)))), x), range(24))) AS volumeDay, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_9)s, toStartOfDay(toTimeZone(events.timestamp, %(hogql_val_10)s)), toStartOfDay(now64(6, %(hogql_val_11)s)))), x), range(31))) AS volumeMonth, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_12)s, toStartOfHour(toTimeZone(events.timestamp, %(hogql_val_13)s)), toStartOfHour(now64(6, %(hogql_val_14)s)))), x), range(168))) AS customVolume 
   FROM events LEFT OUTER JOIN (
-  SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint 
+  SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint 
   FROM error_tracking_issue_fingerprint_overrides 
   WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999) 
   GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint 
-  HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) 
+  HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint) 
   WHERE and(equals(events.team_id, 99999), and(equals(events.event, %(hogql_val_15)s), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_16)s), ''), 'null'), '^"|"$', ''), %(hogql_val_17)s))), or(and(greater(toTimeZone(events.timestamp, %(hogql_val_18)s), parseDateTime64BestEffort(%(hogql_val_19)s, 6, %(hogql_val_20)s)), less(toTimeZone(events.timestamp, %(hogql_val_21)s), parseDateTime64BestEffort(%(hogql_val_22)s, 6, %(hogql_val_23)s))), and(greater(toTimeZone(events.timestamp, %(hogql_val_24)s), toDateTime(%(hogql_val_25)s, %(hogql_val_26)s)), less(toTimeZone(events.timestamp, %(hogql_val_27)s), toDateTime64(%(hogql_val_28)s, 6, %(hogql_val_29)s)))))) 
   GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_30)s), ''), 'null'), '^"|"$', ''), %(hogql_val_31)s)) ORDER BY occurrences DESC 
@@ -413,11 +413,11 @@
   
   SELECT events.event AS event, count() AS `count()` 
   FROM events LEFT OUTER JOIN (
-  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
   FROM person_distinct_id_overrides 
   WHERE equals(person_distinct_id_overrides.team_id, 99999) 
   GROUP BY person_distinct_id_overrides.distinct_id 
-  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
+  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
   WHERE and(equals(events.team_id, 99999), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
   SELECT cohortpeople.person_id AS person_id 
@@ -479,11 +479,11 @@
   
   SELECT events.event AS event, count() AS `count()` 
   FROM events LEFT OUTER JOIN (
-  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
   FROM person_distinct_id_overrides 
   WHERE equals(person_distinct_id_overrides.team_id, 99999) 
   GROUP BY person_distinct_id_overrides.distinct_id 
-  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
+  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
   WHERE and(equals(events.team_id, 99999), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
   SELECT person_static_cohort.person_id AS person_id 
