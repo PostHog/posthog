@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import JSONField, QuerySet
 from django.utils import timezone
@@ -36,6 +37,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         blank=True,
         related_name="modified_notebooks",
     )
+    tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, null=True, default=list)
 
     class Meta:
         unique_together = ("team", "short_id")
