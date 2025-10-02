@@ -414,6 +414,9 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # normalize xdist worker database suffixes (posthog_test_gw0 -> posthog_test)
+    query = re.sub(r"posthog_test_gw\d+", "posthog_test", query)
+
     return query
 
 
