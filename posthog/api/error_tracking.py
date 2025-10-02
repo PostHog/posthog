@@ -295,7 +295,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         self,
         embedding_vector,
         model_name: str,
-        embedding_version: str,
+        embedding_version: int,
         issue_fingerprints: list[str],
         min_distance_threshold: float,
     ):
