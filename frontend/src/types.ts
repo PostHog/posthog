@@ -4502,6 +4502,7 @@ export type APIScopeObject =
     | 'dataset'
     | 'early_access_feature'
     | 'error_tracking'
+    | 'evaluation'
     | 'event_definition'
     | 'experiment'
     | 'export'
