@@ -194,10 +194,9 @@ impl RawRequest {
                 }
 
                 // Check size BEFORE allocation to prevent memory spikes
-                total_read += got;
-                if total_read > limit {
+                if total_read + got > limit {
                     error!(
-                        decompressed_size = total_read,
+                        decompressed_size = total_read + got,
                         compressed_size = len,
                         limit = limit,
                         "from_bytes: GZIP decompression would exceed size limit"
@@ -208,11 +207,14 @@ impl RawRequest {
 
                     report_dropped_events("event_too_big", 1);
                     return Err(CaptureError::EventTooBig(format!(
-                        "Decompressed payload would exceed {limit} bytes (got {total_read} bytes)"
+                        "Decompressed payload would exceed {} bytes (got {} bytes)",
+                        limit,
+                        total_read + got
                     )));
                 }
 
                 buf.extend_from_slice(&chunk[..got]);
+                total_read += got;
             }
 
             // Record decompression ratio metric
