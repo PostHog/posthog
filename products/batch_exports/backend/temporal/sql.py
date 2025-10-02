@@ -94,7 +94,7 @@ FROM (
         p.properties AS properties,
         pd.version AS person_distinct_id_version,
         p.version AS person_version,
-        toDateTime(p.created_at) AS created_at,
+        toDateTime64(p.created_at, 3) AS created_at,
         toBool(p.is_deleted) AS is_deleted,
         multiIf(
             (
@@ -159,7 +159,7 @@ SELECT
     p.properties AS properties,
     pd.version AS person_distinct_id_version,
     p.version AS person_version,
-    toDateTime(p.created_at) AS created_at,
+    toDateTime64(p.created_at, 3) AS created_at,
     toBool(p.is_deleted) AS is_deleted,
     multiIf(
         pd._timestamp < {interval_end}::DateTime64
@@ -731,7 +731,7 @@ SELECT
     p.properties AS properties,
     pd.version AS person_distinct_id_version,
     p.version AS person_version,
-    toDateTime(p.created_at) AS created_at,
+    toDateTime64(p.created_at, 3) AS created_at,
     toBool(p.is_deleted) AS is_deleted,
     multiIf(
         pd._timestamp < {interval_end}::DateTime64
@@ -886,7 +886,7 @@ FROM (
         p.properties AS properties,
         pd.version AS person_distinct_id_version,
         p.version AS person_version,
-        toDateTime(p.created_at) AS created_at,
+        toDateTime64(p.created_at, 3) AS created_at,
         toBool(p.is_deleted) AS is_deleted,
         multiIf(
             (
