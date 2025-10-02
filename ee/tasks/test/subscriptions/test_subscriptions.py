@@ -86,6 +86,7 @@ class TestSubscriptionsTasks(APIBaseTest):
             created_by=self.user,
             target_type="slack",
             target_value="C12345|#test-channel",
+            target_integration=1,
         )
 
         create_subscription(
@@ -94,6 +95,7 @@ class TestSubscriptionsTasks(APIBaseTest):
             created_by=self.user,
             target_type="slack",
             target_value="C12345|#test-channel",
+            target_integration=1,
         )
 
         self.insight.deleted = True
@@ -179,6 +181,7 @@ class TestSubscriptionsTasks(APIBaseTest):
             created_by=self.user,
             target_type="slack",
             target_value="C12345|#test-channel",
+            target_integration=1,
         )
         mock_gen_assets.return_value = [self.insight], [self.asset]
 

@@ -31,6 +31,7 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
             created_by=self.user,
             target_type="slack",
             target_value="C12345|#test-channel",
+            target_integration=1,
         )
 
         self.integration = Integration.objects.create(team=self.team, kind="slack")
@@ -106,6 +107,7 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
             created_by=self.user,
             target_type="slack",
             target_value="C12345|#test-channel",
+            target_integration=1,
         )
 
         send_slack_subscription_report(self.subscription, [self.asset, self.asset, self.asset], 10)

@@ -139,7 +139,8 @@ async def deliver_subscription_report_async(
         try:
             logger.info("deliver_subscription_report_async.loading_slack_integration", subscription_id=subscription_id)
             integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
-                subscription.team_id
+                subscription.team_id,
+                subscription.target_integration,
             )
 
             if not integration:

@@ -25,7 +25,7 @@ def _block_for_asset(asset: ExportedAsset) -> dict:
         alt_text = asset.insight.name or asset.insight.derived_name
 
     if settings.DEBUG:
-        image_url = "https://source.unsplash.com/random"
+        image_url = "https://picsum.photos/400/400"
 
     return {"type": "image", "image_url": image_url, "alt_text": alt_text}
 
