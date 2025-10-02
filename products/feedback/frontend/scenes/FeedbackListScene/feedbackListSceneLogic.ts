@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -15,6 +15,7 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
         setCategoryFilter: (category: string | null) => ({ category }),
         setTopicFilter: (topic: string | null) => ({ topic }),
         loadFeedbackItems: true,
+        updateFeedbackItemStatus: (feedbackItemId: string, statusId: string) => ({ feedbackItemId, statusId }),
     }),
 
     reducers({
@@ -53,6 +54,13 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
                 },
             },
         ],
+    })),
+
+    listeners(({ actions }) => ({
+        updateFeedbackItemStatus: async ({ feedbackItemId, statusId }) => {
+            await api.feedback.items.update(feedbackItemId, { status_id: statusId } as any)
+            actions.loadFeedbackItems()
+        },
     })),
 
     subscriptions(({ actions, values }) => ({

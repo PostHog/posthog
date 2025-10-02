@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -14,7 +14,9 @@ import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSett
 
 export function FeedbackList(): JSX.Element {
     const { feedbackItems, feedbackItemsLoading } = useValues(feedbackListSceneLogic)
-    const { feedbackCategories, feedbackTopics, feedbackStatuses } = useValues(feedbackGeneralSettingsLogic)
+    const { updateFeedbackItemStatus } = useActions(feedbackListSceneLogic)
+    const { feedbackCategories, feedbackTopics, feedbackStatuses, getStatusesForCategory } =
+        useValues(feedbackGeneralSettingsLogic)
     const { initializeDefaultData } = useActions(feedbackGeneralSettingsLogic)
 
     const shouldShowWizard =
@@ -57,6 +59,30 @@ export function FeedbackList(): JSX.Element {
                         )}
                     </div>
                 </div>
+            ),
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            align: 'right',
+            width: 200,
+            render: (_, feedback) => (
+                <LemonSelect
+                    value={feedback.status?.id ?? null}
+                    onChange={(value) => value && updateFeedbackItemStatus(feedback.id, value)}
+                    options={
+                        feedback.category?.id
+                            ? getStatusesForCategory(feedback.category.id).map((status) => ({
+                                  value: status.id,
+                                  label: status.name,
+                              }))
+                            : []
+                    }
+                    placeholder="Select status"
+                    disabled={!feedback.category}
+                    size="small"
+                    onClick={(e) => e.stopPropagation()}
+                />
             ),
         },
     ]
