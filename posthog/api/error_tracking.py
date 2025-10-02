@@ -330,14 +330,15 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return similar_embeddings
 
     def _get_embedding_configuration(self) -> tuple[float, str, int]:
-        """Get embedding configuration from remote config or return defaults."""
+        """Get embedding configuration from feature flag or return defaults."""
         min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
         model_name = DEFAULT_EMBEDDING_MODEL_NAME
         embedding_version = DEFAULT_EMBEDDING_VERSION
 
-        # Try to get configuration from remote config, fall back to defaults if not available
+        # Try to get configuration from feature flag, fall back to defaults if not available
         try:
-            config_json = posthoganalytics.get_remote_config_payload("error-tracking-embedding-configuration")
+            team_id = str(self.team.id)
+            config_json = posthoganalytics.get_feature_flag_payload("error-tracking-embedding-configuration", team_id)
             if config_json:
                 config_payload = json.loads(config_json)
 
