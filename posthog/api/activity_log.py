@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
 
+from posthog.api.advanced_activity_logs.utils import get_activity_log_lookback_restriction
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import ActivityLog, NotificationViewed
@@ -81,5 +82,9 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
 
         if params.get("page"):
             queryset = queryset.order_by("-created_at")
+
+        lookback_date = get_activity_log_lookback_restriction(self.organization)
+        if lookback_date:
+            queryset = queryset.filter(created_at__gte=lookback_date)
 
         return queryset

@@ -21,6 +21,7 @@ from posthog.tasks import exporter
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager
+from .utils import get_activity_log_lookback_restriction
 
 
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
@@ -139,7 +140,13 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         filters_serializer.is_valid(raise_exception=True)
         filters = filters_serializer.validated_data
 
-        queryset = self.filter_manager.apply_filters(self.dangerously_get_queryset(), filters)
+        queryset = self.dangerously_get_queryset()
+
+        lookback_date = get_activity_log_lookback_restriction(self.organization)
+        if lookback_date:
+            queryset = queryset.filter(created_at__gte=lookback_date)
+
+        queryset = self.filter_manager.apply_filters(queryset, filters)
 
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -151,7 +158,13 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @action(detail=False, methods=["GET"])
     def available_filters(self, request, **kwargs):
-        available_filters = self.field_discovery.get_available_filters(self.dangerously_get_queryset())
+        queryset = self.dangerously_get_queryset()
+
+        lookback_date = get_activity_log_lookback_restriction(self.organization)
+        if lookback_date:
+            queryset = queryset.filter(created_at__gte=lookback_date)
+
+        available_filters = self.field_discovery.get_available_filters(queryset)
         return Response(available_filters)
 
     @action(detail=False, methods=["POST"])
