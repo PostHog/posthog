@@ -141,7 +141,7 @@ fn generate_text_representation(
 
         if tokens.len() > max_tokens {
             tokens.truncate(max_tokens);
-            return Ok(encoder.decode(tokens)?);
+            return encoder.decode(tokens);
         }
 
         // Add frame information
@@ -173,12 +173,12 @@ fn generate_text_representation(
             frame_str.push('\n');
             let encoded = encoder.encode_with_special_tokens(&frame_str);
             if encoded.len() + tokens.len() > max_tokens {
-                return Ok(encoder.decode(tokens)?);
+                return encoder.decode(tokens);
             }
 
             tokens.extend(encoded);
         }
     }
 
-    Ok(encoder.decode(tokens)?)
+    encoder.decode(tokens)
 }
