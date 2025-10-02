@@ -19,7 +19,7 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
         if (inStorybookTestRunner() || (inView && !appMetricsTrends && !appMetricsTrendsLoading)) {
             loadAppMetricsTrends()
         }
-    }, [inView])
+    }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const displayData: SparklineTimeSeries[] = useMemo(() => {
         // We sort the series based on the given metricKind
