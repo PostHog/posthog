@@ -137,7 +137,7 @@ fn generate_text_representation(
                 .collect::<String>()
         );
 
-        tokens = encoder.encode_with_special_tokens(type_and_value);
+        tokens.extend(encoder.encode_with_special_tokens(type_and_value));
 
         if tokens.len() > max_tokens {
             tokens.truncate(max_tokens);
