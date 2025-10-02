@@ -6,6 +6,7 @@
 name: E2E CI Playwright
 on:
     pull_request:
+    workflow_dispatch:
 
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -79,6 +80,9 @@ jobs:
                         - docker-compose.dev.yml
                         - Dockerfile
                         - playwright/**
+                        # Exclude snapshots to prevent infinite loops when bot commits updates
+                        # Snapshots are verified naturally on subsequent PRs
+                        - '!playwright/__snapshots__/**'
     container:
         name: (Optional) Container - Build and cache image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
@@ -571,6 +575,49 @@ jobs:
                   pull: --rebase --autostash # Make sure we're up to date with other commits
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+
+            - name: Comment on PR about screenshot updates
+              if: steps.commit.outputs.committed == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+              run: |
+                  # Get screenshot change counts from the diff step
+                  ADDED=$(git diff HEAD~1 --name-status playwright/__snapshots__/ | grep '^A' | wc -l)
+                  MODIFIED=$(git diff HEAD~1 --name-status playwright/__snapshots__/ | grep '^M' | wc -l)
+                  DELETED=$(git diff HEAD~1 --name-status playwright/__snapshots__/ | grep '^D' | wc -l)
+
+                  # Create comment body
+                  cat << 'EOF' > /tmp/pr-comment.md
+                  ## 📸 E2E Screenshots Updated
+
+                  Screenshots have been automatically updated by this test run:
+                  - **Added:** ${ADDED}
+                  - **Modified:** ${MODIFIED}
+                  - **Deleted:** ${DELETED}
+
+                  ### ℹ️ No Re-run Will Occur
+
+                  To prevent infinite snapshot loops, this bot commit will **not trigger another E2E workflow run**.
+
+                  The updated screenshots will be verified naturally when:
+                  - You push additional changes to this PR
+                  - You rebase this PR on the latest master
+                  - The next developer's PR runs E2E tests
+
+                  If you need to manually verify the screenshots, you can:
+                  1. Trigger the E2E workflow manually via the Actions tab
+                  2. Push an empty commit: `git commit --allow-empty -m "trigger e2e" && git push`
+
+                  **Why this change?** Excluding snapshots from the workflow trigger prevents infinite loops where tiny rendering differences cause screenshots to flip-flop indefinitely. Your snapshots will be verified naturally on your next push or when the next PR runs E2E tests.
+                  EOF
+
+                  # Substitute variables
+                  envsubst < /tmp/pr-comment.md > /tmp/pr-comment-final.md
+
+                  # Post comment using GitHub CLI
+                  gh pr comment ${{ github.event.pull_request.number }} \
+                    --repo ${{ github.repository }} \
+                    --body-file /tmp/pr-comment-final.md
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs
