@@ -857,6 +857,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
+            cache_key=cache_manager.cache_key,
             refresh_requested=refresh_requested,
             is_query_service=self.is_query_service,
         )

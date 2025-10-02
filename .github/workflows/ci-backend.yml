@@ -119,16 +119,18 @@ jobs:
                   python-version: 3.12.11
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Install SAML (python3-saml) dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - name: Install uv
+              id: setup-uv
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   version: 0.7.8
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
@@ -171,7 +173,7 @@ jobs:
                     exit 0
                   fi
 
-                  # Initialize comment body
+                  # Initialize comment body for SQL changes
                   COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
 
                   # Process each changed migration file
@@ -214,14 +216,49 @@ jobs:
                   COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
                   COMMENT_BODY_JSON=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
 
-                  # Post new comment to PR
-                  echo "Posting comment to PR"
+                  # Post SQL comment to PR
+                  echo "Posting SQL comment to PR"
                   echo "$COMMENT_BODY_JSON"
                   curl -X POST \
                     -H "Authorization: token $GITHUB_TOKEN" \
                     -H "Accept: application/vnd.github.v3+json" \
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
                     -d "$COMMENT_BODY_JSON"
+
+                  # Get risk analysis and post as separate comment
+                  # This automatically detects all unapplied migrations (including third-party)
+                  set +e  # Don't exit immediately on error
+                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null)
+                  EXIT_CODE=$?
+                  set -e  # Re-enable exit on error
+
+                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
+                    # Delete previous risk analysis comments
+                    echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
+                      echo "Deleting risk analysis comment $comment_id"
+                      curl -X DELETE \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
+                    done
+
+                    # Post risk analysis comment (output already contains markdown formatting with legend)
+                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS"
+                    RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
+                    RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
+
+                    echo "Posting risk analysis comment to PR"
+                    curl -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                      -d "$RISK_COMMENT_JSON"
+                  fi
+
+                  # Fail the job if there were blocked migrations
+                  if [ $EXIT_CODE -ne 0 ]; then
+                    exit $EXIT_CODE
+                  fi
 
             - name: Run migrations for this PR
               run: |
@@ -231,12 +268,7 @@ jobs:
               run: |
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
-                  # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
-                  # With `--name-status` we get the same, but including a column for status, respectively: A, D, M
-                  # In this check we exclusively care about files that were
-                  # added (A) in posthog/migrations/. We also want to ignore
-                  # initial migrations (0001_*) as these are guaranteed to be
-                  # run on initial setup where there is no data.
+                  # Check migration safety using old SQL-based checker (still uses stdin from git diff)
                   echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
@@ -512,18 +544,19 @@ jobs:
                   python-version: ${{ matrix.python-version }}
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Install SAML (python3-saml) dependencies
-              if: ${{ needs.changes.outputs.backend == 'true' }}
-              shell: bash
-              run: |
-                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - name: Install uv
               if: ${{ needs.changes.outputs.backend == 'true' }}
+              id: setup-uv-tests
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   version: 0.7.8
+
+            - name: Install SAML (python3-saml) dependencies
+              if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
+              shell: bash
+              run: |
+                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Determine if hogql-parser has changed compared to master
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -791,16 +824,19 @@ jobs:
                   python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Install SAML (python3-saml) dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - name: Install uv
+              id: setup-uv-async
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   version: 0.7.8
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv-async.outputs.cache-hit != 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
             - name: Install python dependencies
               shell: bash
               run: |
