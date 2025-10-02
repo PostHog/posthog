@@ -1,3 +1,4 @@
+import json
 import hashlib
 from typing import Any, Optional, Protocol, TypeVar
 
@@ -329,24 +330,24 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return similar_embeddings
 
     def _get_embedding_configuration(self) -> tuple[float, str, int]:
-        """Get embedding configuration from feature flag or return defaults."""
+        """Get embedding configuration from remote config or return defaults."""
         min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
         model_name = DEFAULT_EMBEDDING_MODEL_NAME
         embedding_version = DEFAULT_EMBEDDING_VERSION
 
-        if hasattr(self, "team") and self.team:
-            # Try to get configuration from feature flag, fall back to defaults if not available
-            try:
-                team_id = str(self.team.id)
-                flag_result = posthoganalytics.get_feature_flag_result(
-                    "error-tracking-embedding-configuration", team_id
-                )
-                if flag_result and hasattr(flag_result, "payload") and flag_result.payload:
-                    min_distance_threshold = flag_result.payload.get(
+        # Try to get configuration from remote config, fall back to defaults if not available
+        try:
+            config_json = posthoganalytics.get_remote_config_payload("error-tracking-embedding-configuration")
+            if config_json:
+                config_payload = json.loads(config_json)
+
+                # Validate that config_payload is a dict
+                if config_payload and isinstance(config_payload, dict):
+                    min_distance_threshold = config_payload.get(
                         "min_distance_threshold", DEFAULT_MIN_DISTANCE_THRESHOLD
                     )
-                    model_name = flag_result.payload.get("model_name", DEFAULT_EMBEDDING_MODEL_NAME)
-                    embedding_version = flag_result.payload.get("embedding_version", DEFAULT_EMBEDDING_VERSION)
+                    model_name = config_payload.get("model_name", DEFAULT_EMBEDDING_MODEL_NAME)
+                    embedding_version = config_payload.get("embedding_version", DEFAULT_EMBEDDING_VERSION)
 
                     # Validate types
                     if not isinstance(min_distance_threshold, (int | float)):
@@ -355,11 +356,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                         model_name = DEFAULT_EMBEDDING_MODEL_NAME
                     if not isinstance(embedding_version, int):
                         embedding_version = DEFAULT_EMBEDDING_VERSION
-            except Exception:
-                # Fall back to defaults on any error
-                min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
-                model_name = DEFAULT_EMBEDDING_MODEL_NAME
-                embedding_version = DEFAULT_EMBEDDING_VERSION
+        except Exception:
+            # Fall back to defaults on any error (JSON parsing, network, etc.)
+            min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+            model_name = DEFAULT_EMBEDDING_MODEL_NAME
+            embedding_version = DEFAULT_EMBEDDING_VERSION
 
         return min_distance_threshold, model_name, embedding_version
 
