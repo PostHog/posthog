@@ -660,6 +660,7 @@ export class HogExecutorService {
             }
 
             addLog('warn', message)
+            await fetchResponse?.dump()
 
             if (canRetry && result.invocation.state.attempts < this.hub.CDP_FETCH_RETRIES) {
                 result.invocation.queue = 'hog'

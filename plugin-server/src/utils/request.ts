@@ -20,6 +20,7 @@ import { URL } from 'url'
 import { defaultConfig } from '../config/config'
 import { isProdEnv } from './env-utils'
 import { parseJSON } from './json-parse'
+import { logger } from './logger'
 
 // eslint-disable-next-line no-restricted-imports
 export { Response } from 'undici'
@@ -43,6 +44,7 @@ export type FetchResponse = {
     headers: Record<string, string>
     json: () => Promise<any>
     text: () => Promise<string>
+    dump: () => Promise<void>
 }
 
 export class SecureRequestError extends errors.UndiciError {
@@ -162,7 +164,7 @@ class SecureAgent extends Agent {
     constructor() {
         super({
             keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
-            connections: defaultConfig.REQUEST_CONNECTIONS,
+            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
                 lookup: httpStaticLookup,
                 timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
@@ -218,12 +220,36 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         }
     }
 
-    return {
+    let consumed = false
+
+    const returnValue = {
         status: result.statusCode,
         headers,
-        json: async () => parseJSON(await result.body.text()),
-        text: async () => await result.body.text(),
+        json: async () => {
+            consumed = true
+            return parseJSON(await result.body.text())
+        },
+        text: async () => {
+            consumed = true
+            return await result.body.text()
+        },
+        dump: async () => {
+            if (consumed) {
+                return
+            }
+            consumed = true
+            await result.body.dump()
+        },
     }
+
+    // If returnValue is GC’d without consuming, dump the body.
+    const registry = new FinalizationRegistry(() => {
+        // To test if this works
+        logger.debug('🦔', 'Body not consumed, dumping')
+    })
+    registry.register(returnValue, undefined)
+
+    return returnValue
 }
 
 export async function internalFetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
