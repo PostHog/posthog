@@ -217,7 +217,7 @@ jobs:
                   # Now run Rust migrations using dedicated container
                   docker build -f rust/Dockerfile.migrate -t posthog-migrations:latest ./rust
                   docker run --rm --network host \
-                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5434/posthog_persons" \
                     -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
                     posthog-migrations:latest
 
@@ -474,6 +474,14 @@ jobs:
               run: |
                   python manage.py migrate_clickhouse &
                   python manage.py migrate --noinput
+
+                  # Build and run Rust migrations using dedicated container
+                  docker build -f rust/Dockerfile.migrate -t posthog-migrations:latest ./rust
+                  docker run --rm --network host \
+                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5434/posthog_persons" \
+                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
+                    posthog-migrations:latest
+
 
                   # Build and run Rust migrations using dedicated container
                   docker build -f rust/Dockerfile.migrate -t posthog-migrations:latest ./rust
