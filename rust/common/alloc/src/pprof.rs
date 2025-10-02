@@ -171,7 +171,7 @@ async fn generate_flamegraph(frequency: i32, seconds: u64, image_width: usize) -
     Ok(body)
 }
 
-/// Checks whether jemalloc profiling is activated an returns an error response if not.
+/// Checks whether jemalloc profiling is activated and returns an error response if not
 fn require_profiling_activated(
     prof_ctl: &jemalloc_pprof::JemallocProfCtl,
 ) -> Result<(), (StatusCode, String)> {
