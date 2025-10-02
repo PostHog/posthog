@@ -6,6 +6,7 @@ from operator import itemgetter
 from typing import Any, Optional, Union
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.functions import Coalesce
 
@@ -34,6 +35,7 @@ from posthog.schema import (
     QueryTiming,
     ResolvedDateRangeResponse,
     Series,
+    SessionsNode,
     TrendsFormulaNode,
     TrendsQuery,
     TrendsQueryResponse,
@@ -114,6 +116,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
 
+        # Validate SessionsNode usage
+        self._validate_sessions_node(query)
+
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
     def __post_init__(self):
@@ -138,6 +143,26 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
         return BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
+
+    @staticmethod
+    def _validate_sessions_node(query: TrendsQuery):
+        from posthog.schema import SessionsNode
+
+        has_sessions = any(isinstance(s, SessionsNode) for s in query.series)
+        has_non_sessions = any(not isinstance(s, SessionsNode) for s in query.series)
+
+        if has_sessions and has_non_sessions:
+            raise ValidationError(
+                "Cannot mix SessionsNode with EventsNode, ActionsNode, or DataWarehouseNode in the same query"
+            )
+
+        if has_sessions and query.trendsFilter and query.trendsFilter.formulaNodes:
+            raise ValidationError("Formulas are not supported with SessionsNode")
+
+        for s in query.series:
+            if isinstance(s, SessionsNode):
+                if s.math and s.math != "total":
+                    raise ValidationError(f"SessionsNode only supports math='total', got '{s.math}'")
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")
@@ -709,7 +734,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             exact_timerange=self.exact_timerange,
         )
 
-    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
+    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, SessionsNode]) -> str | None:
+        if isinstance(series, SessionsNode):
+            return "sessions"
         if isinstance(series, EventsNode):
             return series.event
         if isinstance(series, ActionsNode):

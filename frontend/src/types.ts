@@ -1259,7 +1259,7 @@ export type ErrorCluster = {
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
 
-export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
+export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity' | 'sessions'
 
 export interface Entity {
     id: string | number

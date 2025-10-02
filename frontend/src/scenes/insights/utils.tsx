@@ -28,6 +28,7 @@ import {
     ResultCustomizationBy,
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
+    SessionsNode,
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
@@ -35,6 +36,7 @@ import {
     isDataWarehouseNode,
     isEventsNode,
     isInsightVizNode,
+    isSessionsNode,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -87,7 +89,7 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: EventsNode | ActionsNode | DataWarehouseNode,
+    node: EventsNode | ActionsNode | DataWarehouseNode | SessionsNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
@@ -99,8 +101,17 @@ export const getDisplayNameFromEntityNode = (
     if (isEventsNode(node) && node.event === null) {
         name = 'All events'
     }
+    if (isSessionsNode(node)) {
+        name = 'All Sessions'
+    }
 
-    const id = isDataWarehouseNode(node) ? node.table_name : isEventsNode(node) ? node.event : node.id
+    const id = isSessionsNode(node)
+        ? 'sessions'
+        : isDataWarehouseNode(node)
+          ? node.table_name
+          : isEventsNode(node)
+            ? node.event
+            : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)

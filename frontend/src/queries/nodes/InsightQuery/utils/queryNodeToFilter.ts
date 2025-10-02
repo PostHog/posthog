@@ -14,6 +14,7 @@ import {
     NodeKind,
     PathsFilterLegacy,
     RetentionFilterLegacy,
+    SessionsNode,
     StickinessFilterLegacy,
     TrendsFilterLegacy,
 } from '~/queries/schema/schema-general'
@@ -25,6 +26,7 @@ import {
     isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
+    isSessionsNode,
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
@@ -38,16 +40,22 @@ type FilterTypeActionsAndEvents = {
 }
 
 export const seriesNodeToFilter = (
-    node: EventsNode | ActionsNode | DataWarehouseNode,
+    node: EventsNode | ActionsNode | DataWarehouseNode | SessionsNode,
     index?: number
 ): ActionFilter => {
     const entity: ActionFilter = objectClean({
-        type: isDataWarehouseNode(node)
-            ? EntityTypes.DATA_WAREHOUSE
-            : isActionsNode(node)
-              ? EntityTypes.ACTIONS
-              : EntityTypes.EVENTS,
-        id: isDataWarehouseNode(node) ? node.table_name : (!isActionsNode(node) ? node.event : node.id) || null,
+        type: (isSessionsNode(node)
+            ? 'sessions'
+            : isDataWarehouseNode(node)
+              ? EntityTypes.DATA_WAREHOUSE
+              : isActionsNode(node)
+                ? EntityTypes.ACTIONS
+                : EntityTypes.EVENTS) as ActionFilter['type'],
+        id: isSessionsNode(node)
+            ? 'sessions'
+            : isDataWarehouseNode(node)
+              ? node.table_name
+              : (!isActionsNode(node) ? node.event : node.id) || null,
         order: index,
         name: node.name,
         custom_name: node.custom_name,
@@ -72,7 +80,7 @@ export const seriesNodeToFilter = (
 }
 
 export const seriesToActionsAndEvents = (
-    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
+    series: (EventsNode | ActionsNode | DataWarehouseNode | SessionsNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
@@ -80,7 +88,9 @@ export const seriesToActionsAndEvents = (
     const new_entity: ActionFilter[] = []
     series.forEach((node, index) => {
         const entity = seriesNodeToFilter(node, index)
-        if (isEventsNode(node)) {
+        if (isSessionsNode(node)) {
+            new_entity.push(entity)
+        } else if (isEventsNode(node)) {
             events.push(entity)
         } else if (isActionsNode(node)) {
             actions.push(entity)

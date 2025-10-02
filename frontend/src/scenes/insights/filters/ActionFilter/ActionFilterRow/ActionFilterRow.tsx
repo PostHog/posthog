@@ -1143,10 +1143,11 @@ function MathSelector(props: MathSelectorProps): JSX.Element {
     )
 }
 
-const taxonomicFilterGroupTypeToEntityTypeMapping: Partial<Record<TaxonomicFilterGroupType, EntityTypes>> = {
+const taxonomicFilterGroupTypeToEntityTypeMapping: Partial<Record<TaxonomicFilterGroupType, EntityType>> = {
     [TaxonomicFilterGroupType.Events]: EntityTypes.EVENTS,
     [TaxonomicFilterGroupType.Actions]: EntityTypes.ACTIONS,
     [TaxonomicFilterGroupType.DataWarehouse]: EntityTypes.DATA_WAREHOUSE,
+    [TaxonomicFilterGroupType.Sessions]: 'sessions',
 }
 
 export function taxonomicFilterGroupTypeToEntityType(

@@ -74,6 +74,7 @@ export enum NodeKind {
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
+    SessionsNode = 'SessionsNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
@@ -682,7 +683,11 @@ export interface ActionsNode extends EntityNode {
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
+export interface SessionsNode extends EntityNode {
+    kind: NodeKind.SessionsNode
+}
+
+export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode | SessionsNode
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
@@ -3872,7 +3877,7 @@ export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | un
 
 export type SchemaMap = Record<ConversionGoalSchema, string | undefined>
 
-export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode) & {
+export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode | SessionsNode) & {
     conversion_goal_id: string
     conversion_goal_name: string
     schema_map: SchemaMap

@@ -32,6 +32,7 @@ import {
     NodeKind,
     PathsFilter,
     RetentionFilter,
+    SessionsNode,
     StickinessFilter,
     TrendsFilter,
 } from '~/queries/schema/schema-general'
@@ -103,8 +104,8 @@ export const legacyEntityToNode = (
     entity: ActionFilter | DataWarehouseFilter,
     includeProperties: boolean,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode | DataWarehouseNode => {
-    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode> = {
+): EventsNode | ActionsNode | DataWarehouseNode | SessionsNode => {
+    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode | SessionsNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
     }
@@ -163,7 +164,14 @@ export const legacyEntityToNode = (
         }
     }
 
-    if (entity.type === 'actions') {
+    if (entity.type === 'sessions') {
+        return setLatestVersionsOnQuery(
+            objectCleanWithEmpty({
+                kind: NodeKind.SessionsNode,
+                ...shared,
+            })
+        ) as any
+    } else if (entity.type === 'actions') {
         return setLatestVersionsOnQuery(
             objectCleanWithEmpty({
                 kind: NodeKind.ActionsNode,
@@ -206,7 +214,7 @@ export const actionsAndEventsToSeries = (
     { actions, events, data_warehouse, new_entity }: FilterTypeActionsAndEvents,
     includeProperties: boolean,
     includeMath: MathAvailability
-): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
+): (EventsNode | ActionsNode | DataWarehouseNode | SessionsNode)[] => {
     const series: any = [...(actions || []), ...(events || []), ...(data_warehouse || []), ...(new_entity || [])]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
         .map((f) => legacyEntityToNode(f, includeProperties, includeMath))

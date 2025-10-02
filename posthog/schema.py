@@ -8472,6 +8472,45 @@ class EventsNode(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class SessionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    fixedProperties: Optional[
+        list[
+            Union[
+                SessionPropertyFilter,
+                PersonPropertyFilter,
+                CohortPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: Literal["SessionsNode"] = "SessionsNode"
+    math: Optional[BaseMathType] = Field(
+        default=BaseMathType.TOTAL, description="Aggregation type - currently only 'total' is supported"
+    )
+    name: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                SessionPropertyFilter,
+                PersonPropertyFilter,
+                CohortPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class EventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12355,8 +12394,8 @@ class TrendsQuery(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
-        ..., description="Events and actions to include"
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, SessionsNode]] = Field(
+        ..., description="Events, actions, data warehouse tables, and sessions to include"
     )
     tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")

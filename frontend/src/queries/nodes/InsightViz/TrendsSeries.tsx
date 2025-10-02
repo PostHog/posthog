@@ -98,6 +98,7 @@ export function TrendsSeries(): JSX.Element | null {
                     ...(isTrends && display !== ChartDisplayType.CalendarHeatmap
                         ? [TaxonomicFilterGroupType.DataWarehouse]
                         : []),
+                    TaxonomicFilterGroupType.Sessions,
                 ]}
                 hideDeleteBtn={series?.length === 1}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"

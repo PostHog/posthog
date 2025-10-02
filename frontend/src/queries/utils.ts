@@ -52,6 +52,7 @@ import {
     RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
+    SessionsNode,
     StickinessQuery,
     TracesQuery,
     TrendsFormulaNode,
@@ -97,6 +98,10 @@ export function isEventsQuery(node?: Record<string, any> | null): node is Events
 
 export function isActionsNode(node?: Record<string, any> | null): node is ActionsNode {
     return node?.kind === NodeKind.ActionsNode
+}
+
+export function isSessionsNode(node?: Record<string, any> | null): node is SessionsNode {
+    return node?.kind === NodeKind.SessionsNode
 }
 
 export function isDataWarehouseNode(node?: Record<string, any> | null): node is DataWarehouseNode {
@@ -400,7 +405,9 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     return undefined
 }
 
-export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode | DataWarehouseNode)[] | undefined => {
+export const getSeries = (
+    query: InsightQueryNode
+): (EventsNode | ActionsNode | DataWarehouseNode | SessionsNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     }

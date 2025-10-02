@@ -304,6 +304,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: () => <IconServer />,
                     },
                     {
+                        name: 'Sessions',
+                        searchPlaceholder: null,
+                        type: TaxonomicFilterGroupType.Sessions,
+                        options: [{ name: 'All Sessions' }],
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: () => 'sessions',
+                        getPopoverHeader: () => 'Sessions',
+                    },
+                    {
                         name: 'Data warehouse properties',
                         searchPlaceholder: 'data warehouse properties',
                         type: TaxonomicFilterGroupType.DataWarehouseProperties,

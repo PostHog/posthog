@@ -148,6 +148,7 @@ export enum TaxonomicFilterGroupType {
     Screens = 'screens',
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
+    Sessions = 'sessions',
     GroupsPrefix = 'groups',
     // Types for searching
     Persons = 'persons',

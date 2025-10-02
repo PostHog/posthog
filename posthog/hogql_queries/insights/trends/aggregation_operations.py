@@ -1,6 +1,6 @@
 from typing import Optional, Union, cast
 
-from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode
+from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode, SessionsNode
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -25,7 +25,7 @@ def create_placeholder(name: str) -> ast.Placeholder:
 
 class AggregationOperations(DataWarehouseInsightQueryMixin):
     team: Team
-    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode, SessionsNode]
     chart_display_type: ChartDisplayType
     query_date_range: QueryDateRange
     is_total_value: bool
@@ -33,7 +33,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def __init__(
         self,
         team: Team,
-        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode, SessionsNode],
         chart_display_type: ChartDisplayType,
         query_date_range: QueryDateRange,
         is_total_value: bool,
@@ -45,7 +45,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         self.is_total_value = is_total_value
 
     def select_aggregation(self) -> ast.Expr:
-        if self.series.math == "hogql" and self.series.math_hogql is not None:
+        if isinstance(self.series, SessionsNode):
+            return parse_expr("count()")
+        elif self.series.math == "hogql" and self.series.math_hogql is not None:
             return parse_expr(self.series.math_hogql)
         elif self.series.math == "total" or self.series.math == "first_time_for_user":
             return parse_expr("count()")
@@ -62,7 +64,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             return parse_expr('count(DISTINCT e."$session_id")')
         elif self.series.math == "unique_group" and self.series.math_group_type_index is not None:
             return parse_expr(f'count(DISTINCT e."$group_{int(self.series.math_group_type_index)}")')
-        elif self.series.math_property is not None:
+        elif hasattr(self.series, "math_property") and self.series.math_property is not None:
             if self.series.math == "avg":
                 return self._math_func("avg")
             elif self.series.math == "sum":
@@ -124,7 +126,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
 
     def aggregating_on_session_duration(self) -> bool:
-        return self.series.math_property == "$session_duration"
+        return hasattr(self.series, "math_property") and self.series.math_property == "$session_duration"
 
     def is_count_per_actor_variant(self):
         return self.series.math in [
@@ -148,7 +150,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return self.series.math == "first_matching_event_for_user"
 
     def _get_math_chain(self) -> list[str | int]:
-        if not self.series.math_property:
+        if not hasattr(self.series, "math_property") or not self.series.math_property:
             raise ValueError("No math property set")
         if self.series.math_property == "$session_duration":
             return ["session_duration"]

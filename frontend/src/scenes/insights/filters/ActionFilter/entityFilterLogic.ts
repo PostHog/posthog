@@ -35,6 +35,7 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),
         ...(filters[EntityTypes.DATA_WAREHOUSE] || []),
+        ...(filters.new_entity || []),
     ]
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...(filter as ActionFilter), order }))
@@ -61,6 +62,7 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
         [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
         [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
         [EntityTypes.DATA_WAREHOUSE]: filters.filter((filter) => filter.type === EntityTypes.DATA_WAREHOUSE),
+        new_entity: filters.filter((filter) => filter.type === 'sessions'),
     } as FilterType
 }
 
