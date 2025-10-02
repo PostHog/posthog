@@ -338,15 +338,15 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             # Try to get configuration from feature flag, fall back to defaults if not available
             try:
                 team_id = str(self.team.id)
-                config_payload = posthoganalytics.get_feature_flag_payload(
+                flag_result = posthoganalytics.get_feature_flag_result(
                     "error-tracking-embedding-configuration", team_id
                 )
-                if config_payload:
-                    min_distance_threshold = config_payload.get(
+                if flag_result and hasattr(flag_result, "payload") and flag_result.payload:
+                    min_distance_threshold = flag_result.payload.get(
                         "min_distance_threshold", DEFAULT_MIN_DISTANCE_THRESHOLD
                     )
-                    model_name = config_payload.get("model_name", DEFAULT_EMBEDDING_MODEL_NAME)
-                    embedding_version = config_payload.get("embedding_version", DEFAULT_EMBEDDING_VERSION)
+                    model_name = flag_result.payload.get("model_name", DEFAULT_EMBEDDING_MODEL_NAME)
+                    embedding_version = flag_result.payload.get("embedding_version", DEFAULT_EMBEDDING_VERSION)
 
                     # Validate types
                     if not isinstance(min_distance_threshold, (int | float)):
