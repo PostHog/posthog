@@ -418,27 +418,6 @@ def session_id_to_uint128_as_uuid_expr(session_id: ast.Expr) -> ast.Expr:
     return ast.Call(name="_toUInt128", args=[(session_id_to_session_id_v7_as_uuid_expr(session_id))])
 
 
-def uint128_to_uuid_expr(uuid: ast.Expr) -> ast.Expr:
-    return ast.Call(
-        name="reinterpretAsUUID",
-        args=[
-            ast.Call(
-                name="bitOr",
-                args=[
-                    ast.Call(
-                        name="bitShiftLeft",
-                        args=[uuid, ast.Constant(value=64)],
-                    ),
-                    ast.Call(
-                        name="bitShiftRight",
-                        args=[uuid, ast.Constant(value=64)],
-                    ),
-                ],
-            )
-        ],
-    )
-
-
 def join_events_table_to_sessions_table_v3(
     join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
 ) -> ast.JoinExpr:
