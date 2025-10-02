@@ -75,16 +75,6 @@ function ExportButton({
     )
 }
 
-function isValidUrl(value: string): boolean {
-    try {
-        const url = new URL(value)
-        // Must have a protocol and a host, and host must have at least one dot or be localhost
-        return url.protocol.length > 0 && (url.hostname.includes('.') || url.hostname === 'localhost')
-    } catch {
-        return false
-    }
-}
-
 function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTMLIFrameElement | null> }): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
@@ -120,18 +110,10 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                 value={browserUrl || browserSearchTerm || ''}
                                 onChange={(value) => {
                                     setBrowserSearch(value)
-                                    // Only set browserUrl if the value looks like a complete URL or is empty
-                                    if (!value) {
-                                        setBrowserUrl(null)
-                                    } else if (isValidUrl(value)) {
-                                        setBrowserUrl(value)
-                                    } else {
-                                        // Clear browserUrl if we're typing something that's not a valid URL yet
-                                        setBrowserUrl(null)
-                                    }
+                                    setBrowserUrl(value || null)
                                 }}
                                 onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && browserSearchTerm && isValidUrl(browserSearchTerm)) {
+                                    if (e.key === 'Enter' && browserSearchTerm) {
                                         setBrowserUrl(browserSearchTerm)
                                     }
                                 }}
