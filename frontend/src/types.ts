@@ -2092,6 +2092,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
+    last_viewed_at?: string | null
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
