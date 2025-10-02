@@ -728,7 +728,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:read", "GET", "/api/projects/@current/workflows/", True),
             ("task:read", "GET", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
-            ("no_scope", "GET", "/api/projects/@current/agents/", True),
+            ("no_scope", "GET", "/api/projects/@current/agents/", False),
             ("task:read", "POST", "/api/projects/@current/tasks/", False),
             ("task:read", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", False),
             ("task:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),

@@ -43,9 +43,6 @@ class ConsoleTreeFormatter(RiskFormatter):
         lines = []
         lines.append(f"**Summary:** {len(safe)} Safe | {len(review)} Needs Review | {len(blocked)} Blocked")
         lines.append("")
-        lines.append(
-            "**Legend:** ✅ Safe = No locks, backwards compatible | ⚠️ Needs Review = May have performance impact | ❌ Blocked = Causes locks or breaks compatibility\n"
-        )
 
         if blocked:
             lines.append(self._format_section(RiskLevel.BLOCKED, blocked))
@@ -68,7 +65,16 @@ class ConsoleTreeFormatter(RiskFormatter):
         """Format a risk level section."""
         lines = []
         _, icon = self.LEVEL_STYLES[level]
+
+        # Add explanation for each level
+        explanations = {
+            RiskLevel.BLOCKED: "Causes locks or breaks compatibility",
+            RiskLevel.NEEDS_REVIEW: "May have performance impact",
+            RiskLevel.SAFE: "No locks, backwards compatible",
+        }
+        explanation = explanations.get(level, "")
         lines.append(f"## {icon} {level.category}\n")
+        lines.append(f"_{explanation}_\n")
 
         for risk in risks:
             lines.append(self.format_migration(risk))
