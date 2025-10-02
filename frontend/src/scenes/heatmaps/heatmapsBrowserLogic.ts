@@ -367,7 +367,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (url?.trim().length) {
                 actions.startTrackingLoading()
 
-                // Normalize URL - ensure trailing slash for consistency
                 let normalizedUrl = url.trim()
                 try {
                     const urlObj = new URL(normalizedUrl)
@@ -375,13 +374,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     if (urlObj.pathname === '') {
                         normalizedUrl = `${urlObj.origin}/`
                     }
-                } catch {
-                    // If URL parsing fails, use as-is
-                }
+                } catch (error) {}
 
                 actions.setHref(normalizedUrl)
 
-                // Auto-detect match type based on regex patterns
                 const isPattern = isUrlPattern(normalizedUrl)
                 actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
             }
