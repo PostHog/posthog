@@ -175,7 +175,7 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
             </LemonLabel>
 
             <LemonLabel className={labelClassName}>
-                <div>Session table version</div>
+                <div>Session table version:</div>
                 <LemonSelect<Exclude<HogQLQueryModifiers['sessionTableVersion'], undefined>>
                     options={[
                         { value: 'auto', label: 'auto' },
