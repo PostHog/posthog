@@ -20,7 +20,6 @@ import { URL } from 'url'
 import { defaultConfig } from '../config/config'
 import { isProdEnv } from './env-utils'
 import { parseJSON } from './json-parse'
-import { logger } from './logger'
 
 // eslint-disable-next-line no-restricted-imports
 export { Response } from 'undici'
@@ -241,14 +240,6 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
             await result.body.dump()
         },
     }
-
-    // If returnValue is GC’d without consuming, dump the body.
-    const registry = new FinalizationRegistry(() => {
-        // To test if this works
-        logger.debug('🦔', 'Body not consumed, dumping')
-    })
-    registry.register(returnValue, undefined)
-
     return returnValue
 }
 
