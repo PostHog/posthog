@@ -30,9 +30,9 @@ export function FeedbackContentTabs(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4 h-full">
-            <div className="border rounded-lg overflow-hidden bg-surface">
+            <div className="border rounded-lg bg-surface">
                 <div className="border-b p-4 bg-surface-secondary">
-                    <h3 className="text-sm font-semibold m-0">Review Content</h3>
+                    <h3 className="text-sm font-semibold m-0">Content</h3>
                 </div>
                 <div className="p-6">
                     <p className="text-sm m-0 whitespace-pre-wrap">{feedbackItem.content}</p>

@@ -29,7 +29,7 @@ export function FeedbackMetadataPanel(): JSX.Element {
     }
 
     return (
-        <div className="border rounded-lg overflow-hidden bg-surface">
+        <div className="border rounded-lg bg-surface">
             <div className="border-b p-4 bg-surface-secondary">
                 <h3 className="text-sm font-semibold m-0">Details</h3>
             </div>

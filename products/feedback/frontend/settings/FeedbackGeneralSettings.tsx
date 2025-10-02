@@ -119,7 +119,7 @@ export function FeedbackGeneralSettings(): JSX.Element {
                         </div>
                     </div>
 
-                    <div className="flex flex-col gap-0">
+                    <div className="flex flex-col">
                         <h3 className="text-lg font-semibold">Preview</h3>
                         <p className="text-sm text-muted-foreground">This is what your users will see</p>
                         <FeedbackPreview />

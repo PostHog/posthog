@@ -20,7 +20,7 @@ export function FeedbackItemScene(): JSX.Element {
     return (
         <SceneContent>
             <Header />
-            <div className="flex flex-row gap-4">
+            <div className="flex gap-4">
                 <div className="w-[70%]">
                     <FeedbackContentTabs />
                 </div>

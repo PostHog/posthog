@@ -13,7 +13,7 @@ export interface FeedbackItemSceneLogicProps {
 export const feedbackItemSceneLogic = kea<feedbackItemSceneLogicType>([
     path((key) => ['products', 'feedback', 'scenes', 'FeedbackItemScene', 'feedbackItemSceneLogic', key]),
     props({} as FeedbackItemSceneLogicProps),
-    key((props) => props.feedbackItemId),
+    key((props) => props.feedbackItemId || ''),
 
     actions({
         loadFeedbackItem: true,
