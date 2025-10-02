@@ -4,6 +4,7 @@ use std::{
 };
 
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
+use common_types::error_tracking::EmbeddingModelList;
 use envconfig::Envconfig;
 
 // TODO - I'm just too lazy to pipe this all the way through the resolve call stack
@@ -41,6 +42,9 @@ pub struct Config {
     pub new_fingerprints_topic: String,
 
     pub embedding_enabled_team_id: Option<i32>,
+
+    #[envconfig(default = "text-embedding-3-large")]
+    pub embedding_models: EmbeddingModelList,
 
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,

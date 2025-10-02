@@ -317,9 +317,9 @@ class TestCreateModelOperations:
         assert len(migration_risk.policy_violations) == 0
 
     def test_create_model_with_autofield(self):
-        """CreateModel with AutoField violates UUID policy."""
+        """CreateModel with AutoField violates UUID policy (for PostHog apps only)."""
         mock_migration = MagicMock()
-        mock_migration.app_label = "test"
+        mock_migration.app_label = "posthog"  # Use PostHog app to trigger policy
         mock_migration.name = "0001_test"
         mock_migration.operations = [
             create_mock_operation(
@@ -332,7 +332,7 @@ class TestCreateModelOperations:
             )
         ]
 
-        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_test.py")
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
 
         assert migration_risk.level == RiskLevel.BLOCKED  # Policy violations boost to blocked
         assert len(migration_risk.policy_violations) == 1
@@ -340,9 +340,9 @@ class TestCreateModelOperations:
         assert "AutoField" in migration_risk.policy_violations[0]
 
     def test_create_model_with_bigautofield(self):
-        """CreateModel with BigAutoField violates UUID policy."""
+        """CreateModel with BigAutoField violates UUID policy (for PostHog apps only)."""
         mock_migration = MagicMock()
-        mock_migration.app_label = "test"
+        mock_migration.app_label = "posthog"  # Use PostHog app to trigger policy
         mock_migration.name = "0001_test"
         mock_migration.operations = [
             create_mock_operation(
@@ -355,12 +355,33 @@ class TestCreateModelOperations:
             )
         ]
 
-        migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_test.py")
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
 
         assert migration_risk.level == RiskLevel.BLOCKED
         assert len(migration_risk.policy_violations) == 1
         assert "UUIDModel" in migration_risk.policy_violations[0]
         assert "BigAutoField" in migration_risk.policy_violations[0]
+
+    def test_third_party_app_with_autofield_no_violation(self):
+        """Third-party apps can use AutoField without triggering UUID policy."""
+        mock_migration = MagicMock()
+        mock_migration.app_label = "axes"  # Third-party app
+        mock_migration.name = "0001_initial"
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.CreateModel,
+                name="AccessAttempt",
+                fields=[
+                    ("id", models.AutoField(primary_key=True)),
+                    ("username", models.CharField(max_length=255)),
+                ],
+            )
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "axes/migrations/0001_initial.py")
+
+        assert migration_risk.level == RiskLevel.SAFE  # No policy violation for third-party apps
+        assert len(migration_risk.policy_violations) == 0
 
 
 class TestCombinationRisks:

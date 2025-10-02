@@ -23,6 +23,7 @@ posthog-rs = { workspace = true }
 futures.workspace = true
 reqwest.workspace = true
 serde.workspace = true
+tiktoken-rs.workspace = true
 
 [dev-dependencies]
 
