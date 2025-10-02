@@ -137,17 +137,36 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
 
 
-@pytest.fixture(scope="session")
-def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
-    # Create PostgreSQL extensions for xdist workers
-    # With --nomigrations, extensions aren't created since they're not in models
+def _create_postgresql_extensions(sender, **kwargs):
+    """
+    Create PostgreSQL extensions before tables are created.
+
+    With --nomigrations, Django uses model inspection to create tables, but
+    PostgreSQL extensions aren't defined in models. This signal handler runs
+    BEFORE Django creates any tables.
+    """
     from django.db import connection
 
-    with django_db_blocker.unblock():
-        with connection.cursor() as cursor:
-            cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-            cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
+    with connection.cursor() as cursor:
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
 
+
+@pytest.fixture(scope="session", autouse=True)
+def _setup_postgresql_extensions():
+    """Connect signal handler to create PostgreSQL extensions before table creation"""
+    from django.db.models.signals import pre_migrate
+
+    pre_migrate.connect(_create_postgresql_extensions)
+    yield
+    pre_migrate.disconnect(_create_postgresql_extensions)
+
+
+@pytest.fixture(scope="session")
+def django_db_setup(django_db_setup, django_db_keepdb):
+    """Override to set up ClickHouse alongside Django's PostgreSQL test database"""
+
+    # Setup ClickHouse
     database = Database(
         settings.CLICKHOUSE_DATABASE,
         db_url=settings.CLICKHOUSE_HTTP_URL,
@@ -164,7 +183,7 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
         except:
             pass
 
-    database.create_database()  # Create database if it doesn't exist
+    database.create_database()
     create_clickhouse_tables()
 
     yield
