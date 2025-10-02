@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import asdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -12,9 +13,10 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleState,
 )
+from temporalio.common import RetryPolicy
 
 from posthog.constants import DATA_MODELING_TASK_QUEUE
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     create_schedule,
     delete_schedule,
@@ -25,6 +27,7 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 from posthog.temporal.hogql_query_snapshots.run_workflow import RunWorkflowInputs
+from posthog.warehouse.models.datawarehouse_saved_query import aget_saved_query_by_id
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import DataWarehouseSavedQuery
@@ -97,3 +100,31 @@ def snapshot_workflow_exists(id: str) -> bool:
 def trigger_snapshot_schedule(saved_query: "DataWarehouseSavedQuery"):
     temporal = sync_connect()
     trigger_schedule(temporal, schedule_id=str(saved_query.id) + SNAPSHOT_SUFFIX)
+
+
+async def start_snapshot_workflow(label: str, team_id: int) -> None:
+    """Start the snapshot workflow and return its handle."""
+
+    model_id = uuid.UUID(label)
+    workflow_id = f"hogql-query-snapshots-run-{model_id}"
+
+    saved_query = await aget_saved_query_by_id(str(model_id), team_id)
+
+    if saved_query is not None and saved_query.snapshot_enabled:
+        inputs = RunWorkflowInputs(
+            team_id=team_id,
+            saved_query_id=str(model_id),
+        )
+
+        client = await async_connect()
+        await client.start_workflow(
+            "hogql-query-snapshots-run",
+            inputs,
+            id=workflow_id,
+            task_queue=str(DATA_MODELING_TASK_QUEUE),
+            retry_policy=RetryPolicy(
+                maximum_attempts=1,
+            ),
+        )
+
+    return
