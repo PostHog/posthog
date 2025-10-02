@@ -34,7 +34,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             return
         }
 
-        logger.info('➕ Batch processing persons who joined cohorts', {
+        logger.info('Batch processing persons who joined cohorts', {
             count: changes.length,
             sample: changes.slice(0, 3).map((c) => ({
                 personId: c.personId,
@@ -57,7 +57,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             return
         }
 
-        logger.info('➖ Batch processing persons who left cohorts', {
+        logger.info('Batch processing persons who left cohorts', {
             count: changes.length,
             sample: changes.slice(0, 3).map((c) => ({
                 personId: c.personId,
