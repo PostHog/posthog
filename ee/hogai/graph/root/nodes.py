@@ -291,9 +291,15 @@ class RootNode(AssistantNode):
         available_tools: list[type[BaseModel] | MaxTool] = []
 
         # Add the basic toolkit
-        toolkit: list[type[MaxTool]] = [ReadTaxonomyTool, SearchTool, ReadDataTool, TodoWriteTool]
+        toolkit = (ReadTaxonomyTool, SearchTool, TodoWriteTool)
         for StaticMaxToolClass in toolkit:
             available_tools.append(StaticMaxToolClass(team=self._team, user=self._user, state=state, config=config))
+
+        # Dynamically initialize some tools based on conditions
+        dynamic_tools = await asyncio.gather(
+            ReadDataTool.create_tool_class(team=self._team, user=self._user, state=state, config=config)
+        )
+        available_tools.extend(dynamic_tools)
 
         tool_names = self.context_manager.get_contextual_tools().keys()
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names

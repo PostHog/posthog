@@ -1,12 +1,13 @@
 import json
 import pkgutil
 import importlib
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 from asgiref.sync import async_to_sync
+from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantContextualTool
 
@@ -80,14 +81,18 @@ class MaxTool(AssistantContextMixin, BaseTool):
         user: User,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
+        args_schema: type[BaseModel] | None = None,
+        name: str | None = None,
+        description: str | None = None,
+        context_manager: AssistantContextManager | None = None,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        super().__init__(name=name, description=description, args_schema=args_schema, **kwargs)
         self._team = team
         self._user = user
         self._state = state if state else AssistantState(messages=[])
         self._config = config if config else RunnableConfig(configurable={})
-        self._context_manager = AssistantContextManager(team, user, self._config)
+        self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -128,3 +133,51 @@ class MaxTool(AssistantContextMixin, BaseTool):
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
         return self.root_system_prompt_template.format(**formatted_context)
+
+    @classmethod
+    async def create_tool_class(
+        cls,
+        *,
+        team: Team,
+        user: User,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+    ) -> Self:
+        """
+        Factory that creates a tool class.
+
+        Override this factory to dynamically modify the tool name, description, args schema, etc.
+        """
+        raise NotImplementedError
+
+    @classmethod
+    def _format_prompt(
+        cls, prompt: str, template_format: Literal["mustache", "f-string"] = "mustache", **kwargs
+    ) -> str:
+        """
+        Format a prompt template with dynamic values.
+
+        Useful when tools need to dynamically inject content into their description or prompts
+        based on runtime context (e.g., user permissions, team settings).
+
+        Args:
+            prompt: The prompt template string with variables to be replaced.
+                   Variables should be in mustache format {{variable}} or f-string format {variable}.
+            template_format: The template format to use. Defaults to "mustache".
+            **kwargs: Variables to inject into the template.
+
+        Returns:
+            The formatted prompt string with all variables replaced.
+
+        Example:
+            >>> prompt = "You have access to: {{features}}"
+            >>> formatted = cls._format_prompt(prompt, features="billing, search")
+            >>> print(formatted)
+            "You have access to: billing, search"
+        """
+        return (
+            PromptTemplate.from_template(prompt, template_format=template_format)
+            .format_prompt(**kwargs)
+            .to_string()
+            .strip()
+        )
