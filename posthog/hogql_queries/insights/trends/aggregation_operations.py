@@ -405,8 +405,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                         numbers(dateDiff({interval}, {date_from_start_of_interval} - {inclusive_lookback}, {date_to}))
                 ) d
                 WHERE
-                    e.timestamp <= d.timestamp + INTERVAL 1 DAY AND
-                    e.timestamp > d.timestamp - {exclusive_lookback}
+                    e.timestamp < d.timestamp + INTERVAL 1 DAY AND
+                    e.timestamp > d.timestamp - {inclusive_lookback}
                 GROUP BY d.timestamp
                 ORDER BY d.timestamp
             """,
@@ -502,15 +502,22 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
             return query
 
+        if self.query_date_range.interval_name == "hour":
+            timestamp_expr = "toStartOfHour(timestamp) AS timestamp"
+        elif self.query_date_range.interval_name == "minute":
+            timestamp_expr = "toStartOfMinute(timestamp) AS timestamp"
+        else:
+            timestamp_expr = "toStartOfDay(timestamp) AS timestamp"
+
         return parse_select(
-            """
+            f"""
                 SELECT
-                    timestamp as timestamp,
-                    {person_field} AS actor_id
+                    {timestamp_expr},
+                    {{person_field}} AS actor_id
                 FROM
                     events e
-                SAMPLE {sample}
-                WHERE {events_where_clause}
+                SAMPLE {{sample}}
+                WHERE {{events_where_clause}}
                 GROUP BY
                     timestamp,
                     actor_id

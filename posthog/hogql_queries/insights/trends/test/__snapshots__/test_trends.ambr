@@ -506,7 +506,7 @@
                      e.actor_id AS actor_id,
                      e.breakdown_value AS breakdown_value
               FROM
-                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e SAMPLE 1
@@ -523,7 +523,7 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+              WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
               GROUP BY d.timestamp,
                        e.actor_id,
                        breakdown_value
@@ -569,7 +569,7 @@
                      e.actor_id AS actor_id,
                      e.breakdown_value AS breakdown_value
               FROM
-                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(nullIf(nullIf(e.mat_key, ''), 'null')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e SAMPLE 1
@@ -586,7 +586,7 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+              WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
               GROUP BY d.timestamp,
                        e.actor_id,
                        breakdown_value
@@ -647,7 +647,7 @@
                      count(DISTINCT e.actor_id) AS counts,
                      e.breakdown_value AS breakdown_value
               FROM
-                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e SAMPLE 1
@@ -677,7 +677,7 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+              WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
               GROUP BY d.timestamp,
                        breakdown_value
               ORDER BY d.timestamp ASC)
@@ -1339,7 +1339,7 @@
                      count(DISTINCT e.actor_id) AS counts,
                      e.breakdown_value AS breakdown_value
               FROM
-                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(e__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e SAMPLE 1
@@ -1367,7 +1367,7 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
+              WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))), 0))
               GROUP BY d.timestamp,
                        breakdown_value
               ORDER BY d.timestamp ASC)
@@ -1416,7 +1416,7 @@
                      count(DISTINCT e.actor_id) AS counts,
                      e.breakdown_value_1 AS breakdown_value_1
               FROM
-                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(e__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
                  FROM events AS e SAMPLE 1
@@ -1444,7 +1444,7 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
+              WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))), 0))
               GROUP BY d.timestamp,
                        breakdown_value_1
               ORDER BY d.timestamp ASC)
@@ -1493,7 +1493,7 @@
                      count(DISTINCT e.actor_id) AS counts,
                      e.breakdown_value AS breakdown_value
               FROM
-                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e SAMPLE 1
@@ -1510,7 +1510,7 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
+              WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))), 0))
               GROUP BY d.timestamp,
                        breakdown_value
               ORDER BY d.timestamp ASC)
@@ -1559,7 +1559,7 @@
                      count(DISTINCT e.actor_id) AS counts,
                      e.breakdown_value_1 AS breakdown_value_1
               FROM
-                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
                  FROM events AS e SAMPLE 1
@@ -1576,7 +1576,7 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
+              WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))), 0))
               GROUP BY d.timestamp,
                        breakdown_value_1
               ORDER BY d.timestamp ASC)
@@ -2289,7 +2289,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
@@ -2304,7 +2304,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), 0)))
@@ -2482,7 +2482,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'America/Phoenix') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
@@ -2497,7 +2497,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-05 23:59:59', 'America/Phoenix')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'America/Phoenix')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'America/Phoenix'))), 0)))
@@ -2675,7 +2675,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'Asia/Tokyo') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
@@ -2690,7 +2690,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo'))), 0)))
@@ -3491,7 +3491,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      e.distinct_id AS actor_id
               FROM events AS e SAMPLE 1
               WHERE and(equals(e.team_id, 99999), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))))
@@ -3499,7 +3499,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), 0)))
@@ -3533,7 +3533,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      e.distinct_id AS actor_id
               FROM events AS e SAMPLE 1
               WHERE and(equals(e.team_id, 99999), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))))
@@ -3541,7 +3541,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), 0)))
@@ -4998,7 +4998,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      e.`$group_0` AS actor_id
               FROM events AS e SAMPLE 1
               WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'viewed video'), notEquals(e.`$group_0`, '')), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC'))))
@@ -5006,7 +5006,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC'))), 0)))
@@ -5040,7 +5040,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'America/Phoenix') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS timestamp,
                      e.`$group_0` AS actor_id
               FROM events AS e SAMPLE 1
               WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'viewed video'), notEquals(e.`$group_0`, '')), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'America/Phoenix')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'America/Phoenix'))))
@@ -5048,7 +5048,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'America/Phoenix')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'America/Phoenix')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'America/Phoenix')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'America/Phoenix')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'America/Phoenix'))), 0)))
@@ -5082,7 +5082,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'Asia/Tokyo') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS timestamp,
                      e.`$group_0` AS actor_id
               FROM events AS e SAMPLE 1
               WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'viewed video'), notEquals(e.`$group_0`, '')), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'Asia/Tokyo')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo'))))
@@ -5090,7 +5090,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'Asia/Tokyo')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'Asia/Tokyo')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo'))), 0)))
@@ -5116,7 +5116,7 @@
     (SELECT d.timestamp AS timestamp,
             e.actor_id AS actor_id
      FROM
-       (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+       (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
@@ -5131,7 +5131,7 @@
      CROSS JOIN
        (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
         FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))) AS numbers) AS d
-     WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+     WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
@@ -5155,7 +5155,7 @@
     (SELECT d.timestamp AS timestamp,
             e.actor_id AS actor_id
      FROM
-       (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+       (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
         FROM events AS e SAMPLE 1
         LEFT OUTER JOIN
@@ -5170,7 +5170,7 @@
      CROSS JOIN
        (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
         FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')))) AS numbers) AS d
-     WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+     WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
@@ -5194,7 +5194,7 @@
     (SELECT d.timestamp AS timestamp,
             e.actor_id AS actor_id
      FROM
-       (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+       (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
         FROM events AS e SAMPLE 1.0
         LEFT OUTER JOIN
@@ -5209,7 +5209,7 @@
      CROSS JOIN
        (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
         FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')))) AS numbers) AS d
-     WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+     WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
@@ -5241,7 +5241,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
@@ -5256,7 +5256,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC'))), 0)))
@@ -5290,7 +5290,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'America/Phoenix') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'America/Phoenix')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
@@ -5305,7 +5305,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'America/Phoenix')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'America/Phoenix')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'America/Phoenix')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'America/Phoenix')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'America/Phoenix'))), 0)))
@@ -5339,7 +5339,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'Asia/Tokyo') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
@@ -5354,7 +5354,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'Asia/Tokyo')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'Asia/Tokyo')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo'))), 0)))
@@ -5388,7 +5388,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
@@ -5413,7 +5413,7 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), 0)))
@@ -5447,7 +5447,7 @@
           (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
@@ -5472,59 +5472,10 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+           WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), 0)))
-     GROUP BY day_start
-     ORDER BY day_start ASC)
-  ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestTrends.test_weekly_active_users_hourly
-  '''
-  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalHour(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC')), toIntervalHour(1)))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
-  FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start
-     FROM
-       (SELECT counts AS total,
-               toStartOfHour(timestamp) AS day_start
-        FROM
-          (SELECT d.timestamp AS timestamp,
-                  count(DISTINCT e.actor_id) AS counts
-           FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
-              FROM events AS e SAMPLE 1
-              LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                        person_distinct_id_overrides.distinct_id AS distinct_id
-                 FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                 GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC'))))
-              GROUP BY timestamp, actor_id) AS e
-           CROSS JOIN
-             (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(numbers.number)) AS timestamp
-              FROM numbers(dateDiff('hour', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalHour(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
-           GROUP BY d.timestamp
-           ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalHour(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC'))), 0)))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC

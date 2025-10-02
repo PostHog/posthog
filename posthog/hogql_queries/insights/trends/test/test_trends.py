@@ -6970,7 +6970,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 0,
                 0,
                 0,
-                1,
+                0,
                 1,
             ],
         )
