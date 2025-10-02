@@ -18,6 +18,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { MetricsReorderModal } from '../MetricsView/MetricsReorderModal'
+import { VariantsPanel } from './VariantsPanel'
 import { createExperimentLogic } from './createExperimentLogic'
 import { ExperimentTypePanel } from './panels/ExperimentTypePanel'
 
@@ -110,7 +111,7 @@ export const CreateExperiment = (): JSX.Element => {
                                 header: 'Feature flag & variants',
                                 content: (
                                     <div className="p-4">
-                                        <span>Variants Panel Goes Here</span>
+                                        <VariantsPanel experiment={experiment} onChange={(updates) => {}} />
                                     </div>
                                 ),
                             },
