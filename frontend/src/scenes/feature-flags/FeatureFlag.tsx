@@ -101,6 +101,7 @@ import {
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -464,19 +465,39 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                     <LemonField name="tags" label="Tags">
-                                        {({ value, onChange }) => {
-                                            return (
-                                                <ObjectTags
-                                                    saving={featureFlagLoading}
-                                                    tags={value}
-                                                    onChange={(tags) => onChange(tags)}
-                                                    tagsAvailable={tags.filter(
-                                                        (tag: string) => !featureFlag.tags?.includes(tag)
-                                                    )}
-                                                    className="mt-2"
-                                                />
-                                            )
-                                        }}
+                                        {({ value: formTags, onChange: onChangeTags }) => (
+                                            <>
+                                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                                    <LemonField name="evaluation_tags">
+                                                        {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
+                                                            <FeatureFlagEvaluationTags
+                                                                tags={formTags}
+                                                                evaluationTags={formEvalTags || []}
+                                                                onChange={(updatedTags, updatedEvaluationTags) => {
+                                                                    onChangeTags(updatedTags)
+                                                                    onChangeEvalTags(updatedEvaluationTags)
+                                                                }}
+                                                                tagsAvailable={tags.filter(
+                                                                    (tag: string) => !formTags?.includes(tag)
+                                                                )}
+                                                                className="mt-2"
+                                                                flagId={featureFlag.id}
+                                                            />
+                                                        )}
+                                                    </LemonField>
+                                                ) : (
+                                                    <ObjectTags
+                                                        tags={formTags}
+                                                        onChange={onChangeTags}
+                                                        saving={featureFlagLoading}
+                                                        tagsAvailable={tags.filter(
+                                                            (tag: string) => !formTags?.includes(tag)
+                                                        )}
+                                                        className="mt-2"
+                                                    />
+                                                )}
+                                            </>
+                                        )}
                                     </LemonField>
                                 )}
                                 <LemonField name="active">
@@ -626,17 +647,41 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <ScenePanel>
                             <ScenePanelInfoSection>
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
-                                    <SceneTags
-                                        onSave={(tags) => {
-                                            const updatedFlag = { ...featureFlag, tags }
-                                            updateFlag(updatedFlag)
-                                            saveFeatureFlag(updatedFlag)
-                                        }}
-                                        canEdit
-                                        tags={featureFlag.tags}
-                                        tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
-                                        dataAttrKey={RESOURCE_TYPE}
-                                    />
+                                    <>
+                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                            <FeatureFlagEvaluationTags
+                                                tags={featureFlag.tags}
+                                                evaluationTags={featureFlag.evaluation_tags || []}
+                                                onChange={(updatedTags, updatedEvaluationTags) => {
+                                                    const updatedFlag = {
+                                                        ...featureFlag,
+                                                        tags: updatedTags,
+                                                        evaluation_tags: updatedEvaluationTags,
+                                                    }
+                                                    updateFlag(updatedFlag)
+                                                    saveFeatureFlag(updatedFlag)
+                                                }}
+                                                tagsAvailable={tags.filter(
+                                                    (tag: string) => !featureFlag.tags?.includes(tag)
+                                                )}
+                                                flagId={featureFlag.id}
+                                            />
+                                        ) : (
+                                            <SceneTags
+                                                onSave={(tags) => {
+                                                    const updatedFlag = { ...featureFlag, tags }
+                                                    updateFlag(updatedFlag)
+                                                    saveFeatureFlag(updatedFlag)
+                                                }}
+                                                canEdit
+                                                tags={featureFlag.tags}
+                                                tagsAvailable={tags.filter(
+                                                    (tag: string) => !featureFlag.tags?.includes(tag)
+                                                )}
+                                                dataAttrKey={RESOURCE_TYPE}
+                                            />
+                                        )}
+                                    </>
                                 )}
 
                                 <SceneFile dataAttrKey={RESOURCE_TYPE} />
@@ -887,6 +932,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         isDraftExperiment,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const {
         distributeVariantsEqually,
         addVariant,
@@ -1024,6 +1070,26 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 <span className="mt-1">{flagTypeString}</span>
                             </div>
                         </div>
+
+                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
+                            featureFlag.tags &&
+                            featureFlag.tags.length > 0 && (
+                                <>
+                                    <span className="card-secondary mt-4">Tags</span>
+                                    <div className="mt-2">
+                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                            <FeatureFlagEvaluationTags
+                                                tags={featureFlag.tags}
+                                                evaluationTags={featureFlag.evaluation_tags || []}
+                                                staticOnly
+                                                flagId={featureFlag.id}
+                                            />
+                                        ) : (
+                                            <ObjectTags tags={featureFlag.tags} staticOnly />
+                                        )}
+                                    </div>
+                                </>
+                            )}
 
                         <span className="card-secondary mt-4">Flag persistence</span>
                         <span>
