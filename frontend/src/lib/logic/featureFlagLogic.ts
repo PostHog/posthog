@@ -73,6 +73,10 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     return flags
 }
 
+export function getFeatureFlagPayload(flag: FeatureFlagKey): any {
+    return posthog.getFeatureFlagPayload(flag)
+}
+
 export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['lib', 'logic', 'featureFlagLogic']),
     actions({

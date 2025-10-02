@@ -1550,6 +1550,10 @@ export interface NamedQueryRunRequest {
     query_override?: Record<string, any>
 }
 
+export interface NamedQueryLastExecutionTimesRequest {
+    names: string[]
+}
+
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
@@ -2575,6 +2579,7 @@ export interface ExperimentMetricBaseProperties extends Node {
 export type ExperimentMetricOutlierHandling = {
     lower_bound_percentile?: number
     upper_bound_percentile?: number
+    ignore_zeros?: boolean
 }
 
 export interface ExperimentDataWarehouseNode extends EntityNode {
@@ -4016,4 +4021,31 @@ export type ExternalDataSourceType = (typeof externalDataSources)[number]
 export enum InfinityValue {
     INFINITY_VALUE = 999999,
     NEGATIVE_INFINITY_VALUE = -999999,
+}
+
+// PostHog Playwright Setup Types for Playwright Testing
+export interface TestSetupRequest {
+    data?: Record<string, any>
+}
+
+export interface TestSetupResponse {
+    success: boolean
+    test_name: string
+    result?: any
+    error?: string
+    available_tests?: string[]
+}
+
+export interface PlaywrightWorkspaceSetupData {
+    organization_name?: string
+}
+
+export interface PlaywrightWorkspaceSetupResult {
+    organization_id: string
+    team_id: string
+    organization_name: string
+    team_name: string
+    user_id: string
+    user_email: string
+    personal_api_key: string
 }
