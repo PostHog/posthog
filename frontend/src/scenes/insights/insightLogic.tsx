@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -141,7 +140,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             redirectToInsight,
         }),
         setInsightFeedback: (feedback: 'liked' | 'disliked') => ({ feedback }),
-        trackInsightViewed: true,
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -623,11 +621,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             })
             lemonToast.success(`Insight ${feedback}`)
         },
-        trackInsightViewed: () => {
-            if (values.insight.id && values.currentTeamId) {
-                void api.create(`api/environments/${values.currentTeamId}/insights/${values.insight.id}/viewed`)
-            }
-        },
     })),
     events(({ props, actions }) => ({
         afterMount: () => {
@@ -643,8 +636,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     props.tileFiltersOverride
                 )
             }
-
-            actions.trackInsightViewed()
         },
     })),
 ])

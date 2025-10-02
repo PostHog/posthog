@@ -1275,18 +1275,35 @@ When set, the specified dashboard's filters and date range override will be appl
         return {"result": result.results, "timezone": team.timezone}
 
     # ******************************************
-    # /projects/:id/insights/:short_id/viewed
-    # Creates or updates an InsightViewed object for the user/insight combo
+    # /projects/:id/insights/viewed
+    # Creates or updates InsightViewed objects for the user/insight combo(s)
+    # Accepts an array of insight_ids
     # ******************************************
-    @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
+    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        insight = self.get_object()
-        InsightViewed.objects.update_or_create(
-            team=self.team,
-            user=request.user,
-            insight=insight,
-            defaults={"last_viewed_at": now()},
+        """
+        Update insight view timestamps.
+        Expects: {"insight_ids": [1, 2, 3, ...]}
+        """
+        insight_ids = request.data.get("insight_ids")
+
+        if not insight_ids or not isinstance(insight_ids, list):
+            raise serializers.ValidationError({"insight_ids": "Must be a non-empty list of insight IDs"})
+
+        insights = Insight.objects.filter(
+            id__in=insight_ids,
+            team__project_id=self.team.project_id,
+            deleted=False,
         )
+
+        viewed_at = now()
+        for insight in insights:
+            InsightViewed.objects.update_or_create(
+                team=self.team,
+                user=request.user,
+                insight=insight,
+                defaults={"last_viewed_at": viewed_at},
+            )
 
         return Response(status=status.HTTP_201_CREATED)
 
