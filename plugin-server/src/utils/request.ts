@@ -161,8 +161,8 @@ export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
 class SecureAgent extends Agent {
     constructor() {
         super({
-            keepAliveTimeout: 10_000,
-            connections: 500,
+            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: defaultConfig.REQUEST_CONNECTIONS,
             connect: {
                 lookup: httpStaticLookup,
                 timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
@@ -175,8 +175,8 @@ class SecureAgent extends Agent {
 class InsecureAgent extends Agent {
     constructor() {
         super({
-            keepAliveTimeout: 10_000,
-            connections: 500,
+            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
                 timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             },
