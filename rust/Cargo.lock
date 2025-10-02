@@ -1596,7 +1596,7 @@ name = "common-alloc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "axum 0.7.5",
+ "axum 0.7.9",
  "flate2",
  "jemalloc_pprof",
  "pprof",
