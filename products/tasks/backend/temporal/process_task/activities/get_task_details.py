@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 
-from asgiref.sync import sync_to_async
 from temporalio import activity
+
+from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import Task
 
@@ -15,12 +16,13 @@ class TaskDetails:
 
 
 @activity.defn
-async def get_task_details(task_id: str) -> TaskDetails:
-    task = await sync_to_async(Task.objects.get)(id=task_id)
+@asyncify
+def get_task_details(task_id: str) -> TaskDetails:
+    task = Task.objects.get(id=task_id)
 
     return TaskDetails(
         task_id=str(task.id),
         team_id=task.team_id,
         github_integration_id=task.github_integration_id,
-        repository=task.primary_repository["repo"],
+        repository=task.primary_repository["full_name"],
     )

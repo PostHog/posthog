@@ -1,6 +1,39 @@
+import inspect
+from collections.abc import Callable
 from datetime import datetime
+from functools import wraps
+from typing import ParamSpec, TypeVar
 
+from asgiref.sync import sync_to_async
 from temporalio import workflow
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+
+def asyncify(fn: Callable[P, T]) -> Callable[P, T]:
+    """Decorator to convert a sync function into an async Temporal activity.
+
+    This preserves type hints for Temporal's serialization while allowing
+    sync Django ORM code.
+
+    Usage:
+        @activity.defn
+        @asyncify
+        def my_activity(task_id: str) -> TaskDetails:
+            task = Task.objects.get(id=task_id)
+            return TaskDetails(...)
+    """
+    if inspect.iscoroutinefunction(fn):
+        raise TypeError(
+            f"@asyncify should only be used on sync functions. " f"'{fn.__name__}' is already async. Remove @asyncify."
+        )
+
+    @wraps(fn)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        return await sync_to_async(fn)(*args, **kwargs)
+
+    return wrapper
 
 
 def get_scheduled_start_time():
