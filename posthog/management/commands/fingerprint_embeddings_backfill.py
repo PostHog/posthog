@@ -89,12 +89,14 @@ def create_embedding_events(batch: list[ErrorTrackingIssueFingerprintV2]):
     """
     new_fingerprint_events = []
     for fingerprint in batch:
+        # Technically first_seen is nullable
+        start_time = fingerprint.first_seen if fingerprint.first_seen else fingerprint.created_at
         properties = sync_execute(
             event_query,
             {
                 "team_id": fingerprint.team_id,
-                "start": fingerprint.first_seen,
-                "end": fingerprint.first_seen + timedelta(hours=1),
+                "start": start_time,
+                "end": start_time + timedelta(hours=1),
                 "fingerprint": fingerprint.fingerprint,
             },
         )
