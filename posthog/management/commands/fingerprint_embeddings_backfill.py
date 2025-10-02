@@ -54,8 +54,6 @@ class Command(BaseCommand):
             .iterator()
         )
 
-        logger.info(f"Found {fingerprints.count()} fingerprints")
-
         # Iterate through the fingerprints in batches of 100 at a time
         batch: list[ErrorTrackingIssueFingerprintV2] = []
         for fingerprint in fingerprints:
