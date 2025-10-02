@@ -223,7 +223,7 @@ class ExperimentQueryBuilder:
                 right=self.date_range_query.date_to_as_hogql(),
             )
 
-        predicates = [
+        predicates: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["timestamp"]),
@@ -355,7 +355,7 @@ class ExperimentQueryBuilder:
 
         return query
 
-    def _build_funnel_step_columns(self) -> list[ast.Expr]:
+    def _build_funnel_step_columns(self) -> list[ast.Alias]:
         """
         Builds list of step column AST expressions: step_0, step_1, etc.
         """

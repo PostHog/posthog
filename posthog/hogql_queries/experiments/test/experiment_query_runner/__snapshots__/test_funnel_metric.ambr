@@ -757,7 +757,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_funnel_metric_0_disable_map_aggregations
+# name: TestExperimentFunnelMetric.test_query_runner_funnel_metric_0_disable_new_query_builder
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -823,7 +823,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_funnel_metric_1_enable_map_aggregations
+# name: TestExperimentFunnelMetric.test_query_runner_funnel_metric_1_enable_new_query_builder
   '''
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,

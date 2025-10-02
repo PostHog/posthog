@@ -22,10 +22,10 @@ from posthog.test.test_journeys import journeys_for
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
-    @parameterized.expand([("disable_map_aggregations", False), ("enable_map_aggregations", True)])
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_sum_metric(self, name, use_map_aggregation):
+    def test_property_sum_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -99,7 +99,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_map_aggregation=use_map_aggregation
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
         )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
@@ -301,10 +301,10 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
-    @parameterized.expand([("disable_map_aggregations", False), ("enable_map_aggregations", True)])
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_unique_sessions_math_type(self, name, use_map_aggregation):
+    def test_unique_sessions_math_type(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -380,7 +380,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_map_aggregation=use_map_aggregation
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
         )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
@@ -396,10 +396,10 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 3)
         self.assertEqual(test_variant.number_of_samples, 2)
 
-    @parameterized.expand([("disable_map_aggregations", False), ("enable_map_aggregations", True)])
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_max_metric(self, name, use_map_aggregation):
+    def test_property_max_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -461,7 +461,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_map_aggregation=use_map_aggregation
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
         )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
@@ -477,10 +477,10 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
 
-    @parameterized.expand([("disable_map_aggregations", False), ("enable_map_aggregations", True)])
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_min_metric(self, name, use_map_aggregation):
+    def test_property_min_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -542,7 +542,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_map_aggregation=use_map_aggregation
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
         )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
@@ -558,10 +558,10 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
 
-    @parameterized.expand([("disable_map_aggregations", False), ("enable_map_aggregations", True)])
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_avg_metric(self, name, use_map_aggregation):
+    def test_property_avg_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -623,7 +623,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_map_aggregation=use_map_aggregation
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
         )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 

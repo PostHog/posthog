@@ -62,11 +62,15 @@ class ExperimentQueryRunner(QueryRunner):
     cached_response: CachedExperimentQueryResponse
 
     def __init__(
-        self, *args, override_end_date: Optional[datetime] = None, use_map_aggregation: Optional[bool] = False, **kwargs
+        self,
+        *args,
+        override_end_date: Optional[datetime] = None,
+        use_new_query_builder: Optional[bool] = False,
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
-        self.use_map_aggregation = use_map_aggregation
+        self.use_new_query_builder = use_new_query_builder
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -112,7 +116,7 @@ class ExperimentQueryRunner(QueryRunner):
         self.metric = self.query.metric
 
     @property
-    def is_map_aggregation_supported(self) -> bool:
+    def is_new_query_builder_supported(self) -> bool:
         """
         Determines whether to use the map aggregation query builder.
         Only enabled for mean metrics without data warehouse support (MVP scope).
@@ -131,7 +135,7 @@ class ExperimentQueryRunner(QueryRunner):
         ):
             return False
 
-        return self.use_map_aggregation is True
+        return self.use_new_query_builder is True
 
     def _should_use_new_query_builder(self) -> bool:
         """
@@ -152,7 +156,7 @@ class ExperimentQueryRunner(QueryRunner):
             if self.metric.lower_bound_percentile or self.metric.upper_bound_percentile:
                 return False
 
-        return self.use_map_aggregation is True
+        return self.use_new_query_builder is True
 
     def _get_metrics_aggregated_per_entity_query(
         self,
