@@ -66,10 +66,15 @@ impl Display for EmbeddingModel {
     }
 }
 
+fn default_embedding_model() -> Vec<EmbeddingModel> {
+    vec![EmbeddingModel::OpenAITextEmbeddingLarge]
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewFingerprintEvent {
     pub team_id: i32,
     pub fingerprint: String,
+    #[serde(default = "default_embedding_model")]
     pub models: Vec<EmbeddingModel>,
     pub exception_list: Vec<ExceptionData>,
 }
