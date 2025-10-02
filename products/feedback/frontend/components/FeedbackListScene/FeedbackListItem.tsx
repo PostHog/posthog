@@ -2,6 +2,8 @@ import { useActions } from 'kea'
 
 import { LemonBadge, LemonTag } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
+
 import { FeedbackItem } from '../../models'
 import { feedbackListSceneLogic } from '../../scenes/FeedbackListScene/feedbackListSceneLogic'
 
@@ -26,7 +28,7 @@ export function FeedbackListItem({ feedback }: FeedbackListItemProps): JSX.Eleme
                     <div className="flex items-center gap-2">
                         <span className="font-medium text-sm">todo@todo.com</span>
                         <span className="text-muted text-xs">·</span>
-                        <span className="text-muted text-xs">{feedback.created_at}</span>
+                        <span className="text-muted text-xs">{dayjs(feedback.created_at).fromNow()}</span>
                         <span className="text-muted text-xs">·</span>
                         <LemonTag>
                             <span className="capitalize">{feedback.category?.name}</span>
