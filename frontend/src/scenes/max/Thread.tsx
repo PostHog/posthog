@@ -96,7 +96,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     return (
         <div
             className={twMerge(
-                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow',
+                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow ml-auto mr-auto',
                 className
             )}
         >

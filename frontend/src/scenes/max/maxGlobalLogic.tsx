@@ -94,6 +94,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
+        registerTab: (tabId: string) => ({ tabId }),
+        deregisterTab: (tabId: string) => ({ tabId }),
+        setSidePanelTab: (tabId: string | null) => ({ tabId }),
     }),
     reducers({
         registeredToolMap: [
@@ -110,19 +113,64 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
             },
         ],
+        registeredTabs: [
+            {} as Record<string, { sidebar?: boolean }>,
+            {
+                registerTab: (state, { tabId }) => ({
+                    ...state,
+                    [tabId]: {},
+                }),
+                deregisterTab: (state, { tabId }) => {
+                    const newState = { ...state }
+                    delete newState[tabId]
+                    return newState
+                },
+                setSidePanelTab: (state, { tabId }) => {
+                    const newState = { ...state }
+                    for (const key of Object.keys(newState)) {
+                        if (key === tabId && newState[key].sidebar) {
+                            continue // No change
+                        }
+                        if (key !== tabId && !newState[key].sidebar) {
+                            continue // No change
+                        }
+                        newState[key] = { ...newState[key], sidebar: key === tabId }
+                    }
+                    return newState
+                },
+            },
+        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
             await organizationLogic.asyncActions.updateOrganization({
                 is_ai_data_processing_approved: testOnlyOverride ?? true,
             })
         },
         locationChanged: ({ pathname }) => {
+            if (
+                values.registeredToolMap.navigate &&
+                pathname === values.registeredToolMap.navigate.context?.current_page
+            ) {
+                return // No change to path
+            }
             // Update navigation tool with the current page
             actions.registerTool({
                 ...values.toolMap.navigate,
                 context: { current_page: pathname },
             })
+        },
+        registerTab: ({ tabId }) => {
+            if (!cache.tabUnmounts) {
+                cache.tabUnmounts = {}
+            }
+            cache.tabUnmounts[tabId] = maxLogic({ tabId }).mount()
+        },
+        deregisterTab: ({ tabId }) => {
+            if (cache.tabUnmounts?.[tabId]) {
+                cache.tabUnmounts[tabId]()
+                delete cache.tabUnmounts[tabId]
+            }
         },
     })),
     selectors({
@@ -169,6 +217,13 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     }
                 }
                 return suggestions
+            },
+        ],
+        sidePanelTabId: [
+            (s) => [s.registeredTabs],
+            (registeredTabs): string | null => {
+                const sidebarTab = Object.entries(registeredTabs).find(([_, v]) => v.sidebar)
+                return sidebarTab ? sidebarTab[0] : null
             },
         ],
     }),

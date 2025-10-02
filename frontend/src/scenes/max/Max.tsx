@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import React from 'react'
 
 import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconPlus, IconSidePanel } from '@posthog/icons'
@@ -8,6 +8,8 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -23,26 +25,26 @@ import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
-import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 
 export const scene: SceneExport = {
     component: Max,
-    logic: maxGlobalLogic,
+    logic: maxLogic,
     settingSectionId: 'environment-max',
 }
 
-export function Max(): JSX.Element {
+export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
+    const { sidePanelTabId } = useValues(maxGlobalLogic)
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
         return <NotFound object="page" caption="You don't have access to AI features yet." />
     }
 
-    if (sidePanelOpen && selectedTab === SidePanelTab.Max) {
+    if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidePanelTabId === tabId) {
         return (
             <div className="flex flex-col items-center justify-center w-full grow">
                 <IconSidePanel className="text-3xl text-muted mb-2" />
@@ -60,22 +62,27 @@ export function Max(): JSX.Element {
         )
     }
 
-    return <MaxInstance />
+    return <MaxInstance tabId={tabId ?? ''} />
 }
 
 export interface MaxInstanceProps {
     sidePanel?: boolean
+    tabId: string
 }
 
-export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
+export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }: MaxInstanceProps): JSX.Element {
     const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled, threadLogicKey, conversation } =
-        useValues(maxLogic)
-    const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
+        useValues(maxLogic({ tabId }))
+    const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic({ tabId }))
 
     const threadProps: MaxThreadLogicProps = {
+        tabId,
         conversationId: threadLogicKey,
         conversation,
     }
+    // Connect the specific thread to the specific max tab
+    useMountedLogic(maxThreadLogic(threadProps))
+    useAttachedLogic(maxThreadLogic(threadProps), maxLogic({ tabId }))
 
     const { closeSidePanel } = useActions(sidePanelLogic)
 
@@ -158,27 +165,29 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
             )}
             {!sidePanel && <div className="flex justify-end gap-2 pt-1 px-4">{headerButtons}</div>}
 
-            <BindLogic logic={maxThreadLogic} props={threadProps}>
-                {conversationHistoryVisible ? (
-                    <ConversationHistory sidePanel={sidePanel} />
-                ) : !threadVisible ? (
-                    // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
-                    // is at the same viewport height as the QuestionInput text that appear after going into a thread.
-                    // This makes the transition from one view into another just that bit smoother visually.
-                    <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height))]">
-                        <div className="flex-1 items-center justify-center flex flex-col gap-3">
-                            <Intro />
-                            <SidebarQuestionInputWithSuggestions />
+            <BindLogic logic={maxLogic} props={{ tabId }}>
+                <BindLogic logic={maxThreadLogic} props={threadProps}>
+                    {conversationHistoryVisible ? (
+                        <ConversationHistory sidePanel={sidePanel} />
+                    ) : !threadVisible ? (
+                        // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
+                        // is at the same viewport height as the QuestionInput text that appear after going into a thread.
+                        // This makes the transition from one view into another just that bit smoother visually.
+                        <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height))]">
+                            <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                                <Intro />
+                                <SidebarQuestionInputWithSuggestions />
+                            </div>
+                            <HistoryPreview sidePanel={sidePanel} />
                         </div>
-                        <HistoryPreview sidePanel={sidePanel} />
-                    </div>
-                ) : (
-                    /** Must be the last child and be a direct descendant of the scrollable element */
-                    <ThreadAutoScroller>
-                        <Thread className="p-3" />
-                        <SidebarQuestionInput isSticky />
-                    </ThreadAutoScroller>
-                )}
+                    ) : (
+                        /** Must be the last child and be a direct descendant of the scrollable element */
+                        <ThreadAutoScroller>
+                            <Thread className="p-3" />
+                            <SidebarQuestionInput isSticky />
+                        </ThreadAutoScroller>
+                    )}
+                </BindLogic>
             </BindLogic>
         </>
     )

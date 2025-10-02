@@ -1,6 +1,6 @@
-import { actions, afterMount, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 
 import { IconBook, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
 
@@ -8,8 +8,10 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconSurveys } from 'lib/lemon-ui/icons'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual, uuid } from 'lib/utils'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -60,6 +62,8 @@ function handleCommandString(options: string, actions: maxLogicType['actions']):
 
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
+    props({} as { tabId: string }),
+    tabAwareScene(),
 
     connect(() => ({
         values: [
@@ -75,7 +79,8 @@ export const maxLogic = kea<maxLogicType>([
     })),
 
     actions({
-        setQuestion: (question: string) => ({ question }),
+        setQuestion: (question: string) => ({ question }), // update the form input
+        askMax: (prompt: string | null) => ({ prompt }), // used by maxThreadLogic to start a conversation
         scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         setConversationId: (conversationId: string) => ({ conversationId }),
         startNewConversation: true,
@@ -138,7 +143,7 @@ export const maxLogic = kea<maxLogicType>([
 
         // The frontend-generated UUID for new conversations
         frontendConversationId: [
-            uuid(),
+            (() => uuid()) as any as string,
             {
                 startNewConversation: () => uuid(),
             },
@@ -210,6 +215,7 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     selectors({
+        tabId: [() => [(_, props) => props?.tabId || ''], (tabId) => tabId],
         conversation: [
             (s) => [s.conversationHistory, s.conversationId],
             (conversationHistory, conversationId) => {
@@ -297,6 +303,15 @@ export const maxLogic = kea<maxLogicType>([
                 return frontendConversationId
             },
         ],
+
+        threadLogicProps: [
+            (s) => [s.tabId, s.conversation, s.threadLogicKey],
+            (tabId, conversation, threadLogicKey) => ({
+                tabId,
+                conversationId: threadLogicKey,
+                conversation,
+            }),
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -364,7 +379,7 @@ export const maxLogic = kea<maxLogicType>([
                 conversation = await api.conversations.get(conversationId)
             } catch (err: any) {
                 // If conversation is not found, reset the thread completely.
-                if (err.status === 404) {
+                if (err.status === 404 && currentRecursionDepth >= 3) {
                     actions.startNewConversation()
                     lemonToast.error('The chat has not been found.')
                     return
@@ -426,11 +441,19 @@ export const maxLogic = kea<maxLogicType>([
         actions.loadConversationHistory()
     }),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         /**
          * When the URL contains a conversation ID, we want to make that conversation the active one.
          */
         '*': (_, search) => {
+            if (search.ask && !search.chat && !values.question) {
+                window.setTimeout(() => {
+                    // ensure maxThreadLogic is mounted
+                    actions.askMax(search.ask)
+                }, 100)
+                return
+            }
+
             if (!search.chat || search.chat === values.conversationId) {
                 return
             }
@@ -446,7 +469,7 @@ export const maxLogic = kea<maxLogicType>([
             if (conversation) {
                 actions.scrollThreadToBottom('instant')
             } else if (!values.conversationHistoryLoading) {
-                actions.pollConversation(search.chat, 0, 0)
+                actions.pollConversation(search.chat, 0, 200)
             }
 
             if (values.conversationHistoryVisible) {
@@ -456,28 +479,27 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         startNewConversation: () => {
-            const { chat, ...params } = decodeParams(router.values.location.search, '?')
+            const { chat, ask: _, ...params } = decodeParams(router.values.location.search, '?')
             return [router.values.location.pathname, params, router.values.location.hash]
         },
         setConversationId: (payload: Record<string, any>) => {
             const { conversationId } = payload
             // Only set the URL parameter if this is a new conversation (using frontendConversationId)
             if (conversationId && conversationId === values.frontendConversationId) {
-                const params = decodeParams(router.values.location.search, '?')
+                const { ask: _, ...params } = decodeParams(router.values.location.search, '?')
                 return [
                     router.values.location.pathname,
                     { ...params, chat: conversationId },
                     router.values.location.hash,
+                    { replace: true },
                 ]
             }
             // Return undefined to not update URL for existing conversations
             return undefined
         },
     })),
-
-    permanentlyMount(), // Prevent state from being reset when Max is unmounted, especially key in the side panel
 ])
 
 export function getScrollableContainer(element?: Element | null): HTMLElement | null {

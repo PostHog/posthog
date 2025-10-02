@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { IconSearch, IconSidePanel } from '@posthog/icons'
@@ -13,9 +14,9 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
-import { maxLogic } from 'scenes/max/maxLogic'
 import { NEW_TAB_CATEGORY_ITEMS, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -44,7 +45,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         newTabSceneLogic({ tabId })
     )
     const { mobileLayout } = useValues(navigationLogic)
-    const { setQuestion, focusInput } = useActions(maxLogic)
+    // const { setQuestion, focusInput } = useActions(maxLogic)
     const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { showSceneDashboardChoiceModal } = useActions(
@@ -58,7 +59,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             element?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
         }
     }, [selectedItem])
-
     return (
         <ListBox
             ref={listboxRef}
@@ -105,15 +105,15 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 </ListBox.Item>
                             </span>
                             <span className="text-primary flex gap-1 items-center">
-                                {/* if filtered results lenght is 0, this will be the first to focus */}
-                                <ListBox.Item asChild focusFirst={filteredItemsGrid.length === 0}>
+                                {/* if the filtered results length is 0, this will be the first to focus */}
+                                <ListBox.Item
+                                    asChild
+                                    focusFirst={filteredItemsGrid.filter((a) => a.types.length > 0).length === 0}
+                                >
                                     <ButtonPrimitive
                                         size="xxs"
                                         onClick={() => {
-                                            openSidePanel(SidePanelTab.Max)
-                                            setSearch('')
-                                            setQuestion(search)
-                                            focusInput()
+                                            router.actions.push(urls.max(search))
                                         }}
                                         className="text-xs"
                                         tooltip="Hit enter to open Max!"
