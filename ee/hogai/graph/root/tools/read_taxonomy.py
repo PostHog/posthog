@@ -30,7 +30,7 @@ class ReadEntityProperties(BaseModel):
 
 
 class ReadActionProperties(BaseModel):
-    """Returns the properties list for a provided event. Before calling this tool, ensure the action exists by searching actions or if it was provided in the context."""
+    """Returns the properties list for a provided action. Before calling this tool, ensure the action exists by searching actions or if it was provided in the context."""
 
     kind: Literal["action_properties"] = "action_properties"
     action_id: int
@@ -144,5 +144,5 @@ class ReadTaxonomyTool(MaxTool):
             case ReadEntitySamplePropertyValues() as schema:
                 res = toolkit.retrieve_entity_property_values(schema.entity, schema.property_name)
             case _:
-                raise ValueError(f"Invalid query: {query.query}")
+                raise ValueError(f"Invalid query: {query}")
         return res, None

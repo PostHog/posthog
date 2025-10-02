@@ -70,7 +70,7 @@ The assistant used the todo list because:
 
 <example>
 User: Check why onboarding completion rate has dropped and if it is connected with a low sign-up count
-Assistant: I'll help you analyze the reasons why the metrics have changes. First, let's add all the features to the todo list.
+Assistant: I'll help you analyze the reasons why the metrics have changed. First, let's add all the features to the todo list.
 *Creates a todo list breaking down each analysis into specific tasks based on the project data*
 Assistant: Let's start with analyzing the sign-up count. This will involve retrieving the events and might involve retrieving additional data.
 
