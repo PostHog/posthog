@@ -128,6 +128,7 @@ class ReadTaxonomyTool(MaxTool):
 
     def _run_impl(self, query: ReadTaxonomyQuery) -> tuple[str, Any]:
         toolkit = TaxonomyAgentToolkit(self._team)
+        res = ""
         match query:
             case ReadEvents():
                 res = format_events_yaml([], self._team)
@@ -143,6 +144,4 @@ class ReadTaxonomyTool(MaxTool):
                 res = toolkit.retrieve_entity_properties(schema.entity)
             case ReadEntitySamplePropertyValues() as schema:
                 res = toolkit.retrieve_entity_property_values(schema.entity, schema.property_name)
-            case _:
-                raise ValueError(f"Invalid query: {query}")
         return res, None

@@ -14,7 +14,7 @@ Use this tool to read user data created in PostHog. This tool returns data that 
 # Data warehouse schema
 
 Returns the SQL ClickHouse schema for the user's data warehouse.
-You MUST use this tool:
+You MUST use this tool when:
 - Working with SQL.
 - The request is about data warehouse, connected data sources, etc.
 
@@ -61,8 +61,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return "", ReadDataToolArgs(kind=kind).model_dump()
             case "datawarehouse_schema":
                 return await self._serialize_database_schema(), None
-            case _:
-                return INVALID_KIND_PROMPT, None  # type: ignore
 
     @database_sync_to_async
     def _check_user_has_billing_access(self) -> bool:
