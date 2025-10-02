@@ -83,8 +83,8 @@ PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES = get_from_env(
 
 # Assistant
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
-OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "https://api.openai.com/v1")
-OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "")
+OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
