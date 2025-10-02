@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -76,136 +76,144 @@ function ExportButton({
 }
 
 function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTMLIFrameElement | null> }): JSX.Element {
-    const logic = heatmapsBrowserLogic()
-
     const {
         browserUrlSearchOptions,
         browserUrl,
         isBrowserUrlValid,
         replayIframeData,
         hasValidReplayIframeData,
-        currentUrlMatchType,
         browserSearchTerm,
-    } = useValues(logic)
-    const { setBrowserSearch, setBrowserUrl, setReplayIframeData, setReplayIframeDataURL } = useActions(logic)
+        displayUrl,
+    } = useValues(heatmapsBrowserLogic)
+    const { setBrowserSearch, setBrowserUrl, setReplayIframeData, setReplayIframeDataURL, setDisplayUrl } =
+        useActions(heatmapsBrowserLogic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
     return (
-        <div className="flex-none md:flex justify-between items-center gap-2 w-full">
-            <div className="flex gap-2 flex-1 min-w-0">
-                <div className="flex-1">
-                    {hasValidReplayIframeData ? (
-                        <LemonInput
-                            value={replayIframeData?.url}
-                            onChange={(s) => setReplayIframeDataURL(s)}
-                            className="truncate"
-                            size="small"
-                        />
-                    ) : (
-                        <div className="relative">
+        <>
+            <div className="flex-none md:flex justify-between items-end gap-2 w-full">
+                <div className="flex gap-2 flex-1 min-w-0">
+                    <div className="flex-1">
+                        {hasValidReplayIframeData ? (
                             <LemonInput
+                                value={replayIframeData?.url}
+                                onChange={(s) => setReplayIframeDataURL(s)}
+                                className="truncate"
                                 size="small"
-                                placeholder={`e.g. ${placeholderUrl}`}
-                                value={browserUrl || browserSearchTerm || ''}
-                                onChange={(value) => {
-                                    setBrowserSearch(value)
-                                    setBrowserUrl(value || null)
-                                }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && browserSearchTerm) {
-                                        setBrowserUrl(browserSearchTerm)
-                                    }
-                                }}
-                                className={`truncate ${!isBrowserUrlValid ? 'border-red-500' : ''}`}
                             />
-                            {/* Show suggestions when there are options and user has typed something */}
-                            {browserUrlSearchOptions?.length && browserSearchTerm?.length && (
-                                <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-bg-light border border-border rounded shadow-lg max-h-48 overflow-y-auto">
-                                    {browserUrlSearchOptions.slice(0, 5).map((url) => (
-                                        <button
-                                            key={url}
-                                            className="w-full text-left px-3 py-2 hover:bg-bg-3000 text-sm truncate"
-                                            onClick={() => {
-                                                setBrowserUrl(url)
-                                                setBrowserSearch('')
-                                            }}
-                                        >
-                                            {url}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
+                        ) : (
+                            <>
+                                <div className="relative">
+                                    <LemonLabel>Display URL</LemonLabel>
+                                    <div className="text-xs text-muted mb-1">
+                                        Enter a working URL from your site for iframe preview
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <LemonInput
+                                            size="small"
+                                            placeholder={`e.g. ${placeholderUrl}`}
+                                            value={displayUrl || browserSearchTerm || ''}
+                                            onChange={(value) => {
+                                                setBrowserSearch(value)
+                                                setDisplayUrl(value || null)
 
-                {/* Small match type indicator */}
-                {(browserUrl || browserSearchTerm) && (
-                    <Tooltip
-                        title={
-                            currentUrlMatchType === 'pattern' ? (
-                                <>
-                                    <strong>Pattern matching</strong> - Uses wildcard character <code>*</code> to match
-                                    multiple URLs. For example, <code>https://example.com/*</code> will match{' '}
-                                    <code>https://example.com/page</code> and <code>https://example.com/page/1</code>.
-                                </>
-                            ) : (
-                                <>
-                                    <strong>Exact matching</strong> - Matches only the specific URL entered. Add{' '}
-                                    <code>*</code> to your URL to switch to pattern matching.
-                                </>
-                            )
-                        }
+                                                // Copy the same URL to heatmap data URL
+                                                setBrowserUrl(value || null)
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' && browserSearchTerm) {
+                                                    setDisplayUrl(browserSearchTerm)
+                                                }
+                                            }}
+                                            className="truncate flex-1"
+                                        />
+                                        <LemonButton
+                                            type="secondary"
+                                            icon={<IconOpenInNew />}
+                                            to={
+                                                displayUrl || browserUrl
+                                                    ? appEditorUrl(displayUrl || browserUrl, {
+                                                          userIntent: 'heatmaps',
+                                                      })
+                                                    : hasValidReplayIframeData && replayIframeData?.url
+                                                      ? appEditorUrl(replayIframeData?.url, {
+                                                            userIntent: 'heatmaps',
+                                                        })
+                                                      : undefined
+                                            }
+                                            targetBlank
+                                            disabledReason={
+                                                !displayUrl && !browserUrl && !hasValidReplayIframeData
+                                                    ? 'Select a URL first'
+                                                    : undefined
+                                            }
+                                            size="small"
+                                            data-attr="heatmaps-open-in-toolbar"
+                                        >
+                                            Open in toolbar
+                                        </LemonButton>
+                                    </div>
+                                    {/* Show suggestions when there are options and user has typed something */}
+                                    {!!(browserUrlSearchOptions?.length && browserSearchTerm?.length) && (
+                                        <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-bg-light border border-border rounded shadow-lg max-h-48 overflow-y-auto">
+                                            {browserUrlSearchOptions.slice(0, 5).map((url) => (
+                                                <button
+                                                    key={url}
+                                                    className="w-full text-left px-3 py-2 hover:bg-bg-3000 text-sm truncate"
+                                                    onClick={() => {
+                                                        setDisplayUrl(url)
+                                                        setBrowserSearch('')
+
+                                                        // Copy the same URL to heatmap data URL
+                                                        setBrowserUrl(url)
+                                                    }}
+                                                >
+                                                    {url}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="mt-2">
+                                    <LemonLabel>Heatmap data URL</LemonLabel>
+                                    <div className="text-xs text-muted mb-1">
+                                        Same as display URL by default - add * for wildcards to aggregate data from
+                                        multiple pages
+                                    </div>
+                                    <div className="flex gap-2 justify-between">
+                                        <LemonInput
+                                            size="small"
+                                            placeholder="Auto-generated from display URL above"
+                                            value={browserUrl || ''}
+                                            onChange={(value) => {
+                                                setBrowserUrl(value || null)
+                                            }}
+                                            className={`truncate flex-1 ${!isBrowserUrlValid ? 'border-red-500' : ''}`}
+                                        />
+                                        <ExportButton iframeRef={iframeRef} />
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+                {hasValidReplayIframeData ? (
+                    <LemonButton
+                        size="small"
+                        icon={<IconRevert />}
+                        data-attr="heatmaps-reset"
+                        onClick={() => {
+                            setReplayIframeData(null)
+                            setBrowserUrl(null)
+                        }}
+                        className="mt-2 md:mt-0"
                     >
-                        <LemonTag
-                            type={currentUrlMatchType === 'pattern' ? 'warning' : 'default'}
-                            size="small"
-                            className="shrink-0"
-                        >
-                            {currentUrlMatchType === 'pattern' ? 'Pattern' : 'Exact'}
-                        </LemonTag>
-                    </Tooltip>
-                )}
+                        Reset
+                    </LemonButton>
+                ) : null}
             </div>
-            {hasValidReplayIframeData ? (
-                <LemonButton
-                    size="small"
-                    icon={<IconRevert />}
-                    data-attr="heatmaps-reset"
-                    onClick={() => {
-                        setReplayIframeData(null)
-                        setBrowserUrl(null)
-                    }}
-                    className="mt-2 md:mt-0"
-                >
-                    Reset
-                </LemonButton>
-            ) : null}
-            <LemonButton
-                type="secondary"
-                icon={<IconOpenInNew />}
-                to={
-                    browserUrl
-                        ? appEditorUrl(browserUrl, {
-                              userIntent: 'heatmaps',
-                          })
-                        : hasValidReplayIframeData && replayIframeData?.url
-                          ? appEditorUrl(replayIframeData?.url, {
-                                userIntent: 'heatmaps',
-                            })
-                          : undefined
-                }
-                targetBlank
-                disabledReason={!browserUrl && !hasValidReplayIframeData ? 'Select a URL first' : undefined}
-                className="mt-2 md:mt-0"
-                size="small"
-                data-attr="heatmaps-open-in-toolbar"
-            >
-                Open in toolbar
-            </LemonButton>
-            <ExportButton iframeRef={iframeRef} />
-        </div>
+        </>
     )
 }
 
@@ -214,7 +222,7 @@ function HeatmapsBrowserIntro(): JSX.Element {
 
     const { topUrls, topUrlsLoading, noPageviews } = useValues(logic)
 
-    const { setBrowserUrl } = useActions(logic)
+    const { setDisplayUrl, setBrowserUrl } = useActions(logic)
 
     return (
         <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto">
@@ -249,7 +257,14 @@ function HeatmapsBrowserIntro(): JSX.Element {
                     ) : (
                         <>
                             {topUrls?.map(({ url }) => (
-                                <LemonButton key={url} fullWidth onClick={() => setBrowserUrl(url)}>
+                                <LemonButton
+                                    key={url}
+                                    fullWidth
+                                    onClick={() => {
+                                        setBrowserUrl(url)
+                                        setDisplayUrl(url)
+                                    }}
+                                >
                                     {url}
                                 </LemonButton>
                             ))}
@@ -333,7 +348,7 @@ export function HeatmapsBrowser(): JSX.Element {
 
     const logic = heatmapsBrowserLogic({ iframeRef })
 
-    const { browserUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
+    const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
@@ -346,7 +361,7 @@ export function HeatmapsBrowser(): JSX.Element {
                     <div className="relative flex flex-1 overflow-hidden border min-h-screen">
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
-                        ) : browserUrl ? (
+                        ) : displayUrl ? (
                             <>
                                 {!isBrowserUrlAuthorized ? (
                                     <ForbiddenURL />

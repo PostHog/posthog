@@ -65,6 +65,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     actions({
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),
         setBrowserUrl: (url: string | null) => ({ url }),
+        setDisplayUrl: (url: string | null) => ({ url }),
         onIframeLoad: true,
         sendToolbarMessage: (type: PostHogAppToolbarEvent, payload?: Record<string, any>) => ({
             type,
@@ -228,6 +229,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setIframeWidth: (_, { width }) => width,
             },
         ],
+        displayUrl: [
+            null as string | null,
+            {
+                setDisplayUrl: (_, { url }) => url,
+            },
+        ],
     }),
 
     selectors({
@@ -279,18 +286,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         noPageviews: [
             (s) => [s.topUrlsLoading, s.topUrls],
             (topUrlsLoading, topUrls) => !topUrlsLoading && (!topUrls || topUrls.length === 0),
-        ],
-
-        currentUrlMatchType: [
-            (s) => [s.browserUrl, s.browserSearchTerm],
-            (browserUrl: string | null, browserSearchTerm: string) => {
-                // Use the current input value (either confirmed URL or what's being typed)
-                const currentValue = browserUrl || browserSearchTerm
-                if (!currentValue) {
-                    return 'exact'
-                }
-                return currentValue.includes('*') ? 'pattern' : 'exact'
-            },
         ],
     }),
 
@@ -416,6 +411,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         '/heatmaps': (_, searchParams) => {
             if (searchParams.pageURL && searchParams.pageURL !== values.browserUrl) {
                 actions.setBrowserUrl(searchParams.pageURL)
+                actions.setDisplayUrl(searchParams.pageURL)
             }
             if (searchParams.heatmapFilters && !objectsEqual(searchParams.heatmapFilters, values.heatmapFilters)) {
                 actions.patchHeatmapFilters(searchParams.heatmapFilters)
@@ -442,7 +438,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        setBrowserUrl: ({ url }) => {
+        setDisplayUrl: ({ url }) => {
             const searchParams = { ...router.values.searchParams, pageURL: url }
             if (!url || url.trim() === '') {
                 delete searchParams.pageURL
