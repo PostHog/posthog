@@ -132,15 +132,13 @@ async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[
             "ttl_days": 365,
         }
 
-        logger.info("Querying ClickHouse")
+        ch_query_id = str(uuid4())
+        logger.info(f"Querying ClickHouse with query_id: {ch_query_id}")
         raw_response: bytes = b""
         async with get_client() as client:
-            async with client.aget_query(
-                query=query, query_parameters=parameters, query_id=str(uuid4())
-            ) as ch_response:
+            async with client.aget_query(query=query, query_parameters=parameters, query_id=ch_query_id) as ch_response:
                 raw_response = await ch_response.content.read()
 
         session_ids: list[str] = _parse_session_recording_list_response(raw_response)
-
         logger.info(f"Successfully loaded {len(session_ids)} session IDs")
         return session_ids

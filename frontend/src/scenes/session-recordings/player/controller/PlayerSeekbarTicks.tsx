@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import posthog from 'posthog-js'
 import React, { MutableRefObject, memo } from 'react'
 
 import { IconComment } from '@posthog/icons'
@@ -75,6 +76,12 @@ function PlayerSeekbarTick({
             <Tooltip
                 placement="top-start"
                 delayMs={50}
+                onOpen={() => {
+                    posthog.capture('player seekbar tick tooltip shown', {
+                        item_type: item.type,
+                        ...(isEventItem(item) && { event: item.data.event }),
+                    })
+                }}
                 title={
                     isEventItem(item) ? (
                         <>
