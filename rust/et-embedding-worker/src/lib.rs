@@ -123,13 +123,11 @@ fn generate_text_representation(
     encoder: &CoreBPE,
     max_tokens: usize,
 ) -> Result<String> {
-    let mut res = String::with_capacity(max_tokens);
-
     let mut tokens = Vec::new();
 
     for exception in &fingerprint.exception_list {
         // Add exception type and value
-        res.push_str(&format!(
+        let type_and_value = &format!(
             "{}: {}",
             exception.exception_type,
             exception
@@ -137,12 +135,11 @@ fn generate_text_representation(
                 .chars()
                 .take(300)
                 .collect::<String>()
-        ));
+        );
 
-        tokens = encoder.encode_with_special_tokens(&res);
+        tokens = encoder.encode_with_special_tokens(type_and_value);
 
         if tokens.len() > max_tokens {
-            res.truncate(tokens.len() - max_tokens);
             return Ok(encoder.decode(tokens)?);
         }
 
