@@ -67,6 +67,13 @@ export function ExperimentMetricOutlierHandling({
                         }`}
                     />
                 </div>
+                <div className="flex items-center gap-2">
+                    <LemonCheckbox
+                        label="Ignore zeros when calculating bounds"
+                        checked={metric.ignore_zeros ?? false}
+                        onChange={(checked) => handleSetMetric({ ...metric, ignore_zeros: checked })}
+                    />
+                </div>
             </div>
         </SceneSection>
     )

@@ -22,7 +22,7 @@ export interface ValidatedTokenResponseType extends ResponseType {
 
 export const verifyEmailLogic = kea<verifyEmailLogicType>([
     path(['scenes', 'authentication', 'verifyEmailLogic']),
-    connect({ values: [userLogic, ['user']] }),
+    connect(() => ({ values: [userLogic, ['user']] })),
     actions({
         setView: (view: 'verify' | 'pending' | 'invalid' | 'success' | null) => ({ view }),
         setUuid: (uuid: string | null) => ({ uuid }),

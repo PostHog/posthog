@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
@@ -27,10 +27,10 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     path(['scenes', 'data-warehouse', 'settings', 'source', 'dataWarehouseSourceSettingsLogic']),
     props({} as DataWarehouseSourceSettingsLogicProps),
     key(({ id }) => id),
-    connect({
+    connect(() => ({
         values: [availableSourcesDataLogic, ['availableSources']],
         actions: [externalDataSourcesLogic, ['updateSource']],
-    }),
+    })),
     actions({
         setSourceId: (id: string) => ({ id }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -295,5 +295,15 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     afterMount(({ actions }) => {
         actions.loadSource()
         actions.loadJobs()
+    }),
+
+    beforeUnmount(({ cache }) => {
+        // Clean up refresh timeouts to prevent memory leaks and continued API calls
+        if (cache.sourceRefreshTimeout) {
+            clearTimeout(cache.sourceRefreshTimeout)
+        }
+        if (cache.jobsRefreshTimeout) {
+            clearTimeout(cache.jobsRefreshTimeout)
+        }
     }),
 ])

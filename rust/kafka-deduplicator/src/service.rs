@@ -152,6 +152,7 @@ impl KafkaDeduplicatorService {
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
                 .with_tls(self.config.kafka_tls)
+                .with_sticky_partition_assignment(self.config.pod_hostname.as_deref())
                 .offset_reset(&self.config.kafka_consumer_offset_reset)
                 .build();
 

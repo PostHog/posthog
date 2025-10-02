@@ -36,8 +36,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { QueryContext } from '~/queries/types'
+import { PersonType } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
+import { RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
@@ -46,6 +48,16 @@ const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
+
+    const renderRemovePersonFromCohortButton = ({ record }: { record: unknown }): JSX.Element => {
+        if (!Array.isArray(record)) {
+            console.error('Expected record to be an array for person.$delete column')
+            return <></>
+        }
+        const personRecord = record[0] as PersonType
+
+        return <RemovePersonFromCohortButton person={personRecord} cohortId={id as number} />
+    }
 
     const logic = cohortEditLogic(logicProps)
     const {
@@ -60,8 +72,16 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
     const { showAddPersonToCohortModal } = useActions(modalLogic)
-    const { cohort, cohortLoading, cohortMissing, query, creationPersonQuery, personsToCreateStaticCohort } =
-        useValues(logic)
+    const {
+        cohort,
+        cohortLoading,
+        cohortMissing,
+        query,
+        creationPersonQuery,
+        personsToCreateStaticCohort,
+        canRemovePersonFromCohort,
+    } = useValues(logic)
+
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query, dataNodeLogicKey })
@@ -144,20 +164,24 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         <IconCopy /> Duplicate as static cohort
                     </ButtonPrimitive>
                 </ScenePanelActionsSection>
-                <ScenePanelDivider />
-                <ScenePanelActionsSection>
-                    <ButtonPrimitive
-                        onClick={() => {
-                            deleteCohort()
-                        }}
-                        variant="danger"
-                        menuItem
-                        data-attr={`${RESOURCE_TYPE}-delete`}
-                    >
-                        <IconTrash />
-                        Delete
-                    </ButtonPrimitive>
-                </ScenePanelActionsSection>
+                {!isNewCohort && (
+                    <>
+                        <ScenePanelDivider />
+                        <ScenePanelActionsSection>
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    deleteCohort()
+                                }}
+                                variant="danger"
+                                menuItem
+                                data-attr={`${RESOURCE_TYPE}-delete`}
+                            >
+                                <IconTrash />
+                                Delete
+                            </ButtonPrimitive>
+                        </ScenePanelActionsSection>
+                    </>
+                )}
             </ScenePanel>
 
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
@@ -276,8 +300,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     isNewCohort
                                         ? `Upload a CSV file to add users to your cohort. For single-column files, include
                                         one distinct ID per row (all rows will be processed as data). For multi-column
-                                        files, include a header row with a 'distinct_id' column containing the user
-                                        identifiers.`
+                                        files, include a header row with a 'person_id', 'distinct_id', or 'email' column
+                                        containing the user identifiers.`
                                         : undefined
                                 }
                                 className={cn('ph-ignore-input')}
@@ -288,8 +312,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         <span className="max-w-prose">
                                             Upload a CSV file to add users to your cohort. For single-column files,
                                             include one distinct ID per row (all rows will be processed as data). For
-                                            multi-column files, include a header row with a 'distinct_id' column
-                                            containing the user identifiers.
+                                            multi-column files, include a header row with a 'person_id', 'distinct_id',
+                                            or 'email' column containing the user identifiers.
                                         </span>
                                     </div>
                                 )}
@@ -449,6 +473,13 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 refresh: 'force_blocking',
                                                 fileNameForExport: cohort.name,
                                                 dataNodeLogicKey: dataNodeLogicKey,
+                                                columns: canRemovePersonFromCohort
+                                                    ? {
+                                                          'person.$delete': {
+                                                              render: renderRemovePersonFromCohortButton,
+                                                          },
+                                                      }
+                                                    : undefined,
                                             }}
                                         />
                                     )}
