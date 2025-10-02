@@ -241,6 +241,10 @@ export function HogFunctionList({
                     size="small"
                     loading={loading}
                     columns={columns}
+                    pagination={{
+                        controlled: false,
+                        pageSize: 20,
+                    }}
                     emptyState={
                         hogFunctions.length === 0 && !loading ? (
                             `No ${humanizedType}s found`
