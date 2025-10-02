@@ -1,128 +1,131 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
-
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuOpenIndicator,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { ScenePanelCommonActions, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
 import { feedbackItemSceneLogic } from '../../scenes/FeedbackItemScene/feedbackItemSceneLogic'
 import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSettingsLogic'
 
-export function FeedbackMetadataPanel(): JSX.Element {
+const RESOURCE_TYPE = 'feedback'
+
+export function FeedbackMetadataPanel(): JSX.Element | null {
     const { feedbackItem, feedbackItemLoading } = useValues(feedbackItemSceneLogic)
     const { feedbackCategories, feedbackTopics, getStatusesForCategory } = useValues(feedbackGeneralSettingsLogic)
     const { updateStatus, updateAssignment, updateCategory, updateTopic } = useActions(feedbackItemSceneLogic)
 
-    if (feedbackItemLoading) {
-        return (
-            <div className="border rounded-lg p-6 bg-surface">
-                <p className="text-muted m-0">Loading</p>
-            </div>
-        )
-    }
-
-    if (!feedbackItem) {
-        return (
-            <div className="border rounded-lg p-6 bg-surface">
-                <p className="text-muted m-0">Feedback item not found</p>
-            </div>
-        )
+    if (feedbackItemLoading || !feedbackItem) {
+        return null
     }
 
     return (
-        <div className="border rounded-lg bg-surface">
-            <div className="border-b p-4 bg-surface-secondary">
-                <h3 className="text-sm font-semibold m-0">Details</h3>
-            </div>
+        <div className="flex flex-col gap-2">
+            <ScenePanelLabel title="Feedback ID">{feedbackItem.id}</ScenePanelLabel>
 
-            <div className="divide-y">
-                <MetadataRow title="Feedback ID" value={feedbackItem.id} valueClassName="font-mono text-xs" />
+            <ScenePanelLabel title="Category">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive fullWidth className="flex justify-between" variant="panel" menuItem>
+                            <span>{feedbackItem.category?.name ?? 'Select category'}</span>
+                            <DropdownMenuOpenIndicator />
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent loop matchTriggerWidth>
+                        {feedbackCategories.map((category) => (
+                            <DropdownMenuItem key={category.id} asChild>
+                                <ButtonPrimitive menuItem onClick={() => updateCategory(category.id)}>
+                                    {category.name}
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </ScenePanelLabel>
 
-                <MetadataRow title="Created At" value={feedbackItem.created_at} />
-
-                <MetadataRow title="Email" value="todo@todo.com" />
-
-                <MetadataRow
-                    title="Category"
-                    value={
-                        <LemonSelect
-                            value={feedbackItem.category?.id}
-                            onChange={(value) => value && updateCategory(value)}
-                            options={feedbackCategories.map((category) => ({
-                                label: category.name,
-                                value: category.id,
-                            }))}
-                            size="small"
-                            placeholder="Select category"
-                        />
-                    }
-                />
-
-                <MetadataRow
-                    title="Status"
-                    value={
-                        <LemonSelect
-                            value={feedbackItem.status?.id}
-                            onChange={(value) => value && updateStatus(value)}
-                            options={
-                                feedbackItem.category?.id
-                                    ? getStatusesForCategory(feedbackItem.category.id).map((status) => ({
-                                          label: status.name,
-                                          value: status.id,
-                                      }))
-                                    : []
-                            }
-                            size="small"
-                            placeholder="Select status"
+            <ScenePanelLabel title="Status">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive
+                            fullWidth
+                            className="flex justify-between"
+                            variant="panel"
+                            menuItem
                             disabled={!feedbackItem.category}
-                        />
-                    }
+                        >
+                            <span>{feedbackItem.status?.name ?? 'Select status'}</span>
+                            {feedbackItem.category && <DropdownMenuOpenIndicator />}
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent loop matchTriggerWidth>
+                        {feedbackItem.category?.id &&
+                            getStatusesForCategory(feedbackItem.category.id).map((status) => (
+                                <DropdownMenuItem key={status.id} asChild>
+                                    <ButtonPrimitive menuItem onClick={() => updateStatus(status.id)}>
+                                        {status.name}
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </ScenePanelLabel>
+
+            <ScenePanelLabel title="Topic">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive fullWidth className="flex justify-between" variant="panel" menuItem>
+                            <span>{feedbackItem.topic?.name ?? 'Select topic'}</span>
+                            <DropdownMenuOpenIndicator />
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent loop matchTriggerWidth>
+                        {feedbackTopics.map((topic) => (
+                            <DropdownMenuItem key={topic.id} asChild>
+                                <ButtonPrimitive menuItem onClick={() => updateTopic(topic.id)}>
+                                    {topic.name}
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </ScenePanelLabel>
+
+            <ScenePanelLabel title="Assigned to">
+                <MemberSelect
+                    value={feedbackItem.assignment?.user?.id ?? null}
+                    onChange={(user) => updateAssignment(user?.id ?? null)}
+                    defaultLabel="Unassigned"
+                    allowNone={true}
+                    type="secondary"
+                    size="small"
                 />
+            </ScenePanelLabel>
 
-                <MetadataRow
-                    title="Topic"
-                    value={
-                        <LemonSelect
-                            value={feedbackItem.topic?.id}
-                            onChange={(value) => value && updateTopic(value)}
-                            options={feedbackTopics.map((topic) => ({
-                                label: topic.name,
-                                value: topic.id,
-                            }))}
-                            size="small"
-                            placeholder="Select topic"
-                        />
-                    }
+            <SceneActivityIndicator at={feedbackItem.created_at} prefix="Created" />
+
+            <ScenePanelDivider />
+
+            <ScenePanelCommonActions>
+                <SceneCommonButtons
+                    comment
+                    share={{
+                        onClick: () => {
+                            void copyToClipboard(window.location.href, 'feedback link')
+                        },
+                    }}
+                    dataAttrKey={RESOURCE_TYPE}
                 />
-
-                <MetadataRow
-                    title="Assigned to"
-                    value={
-                        <MemberSelect
-                            value={feedbackItem.assignment?.user?.id ?? null}
-                            onChange={(user) => updateAssignment(user?.id ?? null)}
-                            defaultLabel="Unassigned"
-                            allowNone={true}
-                            type="secondary"
-                            size="small"
-                        />
-                    }
-                />
-            </div>
-        </div>
-    )
-}
-
-interface MetadataRowProps {
-    title: string
-    value: React.ReactNode
-    valueClassName?: string
-}
-
-function MetadataRow({ title, value, valueClassName }: MetadataRowProps): JSX.Element {
-    return (
-        <div className="p-4">
-            <h4 className="text-xs font-semibold text-muted mb-2">{title}</h4>
-            {typeof value === 'string' ? <p className={`text-sm m-0 ${valueClassName || ''}`}>{value}</p> : value}
+            </ScenePanelCommonActions>
         </div>
     )
 }

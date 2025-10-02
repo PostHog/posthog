@@ -1,8 +1,6 @@
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 
 import { FeedbackContentTabs } from '../../components/FeedbackItemScene/FeedbackContentTabs'
 import { FeedbackMetadataPanel } from '../../components/FeedbackItemScene/FeedbackMetadataPanel'
@@ -18,31 +16,22 @@ export const scene: SceneExport = {
 
 export function FeedbackItemScene(): JSX.Element {
     return (
-        <SceneContent>
-            <Header />
-            <div className="flex gap-4">
-                <div className="w-[70%]">
-                    <FeedbackContentTabs />
-                </div>
-                <div className="w-[30%]">
-                    <FeedbackMetadataPanel />
-                </div>
-            </div>
-        </SceneContent>
-    )
-}
-
-const Header = (): JSX.Element => {
-    return (
         <>
             <SceneBreadcrumbBackButton
+                className="mb-2"
                 forceBackTo={{
                     key: 'Feedback',
                     name: 'Feedback',
                     path: '/feedback',
                 }}
             />
-            <SceneDivider />
+
+            <div className="grid grid-cols-4 gap-4">
+                <div className="space-y-2 col-span-3">
+                    <FeedbackContentTabs />
+                </div>
+                <FeedbackMetadataPanel />
+            </div>
         </>
     )
 }
