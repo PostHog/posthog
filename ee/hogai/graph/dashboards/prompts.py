@@ -2,6 +2,10 @@ DASHBOARD_CREATION_ERROR_MESSAGE = """
 I encountered an issue while creating the dashboard. Please try again.
 """
 
+DASHBOARD_EDIT_ERROR_MESSAGE = """
+I encountered an issue while adding insights to the dashboard. Please try again.
+"""
+
 DASHBOARD_SUCCESS_MESSAGE_TEMPLATE = """
 **Dashboard Created**
 

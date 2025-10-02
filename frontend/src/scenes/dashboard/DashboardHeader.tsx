@@ -61,7 +61,7 @@ import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
-import { dashboardLogic } from './dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 const RESOURCE_TYPE = 'dashboard'
@@ -81,7 +81,7 @@ export function DashboardHeader(): JSX.Element | null {
         showTextTileModal,
         textTileId,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
+    const { setDashboardMode, triggerDashboardUpdate, loadDashboard } = useActions(dashboardLogic)
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
@@ -162,6 +162,7 @@ export function DashboardHeader(): JSX.Element | null {
                     : undefined,
             }}
             active={!!dashboard}
+            callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
         >
             <>
                 {dashboardMode === DashboardMode.Fullscreen && (

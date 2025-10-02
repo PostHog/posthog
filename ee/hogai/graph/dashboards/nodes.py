@@ -27,6 +27,7 @@ from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     DASHBOARD_CREATION_ERROR_MESSAGE,
+    DASHBOARD_EDIT_ERROR_MESSAGE,
     DASHBOARD_EDIT_SUCCESS_MESSAGE_TEMPLATE,
     DASHBOARD_NO_INSIGHTS_MESSAGE,
     DASHBOARD_SUCCESS_MESSAGE_TEMPLATE,
@@ -154,7 +155,10 @@ class DashboardCreationNode(AssistantNode):
                 },
                 exc_info=True,
             )
-            return self._create_error_response(DASHBOARD_CREATION_ERROR_MESSAGE, state.root_tool_call_id or "unknown")
+            return self._create_error_response(
+                DASHBOARD_CREATION_ERROR_MESSAGE if state.dashboard_id is None else DASHBOARD_EDIT_ERROR_MESSAGE,
+                state.root_tool_call_id or "unknown",
+            )
 
     async def _create_insights(
         self,
@@ -272,6 +276,18 @@ class DashboardCreationNode(AssistantNode):
 
         return query_metadata
 
+    def _get_dashboard(self, dashboard_id: int | None, dashboard_name: str) -> Dashboard:
+        if dashboard_id is None:
+            dashboard = Dashboard.objects.create(
+                name=dashboard_name,
+                team=self._team,
+                created_by=self._user,
+            )
+        else:
+            dashboard = Dashboard.objects.prefetch_related("insights").get(id=dashboard_id, team=self._team)
+
+        return dashboard
+
     async def _create_dashboard_with_insights(
         self, dashboard_name: str, insights: set[int], dashboard_id: int | None = None
     ) -> tuple[Dashboard, list[Insight]]:
@@ -282,22 +298,16 @@ class DashboardCreationNode(AssistantNode):
         @transaction.atomic
         def create_dashboard_sync():
             all_insights: list[Insight] = []
-            # Create the dashboard
-            dashboard = (
-                Dashboard.objects.create(
-                    name=dashboard_name,
-                    team=self._team,
-                    created_by=self._user,
-                )
-                if dashboard_id is None
-                else Dashboard.objects.get(id=dashboard_id)
-            )
+
+            dashboard = self._get_dashboard(dashboard_id, dashboard_name)
 
             # Add insights to the dashboard via DashboardTile
             all_insights = list(Insight.objects.filter(id__in=insights, team=self._team))
-            current_insight_ids = (
-                list(dashboard.insights.all().values_list("id", flat=True)) if dashboard_id is not None else []
-            )
+
+            if dashboard_id is not None:
+                current_insight_ids = list(dashboard.insights.values_list("id", flat=True))
+            else:
+                current_insight_ids = []
             tiles_to_create = [
                 DashboardTile(
                     dashboard=dashboard,

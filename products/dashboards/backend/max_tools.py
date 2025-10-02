@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.db import transaction
 
 import structlog
@@ -21,11 +23,14 @@ class EditCurrentDashboardArgs(BaseModel):
     Edits the dashboard the user is currently working on by modifying its properties or the insights it contains.
     """
 
-    dashboard_name: str = Field(
+    dashboard_name: Optional[str] = Field(
         description="The new name for the dashboard. Only provide if the user explicitly asks to rename the dashboard.",
     )
-    insights_to_add: list[InsightQuery] = Field(
+    insights_to_add: Optional[list[InsightQuery]] = Field(
         description="List of insights to add to the dashboard. Each insight should include a name and description. Only provide if the user explicitly asks to add insights.",
+    )
+    dashboard_description: Optional[str] = Field(
+        description="The new description for the dashboard. Only provide if the user explicitly asks to update the dashboard description.",
     )
 
 
@@ -47,7 +52,10 @@ IMPORTANT: When adding insights, you must provide a complete description of what
     show_tool_call_message: bool = False
 
     async def _arun_impl(
-        self, dashboard_name: str | None = None, insights_to_add: list[InsightQuery] | None = None
+        self,
+        dashboard_name: str | None = None,
+        insights_to_add: list[InsightQuery] | None = None,
+        dashboard_description: str | None = None,
     ) -> tuple[str, None]:
         if "current_dashboard" not in self.context:
             raise ValueError("Context `current_dashboard` is required for the `edit_current_dashboard` tool")
@@ -56,10 +64,21 @@ IMPORTANT: When adding insights, you must provide a complete description of what
         if not dashboard_id:
             raise ValueError("Dashboard ID not found in context")
 
+        try:
+            dashboard = await database_sync_to_async(Dashboard.objects.get)(id=dashboard_id, team=self._team)
+        except Dashboard.DoesNotExist as e:
+            logger.exception("Dashboard was not found.", extra={"error": e})
+            capture_exception(e)
+            return "Dashboard was not found.", None
+
         state = self._state
         result_message = ""
+
         if dashboard_name:
-            result_message += await self._handle_dashboard_name_update(dashboard_id, dashboard_name)
+            result_message += await self._handle_dashboard_name_update(dashboard, dashboard_name)
+
+        if dashboard_description:
+            result_message += await self._handle_dashboard_description_update(dashboard, dashboard_description)
 
         if insights_to_add:
             state.search_insights_queries = insights_to_add
@@ -70,24 +89,43 @@ IMPORTANT: When adding insights, you must provide a complete description of what
 
     @database_sync_to_async
     @transaction.atomic
-    def _update_dashboard_name(self, dashboard_id: int, new_name: str) -> Dashboard:
+    def _update_dashboard_name(self, dashboard: Dashboard, new_name: str) -> Dashboard:
         """Update the dashboard name."""
-        dashboard = Dashboard.objects.get(id=dashboard_id, team=self._team)
         dashboard.name = new_name
         dashboard.save(update_fields=["name"])
         return dashboard
 
-    async def _handle_dashboard_name_update(self, dashboard_id: int, new_name: str) -> str:
+    async def _handle_dashboard_name_update(self, dashboard: Dashboard, new_name: str) -> str:
         result_message = ""
         try:
-            await self._update_dashboard_name(dashboard_id, new_name)
+            await self._update_dashboard_name(dashboard, new_name)
         except Exception as e:
-            logger.warning("Failed to rename the dashboard.", extra={"error": e})
+            logger.exception("Failed to rename the dashboard.", extra={"error": e})
             capture_exception(e)
             result_message += f"Dashboard was not renamed to {new_name}."
         else:
             result_message += f"Dashboard was renamed to {new_name} successfully."
 
+        return result_message
+
+    @database_sync_to_async
+    @transaction.atomic
+    def _update_dashboard_description(self, dashboard: Dashboard, new_description: str) -> Dashboard:
+        """Update the dashboard description."""
+        dashboard.description = new_description
+        dashboard.save(update_fields=["description"])
+        return dashboard
+
+    async def _handle_dashboard_description_update(self, dashboard: Dashboard, new_description: str) -> str:
+        result_message = ""
+        try:
+            await self._update_dashboard_description(dashboard, new_description)
+        except Exception as e:
+            logger.exception("Failed to update the dashboard description.", extra={"error": e})
+            capture_exception(e)
+            result_message += f"Dashboard description was not updated."
+        else:
+            result_message += f"Dashboard description was updated  successfully."
         return result_message
 
     async def _handle_insights_addition(self, state: AssistantState, insights_to_add: list[InsightQuery]) -> str:
@@ -102,7 +140,7 @@ IMPORTANT: When adding insights, you must provide a complete description of what
                 else f"Dashboard was edited successfully. Added {len(insights_to_add)} insights to the dashboard."
             )
         except Exception as e:
-            logger.warning("Failed to add the insights to the dashboard.", extra={"error": e})
+            logger.exception("Failed to add the insights to the dashboard.", extra={"error": e})
             capture_exception(e)
             result_message += f"Failed to add the insights to the dashboard."
         return result_message

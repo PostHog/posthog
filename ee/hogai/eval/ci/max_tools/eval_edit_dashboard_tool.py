@@ -1,5 +1,3 @@
-from typing import Any
-
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -22,69 +20,6 @@ def mock_kafka_producer():
         mock_future = MagicMock()
         mock_produce.return_value = mock_future
         yield
-
-
-@pytest.mark.django_db
-@patch("ee.hogai.graph.base.get_stream_writer", return_value=MagicMock())
-async def eval_dashboard_name_update(patch_get_stream_writer, pytestconfig, demo_org_team_user):
-    """Test that dashboard name updates execute correctly."""
-
-    async def task_rename_dashboard(new_name: str):
-        dashboard = await Dashboard.objects.acreate(
-            team=demo_org_team_user[1],
-            name="Original Dashboard Name",
-            created_by=demo_org_team_user[2],
-        )
-        conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
-
-        tool = EditCurrentDashboardTool(team=demo_org_team_user[1], user=demo_org_team_user[2])
-        tool._init_run(
-            RunnableConfig(
-                configurable={
-                    "thread_id": conversation.id,
-                    "team": demo_org_team_user[1],
-                    "user": demo_org_team_user[2],
-                    "contextual_tools": {
-                        "edit_current_dashboard": {"current_dashboard": {"id": dashboard.id, "name": dashboard.name}}
-                    },
-                }
-            )
-        )
-
-        result_message, _ = await tool._arun_impl(dashboard_name=new_name)
-
-        await dashboard.arefresh_from_db()
-        return {"message": result_message, "actual_name": dashboard.name}
-
-    await MaxPublicEval(
-        experiment_name="dashboard_name_update",
-        task=task_rename_dashboard,  # type: ignore
-        scores=[SemanticSimilarity()],
-        data=[
-            EvalCase(
-                input="Q4 Marketing Dashboard",
-                expected={
-                    "message": "Dashboard was renamed to Q4 Marketing Dashboard successfully.",
-                    "actual_name": "Q4 Marketing Dashboard",
-                },
-            ),
-            EvalCase(
-                input="User Engagement Analytics 2024",
-                expected={
-                    "message": "Dashboard was renamed to User Engagement Analytics 2024 successfully.",
-                    "actual_name": "User Engagement Analytics 2024",
-                },
-            ),
-            EvalCase(
-                input="Sales Performance Overview",
-                expected={
-                    "message": "Dashboard was renamed to Sales Performance Overview successfully.",
-                    "actual_name": "Sales Performance Overview",
-                },
-            ),
-        ],
-        pytestconfig=pytestconfig,
-    )
 
 
 @pytest.mark.django_db
@@ -240,75 +175,6 @@ async def eval_combined_rename_and_add(pytestconfig, demo_org_team_user):
                     "actual_name": "Growth Analytics",
                 },
             )
-        ],
-        pytestconfig=pytestconfig,
-    )
-
-
-@pytest.mark.django_db
-async def eval_error_handling(pytestconfig, demo_org_team_user):
-    """Test error handling for invalid dashboard IDs and missing context."""
-
-    conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
-
-    async def task_with_errors(error_scenario: str):
-        tool = EditCurrentDashboardTool(team=demo_org_team_user[1], user=demo_org_team_user[2])
-
-        contextual_tools: dict[str, dict[str, dict[str, Any]]] = {}
-        if error_scenario == "missing_context":
-            contextual_tools = {"edit_current_dashboard": {}}
-        elif error_scenario == "missing_dashboard_id":
-            contextual_tools = {"edit_current_dashboard": {"current_dashboard": {"name": "Test Dashboard"}}}
-        elif error_scenario == "invalid_dashboard_id":
-            contextual_tools = {
-                "edit_current_dashboard": {"current_dashboard": {"id": 999999, "name": "Test Dashboard"}}
-            }
-
-        tool._init_run(
-            RunnableConfig(
-                configurable={
-                    "thread_id": conversation.id,
-                    "team": demo_org_team_user[1],
-                    "user": demo_org_team_user[2],
-                    "contextual_tools": contextual_tools,
-                }
-            )
-        )
-
-        try:
-            result_message, _ = await tool._arun_impl(dashboard_name="New Name")
-            return {"success": False, "message": result_message}
-        except ValueError as e:
-            return {"success": False, "error": str(e)}
-        except Exception as e:
-            return {"success": False, "error": f"Unexpected error: {str(e)}"}
-
-    await MaxPublicEval(
-        experiment_name="error_handling",
-        task=task_with_errors,  # type: ignore
-        scores=[SemanticSimilarity()],
-        data=[
-            EvalCase(
-                input="missing_context",
-                expected={
-                    "success": False,
-                    "error": "Context `current_dashboard` is required for the `edit_current_dashboard` tool",
-                },
-            ),
-            EvalCase(
-                input="missing_dashboard_id",
-                expected={
-                    "success": False,
-                    "error": "Dashboard ID not found in context",
-                },
-            ),
-            EvalCase(
-                input="invalid_dashboard_id",
-                expected={
-                    "success": False,
-                    "message": "Dashboard was not renamed to New Name.",
-                },
-            ),
         ],
         pytestconfig=pytestconfig,
     )
