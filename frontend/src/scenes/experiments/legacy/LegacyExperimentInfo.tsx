@@ -205,9 +205,9 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                             />
                         </div>
                         {experiment.description ? (
-                            <p className={cn('py-2 m-0 py-0')}>{experiment.description}</p>
+                            <p className={cn('py-2 m-0')}>{experiment.description}</p>
                         ) : (
-                            <p className={cn('py-2 m-0 text-secondary py-0')}>Add your hypothesis for this test</p>
+                            <p className={cn('py-2 m-0 text-secondary')}>Add your hypothesis for this test</p>
                         )}
 
                         <LemonModal
