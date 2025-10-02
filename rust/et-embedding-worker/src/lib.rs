@@ -128,7 +128,7 @@ fn generate_text_representation(
     for exception in &fingerprint.exception_list {
         // Add exception type and value
         let type_and_value = &format!(
-            "{}: {}",
+            "{}: {}\n",
             exception.exception_type,
             exception
                 .exception_value
@@ -169,7 +169,8 @@ fn generate_text_representation(
                 frame_parts.push(format!("column {column}"));
             }
 
-            let frame_str = frame_parts.join(" ");
+            let mut frame_str = frame_parts.join(" ");
+            frame_str.push('\n');
             let encoded = encoder.encode_with_special_tokens(&frame_str);
             if encoded.len() + tokens.len() > max_tokens {
                 return Ok(encoder.decode(tokens)?);
