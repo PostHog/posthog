@@ -574,8 +574,7 @@ function ReasoningComponent({
                     <span
                         className="bg-clip-text text-transparent"
                         style={{
-                            backgroundImage:
-                                'linear-gradient(in oklch 90deg, var(--brand-blue), var(--brand-yellow), var(--brand-red), var(--brand-blue))',
+                            backgroundImage: 'linear-gradient(in oklch 90deg, #666, #999, #ccc, #999, #666)',
                             backgroundSize: '200% 100%',
                             animation: 'shimmer 3s linear infinite',
                         }}
