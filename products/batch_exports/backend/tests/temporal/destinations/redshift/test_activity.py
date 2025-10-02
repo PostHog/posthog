@@ -255,6 +255,7 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
     )
 
     persons_to_export_created = generate_test_persons_data
+    exported_persons = {person["distinct_id"]: person["person_id"] for person in persons_to_export_created}
 
     new_distinct_id_to_person_id = {}
     for old_person in persons_to_export_created[: len(persons_to_export_created) // 2]:
@@ -307,7 +308,10 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
     for row in rows:
         distinct_id = row["distinct_id"]
         inserted_person_id = row["person_id"]
-        expected_person_id = new_distinct_id_to_person_id.pop(distinct_id)
+        try:
+            expected_person_id = new_distinct_id_to_person_id.pop(distinct_id)
+        except KeyError:
+            expected_person_id = exported_persons[distinct_id]
 
         assert inserted_person_id == expected_person_id
     assert not new_distinct_id_to_person_id, "One or more persons were not updated"
