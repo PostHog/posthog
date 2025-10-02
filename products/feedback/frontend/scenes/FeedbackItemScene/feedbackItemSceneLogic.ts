@@ -19,6 +19,8 @@ export const feedbackItemSceneLogic = kea<feedbackItemSceneLogicType>([
         loadFeedbackItem: true,
         updateStatus: (statusId: string) => ({ statusId }),
         updateAssignment: (userId: number | null) => ({ userId }),
+        updateCategory: (categoryId: string) => ({ categoryId }),
+        updateTopic: (topicId: string) => ({ topicId }),
     }),
 
     loaders(({ props }) => ({
@@ -41,6 +43,14 @@ export const feedbackItemSceneLogic = kea<feedbackItemSceneLogicType>([
         },
         updateAssignment: async ({ userId }) => {
             await api.feedback.items.update(props.feedbackItemId, { assigned_user_id: userId } as any)
+            actions.loadFeedbackItem()
+        },
+        updateCategory: async ({ categoryId }) => {
+            await api.feedback.items.update(props.feedbackItemId, { category_id: categoryId, status_id: null } as any)
+            actions.loadFeedbackItem()
+        },
+        updateTopic: async ({ topicId }) => {
+            await api.feedback.items.update(props.feedbackItemId, { topic_id: topicId } as any)
             actions.loadFeedbackItem()
         },
     })),

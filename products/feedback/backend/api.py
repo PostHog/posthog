@@ -70,6 +70,9 @@ class FeedbackItemSerializer(serializers.ModelSerializer):
     assigned_user_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), write_only=True, required=False, allow_null=True
     )
+    topic_id = serializers.PrimaryKeyRelatedField(
+        queryset=FeedbackItemTopic.objects.all(), source="topic", write_only=True, required=False, allow_null=True
+    )
 
     class Meta:
         model = FeedbackItem
@@ -79,6 +82,7 @@ class FeedbackItemSerializer(serializers.ModelSerializer):
             "category",
             "category_id",
             "topic",
+            "topic_id",
             "status",
             "status_id",
             "assignment",
