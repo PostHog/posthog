@@ -7092,12 +7092,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_weekly_active_users_hourly_full_week(self):
-        self._create_person(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
+        self._create_person(team_id=self.team.pk, distinct_ids=["p0"])
         self._create_event(
             team=self.team,
             event="$pageview",
             distinct_id="p0",
+            timestamp="2020-01-03T10:59:59Z",
+            properties={"key": "val"},
+        )
+        self._create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
             timestamp="2020-01-03T11:00:00Z",
+            properties={"key": "val"},
+        )
+        self._create_person(team_id=self.team.pk, distinct_ids=["p2"])
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-03T11:00:01Z",
             properties={"key": "val"},
         )
 
@@ -7117,10 +7133,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        self.assertEqual(24 * 7, sum(result[0]["data"]))
-        self.assertTrue(all(result[0]["data"][11:179]))
+        self.assertEqual(24 * 7 * 3, sum(result[0]["data"]))
+        self.assertEqual("2020-01-03 10:00:00", result[0]["days"][10])
+        self.assertEqual(1, result[0]["data"][10])
         self.assertEqual("2020-01-03 11:00:00", result[0]["days"][11])
-        self.assertEqual("2020-01-10 11:00:00", result[0]["days"][179])
+        self.assertTrue(all(x == 3 for x in result[0]["data"][11:178]))
+        self.assertEqual(2, result[0]["data"][178])
+        self.assertEqual("2020-01-10 10:00:00", result[0]["days"][178])
 
     def test_weekly_active_users_daily_based_on_action_with_zero_person_ids(self):
         # only a person-on-event test
