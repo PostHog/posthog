@@ -204,13 +204,11 @@ impl RawRequest {
                     );
 
                     // Metric for exceeding payload sizes
-                    metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED)
-                        .increment(1);
+                    metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED).increment(1);
 
                     report_dropped_events("event_too_big", 1);
                     return Err(CaptureError::EventTooBig(format!(
-                        "Decompressed payload would exceed {} bytes (got {} bytes)",
-                        limit, total_read
+                        "Decompressed payload would exceed {limit} bytes (got {total_read} bytes)"
                     )));
                 }
 
@@ -220,8 +218,7 @@ impl RawRequest {
             // Record decompression ratio metric
             if len > 0 {
                 let ratio = total_read as f64 / len as f64;
-                metrics::histogram!(METRIC_GZIP_DECOMPRESSION_RATIO)
-                    .record(ratio);
+                metrics::histogram!(METRIC_GZIP_DECOMPRESSION_RATIO).record(ratio);
 
                 // Warn on potential GZIP bombs
                 if ratio > 20.0 {
@@ -784,7 +781,9 @@ mod tests {
 
         // Compress with maximum compression
         let mut encoder = GzEncoder::new(Vec::new(), GzCompression::best());
-        encoder.write_all(json_payload.as_bytes()).expect("Failed to write");
+        encoder
+            .write_all(json_payload.as_bytes())
+            .expect("Failed to write");
         let compressed = encoder.finish().expect("Failed to compress");
 
         let compressed_size = compressed.len();
@@ -793,8 +792,7 @@ mod tests {
         // Verify we created a highly compressed payload
         assert!(
             compression_ratio > 100.0,
-            "Expected compression ratio > 100, got {}",
-            compression_ratio
+            "Expected compression ratio > 100, got {compression_ratio}"
         );
 
         // Set a reasonable limit that should catch the bomb
@@ -814,12 +812,11 @@ mod tests {
             Err(CaptureError::EventTooBig(msg)) => {
                 assert!(
                     msg.contains("exceed"),
-                    "Expected error message about exceeding limit, got: {}",
-                    msg
+                    "Expected error message about exceeding limit, got: {msg}"
                 );
             }
             Ok(_) => panic!("GZIP bomb should have been rejected"),
-            Err(e) => panic!("Wrong error type: {:?}", e),
+            Err(e) => panic!("Wrong error type: {e:?}"),
         }
     }
 
@@ -843,7 +840,9 @@ mod tests {
 
         // Compress with normal compression
         let mut encoder = GzEncoder::new(Vec::new(), GzCompression::default());
-        encoder.write_all(json_payload.as_bytes()).expect("Failed to write");
+        encoder
+            .write_all(json_payload.as_bytes())
+            .expect("Failed to write");
         let compressed = encoder.finish().expect("Failed to compress");
 
         let compressed_size = compressed.len();
@@ -853,8 +852,7 @@ mod tests {
         // Normal JSON typically compresses 2-4x
         assert!(
             compression_ratio < 10.0,
-            "Expected normal compression ratio < 10, got {}",
-            compression_ratio
+            "Expected normal compression ratio < 10, got {compression_ratio}"
         );
 
         // Should succeed with reasonable limit
@@ -877,7 +875,7 @@ mod tests {
                 assert_eq!(events[0].event, "pageview");
                 assert_eq!(events[0].extract_distinct_id(), Some("user123".to_string()));
             }
-            Err(e) => panic!("Normal compressed payload should succeed: {:?}", e),
+            Err(e) => panic!("Normal compressed payload should succeed: {e:?}"),
         }
     }
 
@@ -894,13 +892,14 @@ mod tests {
         // Create 2KB of JSON data (exceeds limit when decompressed)
         let large_string = "x".repeat(2048);
         let json_payload = format!(
-            r#"[{{"event":"test","distinct_id":"test","properties":{{"data":"{}"}}}}"#,
-            large_string
+            r#"[{{"event":"test","distinct_id":"test","properties":{{"data":"{large_string}"}}}}"#
         );
 
         // Compress it (will be smaller than limit)
         let mut encoder = GzEncoder::new(Vec::new(), GzCompression::best());
-        encoder.write_all(json_payload.as_bytes()).expect("Failed to write");
+        encoder
+            .write_all(json_payload.as_bytes())
+            .expect("Failed to write");
         let compressed = encoder.finish().expect("Failed to compress");
 
         assert!(
@@ -932,12 +931,11 @@ mod tests {
                 // Verify the error message indicates it caught the size during decompression
                 assert!(
                     msg.contains("would exceed") || msg.contains("exceed"),
-                    "Expected error about exceeding size during decompression, got: {}",
-                    msg
+                    "Expected error about exceeding size during decompression, got: {msg}"
                 );
             }
             Ok(_) => panic!("Should have rejected payload that exceeds limit when decompressed"),
-            Err(e) => panic!("Wrong error type: {:?}", e),
+            Err(e) => panic!("Wrong error type: {e:?}"),
         }
     }
 
