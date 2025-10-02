@@ -13,7 +13,7 @@ from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS,
 
 class AccuracyConfig(dagster.Config):
     team_id: int = pydantic.Field(
-        default=TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS,
+        default=int(TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS),
         description="Team ID to analyze data quality for",
     )
 
