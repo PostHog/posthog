@@ -26,7 +26,6 @@ class NavigateTool(MaxTool):
         "Some of these pages have tools that you can use to get more information or perform actions. "
         "After navigating to a new page, you'll have access to that page's specific tools."
     )
-    thinking_message: str = "Navigating"
     args_schema: type[BaseModel] = NavigateToolArgs
     send_result_to_frontend: bool = True
 

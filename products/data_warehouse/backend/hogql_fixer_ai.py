@@ -186,7 +186,6 @@ def _get_user_prompt(schema_description: str) -> str:
 class HogQLQueryFixerTool(MaxTool):
     name: str = AssistantTool.FIX_HOGQL_QUERY.value
     description: str = "Fixes any error in the current HogQL query"
-    thinking_message: str = "Fixing errors in the SQL query"
     system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     async def _arun_impl(self) -> ToolResult:

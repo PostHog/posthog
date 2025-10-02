@@ -71,7 +71,6 @@ class SessionSummarizationTool(MaxTool):
       * When the user asks to find, search for, or look up session recordings, but doesn't ask to summarize them
       * When users asks to update, change, or adjust session recordings filters
     """
-    thinking_message = "Summarizing session recordings"
     args_schema = SessionSummarizationArgs
 
     async def _arun_impl(

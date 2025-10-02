@@ -10,19 +10,14 @@ from posthog.schema import (
     AssistantMessage,
     HumanMessage,
     MaxBillingContext,
+    ToolExecutionMessage,
     VisualizationMessage,
 )
 
 from posthog.models import Team, User
 
 from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.graph import (
-    AssistantGraph,
-    FunnelGeneratorNode,
-    RetentionGeneratorNode,
-    SQLGeneratorNode,
-    TrendsGeneratorNode,
-)
+from ee.hogai.graph import AssistantGraph
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
 from ee.hogai.utils.state import GraphValueUpdateTuple, validate_value_update
@@ -74,26 +69,17 @@ class MainAssistant(BaseAssistant):
 
     @property
     def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
-        return {
-            AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
-            AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
-            AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
-            AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
-        }
+        return {}
 
     @property
     def STREAMING_NODES(self) -> set[MaxNodeName]:
         return {
             AssistantNodeName.ROOT,
-            AssistantNodeName.INKEEP_DOCS,
             AssistantNodeName.MEMORY_ONBOARDING,
             AssistantNodeName.MEMORY_INITIALIZER,
             AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
             AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
             TaxonomyNodeName.LOOP_NODE,
-            AssistantNodeName.SESSION_SUMMARIZATION,
-            AssistantNodeName.INSIGHTS_SEARCH,
-            AssistantNodeName.DASHBOARD_CREATION,
         }
 
     @property
@@ -108,12 +94,8 @@ class MainAssistant(BaseAssistant):
     def THINKING_NODES(self) -> set[MaxNodeName]:
         return self.VISUALIZATION_NODES.keys() | {
             AssistantNodeName.ROOT_TOOLS,
-            AssistantNodeName.QUERY_PLANNER,
-            AssistantNodeName.QUERY_EXECUTOR,
             AssistantNodeName.MEMORY_INITIALIZER,
             TaxonomyNodeName.LOOP_NODE,
-            AssistantNodeName.SESSION_SUMMARIZATION,
-            AssistantNodeName.DASHBOARD_CREATION,
         }
 
     def get_initial_state(self) -> AssistantState:
@@ -175,3 +157,8 @@ class MainAssistant(BaseAssistant):
             if isinstance(node_val, PartialAssistantState) and node_val.intermediate_steps:
                 return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)]
         return super()._process_value_update(update)
+
+    def _should_persist_stream_message(self, message: BaseModel, node_name: MaxNodeName) -> bool:
+        if isinstance(message, ToolExecutionMessage):
+            return True
+        return False

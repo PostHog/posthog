@@ -54,7 +54,7 @@ class ParallelToolExecution:
 
     async def arun(
         self, tool_calls: list[AssistantToolCall], state: BaseState, config: RunnableConfig
-    ) -> tuple[list[ToolResult], ToolExecutionMessage | None]:
+    ) -> tuple[list[ToolResult], ToolExecutionMessage]:
         """
         Main entry point for tool execution. Must be implemented by subclasses.
         Must call self._arun.
@@ -79,7 +79,7 @@ class ParallelToolExecution:
 
     async def _arun(
         self, tool_calls: list[AssistantToolCall], state: BaseState, config: RunnableConfig
-    ) -> tuple[list[ToolResult], ToolExecutionMessage | None]:
+    ) -> tuple[list[ToolResult], ToolExecutionMessage]:
         """
         Core execution logic that orchestrates parallel tool execution.
 
@@ -107,23 +107,23 @@ class ParallelToolExecution:
         # Mark all tool execution items as in-progress and send initial status
         for item in tool_executions:
             item.status = ToolExecutionStatus.IN_PROGRESS
-        await self._asend_tool_execution_message(tool_executions)
+        tool_execution_message = await self._asend_tool_execution_message(tool_executions)
 
         # Execute tool executions in parallel and collect results as they complete
         tool_results: list[ToolResult] = []
         async for tool_id, tool_result in self._aexecute_tools(tool_execution_tuples, state, config):
             tool_results.append(tool_result)
             # Update the status of the completed tool execution item
+            logger.info(f"Tool execution completed: {tool_id}")
             for item in tool_executions:
                 if item.id != tool_id:
                     continue
+                logger.info(f"Updating tool execution status: {tool_id} to {tool_result.status}")
                 item.status = tool_result.status
                 # Send status update after each tool execution item completes
-                await self._asend_tool_execution_message(tool_executions)
+                tool_execution_message = await self._asend_tool_execution_message(tool_executions)
                 break
 
-        # Send final status message
-        tool_execution_message = await self._asend_tool_execution_message(tool_executions)
         return tool_results, tool_execution_message
 
     def _tool_call_tuples_to_tool_execution_tuples(
@@ -144,7 +144,7 @@ class ParallelToolExecution:
             tool_name = ToolClass.name
             tool_execution = ToolExecution(
                 id=tool_call_id,
-                description=ToolClass.thinking_message,
+                description=tool_call.args.get("tool_call_explanation", tool_call.name),
                 args=args,
                 status=ToolExecutionStatus.IN_PROGRESS,
                 tool_name=tool_name,  # create_insight
@@ -161,6 +161,7 @@ class ParallelToolExecution:
         """
 
         async def callback(id: str, content: str | None, substeps: list[str] | None = None):
+            logger.info(f"Tool execution callback: {id}, {content}, {substeps}")
             # Find the tool execution item and update its progress
             for tool_execution in items:
                 if tool_execution.id == id:
@@ -259,12 +260,12 @@ class ParallelToolExecution:
                     async_task.cancel()
             raise
 
-    def _get_tool_execution_message(self, item: list[ToolExecution]) -> ToolExecutionMessage | None:
+    def _get_tool_execution_message(self, item: list[ToolExecution]) -> ToolExecutionMessage:
         # Create a message containing all tool execution items with their current status
         # Use copy() to avoid mutations affecting the message
-        return ToolExecutionMessage(id=self._tool_execution_message_id, tool_executions=item.copy())
+        return ToolExecutionMessage(tool_executions=item.copy())
 
-    async def _asend_tool_execution_message(self, item: list[ToolExecution]) -> ToolExecutionMessage | None:
+    async def _asend_tool_execution_message(self, items: list[ToolExecution]) -> ToolExecutionMessage:
         """
         Send a tool execution message to update the UI with current tool execution item statuses.
 
@@ -274,10 +275,12 @@ class ParallelToolExecution:
         Args:
             tool_executions: List of tool execution items with their current status and progress
         """
-        tool_execution_message = self._get_tool_execution_message(item)
-        # Only send tool execution messages for multiple-tool scenarios
-        if tool_execution_message is None:
-            return None
+        logger.info(f"Sending tool execution message: {items}")
+        is_in_progress = any(item.status == ToolExecutionStatus.IN_PROGRESS for item in items)
+        tool_execution_message = self._get_tool_execution_message(items)
+        logger.info(f"Is in progress: {is_in_progress}")
+        if not is_in_progress:
+            tool_execution_message.id = self._tool_execution_message_id
         await self._write_message(tool_execution_message)
         return tool_execution_message
 

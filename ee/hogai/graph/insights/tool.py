@@ -31,8 +31,6 @@ class SearchInsightsTool(MaxTool):
     Only use this tool when users ask to find, search for, or look up insights.
     If the user asks to create a dashboard, use the `create_dashboard` tool instead.
     """
-    thinking_message = "Searching insights"
-    args_schema = SearchInsightsToolArgs
 
     async def _arun_impl(self, search_query: str) -> ToolResult:
         input_state = AssistantState(

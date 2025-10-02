@@ -831,13 +831,69 @@ export const PlanningComponent: StoryFn = () => {
     return <Template />
 }
 
-export const ToolExecutionComponent: StoryFn = () => {
+export const SingleToolExecutionComponent: StoryFn = () => {
     const toolExecutionMessage: ToolExecutionMessage = {
         type: AssistantMessageType.ToolExecution,
         tool_executions: [
             {
                 id: 'task_1',
-                name: 'Loading user data',
+                description: 'Fetching last 30 days of user activity',
+                args: {},
+                status: ToolExecutionStatus.InProgress,
+                tool_name: 'create_insight',
+                progress: {
+                    content: 'Fetching data',
+                    substeps: ['Fetching some data', 'Processing data'],
+                },
+            },
+        ],
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolExecutionMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Execute analysis tasks')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const MultiToolExecutionComponent: StoryFn = () => {
+    const toolExecutionMessage: ToolExecutionMessage = {
+        type: AssistantMessageType.ToolExecution,
+        tool_executions: [
+            {
+                id: 'task_1',
                 description: 'Fetching last 30 days of user activity',
                 args: {},
                 status: ToolExecutionStatus.Completed,
@@ -845,7 +901,6 @@ export const ToolExecutionComponent: StoryFn = () => {
             },
             {
                 id: 'task_2',
-                name: 'Analyzing engagement patterns',
                 description: 'Identifying peak usage times and user segments',
                 args: {},
                 status: ToolExecutionStatus.Completed,
@@ -853,26 +908,28 @@ export const ToolExecutionComponent: StoryFn = () => {
             },
             {
                 id: 'task_3',
-                name: 'Calculating conversion rates',
                 description: 'Processing funnel metrics across key paths',
                 args: {},
                 status: ToolExecutionStatus.InProgress,
                 progress: {
-                    content: 'Exploring data',
+                    content: 'Fetching data',
+                    substeps: ['Fetching some data', 'Processing data'],
                 },
                 tool_name: 'create_insight',
             },
             {
                 id: 'task_4',
-                name: 'Building visualizations',
                 description: 'Creating charts and graphs for insights',
                 args: {},
-                status: ToolExecutionStatus.Pending,
+                status: ToolExecutionStatus.InProgress,
+                progress: {
+                    content: 'Fetching data',
+                    substeps: ['Fetching some data', 'Processing data'],
+                },
                 tool_name: 'create_insight',
             },
             {
                 id: 'task_5',
-                name: 'Generating report',
                 description: 'Compiling findings into readable format',
                 args: {},
                 status: ToolExecutionStatus.Pending,
@@ -926,7 +983,6 @@ export const ToolExecutionWithFailure: StoryFn = () => {
         tool_executions: [
             {
                 id: 'task_1',
-                name: 'Loading user data',
                 description: 'Fetching last 30 days of user activity',
                 args: {},
                 status: ToolExecutionStatus.Completed,
@@ -934,7 +990,6 @@ export const ToolExecutionWithFailure: StoryFn = () => {
             },
             {
                 id: 'task_2',
-                name: 'Analyzing engagement patterns',
                 description: 'Identifying peak usage times and user segments',
                 args: {},
                 status: ToolExecutionStatus.Completed,
@@ -942,7 +997,6 @@ export const ToolExecutionWithFailure: StoryFn = () => {
             },
             {
                 id: 'task_3',
-                name: 'Calculating conversion rates',
                 description: 'Processing funnel metrics across key paths',
                 args: {},
                 status: ToolExecutionStatus.Failed,
@@ -950,7 +1004,6 @@ export const ToolExecutionWithFailure: StoryFn = () => {
             },
             {
                 id: 'task_4',
-                name: 'Building visualizations',
                 description: 'Creating charts and graphs for insights',
                 args: {},
                 status: ToolExecutionStatus.Pending,
@@ -958,7 +1011,6 @@ export const ToolExecutionWithFailure: StoryFn = () => {
             },
             {
                 id: 'task_5',
-                name: 'Generating report',
                 description: 'Compiling findings into readable format',
                 args: {},
                 status: ToolExecutionStatus.Pending,

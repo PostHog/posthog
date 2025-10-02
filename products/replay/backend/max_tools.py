@@ -122,7 +122,6 @@ class SearchSessionRecordingsTool(MaxTool):
     - When NOT to use the tool:
       * When the user asks to summarize session recordings
     """
-    thinking_message: str = "Coming up with session recordings filters"
     system_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
     send_result_to_frontend: bool = True

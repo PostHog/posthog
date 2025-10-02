@@ -31,7 +31,6 @@ class CreateDashboardTool(MaxTool):
     Do not call this tool if the user only asks to find, search for, or look up existing insights and does not ask to create a dashboard.
     If you decided to use this tool, there is no need to call `search_insights` tool beforehand. The tool will search for existing insights that match the user's requirements and create new insights if none are found.
     """
-    thinking_message = "Creating dashboard"
     args_schema = DashboardCreationArgs
 
     async def _arun_impl(self, search_insights_queries: list[InsightQuery], dashboard_name: str) -> ToolResult:

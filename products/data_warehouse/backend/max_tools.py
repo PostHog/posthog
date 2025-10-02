@@ -126,7 +126,6 @@ class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[F
 class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
     name: str = AssistantTool.GENERATE_HOGQL_QUERY.value
     description: str = "Write or edit an SQL query to answer the user's question, and apply it to the current SQL editor only include the current change the user requested"
-    thinking_message: str = "Coming up with an SQL query"
     args_schema: type[BaseModel] = HogQLGeneratorArgs
     system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
     send_result_to_frontend: bool = True

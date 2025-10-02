@@ -34,7 +34,6 @@ class CreateInsightTool(MaxTool):
     Retrieve results for a specific data question by creating a query (aka insight), or iterate on a previous query.
     This tool only retrieves data for a single query at a time.
     """
-    thinking_message = "Coming up with an insight"
     args_schema = InsightCreationArgs
 
     async def _arun_impl(self, query_description: str) -> ToolResult:

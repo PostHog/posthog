@@ -39,7 +39,6 @@ class TemplateOutput(BaseModel):
 class CreateMessageTemplateTool(MaxTool):
     name: str = AssistantTool.CREATE_MESSAGE_TEMPLATE.value
     description: str = "Create a message template from a prompt, optionally using a URL to inform the content."
-    thinking_message: str = "Creating your template"
     args_schema: type[BaseModel] = CreateTemplateArgs
     send_result_to_frontend: bool = True
 

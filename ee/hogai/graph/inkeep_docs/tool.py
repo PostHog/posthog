@@ -18,7 +18,6 @@ class SearchDocumentationTool(MaxTool):
     PostHog docs and tutorials change frequently, which makes this tool required.
     Do NOT use this tool if the necessary information is already in the conversation or context (except when you need to check whether an assumption presented is correct or not).
     """
-    thinking_message = "Checking PostHog docs"
 
     async def _arun_impl(self, search_documentation_query: str) -> ToolResult:
         state = self._state

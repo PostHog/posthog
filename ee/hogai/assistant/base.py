@@ -234,6 +234,8 @@ class BaseAssistant(ABC):
                             ):
                                 continue
 
+                            logger.info(f"Streaming message: {message}")
+
                             yield AssistantEventType.MESSAGE, cast(AssistantMessageOrStatusUnion, message)
 
                 # Check if the assistant has requested help.
@@ -359,6 +361,7 @@ class BaseAssistant(ABC):
 
     async def _process_update(self, update: Any) -> list[BaseModel] | None:
         update = extract_stream_update(update)
+        logger.info(f"Processing update: {update}")
         if is_state_update(update):
             _, new_state = update
             self._state = validate_state_update(new_state, self._state_type)
@@ -409,7 +412,11 @@ class BaseAssistant(ABC):
             # Persist selected streamed messages
             try:
                 node_name = cast(MaxNodeName, langgraph_state["langgraph_node"])
-                if self._should_persist_stream_message(langchain_message, node_name):
+                if (
+                    hasattr(langchain_message, "id")
+                    and langchain_message.id is not None
+                    and self._should_persist_stream_message(langchain_message, node_name)
+                ):
                     await self._persist_stream_message(node_name, langchain_message)
             except Exception as e:
                 logger.warning("Failed to persist streamed message", error=str(e))

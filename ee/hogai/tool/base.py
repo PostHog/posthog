@@ -7,6 +7,7 @@ from collections.abc import Callable, Coroutine, Sequence
 from pathlib import Path
 from typing import Any, final
 
+import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, create_model
@@ -21,6 +22,8 @@ from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types.base import BaseState, ToolArtifact, ToolResult
 
 ASSISTANT_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
+
+logger = structlog.get_logger(__name__)
 
 
 def _import_assistant_tools() -> None:
@@ -61,6 +64,14 @@ def get_assistant_tool_class(tool_name: str) -> type["MaxTool"] | None:
 ToolUpdateCallback = Callable[[str, str | None, list[str] | None], Coroutine[Any, Any, None]]
 
 
+class WithToolCallExplanation(BaseModel):
+    tool_call_explanation: str
+    """A short complete declarative explanation to show the user what the tool call is doing.
+    Good: 'Create a trends insight to analyze user engagement'.
+    Bad: 'I'm creating a trends insight because the user asked me to do it'.
+    DO NOT use punctuation."""
+
+
 class MaxTool(AssistantContextMixin, ABC):
     """
     Base class for all AI assistant tools.
@@ -71,10 +82,6 @@ class MaxTool(AssistantContextMixin, ABC):
     """The name of the tool."""
     description: str
     """The description of the tool, used by the agent to decide when to use the tool."""
-    thinking_message: str
-    """The message shown to let the user know this tool is being used. One sentence, no punctuation.
-    For example, "Updating filters"
-    """
     system_prompt_template: str = "No context provided for this tool."
     """The template for context associated with this tool, that will be provided as context to the agent.
     Use this if you need to strongly steer the agent in deciding _when_ and _whether_ to use the tool.
@@ -101,10 +108,12 @@ class MaxTool(AssistantContextMixin, ABC):
 
     def run(self, tool_call_id: str, parameters: dict[str, Any], config: RunnableConfig) -> ToolResult:
         self._init_run(tool_call_id, config)
+        self._init_parameters(parameters)
         return async_to_sync(self._arun_impl)(**parameters)
 
     async def arun(self, tool_call_id: str, parameters: dict[str, Any], config: RunnableConfig) -> ToolResult:
         self._init_run(tool_call_id, config)
+        self._init_parameters(parameters)
         return await self._arun_impl(**parameters)
 
     def format_context_prompt(self, context: dict[str, Any]) -> str:
@@ -125,9 +134,9 @@ class MaxTool(AssistantContextMixin, ABC):
             for field_name, field_info in self.args_schema.model_fields.items():
                 combined_fields[field_name] = (field_info.annotation, field_info)
 
-        CombinedModel = create_model(
+        CombinedModel = create_model(  # type: ignore[call-overload]
             self.name,
-            __base__=BaseModel,
+            __base__=WithToolCallExplanation,
             __module__=self.args_schema.__module__ if self.args_schema else BaseModel.__module__,
             **combined_fields,
         )
@@ -181,8 +190,8 @@ class MaxTool(AssistantContextMixin, ABC):
         ASSISTANT_TOOL_NAME_TO_TOOL[accepted_name] = cls
         if not getattr(cls, "name", None) or not getattr(cls, "description", None):
             raise ValueError("You must set `name` and `description` on the tool")
-        if not getattr(cls, "thinking_message", None):
-            raise ValueError("You must set `thinking_message` on the tool, so that we can show the tool kicking off")
+        if cls.args_schema and getattr(cls.args_schema, "model_fields", {}).get("tool_call_explanation", None):
+            raise ValueError("`tool_call_explanation` is a reserved field name")
 
     def _init_run(self, tool_call_id: str, config: RunnableConfig):
         configurable = config["configurable"]  # type: ignore
@@ -201,6 +210,9 @@ class MaxTool(AssistantContextMixin, ABC):
                 "user": self._user,
             },
         }
+
+    def _init_parameters(self, parameters: dict[str, Any]) -> None:
+        parameters.pop("tool_call_explanation", None)
 
     def format_system_prompt_injection(self, context: dict[str, Any]) -> str:
         formatted_context = {
@@ -235,5 +247,6 @@ class MaxTool(AssistantContextMixin, ABC):
         )
 
     async def _update_tool_call_status(self, content: str | None, substeps: list[str] | None = None) -> None:
+        logger.info(f"Updating tool call status: {self._tool_call_id}, {content}, {substeps}")
         if self._tool_update_callback:
             await self._tool_update_callback(self._tool_call_id, content, substeps)

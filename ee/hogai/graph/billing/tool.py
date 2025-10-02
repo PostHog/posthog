@@ -17,7 +17,6 @@ class RetrieveBillingInformationTool(MaxTool):
     Retrieve detailed billing information for the current organization.
     Use this tool when the user asks about billing, subscription, usage, or spending related questions.
     """
-    thinking_message = "Checking your billing data"
 
     async def _arun_impl(self) -> ToolResult:
         state = self._state

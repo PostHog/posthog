@@ -68,14 +68,12 @@ class DeepResearchAssistant(BaseAssistant):
         return {
             DeepResearchNodeName.ONBOARDING,
             DeepResearchNodeName.PLANNER,
-            DeepResearchNodeName.TASK_EXECUTOR,
         }
 
     @property
     def VERBOSE_NODES(self) -> set[MaxNodeName]:
         return self.STREAMING_NODES | {
             DeepResearchNodeName.PLANNER_TOOLS,
-            DeepResearchNodeName.TASK_EXECUTOR,
         }
 
     @property
@@ -105,7 +103,6 @@ class DeepResearchAssistant(BaseAssistant):
         if isinstance(node_name, DeepResearchNodeName):
             return node_name in {
                 DeepResearchNodeName.PLANNER,
-                DeepResearchNodeName.TASK_EXECUTOR,
             }
         return False
 
@@ -115,7 +112,8 @@ class DeepResearchAssistant(BaseAssistant):
                 messages=[self._latest_message],
                 start_id=self._latest_message.id,
                 graph_status=None,
-                notebook_short_id=None,
+                current_run_notebooks=None,
+                conversation_notebooks=[],
             )
         else:
             return DeepResearchState(messages=[])

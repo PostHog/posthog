@@ -26,19 +26,20 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
     from pydantic import BaseModel, Field
     from langchain_core.prompts import ChatPromptTemplate
     from ee.hogai.llm import MaxChatOpenAI
+    from ee.hogai.utils.types.base import ToolResult
 
     # Define your tool's arguments schema
     class YourToolArgs(BaseModel):
         parameter_name: str = Field(description="Description of the parameter")
 
     class YourTool(MaxTool):
-        name: str = "your_tool_name"  # Must match a value in AssistantContextualTool enum
+        name: str = AssistantTool.YOUR_TOOL_NAME.value  # Must match a value in AssistantTool enum
         description: str = "What this tool does"
-        thinking_message: str = "What to show while tool is working"
-        root_system_prompt_template: str = "Context about the tool state: {context_var}"
+        system_prompt_template: str = "Context about the tool state: {context_var}"
         args_schema: type[BaseModel] = YourToolArgs
+        send_result_to_frontend = False # add this if you want to send the result metadata to the frontend
 
-        async def _arun_impl(self, parameter_name: str) -> tuple[str, Any]:
+        async def _arun_impl(self, parameter_name: str) -> ToolResult:
             # Implement tool logic here
             # Access context with self.context (must have context_var from template)
             # If you use Django's ORM, ensure you utilize its asynchronous capabilities.
@@ -52,11 +53,14 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 
             response = model.ainvoke({"question": "What is PostHog?"})
 
-            # Process and return results as (message, structured_data)
-            return "Tool execution completed", result_data
+            # Use self._update_tool_call_status to send a reasoning state update, optionally including substeps
+            self._update_tool_call_status("I'm currently evaluating your results", substeps=["Analyzed some data", "Fetched some data"])
+
+            # Use self._successful_execution or self._failed_execution to return your results
+            return self._successful_execution("Tool execution completed", metadata={"result": result_data})
     ```
 
-3. Add your tool name to the `AssistantContextualTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
+3. Add your tool name to the `AssistantTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
 
 4. Define tool metadata in `TOOL_DEFINITIONS` in `frontend/src/scenes/max/max-constants.tsx`:
 
@@ -154,12 +158,15 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
 
     - Add a new formatter class in `query_executor/format.py` that implements query result formatting for AI consumption (see below, point 3)
     - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
+
         ```python
         elif isinstance(query, YourNewAssistantQuery | YourNewQuery):
             return YourNewResultsFormatter(query, response["results"]).format()
         ```
+
     - Add example prompts for your query type in `query_executor/prompts.py`, this explains to the LLM the query results formatting
     - Update `_get_example_prompt()` method in `query_executor/nodes.py` to handle your new query type:
+
         ```python
         if isinstance(viz_message.answer, YourNewAssistantQuery):
             return YOUR_NEW_EXAMPLE_PROMPT
@@ -167,6 +174,7 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
 
 2. **Update the root node** (`@ee/hogai/graph/root/`):
     - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
+
         ```python
         MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
             "TrendsQuery": TrendsQuery,
@@ -216,7 +224,7 @@ class MaxToolTaxonomyOutput(BaseModel):
     # See an example: from posthog.schema import MaxRecordingUniversalFilters
 ```
 
-2. Create a toolkit and add a typed `final_answer` tool (optional: change output formatting to YAML) and any custom tool you might have, in this example `hello_world`:
+1. Create a toolkit and add a typed `final_answer` tool (optional: change output formatting to YAML) and any custom tool you might have, in this example `hello_world`:
 
 ```python
 from pydantic import BaseModel, Field
@@ -257,7 +265,7 @@ class YourToolkit(TaxonomyAgentToolkit):
         return self._format_properties_yaml(props)
 ```
 
-3. Define the loop and tools nodes, then bind them in a graph:
+1. Define the loop and tools nodes, then bind them in a graph:
 
 ```python
 from langchain_core.prompts import ChatPromptTemplate
@@ -302,7 +310,7 @@ class YourTaxonomyGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[Max
         )
 ```
 
-4. Invoke it (typically from a `MaxTool`), mirroring `products/replay/backend/max_tools.py`:
+1. Invoke it (typically from a `MaxTool`), mirroring `products/replay/backend/max_tools.py`:
 
 ```python
 graph = YourTaxonomyGraph(team=self._team, user=self._user)

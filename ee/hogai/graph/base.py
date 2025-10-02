@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.conf import settings
 
+import structlog
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.types import StreamWriter
@@ -29,6 +30,8 @@ from ee.hogai.utils.types import (
 )
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
+
+logger = structlog.get_logger(__name__)
 
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, ReasoningNodeMixin, ABC):
@@ -132,6 +135,7 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         Writes a message to the stream writer.
         """
         if self.node_name:
+            logger.info(f"Writing message: {message}")
             self.writer(self._message_to_langgraph_update(message, self.node_name))
 
     async def _write_reasoning(self, content: str, substeps: list[str] | None = None):

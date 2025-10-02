@@ -40,7 +40,6 @@ class UpdateIssueQueryArgs(BaseModel):
 class ErrorTrackingIssueFilteringTool(MaxTool):
     name: str = AssistantTool.FILTER_ERROR_TRACKING_ISSUES.value
     description: str = "Update the error tracking issue list, editing search query, property filters, date ranges, assignee and status filters."
-    thinking_message: str = "Updating your error tracking filters..."
     system_prompt_template: str = "Current issue filters are: {current_query}"
     args_schema: type[BaseModel] = UpdateIssueQueryArgs
     send_result_to_frontend: bool = True
@@ -177,7 +176,6 @@ class IssueImpactQueryArgs(BaseModel):
 class ErrorTrackingIssueImpactTool(MaxTool):
     name: str = AssistantTool.FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST.value
     description: str = "Find a list of events that relate to a user query about issues. Prioritise this tool when a user specifically asks about issues or problems."
-    thinking_message: str = "Finding related issues"
     system_prompt_template: str = "The user wants to find a list of events whose occurrence may be impacted by issues."
     args_schema: type[BaseModel] = IssueImpactQueryArgs
     send_result_to_frontend: bool = True

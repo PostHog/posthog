@@ -18,7 +18,6 @@ class AnalyzeUserInterviewsArgs(BaseModel):
 class AnalyzeUserInterviewsTool(MaxTool):
     name: str = AssistantTool.ANALYZE_USER_INTERVIEWS.value
     description: str = "Analyze all user interviews from a specific angle to find patterns and insights"
-    thinking_message: str = "Analyzing user interviews"
     system_prompt_template: str = "Since the user is currently on the user interviews page, you should lean towards the `analyze_user_interviews` when it comes to any questions about users or customers."
     args_schema: type[BaseModel] = AnalyzeUserInterviewsArgs
 
