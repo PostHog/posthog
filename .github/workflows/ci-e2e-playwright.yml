@@ -590,11 +590,12 @@ jobs:
               with:
                   script: |
                       const flappingPaths = '${{ steps.flap-detector.outputs.paths }}'.split(' ');
+                      const pathList = flappingPaths.map(p => `- \`${p}\``).join('\n');
                       const comment = `## ⚠️ Flapping Screenshots Detected
 
                       The following screenshots have been updated multiple times by the bot, indicating test instability:
 
-                      ${flappingPaths.map(p => \`- \\\`\${p}\\\`\`).join('\\n')}
+                      ${pathList}
 
                       **What this means:**
                       - These screenshots are changing on each test run (timing issues, rendering differences, etc.)
