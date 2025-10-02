@@ -585,7 +585,7 @@ jobs:
                   echo "Paths flapping: ${PATHS_FLAPPING[*]:-none}"
 
             - name: Comment on PR about flapping screenshots
-              if: failure() && steps.flap-detector.outputs.flapping == 'true'
+              if: steps.flap-detector.outputs.flapping == 'true'
               uses: actions/github-script@v7
               with:
                   script: |
