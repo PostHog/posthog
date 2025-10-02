@@ -115,16 +115,10 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
 }
 
 const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'fullWidth'>): JSX.Element => {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
     const { setPause } = useActions(sessionRecordingPlayerLogic)
 
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
-
-    const getCurrentPlayerTime = (): number => {
-        // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
-        const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
-        return Math.floor(playerTime / 1000)
-    }
 
     return (
         <NotebookSelectButton
@@ -136,19 +130,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
                 attrs: { id: sessionRecordingId, __init: { expanded: true } },
             }}
             onClick={() => setPause()}
-            onNotebookOpened={(theNotebookLogic, theNodeLogic) => {
-                const time = getCurrentPlayerTime() * 1000
-
-                if (theNodeLogic) {
-                    // Node already exists, we just add a comment
-                    theNodeLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
-                    return
-                }
-                theNotebookLogic.actions.insertReplayCommentByTimestamp({
-                    timestamp: time,
-                    sessionRecordingId,
-                })
-
+            onNotebookOpened={() => {
                 closeSessionPlayer()
                 personsModalLogic.findMounted()?.actions.closeModal()
             }}

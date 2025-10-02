@@ -560,9 +560,7 @@ class SnowflakeClient:
         file_stream: io.BufferedReader | io.BytesIO
         if isinstance(file, BatchExportTemporaryFile):
             file.rewind()
-            # We comply with the file-like interface of io.IOBase.
-            # So we ask mypy to be nice with us.
-            file_stream = io.BufferedReader(file)  # type: ignore
+            file_stream = io.BufferedReader(file)
         else:
             file.seek(0)
             file_stream = file
@@ -1284,8 +1282,9 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
         requires_merge, merge_key, update_key = _get_snowflake_merge_config(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        attempt = activity.info().attempt
         stage_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
             if requires_merge
             else inputs.table_name
         )

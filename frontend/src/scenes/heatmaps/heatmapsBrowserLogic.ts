@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
@@ -422,4 +422,14 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
+
+    beforeUnmount(({ cache }) => {
+        // Clean up any pending error timeout to prevent memory leaks
+        if (cache.errorTimeout) {
+            clearTimeout(cache.errorTimeout)
+        }
+        if (cache.warnTimeout) {
+            clearTimeout(cache.warnTimeout)
+        }
+    }),
 ])

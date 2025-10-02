@@ -71,7 +71,6 @@ import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
-import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
@@ -91,6 +90,7 @@ const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
 export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
+    updated_at: null,
     key: '',
     name: '',
     filters: {
@@ -118,6 +118,7 @@ export const NEW_FLAG: FeatureFlagType = {
     version: 0,
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    evaluation_tags: [],
 }
 const NEW_VARIANT = {
     key: '',
@@ -725,9 +726,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
                         )
-                        if (values.roleBasedAccessEnabled && savedFlag.id) {
-                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
-                        }
                         actions.addProductIntent({
                             product_type: ProductKey.FEATURE_FLAGS,
                             intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
@@ -778,9 +776,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
                         )
-                        if (values.roleBasedAccessEnabled && savedFlag.id) {
-                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
-                        }
                     } else {
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,

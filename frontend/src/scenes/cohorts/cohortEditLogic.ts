@@ -50,6 +50,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
+        logic: [cohortsModel],
     })),
 
     actions({
@@ -487,7 +488,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     })),
     listeners(({ actions, values }) => ({
         deleteCohort: () => {
-            cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
+            cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
         },
         submitCohortFailure: () => {
