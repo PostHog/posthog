@@ -784,3 +784,34 @@ mod tests {
         assert!(obj.contains_key("supportedCompression"));
     }
 }
+
+// Types for the /evaluation_reasons endpoint
+// These match the Python endpoint's response format
+
+/// Query parameters for evaluation_reasons endpoint
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct EvaluationReasonsQueryParams {
+    pub token: Option<String>,
+    pub distinct_id: Option<String>,
+    pub groups: Option<HashMap<String, Value>>,
+}
+
+/// Evaluation reason structure that matches Python's format (uses "reason" field)
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct EvaluationReasonResponse {
+    pub reason: String,  // Python uses "reason" not "code"
+    pub condition_index: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Response structure for individual flag evaluation with reasons
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct FlagEvaluationWithReason {
+    pub value: FlagValue,
+    pub evaluation: EvaluationReasonResponse,
+}
+
+/// Response for the evaluation_reasons endpoint
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct EvaluationReasonsResponse(pub HashMap<String, FlagEvaluationWithReason>);

@@ -13,7 +13,10 @@ pub mod types;
 pub use types::*;
 
 use crate::{
-    api::{errors::FlagError, types::FlagsResponse},
+    api::{
+        errors::FlagError,
+        types::{EvaluationReasonResponse, EvaluationReasonsResponse, FlagEvaluationWithReason, FlagsResponse},
+    },
     flags::flag_service::FlagService,
     metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
 };
@@ -81,6 +84,32 @@ fn record_metrics(
             );
         }
     }
+}
+
+/// Handler for evaluation_reasons endpoint - processes request and returns flag values with evaluation reasons
+#[instrument(skip_all, fields(request_id = %context.request_id))]
+pub async fn process_evaluation_reasons_request(
+    context: RequestContext,
+) -> Result<EvaluationReasonsResponse, FlagError> {
+    // Process the request as normal to get all flag evaluations
+    let flags_response = process_request(context).await?;
+    
+    // Convert FlagsResponse to EvaluationReasonsResponse
+    let mut evaluation_reasons = HashMap::new();
+    
+    for (key, flag_details) in flags_response.flags {
+        let evaluation_with_reason = FlagEvaluationWithReason {
+            value: flag_details.to_value(),
+            evaluation: EvaluationReasonResponse {
+                reason: flag_details.reason.code,  // Map "code" field to "reason" field
+                condition_index: flag_details.reason.condition_index,
+                description: flag_details.reason.description,
+            },
+        };
+        evaluation_reasons.insert(key, evaluation_with_reason);
+    }
+    
+    Ok(EvaluationReasonsResponse(evaluation_reasons))
 }
 
 async fn process_request_inner(

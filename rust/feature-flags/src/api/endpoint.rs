@@ -2,10 +2,11 @@ use crate::{
     api::{
         errors::FlagError,
         types::{
-            ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
+            ConfigResponse, EvaluationReasonsQueryParams, FlagsQueryParams, FlagsResponse,
+            LegacyFlagsResponse, ServiceResponse,
         },
     },
-    handler::{process_request, RequestContext},
+    handler::{process_evaluation_reasons_request, process_request, RequestContext},
     router,
 };
 // TODO: stream this instead
@@ -20,6 +21,9 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use tracing::Instrument;
 use uuid::Uuid;
+
+// Version to use for the flags API to get full evaluation details
+const FLAGS_API_VERSION: &str = "4";
 
 struct LogContext<'a> {
     headers: &'a HeaderMap,
@@ -356,6 +360,53 @@ fn log_request_info(ctx: LogContext) {
         response_format = %ctx.response_format,
         "Processing request"
     );
+}
+
+/// Handler for evaluation_reasons endpoint - returns feature flag values with evaluation reasons
+#[debug_handler]
+pub async fn evaluation_reasons(
+    state: State<router::State>,
+    InsecureClientIp(direct_ip): InsecureClientIp,
+    Query(query_params): Query<EvaluationReasonsQueryParams>,
+    headers: HeaderMap,
+    _path: MatchedPath,
+) -> Result<Response, FlagError> {
+    let request_id = extract_request_id(&headers);
+    let ip = extract_client_ip(&headers, direct_ip);
+
+    if query_params.distinct_id.as_ref().map_or(true, |id| id.is_empty()) {
+        return Err(FlagError::MissingDistinctId);
+    }
+
+    // Create a FlagRequest structure from query params
+    // Include token if provided in query params
+    let request_json = serde_json::json!({
+        "token": query_params.token,
+        "distinct_id": query_params.distinct_id,
+        "groups": query_params.groups,
+    });
+
+    let body = bytes::Bytes::from(
+        serde_json::to_vec(&request_json)
+            .map_err(|e| FlagError::RequestParsingError(e))?
+    );
+
+    let context = RequestContext {
+        request_id,
+        state,
+        ip,
+        headers: headers.clone(),
+        meta: FlagsQueryParams {
+            version: Some(FLAGS_API_VERSION.to_string()),
+            config: Some(false),
+            ..Default::default()
+        },
+        body,
+    };
+
+    let response = process_evaluation_reasons_request(context).await?;
+
+    Ok(Json(response).into_response())
 }
 
 fn create_request_span(
