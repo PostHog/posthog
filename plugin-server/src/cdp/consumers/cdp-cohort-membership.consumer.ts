@@ -10,7 +10,7 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 
 // Zod schema for validation
 const CohortMembershipChangeSchema = z.object({
-    personId: z.string(),
+    personId: z.number(),
     cohortId: z.number(),
     teamId: z.number(),
     cohort_membership_changed: z.enum(['entered', 'left']),
@@ -30,17 +30,21 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     }
 
     private async handleBatchJoinedCohort(changes: CohortMembershipChange[]): Promise<void> {
-        if (changes.length === 0) return
-        
+        if (changes.length === 0) {
+            return
+        }
+
         logger.info('➕ Batch processing persons who joined cohorts', {
             count: changes.length,
-            sample: changes.slice(0, 3).map(c => ({
+            sample: changes.slice(0, 3).map((c) => ({
                 personId: c.personId,
                 cohortId: c.cohortId,
                 teamId: c.teamId,
             })),
         })
-        
+
+        await Promise.resolve()
+
         // TODO: Batch insert/update entries in postgres database
         // This would typically involve:
         // - Prepare batch insert/update query
@@ -49,29 +53,32 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     }
 
     private async handleBatchLeftCohort(changes: CohortMembershipChange[]): Promise<void> {
-        if (changes.length === 0) return
-        
+        if (changes.length === 0) {
+            return
+        }
+
         logger.info('➖ Batch processing persons who left cohorts', {
             count: changes.length,
-            sample: changes.slice(0, 3).map(c => ({
+            sample: changes.slice(0, 3).map((c) => ({
                 personId: c.personId,
                 cohortId: c.cohortId,
                 teamId: c.teamId,
             })),
         })
-        
+
         // TODO: Batch delete/update entries in postgres database
         // This would typically involve:
         // - Prepare batch delete query or update query (for soft deletes)
         // - Execute single query for all changes
         // - Handle any cascading updates if necessary
+        await Promise.resolve()
     }
 
     private async handleBatch(messages: Message[]): Promise<void> {
         // Aggregate events by action type
         const enteredCohort: CohortMembershipChange[] = []
         const leftCohort: CohortMembershipChange[] = []
-        
+
         // Process and validate all messages
         for (const message of messages) {
             try {
@@ -82,10 +89,10 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
                 }
 
                 const parsedMessage = parseJSON(messageValue)
-                
+
                 // Validate using Zod schema
                 const validationResult = CohortMembershipChangeSchema.safeParse(parsedMessage)
-                
+
                 if (!validationResult.success) {
                     logger.error('Invalid cohort membership change message', {
                         errors: validationResult.error.errors,
@@ -112,19 +119,16 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
                 })
             }
         }
-        
+
         // Process batches
-        await Promise.all([
-            this.handleBatchJoinedCohort(enteredCohort),
-            this.handleBatchLeftCohort(leftCohort),
-        ])
+        await Promise.all([this.handleBatchJoinedCohort(enteredCohort), this.handleBatchLeftCohort(leftCohort)])
     }
 
     public async start(): Promise<void> {
         await super.start()
-        
+
         logger.info('🚀', `${this.name} starting...`)
-        
+
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
                 size: messages.length,
@@ -132,14 +136,14 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
 
             await this.runWithHeartbeat(() => this.handleBatch(messages))
         })
-        
+
         logger.info('✅', `${this.name} started successfully`)
     }
 
     public async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.kafkaConsumer.disconnect()
-        
+
         // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', `${this.name} stopped!`)
