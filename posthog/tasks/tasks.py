@@ -78,8 +78,8 @@ def process_query_task(
     from posthog.clickhouse.client import execute_process_query
 
     # we don't want to override defaults in celery's task_prerun
-    query_tags.pop("kind")
-    query_tags.pop("id")
+    query_tags.pop("kind", None)
+    query_tags.pop("id", None)
 
     tag_queries(**query_tags)
 

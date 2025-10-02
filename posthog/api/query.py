@@ -84,7 +84,6 @@ def _process_query_request(
         qt.request_name = request_data.name
     elif hasattr(request_data.query, "name") and isinstance(request_data.query.name, str):
         qt.request_name = request_data.query.name
-    qt.query = query.model_dump()
 
     return query, query_id, execution_mode
 
