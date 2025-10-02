@@ -91,7 +91,7 @@ export const loadAppMetricsTotals = async (
         `) as HogQLQueryString
 
     const response = await api.queryHogQL(query, {
-        refresh: 'force_cache',
+        refresh: 'async',
     })
 
     const res: AppMetricsTotalsResponse = {}
