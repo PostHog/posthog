@@ -29,7 +29,7 @@ export function FeedbackSummary(): JSX.Element {
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                         <LemonTag>
-                            <span className="capitalize">{feedbackItem.category}</span>
+                            <span className="capitalize">{feedbackItem.category?.name}</span>
                         </LemonTag>
                         <div className="flex items-center gap-1.5">
                             <LemonBadge status="success" size="small" />

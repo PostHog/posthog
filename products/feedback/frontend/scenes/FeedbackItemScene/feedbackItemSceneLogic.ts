@@ -1,7 +1,8 @@
-import { kea, key, path, props } from 'kea'
+import { afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { MOCK_FEEDBACK_ITEMS } from '../../mocks'
+import api from 'lib/api'
+
 import { FeedbackItem } from '../../models'
 import type { feedbackItemSceneLogicType } from './feedbackItemSceneLogicType'
 
@@ -19,9 +20,15 @@ export const feedbackItemSceneLogic = kea<feedbackItemSceneLogicType>([
             null as FeedbackItem | null,
             {
                 loadFeedbackItem: async () => {
-                    return MOCK_FEEDBACK_ITEMS.find((item) => item.id === props.feedbackItemId) || null
+                    const response = await api.feedback.items.get(props.feedbackItemId)
+
+                    return response
                 },
             },
         ],
     })),
+
+    afterMount(({ actions }) => {
+        actions.loadFeedbackItem()
+    }),
 ])

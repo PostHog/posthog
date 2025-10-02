@@ -1,6 +1,3 @@
-import { useActions } from 'kea'
-import { useEffect } from 'react'
-
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
@@ -19,12 +16,6 @@ export const scene: SceneExport = {
 }
 
 export function FeedbackItemScene(): JSX.Element {
-    const { loadFeedbackItem } = useActions(feedbackItemSceneLogic)
-
-    useEffect(() => {
-        loadFeedbackItem()
-    }, [loadFeedbackItem])
-
     return (
         <SceneContent>
             <Header />
