@@ -49,7 +49,7 @@ const SummarizeAccessLevels = ({
         .filter((entry) => entry.level !== null && entry.level !== undefined)
 
     if (entries.length === 0) {
-        return <span>None</span>
+        return <span>No default permissions</span>
     }
 
     return (
@@ -401,7 +401,7 @@ function ResourcesAccessControlMembers({
             {memberResourceAccessControls.length > 0 ? (
                 <LemonTable columns={memberColumns} dataSource={memberResourceAccessControls} />
             ) : (
-                <LemonTable columns={memberColumns} dataSource={[]} emptyState="No entries" />
+                <LemonTable columns={memberColumns} dataSource={[]} emptyState="No member specific permissions" />
             )}
         </div>
     )
@@ -433,7 +433,7 @@ function ResourcesAccessControlRoles({
             {roleResourceAccessControls.length > 0 ? (
                 <LemonTable columns={roleColumns} dataSource={roleResourceAccessControls} />
             ) : (
-                <LemonTable columns={roleColumns} dataSource={[]} emptyState="No entries" />
+                <LemonTable columns={roleColumns} dataSource={[]} emptyState="No role specific permissions" />
             )}
         </div>
     )
