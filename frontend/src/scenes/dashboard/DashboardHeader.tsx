@@ -345,6 +345,12 @@ export function DashboardHeader(): JSX.Element | null {
                 )}
             </ScenePanel>
 
+            {/* This negative margin together with the pl-1 on the div below ensures 
+            that the border of the MaxTool is displayed correctly.
+            Root cause of the issue is that the description element goes out of content border in the SceneTitleSection.
+            We could fix the issue in the SceneTitleSection, but that would impact a lot more pages as it is used everywhere. 
+            This is an isolated fix.
+            */}
             <div className="-ml-1">
                 <MaxTool
                     identifier="edit_current_dashboard"
