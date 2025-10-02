@@ -283,20 +283,27 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return issue_embeddings
 
     def _get_similar_embeddings(
-        self, embedding_vector, model_name: str, embedding_version: str, issue_fingerprints: list[str]
+        self,
+        embedding_vector,
+        model_name: str,
+        embedding_version: str,
+        issue_fingerprints: list[str],
+        distance_threshold: float,
     ):
         """Get similar embeddings using cosine similarity."""
-        # TODO: add a where clause to only return when the distance is small enough
-        # we don't want totally unrelated issues being listed
         query = """
-            SELECT DISTINCT fingerprint, cosineDistance(embeddings, %(target_embedding)s) as distance
-            FROM error_tracking_issue_fingerprint_embeddings
-            WHERE team_id = %(team_id)s
-            AND model_name = %(model_name)s
-            AND embedding_version = %(embedding_version)s
-            AND fingerprint NOT IN %(fingerprints)s
-            ORDER BY distance ASC
-            LIMIT 10
+              WITH %(target_embedding)s as target
+            SELECT fingerprint, MIN(cosineDistance(embeddings, target)) as distance
+              FROM error_tracking_issue_fingerprint_embeddings
+             WHERE team_id = %(team_id)s
+               AND model_name = %(model_name)s
+               AND embedding_version = %(embedding_version)s
+               AND fingerprint NOT IN %(fingerprints)s
+               AND length(embeddings) = length(target)
+             GROUP BY fingerprint
+            HAVING distance <= %(distance_threshold)s
+             ORDER BY distance ASC
+             LIMIT 10;
         """
 
         similar_embeddings = sync_execute(
@@ -307,6 +314,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 "model_name": model_name,
                 "embedding_version": embedding_version,
                 "fingerprints": issue_fingerprints,
+                "distance_threshold": distance_threshold,
             },
         )
         return similar_embeddings
@@ -331,12 +339,17 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         # Search for similarities across all embeddings from the current issue
         for _, embedding_row in enumerate(issue_embeddings):
             embedding_vector = embedding_row[0]  # Get the embedding vector
+
+            # TODO: model_name, embedding_version and min_distance
+            # should come from a feature flag
             model_name = embedding_row[1]  # Get the model name for this embedding
             embedding_version = embedding_row[2]  # Get the embedding version for this embedding
+            distance_threshold = 0.10
 
             # Search for similar embeddings using cosine similarity
+            # TODO: distance_threshold should come from a feature flag
             similar_embeddings = self._get_similar_embeddings(
-                embedding_vector, model_name, embedding_version, issue_fingerprints
+                embedding_vector, model_name, embedding_version, issue_fingerprints, distance_threshold
             )
 
             if not similar_embeddings or len(similar_embeddings) == 0:
