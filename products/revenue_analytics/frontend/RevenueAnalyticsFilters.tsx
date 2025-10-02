@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconFilter, IconGraph, IconLineGraph, IconPlusSmall } from '@posthog/icons'
-import { IconPiggyBank } from '@posthog/icons'
+import { IconFilter, IconGraph, IconLineGraph, IconPiggyBank, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions, LemonSwitch, Link, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
