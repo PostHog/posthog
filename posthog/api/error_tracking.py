@@ -387,18 +387,22 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         )
 
         # Return dict mapping fingerprint to library
-        return dict(results) if results else {}
+        return results
 
     def _build_issue_to_library_mapping(
         self, fingerprints_to_issue_ids: list[str], library_data: dict[str, str]
     ) -> dict[str, str]:
         """Build mapping from issue_id to library using existing data."""
+        if not library_data or len(library_data) == 0:
+            return {}
+
         issue_to_library = {}
-        # Since library_data is keyed by fingerprint, assign any available library to each issue
-        if library_data:
-            first_library = next(iter(library_data.values()))
-            for issue_id in fingerprints_to_issue_ids:
-                issue_to_library[str(issue_id)] = first_library
+        # Map each issue to library data using fingerprints
+        for fingerprint, issue_id in fingerprints_to_issue_ids:
+            # Find any fingerprint that has library data for this issue
+            if fingerprint in library_data:
+                issue_to_library[str(issue_id)] = library_data[fingerprint]
+                break  # Take the first library found
         return issue_to_library
 
     def _serialize_issues_to_related_issues(self, issues, library_data: dict[str, str]):
@@ -409,7 +413,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 "id": issue.id,
                 "title": issue.name,
                 "description": issue.description,
-                "library": library_data.get(str(issue.id), ""),
+                **({} if str(issue.id) not in library_data else {"library": library_data[str(issue.id)]}),
             }
             for issue in issues
         ]
