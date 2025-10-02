@@ -58,7 +58,10 @@ export const PlayerCommentModal = (): JSX.Element => {
                                 initialContent={recordingComment.richContent}
                                 onCreate={setRichContentEditor}
                                 onUpdate={() => {
-                                    setRichContent(richContentEditor.getJSON())
+                                    // it can't be null by now, but TS doesn't know that
+                                    if (richContentEditor) {
+                                        setRichContent(richContentEditor.getJSON())
+                                    }
                                 }}
                             />
                         </LemonField>
