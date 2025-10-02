@@ -195,6 +195,7 @@ export const mockSubscription: SubscriptionType = {
     title: 'My example subscription',
     target_type: 'email',
     target_value: 'ben@posthog.com,geoff@other-company.com',
+    target_integration: null,
     frequency: 'monthly',
     interval: 2,
     start_date: '2022-01-01T00:09:00',
