@@ -1,7 +1,6 @@
 import { actions, connect, defaults, events, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { objectsEqual } from 'lib/utils'
 import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -75,7 +74,6 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             (sessionId) => {
                 return getRecordingProps(sessionId)
             },
-            { resultEqualityCheck: objectsEqual },
         ],
     }),
     events(({ props, actions }) => ({
