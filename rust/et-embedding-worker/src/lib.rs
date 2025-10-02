@@ -5,6 +5,7 @@ use common_kafka::kafka_consumer::Offset;
 use common_types::error_tracking::{EmbeddingRecord, NewFingerprintEvent};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use tracing::error;
 
 use crate::app_context::AppContext;
 
@@ -72,7 +73,26 @@ pub async fn generate_embedding(
         .send()
         .await?;
 
-    let response_body: OpenAIEmbeddingResponse = response.json().await?;
+    if !response.status().is_success() {
+        error!(
+            "Failed to generate embeddings, got non-200 from openai: {}",
+            response.status()
+        );
+
+        if let Ok(error_message) = response.text().await {
+            error!("Error message from OpenAI: {}", error_message);
+        }
+
+        return Err(anyhow::anyhow!("Failed to generate embeddings"));
+    }
+
+    let response_body: OpenAIEmbeddingResponse = match response.json().await {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            error!("Failed to parse OpenAI response: {}", err);
+            return Err(anyhow::anyhow!("Failed to generate embeddings"));
+        }
+    };
 
     let embeddings = response_body
         .data
