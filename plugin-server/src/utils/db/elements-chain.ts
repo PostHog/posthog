@@ -9,7 +9,7 @@ const splitChainRegex = new RE2(/(?:[^\s;"]|"(?:\\.|[^"])*")+/g)
 // Below splits the tag/classes from attributes
 // Needs a regex because classes can have : too
 const splitClassAttributes = new RE2(/(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g)
-const parseAttributesRegex = new RE2(/((.*?)="(.*?[^\\])")/gm)
+const parseAttributesRegex = new RE2(/((.*?)="((?:\\"|[^"])*)")/gm)
 const newLine = new RE2(/\\n/g)
 
 export function elementsToString(elements: Element[]): string {
