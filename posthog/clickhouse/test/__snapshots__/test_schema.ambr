@@ -2626,10 +2626,11 @@
   (
       team_id Int64,
   
-      -- sadly we need to use a UInt128 here, as the UUID type in clickhouse has insane ordering properties
+      -- Both UInt128 and UUID are imperfect choices here
       -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
       -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
       session_id_v7 UInt128,
+      session_timestamp DateTime MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -3680,10 +3681,11 @@
   (
       team_id Int64,
   
-      -- sadly we need to use a UInt128 here, as the UUID type in clickhouse has insane ordering properties
+      -- Both UInt128 and UUID are imperfect choices here
       -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
       -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
       session_id_v7 UInt128,
+      session_timestamp DateTime MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -3757,9 +3759,10 @@
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
-  PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
+  PARTITION BY toYYYYMM(session_timestamp)
   ORDER BY (
       team_id,
+      session_timestamp,
       session_id_v7
   )
   
@@ -4664,10 +4667,11 @@
   (
       team_id Int64,
   
-      -- sadly we need to use a UInt128 here, as the UUID type in clickhouse has insane ordering properties
+      -- Both UInt128 and UUID are imperfect choices here
       -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
       -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
       session_id_v7 UInt128,
+      session_timestamp DateTime MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -5933,10 +5937,11 @@
   (
       team_id Int64,
   
-      -- sadly we need to use a UInt128 here, as the UUID type in clickhouse has insane ordering properties
+      -- Both UInt128 and UUID are imperfect choices here
       -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
       -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
       session_id_v7 UInt128,
+      session_timestamp DateTime MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -6010,9 +6015,10 @@
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
-  PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
+  PARTITION BY toYYYYMM(session_timestamp)
   ORDER BY (
       team_id,
+      session_timestamp,
       session_id_v7
   )
   
