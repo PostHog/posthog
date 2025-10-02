@@ -137,31 +137,6 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
 
 
-def _create_postgresql_extensions(sender, **kwargs):
-    """
-    Create PostgreSQL extensions before tables are created.
-
-    With --nomigrations, Django uses model inspection to create tables, but
-    PostgreSQL extensions aren't defined in models. This signal handler runs
-    BEFORE Django creates any tables.
-    """
-    from django.db import connection
-
-    with connection.cursor() as cursor:
-        cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-        cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _setup_postgresql_extensions():
-    """Connect signal handler to create PostgreSQL extensions before table creation"""
-    from django.db.models.signals import pre_migrate
-
-    pre_migrate.connect(_create_postgresql_extensions)
-    yield
-    pre_migrate.disconnect(_create_postgresql_extensions)
-
-
 @pytest.fixture(scope="session")
 def django_db_setup(django_db_setup, django_db_keepdb):
     """Override to set up ClickHouse alongside Django's PostgreSQL test database"""
