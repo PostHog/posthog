@@ -22,6 +22,7 @@ envconfig = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
 health = { path = "../common/health" }
+jemalloc_pprof = { version = "0.8", features = ["flamegraph"] }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 num_cpus = "1.17.0"

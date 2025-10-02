@@ -23,10 +23,13 @@ use tracing_subscriber::{EnvFilter, Layer};
 use kafka_deduplicator::{
     config::Config,
     service::KafkaDeduplicatorService,
-    utils::pprof::{handle_flamegraph, handle_profile},
+    utils::pprof::{
+        handle_allocation_report, handle_alloctaion_flamegraph, handle_profile_flamegraph,
+        handle_profile_report,
+    },
 };
 
-common_alloc::used!();
+common_alloc::used_with_profiling!();
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
     opentelemetry_otlp::new_pipeline()
@@ -131,8 +134,10 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
 
     let router = if config.enable_pprof {
         router
-            .route("/pprof/profile", get(handle_profile))
-            .route("/pprof/flamegraph", get(handle_flamegraph))
+            .route("/pprof/profile/report", get(handle_profile_report))
+            .route("/pprof/profile/flamegraph", get(handle_profile_flamegraph))
+            .route("/pprof/heap/report", get(handle_allocation_report))
+            .route("/pprof/heap/flamegraph", get(handle_alloctaion_flamegraph))
     } else {
         router
     };
