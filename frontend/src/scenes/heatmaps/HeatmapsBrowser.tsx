@@ -120,25 +120,22 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                 className={`truncate ${!isBrowserUrlValid ? 'border-red-500' : ''}`}
                             />
                             {/* Show suggestions when there are options and user has typed something */}
-                            {browserUrlSearchOptions &&
-                                browserUrlSearchOptions.length > 0 &&
-                                browserSearchTerm &&
-                                browserSearchTerm.length > 0 && (
-                                    <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-bg-light border border-border rounded shadow-lg max-h-48 overflow-y-auto">
-                                        {browserUrlSearchOptions.slice(0, 5).map((url) => (
-                                            <button
-                                                key={url}
-                                                className="w-full text-left px-3 py-2 hover:bg-bg-3000 text-sm truncate"
-                                                onClick={() => {
-                                                    setBrowserUrl(url)
-                                                    setBrowserSearch('')
-                                                }}
-                                            >
-                                                {url}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
+                            {browserUrlSearchOptions?.length && browserSearchTerm?.length && (
+                                <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-bg-light border border-border rounded shadow-lg max-h-48 overflow-y-auto">
+                                    {browserUrlSearchOptions.slice(0, 5).map((url) => (
+                                        <button
+                                            key={url}
+                                            className="w-full text-left px-3 py-2 hover:bg-bg-3000 text-sm truncate"
+                                            onClick={() => {
+                                                setBrowserUrl(url)
+                                                setBrowserSearch('')
+                                            }}
+                                        >
+                                            {url}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
