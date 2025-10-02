@@ -6,4 +6,11 @@ test.describe('System Status', () => {
         await page.locator('[data-attr=top-menu-instance-panel]').click()
         await expect(page.locator('table')).toHaveText(/Events in ClickHouse/)
     })
+
+    test('System Status visual regression', async ({ page }) => {
+        await page.locator('[data-attr=menu-item-me]').click()
+        await page.locator('[data-attr=top-menu-instance-panel]').click()
+        await expect(page.locator('table')).toHaveText(/Events in ClickHouse/)
+        await expect(page).toHaveScreenshot()
+    })
 })
