@@ -302,6 +302,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             }
 
             isMerged = p
+            return true
         })
         return isMerged
     }
@@ -336,6 +337,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             }
 
             isMerged = p
+            return true
         })
         return isMerged
     }

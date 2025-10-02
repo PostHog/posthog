@@ -15,20 +15,30 @@ import {
 import { hostname } from 'os'
 import { Gauge, Histogram } from 'prom-client'
 
+import {
+    EventHeaders,
+    HealthCheckResult,
+    HealthCheckResultDegraded,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+} from '~/types'
 import { isTestEnv } from '~/utils/env-utils'
+import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../config/config'
-import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
+import { kafkaConsumerAssignment, kafkaHeaderStatusCounter } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
 import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
 import { getKafkaConfigFromEnv } from './config'
+import { parseBrokerStatistics, trackBrokerMetrics } from './kafka-client-metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
+const STATISTICS_INTERVAL_MS = 5000 // Emit internal metrics every 5 seconds
 
 const consumedBatchDuration = new Histogram({
     name: 'consumed_batch_duration_ms',
@@ -142,6 +152,12 @@ export class KafkaConsumer {
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: Promise<void>[]
     private podName: string
+    private consumerId: string
+    // New health monitoring state
+    private consumerLoopStallThresholdMs: number
+    private lastConsumerLoopTime = 0
+    private consumerState: string | undefined
+    private lastStatsEmitTime = 0
     private rebalanceCoordination: RebalanceCoordination = {
         isRebalancing: false,
         rebalanceTimeoutMs: 20000,
@@ -154,6 +170,8 @@ export class KafkaConsumer {
     ) {
         this.backgroundTask = []
         this.podName = process.env.HOSTNAME || hostname()
+        // Generate unique consumer ID: pod + group + timestamp + random number (need timestamp/random number because multiple consumers per pod)
+        this.consumerId = `${this.podName}-${this.config.groupId}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
 
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
@@ -163,6 +181,7 @@ export class KafkaConsumer {
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
+        this.consumerLoopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS
 
         const rebalancecb: RebalanceCallback = this.config.waitForBackgroundTasksOnRebalance
             ? this.rebalanceCallback.bind(this)
@@ -185,6 +204,10 @@ export class KafkaConsumer {
             'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
             'metadata.max.age.ms': 30000, // Refresh metadata every 30s - Relevant for leader loss (MSK Security Patches)
             'socket.timeout.ms': 30000,
+            // Only enable statistics when using loop-based health check
+            ...(defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK
+                ? { 'statistics.interval.ms': STATISTICS_INTERVAL_MS }
+                : {}),
             // Custom settings and overrides - this is where most configuration overrides should be done
             ...getKafkaConfigFromEnv('CONSUMER'),
             // Finally any specifically given consumer config overrides
@@ -209,14 +232,108 @@ export class KafkaConsumer {
 
     public heartbeat(): void {
         // Can be called externally to update the heartbeat time and keep the consumer alive
+        // This is maintained for backward compatibility with the legacy health check mechanism
         this.lastHeartbeatTime = Date.now()
     }
 
-    public isHealthy(): boolean {
-        // this is called as a readiness and a liveness probe
-        const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
-        const isConnected = this.rdKafkaConsumer.isConnected()
-        return isConnected && isWithinInterval
+    public isHealthy(): HealthCheckResult {
+        // Use legacy heartbeat-based health check if feature flag is disabled
+        if (!defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK) {
+            // this is called as a readiness and a liveness probe
+            const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
+            const isConnected = this.rdKafkaConsumer.isConnected()
+
+            if (isConnected && isWithinInterval) {
+                return new HealthCheckResultOk()
+            } else {
+                return new HealthCheckResultError('Consumer unhealthy', {
+                    isConnected,
+                    isWithinInterval,
+                    lastHeartbeatTime: this.lastHeartbeatTime,
+                    maxHealthHeartbeatIntervalMs: this.maxHealthHeartbeatIntervalMs,
+                })
+            }
+        }
+
+        // New loop-based health check implementation
+        const details: Record<string, any> = {
+            topic: this.config.topic,
+            groupId: this.config.groupId,
+            healthCheckMode: 'loop-based',
+        }
+
+        // 1. Basic connectivity check
+        if (!this.rdKafkaConsumer.isConnected()) {
+            return new HealthCheckResultError('Consumer not connected to Kafka broker', details)
+        }
+
+        // 2. Consumer loop liveness check (ensure loop is not stalled)
+        const timeSinceLastLoop = Date.now() - this.lastConsumerLoopTime
+        if (this.lastConsumerLoopTime > 0 && timeSinceLastLoop > this.consumerLoopStallThresholdMs) {
+            return new HealthCheckResultError(
+                `Consumer loop appears stalled (no activity for ${Math.round(timeSinceLastLoop / 1000)}s)`,
+                {
+                    ...details,
+                    lastConsumerLoopTime: this.lastConsumerLoopTime,
+                    timeSinceLastLoop,
+                    threshold: this.consumerLoopStallThresholdMs,
+                }
+            )
+        }
+
+        // Build status message with warnings
+        const warnings: string[] = []
+
+        // 3. Check librdkafka internal state if available
+        if (this.consumerState && this.consumerState !== 'up') {
+            warnings.push(`Consumer state: ${this.consumerState}`)
+            details.consumerState = this.consumerState
+        }
+
+        // 4. Check if statistics are being emitted (indicates librdkafka is responsive)
+        if (this.lastStatsEmitTime > 0) {
+            const timeSinceLastStats = Date.now() - this.lastStatsEmitTime
+            // Allow for 3x the statistics interval as buffer
+            if (timeSinceLastStats > STATISTICS_INTERVAL_MS * 3) {
+                warnings.push(`Statistics not emitted for ${Math.round(timeSinceLastStats / 1000)}s`)
+                details.lastStatsEmitTime = this.lastStatsEmitTime
+                details.timeSinceLastStats = timeSinceLastStats
+            }
+        }
+
+        // 5. Rebalancing is normal operation, note it but don't fail
+        if (this.rebalanceCoordination.isRebalancing) {
+            const duration = Date.now() - this.rebalanceCoordination.rebalanceStartTime
+            warnings.push(`Rebalancing in progress (${Math.round(duration / 1000)}s)`)
+            details.rebalancing = true
+            details.rebalanceDuration = duration
+        }
+
+        // Add assignments info (but handle errors gracefully)
+        try {
+            const assignments = this.assignments()
+            if (assignments.length > 0) {
+                details.assignments = assignments.map((a) => ({ topic: a.topic, partition: a.partition }))
+            }
+        } catch (error) {
+            // Consumer might be in an erroneous state during rebalancing
+            details.assignmentError = error.message
+        }
+
+        // Return degraded if there are warnings, otherwise healthy
+        if (warnings.length > 0) {
+            return new HealthCheckResultDegraded(`Healthy with warnings: ${warnings.join(', ')}`, details)
+        }
+
+        return new HealthCheckResultOk()
+    }
+
+    public isShuttingDown(): boolean {
+        return this.isStopping
+    }
+
+    public isRebalancing(): boolean {
+        return this.rebalanceCoordination.isRebalancing
     }
 
     public assignments(): Assignment[] {
@@ -385,6 +502,53 @@ export class KafkaConsumer {
             })
         })
 
+        consumer.on('event.stats', (stats: any) => {
+            // Parse the statistics JSON
+            try {
+                const parsedStats = parseJSON(stats.message)
+
+                // Update internal health monitoring state
+                this.lastStatsEmitTime = Date.now()
+                // cgrp field only appears when consumer is part of a group
+                this.consumerState = parsedStats.cgrp?.state || 'no-group'
+
+                const brokerStats = parseBrokerStatistics(parsedStats)
+
+                trackBrokerMetrics(brokerStats, this.config.groupId, this.consumerId)
+
+                // Log key metrics for observability - only include cgrp fields if present
+                const logData: any = {
+                    rx_msgs: parsedStats.rxmsgs, // Total messages received
+                    rx_bytes: parsedStats.rx_bytes || parsedStats.rxbytes, // Total bytes received
+                    topics: Object.keys(parsedStats.topics || {}),
+                    broker_count: brokerStats.size,
+                    brokers: Array.from(brokerStats.entries()).map(([name, stats]) => ({
+                        name,
+                        state: stats.state,
+                        rtt_avg: stats.rtt?.avg,
+                        connects: stats.connects,
+                        disconnects: stats.disconnects,
+                    })),
+                }
+
+                // Only add consumer group fields if cgrp exists
+                if (parsedStats.cgrp) {
+                    logData.consumer_group_state = parsedStats.cgrp.state
+                    logData.rebalance_state = parsedStats.cgrp.join_state
+                    logData.rebalance_age = parsedStats.cgrp.rebalance_age
+                    logData.rebalance_cnt = parsedStats.cgrp.rebalance_cnt
+                    logData.assignment_size = parsedStats.cgrp.assignment_size
+                }
+
+                logger.debug('📊', 'Kafka consumer statistics', logData)
+            } catch (error) {
+                logger.error('📊', 'Failed to parse consumer statistics', {
+                    error: error instanceof Error ? error.message : String(error),
+                    errorStack: error instanceof Error ? error.stack : undefined,
+                })
+            }
+        })
+
         consumer.on('subscribed', (topics) => {
             logger.info('📝', 'librdkafka consumer subscribed', { topics, config: this.consumerConfig })
         })
@@ -445,6 +609,9 @@ export class KafkaConsumer {
 
         this.heartbeat() // Setup the heartbeat so we are healthy since connection is established
 
+        // Initialize health monitoring state for new loop-based check
+        this.lastConsumerLoopTime = Date.now()
+
         if (defaultConfig.CONSUMER_AUTO_CREATE_TOPICS) {
             // For hobby deploys we want to auto-create, but on cloud we don't
             await ensureTopicExists(this.consumerConfig, this.config.topic)
@@ -462,6 +629,8 @@ export class KafkaConsumer {
             let lastConsumeTime = 0
             try {
                 while (!this.isStopping) {
+                    // Track that the consumer loop is alive
+                    this.lastConsumerLoopTime = Date.now()
                     logger.debug('🔁', 'main_loop_consuming')
 
                     // If we're rebalancing and feature flag is enabled, skip consuming to avoid processing messages
@@ -494,7 +663,7 @@ export class KafkaConsumer {
                         promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
                     )
 
-                    // After successfully pulling a batch, we can update our heartbeat time
+                    // After successfully pulling a batch, update heartbeat for backward compatibility
                     this.heartbeat()
 
                     gaugeBatchUtilization.labels({ groupId }).set(messages.length / this.fetchBatchSize)
@@ -652,6 +821,39 @@ export const parseKafkaHeaders = (headers?: MessageHeader[]): Record<string, str
         Object.keys(header).forEach((key) => {
             result[key] = header[key].toString()
         })
+    })
+
+    return result
+}
+
+export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
+    // Kafka headers come from librdkafka as an array of objects with keys value pairs per header.
+    // We extract the specific headers we care about into a structured format.
+
+    const result: EventHeaders = {}
+
+    headers?.forEach((header) => {
+        Object.keys(header).forEach((key) => {
+            const value = header[key].toString()
+            if (key === 'token') {
+                result.token = value
+            } else if (key === 'distinct_id') {
+                result.distinct_id = value
+            } else if (key === 'timestamp') {
+                result.timestamp = value
+            } else if (key === 'event') {
+                result.event = value
+            } else if (key === 'uuid') {
+                result.uuid = value
+            }
+        })
+    })
+
+    // Track comprehensive header status metrics
+    const trackedHeaders = ['token', 'distinct_id', 'timestamp', 'event', 'uuid'] as const
+    trackedHeaders.forEach((header) => {
+        const status = result[header] ? 'present' : 'absent'
+        kafkaHeaderStatusCounter.labels(header, status).inc()
     })
 
     return result

@@ -1,6 +1,6 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
 
-import { Hub } from '../../types'
+import { HealthCheckResult, Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
@@ -146,7 +146,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         await super.stop()
     }
 
-    public isHealthy() {
+    public isHealthy(): HealthCheckResult {
         return this.cyclotronJobQueue.isHealthy()
     }
 }

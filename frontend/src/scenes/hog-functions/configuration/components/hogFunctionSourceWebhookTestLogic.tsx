@@ -8,7 +8,9 @@ import { HogFunctionConfigurationLogicProps, hogFunctionConfigurationLogic } fro
 import type { hogFunctionSourceWebhookTestLogicType } from './hogFunctionSourceWebhookTestLogicType'
 
 export type HogFunctionSourceWebhookTestForm = {
+    method: string
     headers: string
+    query: string
     body: string
     mock_request: boolean
 }
@@ -52,9 +54,11 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
         testInvocation: {
             defaults: {
                 mock_request: true,
+                method: 'POST',
                 headers: `{
   "Content-Type": "application/json"
 }`,
+                query: '',
                 body: `{
   "event": "my example event",
   "distinct_id": "webhook-test-123"
@@ -69,13 +73,17 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
             },
             submit: async (data) => {
                 actions.setTestResult(null)
-
-                const response = await fetch(`${publicWebhooksHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}`, {
-                    method: 'POST',
+                const fetchOptions: RequestInit = {
+                    method: data.method,
                     headers: tryJsonParse(data.headers),
-                    body: data.body,
+                    body: data.method == 'GET' ? undefined : data.body,
                     credentials: 'omit',
-                })
+                }
+
+                const response = await fetch(
+                    `${publicWebhooksHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}${data.query ? `?${data.query}` : ''}`,
+                    fetchOptions
+                )
 
                 actions.setTestResult({
                     status: response.status,
@@ -96,9 +104,9 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
                           .join(' ')
                     : ''
 
-                return `curl -X POST ${headers} \\
+                return `curl -X ${testInvocation.method} ${headers} \\
   -d '${testInvocation.body}' \\
-  ${publicWebhooksHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}`
+  ${publicWebhooksHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}${testInvocation.query ? `?${testInvocation.query}` : ''}`
             },
         ],
     }),

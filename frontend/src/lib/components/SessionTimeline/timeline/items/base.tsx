@@ -1,7 +1,8 @@
-import { ItemCache, ItemLoader, TimelineItem } from '..'
+import { ItemLoader, TimelineItem } from '..'
 
 import api from 'lib/api'
 import { Dayjs } from 'lib/dayjs'
+import { TimeTree } from 'lib/utils/time-tree'
 
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 
@@ -23,7 +24,7 @@ export function BasePreview({
 }
 
 export abstract class EventLoader<T extends TimelineItem> implements ItemLoader<T> {
-    private cache: ItemCache<T>
+    private cache: TimeTree<T>
     private afterCursor: Dayjs
     private previousCursor: Dayjs
     private _hasNext: boolean = true
@@ -35,7 +36,7 @@ export abstract class EventLoader<T extends TimelineItem> implements ItemLoader<
     ) {
         this.afterCursor = timestamp
         this.previousCursor = timestamp
-        this.cache = new ItemCache<T>()
+        this.cache = new TimeTree<T>()
     }
 
     hasPrevious(to: Dayjs): boolean {

@@ -2,7 +2,6 @@ import json
 import logging
 from typing import Any, Optional
 
-import posthoganalytics
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
@@ -13,10 +12,7 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
-from posthog.constants import AvailableFeature
 from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE, TYPES_WITH_TRANSPILED_FILTERS
-from posthog.models.team.team import Team
-from posthog.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +108,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     integration_field = serializers.CharField(required=False)
     requiredScopes = serializers.CharField(required=False)
     # Indicates if hog templating should be used for this input
-    templating = serializers.BooleanField(required=False)
+    templating = serializers.ChoiceField(choices=[True, False, "hog", "liquid"], required=False)
 
     # TODO Validate choices if type=choice
 
@@ -234,6 +230,16 @@ class InputsSerializer(serializers.DictField):
                 value = existing_secret_inputs.get(schema["key"]) or {}
 
             self.context["schema"] = schema
+
+            # Propagate templating from schema to input item, if set
+            if "templating" in schema:
+                templating_val = schema["templating"]
+                if isinstance(templating_val, bool):
+                    if templating_val:
+                        value["templating"] = "hog"
+                    # If False, do not set templating field
+                else:
+                    value["templating"] = templating_val
 
             try:
                 input_value = self.child.run_validation(value)
@@ -379,19 +385,3 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})
-
-
-def has_data_pipelines_addon(team: Team, user: Optional[User]) -> bool:
-    if team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES):
-        return True
-
-    if user is None:
-        return False
-
-    return posthoganalytics.feature_enabled(
-        "cdp-new-pricing",
-        str(user.distinct_id),
-        groups={"organization": str(team.organization.id)},
-        group_properties={"organization": {"id": str(team.organization.id)}},
-        send_feature_flag_events=False,
-    )

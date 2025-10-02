@@ -285,13 +285,12 @@ class VercelAuthentication(authentication.BaseAuthentication):
 
         try:
             payload = self._validate_jwt_token(token, auth_type)
-            logger.info("Vercel auth successful", auth_type=auth_type, account_id=payload.get("account_id"))
             return VercelUser(claims=payload), None
         except jwt.InvalidTokenError as e:
-            logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e))
+            logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e), integration="vercel")
             raise AuthenticationFailed(f"Invalid {auth_type} authentication token")
         except Exception as e:
-            logger.exception("Vercel auth error", auth_type=auth_type, error=str(e))
+            logger.exception("Vercel auth error", auth_type=auth_type, error=str(e), integration="vercel")
             raise AuthenticationFailed(f"{auth_type.title()} authentication failed")
 
     def _get_bearer_token(self, request: Request) -> str | None:
@@ -329,39 +328,30 @@ class VercelAuthentication(authentication.BaseAuthentication):
         if auth_type == "user":
             self._validate_user_claims(payload)
 
-            user_claims: VercelUserClaims = {
-                "iss": payload["iss"],
-                "sub": payload["sub"],
-                "aud": payload["aud"],
-                "account_id": payload["account_id"],
-                "installation_id": payload["installation_id"],
-                "user_id": payload["user_id"],
-                "user_role": payload["user_role"],
-            }
-            if "type" in payload:
-                user_claims["type"] = payload["type"]
-            if "user_avatar_url" in payload:
-                user_claims["user_avatar_url"] = payload["user_avatar_url"]
-            if "user_name" in payload:
-                user_claims["user_name"] = payload["user_name"]
-            if "user_email" in payload:
-                user_claims["user_email"] = payload["user_email"]
-            return user_claims
+            return VercelUserClaims(
+                iss=payload["iss"],
+                sub=payload["sub"],
+                aud=payload["aud"],
+                account_id=payload["account_id"],
+                installation_id=payload["installation_id"],
+                user_id=payload["user_id"],
+                user_role=payload["user_role"],
+                type=payload.get("type"),
+                user_avatar_url=payload.get("user_avatar_url"),
+                user_name=payload.get("user_name"),
+                user_email=payload.get("user_email"),
+            )
         elif auth_type == "system":
             self._validate_system_claims(payload)
 
-            system_claims: VercelSystemClaims = {
-                "iss": payload["iss"],
-                "sub": payload["sub"],
-                "aud": payload["aud"],
-                "account_id": payload["account_id"],
-                "installation_id": payload["installation_id"],
-            }
-
-            if "type" in payload:
-                system_claims["type"] = payload["type"]
-
-            return system_claims
+            return VercelSystemClaims(
+                iss=payload["iss"],
+                sub=payload["sub"],
+                aud=payload["aud"],
+                account_id=payload["account_id"],
+                installation_id=payload["installation_id"],
+                type=payload.get("type"),
+            )
 
     def _validate_user_claims(self, payload: dict[str, Any]) -> None:
         self._require_claims(payload, ["account_id", "installation_id", "user_id", "user_role"], "user")
@@ -406,4 +396,25 @@ class VercelAuthentication(authentication.BaseAuthentication):
             algorithms=["RS256"],
             issuer=self.VERCEL_ISSUER,
             audience=settings.VERCEL_CLIENT_INTEGRATION_ID,
+            leeway=10,  # account for clock skew with 10 seconds of leeway
         )
+
+
+def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
+    email = details.get("email")
+    # Check if SSO enforcement is enabled for this email address
+    sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)
+    if sso_enforcement is None or sso_enforcement == backend.name:
+        return
+
+    if sso_enforcement == "saml":
+        raise AuthFailed(backend, "saml_sso_enforced")
+    elif sso_enforcement == "google-oauth2":
+        raise AuthFailed(backend, "google_sso_enforced")
+    elif sso_enforcement == "github":
+        raise AuthFailed(backend, "github_sso_enforced")
+    elif sso_enforcement == "gitlab":
+        raise AuthFailed(backend, "gitlab_sso_enforced")
+    else:
+        # catch-all in case we missed a case above
+        raise AuthFailed(backend, "sso_enforced", email)

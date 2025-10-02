@@ -4,6 +4,7 @@ import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { logger } from '~/utils/logger'
 import { UUIDT } from '~/utils/utils'
 
 import { HogFlowAction } from '../../../schema/hogflow'
@@ -23,7 +24,6 @@ describe('RecipientPreferencesService', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub)
-
         mockRecipientsManager = new RecipientsManagerService(hub)
         mockRecipientsManagerGet = jest.spyOn(mockRecipientsManager, 'get')
         mockRecipientsManagerGetPreference = jest.spyOn(mockRecipientsManager, 'getPreference')
@@ -40,7 +40,17 @@ describe('RecipientPreferencesService', () => {
         await closeHub(hub)
     })
 
-    const createRecipient = (identifier: string, preferences: Record<string, string> = {}) => ({
+    const createRecipient = (
+        identifier: string,
+        preferences: Record<string, string> = {}
+    ): {
+        id: string
+        team_id: number
+        identifier: string
+        preferences: Record<string, string>
+        created_at: string
+        updated_at: string
+    } => ({
         id: new UUIDT().toString(),
         team_id: team.id,
         identifier,
@@ -50,10 +60,7 @@ describe('RecipientPreferencesService', () => {
     })
 
     const createFunctionStepInvocation = (
-        action: Extract<
-            HogFlowAction,
-            { type: 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook' }
-        >
+        action: Extract<HogFlowAction, { type: 'function' | 'function_email' | 'function_sms' }>
     ): CyclotronJobInvocationHogFunction => {
         const hogFlow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
@@ -75,7 +82,16 @@ describe('RecipientPreferencesService', () => {
             })
             .build()
 
-        return createExampleInvocation(hogFlow, { inputs: action.config.inputs })
+        // Hacky but we just want to test the service, so we'll add the inputs to the invocation
+        const inputs = Object.entries(action.config.inputs).reduce(
+            (acc, [key, value]) => {
+                acc[key] = value.value
+                return acc
+            },
+            {} as Record<string, any>
+        )
+
+        return createExampleInvocation(hogFlow, { inputs })
     }
 
     describe('shouldSkipAction', () => {
@@ -93,8 +109,16 @@ describe('RecipientPreferencesService', () => {
                     message_category_id: categoryId,
                     inputs: {
                         email: {
-                            to: {
-                                email: to,
+                            value: {
+                                to: {
+                                    email: to,
+                                },
+                                from: {
+                                    email: 'from@example.com',
+                                },
+                                subject: 'Test Subject',
+                                text: 'Test Text',
+                                html: 'Test HTML',
                             },
                         },
                     },
@@ -176,39 +200,23 @@ describe('RecipientPreferencesService', () => {
             it('should handle errors gracefully and return false', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
-                const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+                const loggerSpy = jest.spyOn(logger, 'error').mockImplementation()
 
                 mockRecipientsManagerGet.mockRejectedValue(new Error('Database error'))
 
                 const result = await service.shouldSkipAction(invocation, action)
 
                 expect(result).toBe(false)
-                expect(consoleSpy).toHaveBeenCalledWith(
+                expect(loggerSpy).toHaveBeenCalledWith(
                     'Failed to fetch recipient preferences for test@example.com:',
                     expect.any(Error)
                 )
 
-                consoleSpy.mockRestore()
+                loggerSpy.mockRestore()
             })
 
             it('should throw error if no email identifier is found', async () => {
-                const action: Extract<HogFlowAction, { type: 'function_email' }> = {
-                    id: 'email',
-                    name: 'Send email',
-                    description: 'Send an email to the recipient',
-                    type: 'function_email',
-                    config: {
-                        message_category_id: '123e4567-e89b-12d3-a456-426614174000',
-                        template_id: 'template-email',
-                        inputs: {
-                            email: {
-                                value: {},
-                            },
-                        },
-                    },
-                    created_at: Date.now(),
-                    updated_at: Date.now(),
-                }
+                const action = createEmailAction('', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
 
                 await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
@@ -316,8 +324,8 @@ describe('RecipientPreferencesService', () => {
                     template_id: 'template-twilio',
                     message_category_id: categoryId,
                     inputs: {
-                        to_number: toNumber,
-                    } as any,
+                        to_number: { value: toNumber },
+                    },
                 },
                 created_at: Date.now(),
                 updated_at: Date.now(),
@@ -360,19 +368,7 @@ describe('RecipientPreferencesService', () => {
             })
 
             it('should throw error if no SMS identifier is found', async () => {
-                const action: Extract<HogFlowAction, { type: 'function_sms' }> = {
-                    id: 'sms',
-                    name: 'Send SMS',
-                    description: 'Send an SMS to the recipient',
-                    type: 'function_sms',
-                    config: {
-                        template_id: 'template-twilio',
-                        message_category_id: '123e4567-e89b-12d3-a456-426614174000',
-                        inputs: {},
-                    },
-                    created_at: Date.now(),
-                    updated_at: Date.now(),
-                }
+                const action = createSmsAction('', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
 
                 await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
@@ -426,48 +422,6 @@ describe('RecipientPreferencesService', () => {
                     type: 'function',
                     config: {
                         template_id: 'template-function',
-                        inputs: {},
-                    },
-                    created_at: Date.now(),
-                    updated_at: Date.now(),
-                }
-                const invocation = createFunctionStepInvocation(action)
-
-                const result = await service.shouldSkipAction(invocation, action)
-
-                expect(result).toBe(false)
-                expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
-            })
-
-            it('should return false for function_slack actions', async () => {
-                const action: Extract<HogFlowAction, { type: 'function_slack' }> = {
-                    id: 'slack',
-                    name: 'Send Slack message',
-                    description: 'Send a message to Slack',
-                    type: 'function_slack',
-                    config: {
-                        template_id: 'template-slack',
-                        inputs: {},
-                    },
-                    created_at: Date.now(),
-                    updated_at: Date.now(),
-                }
-                const invocation = createFunctionStepInvocation(action)
-
-                const result = await service.shouldSkipAction(invocation, action)
-
-                expect(result).toBe(false)
-                expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
-            })
-
-            it('should return false for function_webhook actions', async () => {
-                const action: Extract<HogFlowAction, { type: 'function_webhook' }> = {
-                    id: 'webhook',
-                    name: 'Send webhook',
-                    description: 'Send a webhook request',
-                    type: 'function_webhook',
-                    config: {
-                        template_id: 'template-webhook',
                         inputs: {},
                     },
                     created_at: Date.now(),

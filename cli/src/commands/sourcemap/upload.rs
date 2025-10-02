@@ -3,13 +3,16 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Ok, Result};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use reqwest::blocking::multipart::{Form, Part};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use tracing::{info, warn};
 
+use crate::commands::UploadArgs;
 use crate::utils::auth::load_token;
+use crate::utils::client::{get_client, SKIP_SSL};
 use crate::utils::posthog::capture_command_invoked;
 use crate::utils::release::{create_release, CreateReleaseResponse};
 use crate::utils::sourcemaps::{read_pairs, ChunkUpload, SourcePair};
@@ -44,15 +47,19 @@ struct BulkUploadFinishRequest {
     content_hashes: HashMap<String, String>,
 }
 
-pub fn upload(
-    host: Option<String>,
-    directory: &PathBuf,
-    ignore_globs: &[String],
-    project: Option<String>,
-    version: Option<String>,
-    delete_after: bool,
-    skip_ssl_verification: bool,
-) -> Result<()> {
+pub fn upload(host: Option<String>, args: UploadArgs) -> Result<()> {
+    let UploadArgs {
+        directory,
+        project,
+        ignore,
+        version,
+        delete_after,
+        skip_ssl_verification,
+        batch_size,
+    } = args;
+
+    *SKIP_SSL.lock().unwrap() = skip_ssl_verification;
+
     let token = load_token().context("While starting upload command")?;
     let host = token.get_host(host.as_deref());
 
@@ -63,20 +70,14 @@ pub fn upload(
         host, token.env_id
     );
 
-    let pairs = read_pairs(directory, ignore_globs)?;
+    let pairs = read_pairs(&directory, &ignore)?;
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.path.clone())
         .collect::<Vec<_>>();
+    info!("Found {} chunks to upload", pairs.len());
 
     let uploads = collect_uploads(pairs).context("While preparing files for upload")?;
-    info!("Found {} chunks to upload", uploads.len());
-
-    // See if we have enough information to create a release object
-    // TODO - The use of a hash_id here means repeated attempts to upload the same data will fail.
-    //        We could relax this, such that we instead replace the existing release with the new one,
-    //        or we could even just allow adding new chunks to an existing release, but for now I'm
-    //        leaving it like this... Reviewers, lets chat about the right approach here
     let release = create_release(
         &host,
         &token,
@@ -84,17 +85,19 @@ pub fn upload(
         Some(content_hash(uploads.iter().map(|upload| &upload.data))),
         project,
         version,
-        skip_ssl_verification,
     )
     .context("While creating release")?;
 
-    upload_chunks(
-        &base_url,
-        &token.token,
-        uploads,
-        release.as_ref(),
-        skip_ssl_verification,
-    )?;
+    let batched_uploads = into_batches(uploads, batch_size);
+
+    for batch_upload in batched_uploads {
+        // See if we have enough information to create a release object
+        // TODO - The use of a hash_id here means repeated attempts to upload the same data will fail.
+        //        We could relax this, such that we instead replace the existing release with the new one,
+        //        or we could even just allow adding new chunks to an existing release, but for now I'm
+        //        leaving it like this... Reviewers, lets chat about the right approach here
+        upload_chunks(&base_url, &token.token, batch_upload, release.as_ref())?;
+    }
 
     if delete_after {
         delete_files(sourcemap_paths).context("While deleting sourcemaps")?;
@@ -103,6 +106,16 @@ pub fn upload(
     let _ = capture_handle.join();
 
     Ok(())
+}
+
+fn into_batches<T>(mut array: Vec<T>, batch_size: usize) -> Vec<Vec<T>> {
+    let mut batches = Vec::new();
+    while !array.is_empty() {
+        let take = array.len().min(batch_size);
+        let chunk: Vec<_> = array.drain(..take).collect();
+        batches.push(chunk);
+    }
+    batches
 }
 
 fn collect_uploads(pairs: Vec<SourcePair>) -> Result<Vec<ChunkUpload>> {
@@ -118,11 +131,8 @@ fn upload_chunks(
     token: &str,
     uploads: Vec<ChunkUpload>,
     release: Option<&CreateReleaseResponse>,
-    skip_ssl_verification: bool,
 ) -> Result<()> {
-    let client = reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(skip_ssl_verification)
-        .build()?;
+    let client = get_client()?;
 
     let release_id = release.map(|r| r.id.to_string());
     let chunk_ids = uploads
@@ -144,25 +154,27 @@ fn upload_chunks(
 
     let start_response = start_upload(&client, base_url, token, chunk_ids, &release_id)?;
 
-    let mut id_map: HashMap<_, _> = uploads
+    let id_map: HashMap<_, _> = uploads
         .into_iter()
         .map(|u| (u.chunk_id.clone(), u))
         .collect();
 
-    let mut content_hashes = HashMap::new();
+    let res: Result<HashMap<String, String>> = start_response
+        .id_map
+        .into_par_iter()
+        .map(|(chunk_id, data)| {
+            info!("Uploading chunk {}", chunk_id);
+            let upload = id_map.get(&chunk_id).ok_or(anyhow!(
+                "Got a chunk ID back from posthog that we didn't expect!"
+            ))?;
 
-    for (chunk_id, data) in start_response.id_map.into_iter() {
-        info!("Uploading chunk {}", chunk_id);
-        let upload = id_map.remove(&chunk_id).ok_or(anyhow!(
-            "Got a chunk ID back from posthog that we didn't expect!"
-        ))?;
+            let content_hash = content_hash([&upload.data]);
+            upload_to_s3(&client, data.presigned_url.clone(), &upload.data)?;
+            Ok((data.symbol_set_id, content_hash))
+        })
+        .collect();
 
-        let content_hash = content_hash([&upload.data]);
-
-        upload_to_s3(&client, data.presigned_url.clone(), upload.data)?;
-
-        content_hashes.insert(data.symbol_set_id.clone(), content_hash);
-    }
+    let content_hashes = res?;
 
     finish_upload(&client, base_url, token, content_hashes)?;
 
@@ -197,7 +209,7 @@ fn start_upload(
     Ok(res.json()?)
 }
 
-fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> Result<()> {
+fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
     let mut last_err = None;
     let mut delay = std::time::Duration::from_millis(500);
     for attempt in 1..=3 {
@@ -205,7 +217,7 @@ fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> 
         for (key, value) in &presigned_url.fields {
             form = form.text(key.clone(), value.clone());
         }
-        let part = Part::bytes(data.clone());
+        let part = Part::bytes(data.to_vec());
         form = form.part("file", part);
 
         let res = client.post(&presigned_url.url).multipart(form).send();

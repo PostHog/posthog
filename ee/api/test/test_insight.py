@@ -1,4 +1,3 @@
-import json
 from datetime import timedelta
 from typing import Optional, cast
 
@@ -15,27 +14,13 @@ from posthog.models import Dashboard, DashboardTile, Insight, OrganizationMember
 from posthog.test.db_context_capturing import capture_db_queries
 
 from ee.api.test.base import APILicensedTest
-from ee.models import DashboardPrivilege, ExplicitTeamMembership
+from ee.models import DashboardPrivilege
 
 
 class TestInsightEnterpriseAPI(APILicensedTest):
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
-
-    def test_insight_trends_forbidden_if_project_private_and_org_member(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertDictEqual(
-            self.permission_denied_response("You don't have access to the project."),
-            response.json(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_add_and_remove_tags(self) -> None:
@@ -271,23 +256,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             response_data["effective_privilege_level"],
             Dashboard.PrivilegeLevel.CAN_EDIT,
         )
-
-    def test_insight_trends_allowed_if_project_private_and_org_member_and_project_member(
-        self,
-    ) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
-        ExplicitTeamMembership.objects.create(
-            team=self.team,
-            parent_membership=self.organization_membership,
-            level=ExplicitTeamMembership.Level.MEMBER,
-        )
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_cannot_update_restricted_insight_as_other_user_who_is_project_member(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)

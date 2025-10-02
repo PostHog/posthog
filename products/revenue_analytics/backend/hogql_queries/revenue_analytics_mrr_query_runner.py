@@ -104,7 +104,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
                     alias="previous_amount",
                     expr=ast.WindowFunction(
                         name="lagInFrame",
-                        args=[
+                        exprs=[
                             ast.Field(chain=["amount"]),
                             ast.Constant(value=1),
                             ast.Call(name="assumeNotNull", args=[ZERO_IN_DECIMAL_PRECISION]),
@@ -488,13 +488,21 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
 
         labels = [format_label_date(date, self.query_date_range, self.team.week_start_day) for date in dates]
 
-        def _build_result(breakdown: str, *, index: int, kind: str | None = None) -> dict:
+        def _build_result(breakdown: str, *, kind: str | None = None) -> dict:
             label = f"{kind} | {breakdown}" if kind else breakdown
+            index = {
+                None: 0,
+                "New": 1,
+                "Expansion": 2,
+                "Contraction": 3,
+                "Churn": 4,
+            }.get(kind, 0)
 
             results = grouped_results[breakdown]
             data = [results[date][index] for date in formatted_dates]
             return {
                 "action": {"days": dates, "id": label, "name": label},
+                "breakdown": {"property": breakdown, "kind": kind},
                 "data": data,
                 "days": formatted_dates,
                 "label": label,
@@ -503,11 +511,11 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
 
         return [
             RevenueAnalyticsMRRQueryResultItem(
-                total=_build_result(breakdown, index=0),
-                new=_build_result(breakdown, index=1, kind="New"),
-                expansion=_build_result(breakdown, index=2, kind="Expansion"),
-                contraction=_build_result(breakdown, index=3, kind="Contraction"),
-                churn=_build_result(breakdown, index=4, kind="Churn"),
+                total=_build_result(breakdown),
+                new=_build_result(breakdown, kind="New"),
+                expansion=_build_result(breakdown, kind="Expansion"),
+                contraction=_build_result(breakdown, kind="Contraction"),
+                churn=_build_result(breakdown, kind="Churn"),
             )
             for breakdown in breakdowns
         ]

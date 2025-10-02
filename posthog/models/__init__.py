@@ -79,6 +79,7 @@ from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
 from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
+from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
@@ -90,12 +91,6 @@ from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
-
-# Keeping products imports at the bottom to avoid circular imports errors
-# Products Imports
-from products.tasks.backend.models import Task
-from products.early_access_features.backend.models import EarlyAccessFeature
-from products.llm_analytics.backend.models import Dataset, DatasetItem
 
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
@@ -119,10 +114,7 @@ __all__ = [
     "DashboardTile",
     "DashboardTemplate",
     "DataColorTheme",
-    "Dataset",
-    "DatasetItem",
     "DeletionType",
-    "EarlyAccessFeature",
     "Element",
     "ElementGroup",
     "Entity",
@@ -198,12 +190,12 @@ __all__ = [
     "SessionRecording",
     "SessionRecordingPlaylist",
     "SessionRecordingPlaylistItem",
+    "SharePassword",
     "SharingConfiguration",
     "Subscription",
     "Survey",
     "Tag",
     "TaggedItem",
-    "Task",
     "Team",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",

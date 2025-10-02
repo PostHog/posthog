@@ -771,3 +771,39 @@ export function insertMetricIntoOrderingArray(
     newArray.splice(afterIndex + 1, 0, newUuid)
     return newArray
 }
+
+/**
+ * Initialize ordering arrays for metrics if they're null
+ * Returns a new experiment object with initialized ordering arrays
+ */
+export function initializeMetricOrdering(experiment: Experiment): Experiment {
+    const newExperiment = { ...experiment }
+
+    // Initialize primary_metrics_ordered_uuids if it's null
+    if (newExperiment.primary_metrics_ordered_uuids === null) {
+        const primaryMetrics = newExperiment.metrics || []
+        const sharedPrimaryMetrics = (newExperiment.saved_metrics || []).filter(
+            (sharedMetric: any) => sharedMetric.metadata.type === 'primary'
+        )
+
+        const allMetrics = [...primaryMetrics, ...sharedPrimaryMetrics]
+        newExperiment.primary_metrics_ordered_uuids = allMetrics
+            .map((metric: any) => metric.uuid || metric.query?.uuid)
+            .filter(Boolean)
+    }
+
+    // Initialize secondary_metrics_ordered_uuids if it's null
+    if (newExperiment.secondary_metrics_ordered_uuids === null) {
+        const secondaryMetrics = newExperiment.metrics_secondary || []
+        const sharedSecondaryMetrics = (newExperiment.saved_metrics || []).filter(
+            (sharedMetric: any) => sharedMetric.metadata.type === 'secondary'
+        )
+
+        const allMetrics = [...secondaryMetrics, ...sharedSecondaryMetrics]
+        newExperiment.secondary_metrics_ordered_uuids = allMetrics
+            .map((metric: any) => metric.uuid || metric.query?.uuid)
+            .filter(Boolean)
+    }
+
+    return newExperiment
+}

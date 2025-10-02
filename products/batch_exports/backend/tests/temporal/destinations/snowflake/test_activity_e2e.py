@@ -34,6 +34,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchTaskError
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import (
     EXPECTED_PERSONS_BATCH_EXPORT_FIELDS,
@@ -69,6 +70,7 @@ async def _run_activity(
     expect_duplicates: bool = False,
     primary_key=None,
     use_internal_stage: bool = False,
+    assert_clickhouse_records: bool = True,
 ):
     """Helper function to run insert_into_snowflake_activity and assert records in Snowflake"""
     insert_inputs = SnowflakeInsertInputs(
@@ -102,24 +104,26 @@ async def _run_activity(
                 destination_default_fields=snowflake_default_fields(),
             ),
         )
-        await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
+        result = await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
     else:
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+        result = await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
 
-    await assert_clickhouse_records_in_snowflake(
-        snowflake_cursor=snowflake_cursor,
-        clickhouse_client=clickhouse_client,
-        table_name=table_name,
-        team_id=team.pk,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        exclude_events=exclude_events,
-        batch_export_model=batch_export_model or batch_export_schema,
-        sort_key=sort_key,
-        expected_fields=expected_fields,
-        expect_duplicates=expect_duplicates,
-        primary_key=primary_key,
-    )
+    if assert_clickhouse_records:
+        await assert_clickhouse_records_in_snowflake(
+            snowflake_cursor=snowflake_cursor,
+            clickhouse_client=clickhouse_client,
+            table_name=table_name,
+            team_id=team.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            exclude_events=exclude_events,
+            batch_export_model=batch_export_model or batch_export_schema,
+            sort_key=sort_key,
+            expected_fields=expected_fields,
+            expect_duplicates=expect_duplicates,
+            primary_key=primary_key,
+        )
+    return result
 
 
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
@@ -594,6 +598,66 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
         expected_fields=expected_fields,
         use_internal_stage=use_internal_stage,
     )
+
+
+async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incompatible(
+    use_internal_stage,
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_snowflake_activity` raises an error when the schema of the destination table is
+    incompatible with the schema of the data we are trying to load. This typically applies to the events table, which
+    has a fixed schema (for now).
+
+    To replicate this situation we first export the data with the original
+    schema, then delete a column in the destination and then rerun the export.
+    """
+    model = BatchExportModel(name="events", schema=None)
+    table_name = f"test_insert_activity_events_table_{ateam.pk}"
+    if not use_internal_stage:
+        pytest.skip("This test is only applicable to the internal stage activity")
+
+    await _run_activity(
+        activity_environment=activity_environment,
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        snowflake_config=snowflake_config,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=model,
+        sort_key="uuid",
+        use_internal_stage=use_internal_stage,
+    )
+
+    # Drop the timestamp column from the Snowflake table
+    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" DROP COLUMN "timestamp"')
+
+    result = await _run_activity(
+        activity_environment=activity_environment,
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        snowflake_config=snowflake_config,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=model,
+        sort_key="uuid",
+        use_internal_stage=use_internal_stage,
+        assert_clickhouse_records=False,
+    )
+
+    assert isinstance(result, BatchExportResult)
+    assert result.error is not None
+    assert result.error.type == "SnowflakeIncompatibleSchemaError"
 
 
 @pytest.mark.parametrize(

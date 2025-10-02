@@ -17,7 +17,10 @@ Exports:
 * do_preaggregated_table_transforms
 """
 
+from datetime import datetime
 from typing import Optional, TypeVar, cast
+
+import pytz
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
@@ -25,8 +28,10 @@ from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.helpers.timestamp_visitor import (
     is_end_of_day_constant,
+    is_end_of_hour_constant,
     is_simple_timestamp_field_expression,
     is_start_of_day_constant,
+    is_start_of_hour_constant,
 )
 from posthog.hogql.visitor import CloningVisitor
 
@@ -36,6 +41,8 @@ from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
 )
 
 _T_AST = TypeVar("_T_AST", bound=AST)
+
+PREAGGREGATED_TABLE_NAME = "web_pre_aggregated_stats"
 
 
 def flatten_and(node: Optional[ast.Expr]) -> list[ast.Expr]:
@@ -113,7 +120,30 @@ def is_to_start_of_day_timestamp_field(expr: ast.Call, context: HogQLContext) ->
     return False
 
 
-def _try_transform_timestamp_comparsion_with_start_of_day_time_constant(
+def is_to_start_of_hour_timestamp_field(expr: ast.Call, context: HogQLContext) -> bool:
+    """Check if a call represents a toStartOfHour timestamp operation, or toStartOfX where X is a whole number of hours."""
+    if (
+        expr.name == "toStartOfHour"
+        and len(expr.args) == 1
+        and is_simple_timestamp_field_expression(expr.args[0], context)
+    ):
+        return True
+    # also accept toStartOfInterval(timestamp, toIntervalHour(1))
+    if (
+        expr.name == "toStartOfInterval"
+        and len(expr.args) == 2
+        and is_simple_timestamp_field_expression(expr.args[0], context)
+        and isinstance(expr.args[1], ast.Call)
+        and expr.args[1].name == "toIntervalHour"
+        and len(expr.args[1].args) == 1
+        and isinstance(expr.args[1].args[0], ast.Constant)
+        and expr.args[1].args[0].value == 1
+    ):
+        return True
+    return False
+
+
+def _try_transform_timestamp_comparison_with_start_of_day_time_constant(
     expr: ast.Call, context: HogQLContext
 ) -> Optional[ast.Call]:
     """
@@ -125,8 +155,6 @@ def _try_transform_timestamp_comparsion_with_start_of_day_time_constant(
     timestamp <  toStartOfDay(date) is equivalent to toStartOfDay(timestamp) <  toStartOfDay(date)
     toStartOfDay(date) <= timestamp is equivalent to toStartOfDay(date) <= toStartOfDay(timestamp)
     toStartOfDay(date) >  timestamp is equivalent to toStartOfDay(date) >  toStartOfDay(timestamp)
-
-    We don't have a toEndOfDay function but we can approximate it, if we did then the following variants would also be valid:
     """
     if expr.name not in ["greaterOrEquals", "lessOrEquals", "greater", "less"] or len(expr.args) != 2:
         return None
@@ -140,6 +168,25 @@ def _try_transform_timestamp_comparsion_with_start_of_day_time_constant(
             return ast.Call(name=name, args=[ast.Field(chain=["period_bucket"]), arg1])
     if is_simple_timestamp_field_expression(arg1, context):
         if name in ["lessOrEquals", "greater"] and is_start_of_day_constant(arg0):
+            return ast.Call(name=expr.name, args=[arg0, ast.Field(chain=["period_bucket"])])
+    return None
+
+
+def _try_transform_timestamp_comparison_with_start_of_hour_time_constant(
+    expr: ast.Call, context: HogQLContext
+) -> Optional[ast.Call]:
+    if expr.name not in ["greaterOrEquals", "lessOrEquals", "greater", "less"] or len(expr.args) != 2:
+        return None
+    arg0 = expr.args[0]
+    arg1 = expr.args[1]
+    name = expr.name
+    if is_simple_timestamp_field_expression(arg0, context):
+        if name in ["greaterOrEquals", "less"] and is_start_of_hour_constant(arg1):
+            return ast.Call(name=name, args=[ast.Field(chain=["period_bucket"]), arg1])
+        if name in ["lessOrEquals"] and is_end_of_hour_constant(arg1):
+            return ast.Call(name=name, args=[ast.Field(chain=["period_bucket"]), arg1])
+    if is_simple_timestamp_field_expression(arg1, context):
+        if name in ["lessOrEquals", "greater"] and is_start_of_hour_constant(arg0):
             return ast.Call(name=expr.name, args=[arg0, ast.Field(chain=["period_bucket"])])
     return None
 
@@ -297,7 +344,15 @@ class ExprTransformer(CloningVisitor):
             self.has_transformed_aggregation = True
             # toStartOfDay(timestamp) becomes toStartOfDay(period_bucket)
             return ast.Call(name="toStartOfDay", args=[ast.Field(chain=["period_bucket"])])
-        elif transformed_call := _try_transform_timestamp_comparsion_with_start_of_day_time_constant(
+        elif is_to_start_of_hour_timestamp_field(node, self.context):
+            self.has_transformed_aggregation = True
+            # toStartOfHour(timestamp) becomes toStartOfHour(period_bucket)
+            return ast.Call(name="toStartOfHour", args=[ast.Field(chain=["period_bucket"])])
+        elif transformed_call := _try_transform_timestamp_comparison_with_start_of_day_time_constant(
+            node, self.context
+        ):
+            return transformed_call
+        elif transformed_call := _try_transform_timestamp_comparison_with_start_of_hour_time_constant(
             node, self.context
         ):
             return transformed_call
@@ -364,7 +419,7 @@ def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> a
 
     # TODO right now we only have the one preaggregated table that is supported, but in the future could support more.
     # We could even make them unique per team (depending on what the team queries) or allow them to be user-defined.
-    table_name = "web_stats_daily"
+    table_name = "web_pre_aggregated_stats"
 
     # Bail if any unsupported part of the SELECT query exist
     # Some of these could be supported in the future, if you add them, make sure you add some tests!
@@ -501,11 +556,29 @@ class PreaggregatedTableTransformer(CloningVisitor):
         return _shallow_transform_select(transformed_with_ctes, self.context)
 
 
+def is_integer_timezone(timezone: str) -> bool:
+    # we make an assumption that if the timezone offset at the current time is non-integer, it always is, and vice versa
+    # this is currently true for all timezones in the tz database
+    try:
+        parsed = pytz.timezone(timezone)
+    except pytz.UnknownTimeZoneError:
+        return False
+    now = datetime.now()
+    offset = parsed.utcoffset(now)
+    return offset.total_seconds() % 3600 == 0
+
+
 def do_preaggregated_table_transforms(node: _T_AST, context: HogQLContext) -> _T_AST:
     """
     This function checks if the query can be transformed to use preaggregated tables.
     If it can, it returns the modified query; otherwise, it returns the original query.
     """
+
+    # Only support the transformation if the team's timezone is set and is an integer number of hours offset
+    timezone = context.team.timezone if context.team else None
+    if not timezone or not is_integer_timezone(timezone):
+        return node
+
     # Only transform SelectQuery nodes and their nested queries
     if not isinstance(node, ast.SelectQuery | ast.SelectSetQuery):
         return node

@@ -27,6 +27,7 @@ export const userInterviewsLogic = kea<userInterviewsLogicType>([
                     key: 'UserInterviews',
                     name: 'User interviews',
                     path: urls.userInterviews(),
+                    iconType: 'user_interview',
                 },
             ],
         ],

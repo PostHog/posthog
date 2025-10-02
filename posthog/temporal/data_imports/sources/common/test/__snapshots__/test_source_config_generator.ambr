@@ -60,6 +60,7 @@
           ExternalDataSourceType.MYSQL: MySQLSourceConfig,
           ExternalDataSourceType.POLAR: PolarSourceConfig,
           ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
+          ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
           ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
           ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
           ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,

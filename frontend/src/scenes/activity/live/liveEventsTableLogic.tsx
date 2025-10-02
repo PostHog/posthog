@@ -3,11 +3,11 @@ import { actions, connect, events, kea, listeners, path, props, reducers, select
 import { Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb, LiveEvent } from '~/types'
 
@@ -25,7 +25,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     tabAwareScene(),
     props({} as LiveEventsTableProps),
     connect(() => ({
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
     })),
     actions(() => ({
         addEvents: (events) => ({ events }),
@@ -124,13 +124,9 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    key: 'Activity',
-                    name: `Activity`,
-                    path: urls.activity(),
-                },
-                {
                     key: Scene.LiveEvents,
                     name: 'Live',
+                    iconType: 'dashboard',
                 },
             ],
         ],

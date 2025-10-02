@@ -211,3 +211,130 @@ export const Erroring: Story = {
         pageUrl: urls.dashboard(SERVER_ERROR_DASHBOARD_ID),
     },
 }
+
+// Access Control Dashboard Stories
+const ACCESS_CONTROL_DASHBOARD_ID = 9999
+
+const accessControlDashboard = {
+    ...dashboard,
+    id: ACCESS_CONTROL_DASHBOARD_ID,
+    name: 'Access Control Demo Dashboard',
+    description: 'Dashboard demonstrating different insight access levels',
+    user_access_level: 'editor', // User has edit access to the dashboard
+    tiles: [
+        // Tile with no access insight
+        {
+            ...dashboard.tiles[0],
+            id: 1001,
+            insight: {
+                ...dashboard.tiles[0].insight,
+                id: 1001,
+                short_id: 'no-access',
+                name: 'Restricted Financial Data',
+                description: 'This insight contains sensitive financial information.',
+                user_access_level: 'none',
+            },
+        },
+        // Tile with viewer access insight
+        {
+            ...dashboard.tiles[1],
+            id: 1002,
+            insight: {
+                ...dashboard.tiles[1].insight,
+                id: 1002,
+                short_id: 'viewer-access',
+                name: 'Public Metrics',
+                description: 'General metrics available for viewing.',
+                user_access_level: 'viewer',
+            },
+        },
+        // Tile with editor access insight
+        {
+            ...dashboard.tiles[2],
+            id: 1003,
+            insight: {
+                ...dashboard.tiles[2].insight,
+                id: 1003,
+                short_id: 'editor-access',
+                name: 'Team Analytics',
+                description: 'Analytics that the team can edit.',
+                user_access_level: 'editor',
+            },
+        },
+        // Tile with legacy insight (no access control)
+        {
+            ...dashboard.tiles[3],
+            id: 1004,
+            insight: {
+                ...dashboard.tiles[3].insight,
+                id: 1004,
+                short_id: 'legacy-insight',
+                name: 'Legacy Report',
+                description: 'Old insight without access control.',
+                // user_access_level is intentionally undefined
+            },
+        },
+    ],
+}
+
+const accessControlInsightMocks = accessControlDashboard.tiles.reduce((acc: Record<string, any>, tile: any) => {
+    if (tile.insight) {
+        // Add both project and environment paths
+        acc[`/api/projects/:team_id/insights/${tile.insight.id}/`] = tile.insight
+        acc[`/api/environments/:team_id/insights/${tile.insight.id}/`] = tile.insight
+    }
+    return acc
+}, {})
+
+export const AccessControlDashboard: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                ...accessControlInsightMocks,
+                '/api/projects/:team_id/dashboards/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [accessControlDashboard],
+                },
+                [`/api/projects/:team_id/dashboards/${ACCESS_CONTROL_DASHBOARD_ID}/`]: accessControlDashboard,
+                [`/api/environments/:team_id/dashboards/${ACCESS_CONTROL_DASHBOARD_ID}/`]: accessControlDashboard,
+                [`/api/environments/:team_id/insights/:id/`]: insightFetchMock,
+            },
+        }),
+    ],
+    parameters: {
+        pageUrl: urls.dashboard(ACCESS_CONTROL_DASHBOARD_ID),
+    },
+}
+
+// Dashboard with no access (user can't edit dashboard but can view some insights)
+const viewOnlyDashboard = {
+    ...accessControlDashboard,
+    id: ACCESS_CONTROL_DASHBOARD_ID + 1,
+    name: 'View Only Dashboard',
+    description: 'Dashboard where user has view access only',
+    user_access_level: 'viewer', // User can only view the dashboard
+}
+
+export const ViewOnlyDashboard: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                ...accessControlInsightMocks,
+                '/api/projects/:team_id/dashboards/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [viewOnlyDashboard],
+                },
+                [`/api/projects/:team_id/dashboards/${ACCESS_CONTROL_DASHBOARD_ID + 1}/`]: viewOnlyDashboard,
+                [`/api/environments/:team_id/dashboards/${ACCESS_CONTROL_DASHBOARD_ID + 1}/`]: viewOnlyDashboard,
+                [`/api/environments/:team_id/insights/:id/`]: insightFetchMock,
+            },
+        }),
+    ],
+    parameters: {
+        pageUrl: urls.dashboard(ACCESS_CONTROL_DASHBOARD_ID + 1),
+    },
+}

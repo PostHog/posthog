@@ -55,7 +55,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
                     resourceType={{
                         type: groupTypeName,
-                        typePlural: groupTypeNamePlural,
                         forceIcon: <IconPeople />,
                     }}
                 />
@@ -77,27 +76,25 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs
-                tabKey={`groups-${groupTypeIndex}`}
-                buttons={
-                    <LemonButton
-                        type="primary"
-                        data-attr={`new-group-${groupTypeIndex}`}
-                        onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
-                    >
-                        New {aggregationLabel(groupTypeIndex).singular}
-                    </LemonButton>
-                }
-            />
+            <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
 
             <SceneTitleSection
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
                 description={`A catalog of all ${groupTypeNamePlural} for this project`}
                 resourceType={{
                     type: groupTypeName,
-                    typePlural: groupTypeNamePlural,
                     forceIcon: <IconPeople />,
                 }}
+                actions={
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        data-attr={`new-group-${groupTypeIndex}`}
+                        onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                    >
+                        New {aggregationLabel(groupTypeIndex).singular}
+                    </LemonButton>
+                }
             />
             <SceneDivider />
 

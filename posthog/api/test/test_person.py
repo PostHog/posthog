@@ -23,13 +23,13 @@ from rest_framework import status
 
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
+from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models import Cohort, Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import create_person, create_person_distinct_id
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import generate_random_token_personal
+from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
@@ -368,6 +368,83 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
         response = self.client.delete(f"/api/person/{person.uuid}/?delete_events=true")
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.content, b"")  # Empty response
+        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            {"team_id": self.team.pk, "uuid": person.uuid},
+        )
+        self.assertEqual([(100, 1, "{}")], ch_persons)
+
+        # async deletion scheduled and executed
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
+        self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
+        self.assertEqual(async_deletion.key, str(person.uuid))
+        self.assertIsNone(async_deletion.delete_verified_at)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_delete_person_and_recordings(self):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1", "anonymous_id"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+
+        with patch("posthog.api.person.sync_connect") as mock_connect:
+            with patch("posthog.api.person.uuid") as mock_uuid:
+                mock_uuid.uuid4.return_value = "1234"
+                mock_client = mock.AsyncMock()
+                mock_connect.return_value = mock_client
+                response = self.client.delete(f"/api/person/{person.uuid}/?delete_recordings=true&delete_events=true")
+                mock_connect.assert_called_once()
+                mock_client.start_workflow.assert_called_once()
+                mock_client.start_workflow.assert_called_with(
+                    "delete-recordings-with-person",
+                    RecordingsWithPersonInput(
+                        distinct_ids=["person_1", "anonymous_id"],
+                        team_id=self.team.id,
+                    ),
+                    id=f"delete-recordings-with-person-{person.uuid}-1234",
+                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.content, b"")  # Empty response
+        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_delete_person_and_recordings_and_events(self):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1", "anonymous_id"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        _create_event(event="test", team=self.team, distinct_id="person_1")
+        _create_event(event="test", team=self.team, distinct_id="anonymous_id")
+        _create_event(event="test", team=self.team, distinct_id="someone_else")
+
+        with patch("posthog.api.person.sync_connect") as mock_connect:
+            with patch("posthog.api.person.uuid") as mock_uuid:
+                mock_uuid.uuid4.return_value = "1234"
+                mock_client = mock.AsyncMock()
+                mock_connect.return_value = mock_client
+                response = self.client.delete(f"/api/person/{person.uuid}/?delete_recordings=true&delete_events=true")
+                mock_connect.assert_called_once()
+                mock_client.start_workflow.assert_called_once()
+                mock_client.start_workflow.assert_called_with(
+                    "delete-recordings-with-person",
+                    RecordingsWithPersonInput(
+                        distinct_ids=["person_1", "anonymous_id"],
+                        team_id=self.team.id,
+                    ),
+                    id=f"delete-recordings-with-person-{person.uuid}-1234",
+                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                )
+
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
@@ -733,6 +810,36 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
         self.assertDictContainsSubset({"id": cohort4.id, "count": 1, "name": cohort4.name}, response["results"][2])
 
+    def test_person_cohorts_with_cohort_version(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, name="number", property_type="Numeric", type=PropertyDefinition.Type.PERSON
+        )
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "number": 1},
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertDictContainsSubset({"id": cohort.id, "count": 1, "name": cohort.name}, response["results"][0])
+
+        # Update the group to no longer include person
+        cohort.groups = [{"properties": [{"key": "no", "value": "no", "type": "person"}]}]
+        cohort.save()
+        cohort.calculate_people_ch(pending_version=1)
+
+        response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}").json()
+        self.assertEqual(len(response["results"]), 0)
+
     def test_split_person_clickhouse(self):
         person = _create_person(
             team=self.team,
@@ -850,7 +957,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -861,7 +968,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -893,85 +1000,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         assert (
             response["detail"]
             == "The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id=NOT_A_UUID instead."
-        )
-
-    @patch("posthog.api.person.PersonsThrottle.rate", new="6/minute")
-    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
-    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    def test_rate_limits_for_persons_are_independent(self, rate_limit_enabled_mock, incr_mock):
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
-
-        for _ in range(5):
-            response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
-            )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Call to flags gets rate limited
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
-        )
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
-            1,
-        )
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": self.team.pk,
-                "scope": "burst",
-                "rate": "5/minute",
-                "route": "/api/projects/TEAM_ID/feature_flags/",
-                "hashed_personal_api_key": hash_key_value(personal_api_key),
-            },
-        )
-
-        incr_mock.reset_mock()
-
-        # but not call to persons
-        for _ in range(3):
-            response = self.client.get(
-                f"/api/projects/{self.team.pk}/persons/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            response = self.client.get(
-                f"/api/projects/{self.team.pk}/persons/values/?key=whatever",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
-            0,
-        )
-
-        incr_mock.reset_mock()
-
-        # until the limit is reached
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/persons/",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
-        )
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
-            1,
-        )
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": self.team.pk,
-                "scope": "persons",
-                "rate": "6/minute",
-                "route": "/api/projects/TEAM_ID/persons/",
-                "hashed_personal_api_key": hash_key_value(personal_api_key),
-            },
         )
 
     def _get_person_activity(

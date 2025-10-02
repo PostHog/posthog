@@ -33,6 +33,7 @@ from posthog.models.message_preferences import (
     PreferenceStatus,
 )
 from posthog.models.personal_api_key import find_personal_api_key
+from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 from posthog.redis import get_client
 from posthog.utils import (
     get_available_timezones_with_offsets,
@@ -174,6 +175,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
 
+    if settings.TEST:
+        response["is_test"] = True
+
     if settings.DEV_DISABLE_NAVIGATION_HOOKS:
         response["dev_disable_navigation_hooks"] = True
 
@@ -308,18 +312,28 @@ def api_key_search_view(request: HttpRequest):
 @require_http_methods(["GET"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     """Render the preferences page for a given recipient token"""
-    recipient, error = MessageRecipientPreference.validate_preferences_token(token)
+    response = validate_messaging_preferences_token(token)
+    if response.status_code != 200:
+        error_msg = response.json().get("error", "Invalid recipient token")
+        return render(request, "message_preferences/error.html", {"error": error_msg}, status=400)
 
-    if error:
-        return render(request, "message_preferences/error.html", {"error": error}, status=400)
+    data = response.json()
+    if not data.get("valid"):
+        return render(request, "message_preferences/error.html", {"error": "Invalid recipient token"}, status=400)
 
-    if not recipient:
+    team_id = data.get("team_id")
+    identifier = data.get("identifier")
+    if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
+    try:
+        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
+    except MessageRecipientPreference.DoesNotExist:
+        # A first-time preferences page visitor will not have a recipient in Postgres yet.
+        recipient = None
+
     # Only fetch active categories and their preferences
-    categories = MessageCategory.objects.filter(deleted=False, team=recipient.team, category_type="marketing").order_by(
-        "name"
-    )
+    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
     preferences = recipient.get_all_preferences() if recipient else {}
 
     context = {
@@ -329,11 +343,11 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
                 "id": cat.id,
                 "name": cat.name,
                 "description": cat.public_description,
-                "status": preferences.get(cat.id),
+                "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
             }
             for cat in categories
         ],
-        "token": token,  # Need to pass this back for the update endpoint
+        "token": token,
     }
 
     return render(request, "message_preferences/preferences.html", context)
@@ -347,12 +361,25 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     if not token:
         return JsonResponse({"error": "Missing token"}, status=400)
 
-    recipient, error = MessageRecipientPreference.validate_preferences_token(token)
-    if error:
-        return JsonResponse({"error": error}, status=400)
+    response = validate_messaging_preferences_token(token)
+    if response.status_code != 200:
+        error_msg = response.json().get("error", "Invalid recipient token")
+        return JsonResponse({"error": error_msg}, status=400)
 
-    if not recipient:
+    data = response.json()
+    if not data.get("valid"):
+        return JsonResponse({"error": "Invalid recipient token"}, status=400)
+    team_id = data.get("team_id")
+    identifier = data.get("identifier")
+    if not team_id or not identifier:
         return JsonResponse({"error": "Invalid recipient"}, status=400)
+
+    recipient = None
+
+    try:
+        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
+    except MessageRecipientPreference.DoesNotExist:
+        recipient = MessageRecipientPreference(team_id=team_id, identifier=identifier)
 
     try:
         preferences = request.POST.getlist("preferences[]")
@@ -378,9 +405,10 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
 
         # Update all preferences with a single DB write
         recipient.preferences = preferences_dict
-        recipient.save(update_fields=["preferences", "updated_at"])
+        recipient.save()
 
         return JsonResponse({"success": True})
 
-    except Exception:
+    except Exception as e:
+        capture_exception(e)
         return JsonResponse({"error": "Failed to update preferences"}, status=400)

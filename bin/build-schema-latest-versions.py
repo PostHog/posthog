@@ -5,8 +5,11 @@ import subprocess
 # Add the project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from posthog.schema_migrations import LATEST_VERSIONS
+from posthog.schema_migrations import LATEST_VERSIONS, _discover_migrations
 from posthog.utils import to_json
+
+# Ensure migrations are discovered before accessing LATEST_VERSIONS
+_discover_migrations()
 
 filename = "frontend/src/queries/latest-versions.json"
 

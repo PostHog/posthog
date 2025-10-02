@@ -1,13 +1,25 @@
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
+import type { Category, NotebookInfo } from '~/types'
+import { InsightShortId } from '~/types'
+
 import {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
-import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from './schema-general'
+import {
+    FunnelsQuery,
+    HogQLQuery,
+    RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsTopCustomersQuery,
+    TrendsQuery,
+} from './schema-general'
 
 // re-export MaxBillingContext to make it available in the schema
 export type { MaxBillingContext }
@@ -100,7 +112,15 @@ export type AnyAssistantGeneratedQuery =
 /**
  * The union type with all supported base queries for the assistant.
  */
-export type AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+export type AnyAssistantSupportedQuery =
+    | TrendsQuery
+    | FunnelsQuery
+    | RetentionQuery
+    | HogQLQuery
+    | RevenueAnalyticsGrossRevenueQuery
+    | RevenueAnalyticsMetricsQuery
+    | RevenueAnalyticsMRRQuery
+    | RevenueAnalyticsTopCustomersQuery
 
 export interface VisualizationItem {
     /** @default '' */
@@ -112,6 +132,7 @@ export interface VisualizationItem {
 
 export interface VisualizationMessage extends BaseAssistantMessage, VisualizationItem {
     type: AssistantMessageType.Visualization
+    short_id?: InsightShortId
 }
 
 export interface FailureMessage extends BaseAssistantMessage {
@@ -123,6 +144,9 @@ export interface NotebookUpdateMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Notebook
     notebook_id: string
     content: ProsemirrorJSONContent
+    notebook_type?: Category
+    conversation_notebooks?: NotebookInfo[]
+    current_run_notebooks?: NotebookInfo[]
     tool_calls?: AssistantToolCall[]
 }
 
@@ -156,6 +180,7 @@ export interface TaskExecutionItem {
     status: TaskExecutionStatus
     artifact_ids?: string[]
     progress_text?: string
+    task_type: string
 }
 
 export interface TaskExecutionMessage extends BaseAssistantMessage {
@@ -224,51 +249,55 @@ export type AssistantContextualTool =
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
     | 'create_survey'
+    | 'analyze_survey_responses'
     | 'search_docs'
     | 'search_insights'
     | 'session_summarization'
+    | 'create_dashboard'
+    | 'filter_revenue_analytics'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
 // "
 // List every key of objects `frontend/src/products.tsx::productUrls` and `frontend/src/scenes/urls.ts::urls`,
-// whose function takes either zero arguments, or only optional arguments. Exclude beta or alpha products.
+// whose function takes either zero arguments, or only optional arguments.
 // Exclude scenes related to signup, login, onboarding, upsell or admin, as well as internal scenes, and ones about uploading files.
 // Your only output should be a list of those string keys in TypeScript union syntax.
 // Once done, verify whether indeed each item of the output satisfies the criteria.
 // "
 export type AssistantNavigateUrls =
-    | 'createAction'
     | 'actions'
-    | 'cohorts'
-    | 'projectHomepage'
-    | 'max'
-    | 'settings'
-    | 'eventDefinitions'
-    | 'propertyDefinitions'
-    | 'database'
     | 'activity'
+    | 'alerts'
+    | 'annotations'
+    | 'createAction'
+    | 'cohorts'
+    | 'dashboards'
+    | 'database'
+    | 'earlyAccessFeatures'
+    | 'eventDefinitions'
+    | 'errorTracking'
+    | 'experiments'
+    | 'featureFlags'
+    | 'game368hedgehogs'
+    | 'heatmaps'
     | 'ingestionWarnings'
     | 'insights'
     | 'insightNew'
-    | 'savedInsights'
-    | 'webAnalytics'
-    | 'webAnalyticsWebVitals'
-    | 'alerts'
-    | 'dashboards'
-    | 'experiments'
-    | 'featureFlags'
-    | 'surveys'
-    | 'surveyTemplates'
+    | 'pipeline'
+    | 'projectHomepage'
+    | 'propertyDefinitions'
+    | 'max'
+    | 'notebooks'
     | 'replay'
     | 'replaySettings'
-    | 'pipeline'
+    | 'revenueAnalytics'
+    | 'savedInsights'
+    | 'settings'
     | 'sqlEditor'
-    | 'annotations'
-    | 'heatmaps'
-    | 'earlyAccessFeatures'
-    | 'errorTracking'
-    | 'game368hedgehogs'
-    | 'notebooks'
-    | 'persons'
+    | 'surveys'
+    | 'surveyTemplates'
     | 'toolbarLaunch'
+    | 'webAnalytics'
+    | 'webAnalyticsWebVitals'
+    | 'persons'

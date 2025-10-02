@@ -264,6 +264,8 @@ async fn test_basic_deduplication() -> Result<()> {
     env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
     env::set_var("OUTPUT_TOPIC", &output_topic);
     env::set_var("STORE_PATH", _temp_dir.path().to_str().unwrap());
+    // For tests, we need to read from the beginning since we produce before starting
+    env::set_var("KAFKA_CONSUMER_OFFSET_RESET", "earliest");
     // Faster for tests
     env::set_var("COMMIT_INTERVAL_SECS", "1");
     env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
@@ -275,7 +277,7 @@ async fn test_basic_deduplication() -> Result<()> {
     // Create the service using the same abstraction as production
     println!("Creating Kafka Deduplicator service...");
     let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
     service.initialize().await?;
     println!("Service initialized");
 
@@ -371,6 +373,8 @@ async fn test_deduplication_with_different_events() -> Result<()> {
     env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
     env::set_var("OUTPUT_TOPIC", &output_topic);
     env::set_var("STORE_PATH", _temp_dir.path().to_str().unwrap());
+    // For tests, we need to read from the beginning since we produce before starting
+    env::set_var("KAFKA_CONSUMER_OFFSET_RESET", "earliest");
     // Faster for tests
     env::set_var("COMMIT_INTERVAL_SECS", "1");
     env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
@@ -381,7 +385,7 @@ async fn test_deduplication_with_different_events() -> Result<()> {
 
     // Create and initialize the service
     let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
     service.initialize().await?;
 
     // Produce events with same distinct_id but different event names
@@ -433,173 +437,6 @@ async fn test_deduplication_with_different_events() -> Result<()> {
     assert!(event_names.contains(&"event_a".to_string()));
     assert!(event_names.contains(&"event_b".to_string()));
     assert!(event_names.contains(&"event_c".to_string()));
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_deduplication_persistence() -> Result<()> {
-    let _guard = KAFKA_TEST_MUTEX
-        .get_or_init(|| TokioMutex::new(()))
-        .lock()
-        .await;
-
-    let input_topic = format!("test_persistence_{}", Uuid::new_v4());
-    let output_topic = format!("test_persistence_output_{}", Uuid::new_v4());
-    let group_id = format!("test_group_{}", Uuid::new_v4());
-
-    // Create topics
-    create_kafka_topics(vec![&input_topic, &output_topic]).await?;
-
-    // Create temp directory that persists across processor restarts
-    let temp_dir = TempDir::new()?;
-    let store_path = temp_dir.path().to_path_buf();
-    println!("Using store base path: {store_path:?}");
-
-    // Use fixed timestamps for all events
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-
-    // First, produce ALL events to the input topic
-    println!("Producing all test events to input topic...");
-
-    // Batch 1: 3 events (event_a unique, event_b unique, event_a duplicate)
-    produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_a", 1, timestamp).await?;
-    produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_b", 1, timestamp).await?;
-    produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_a", 1, timestamp).await?; // Duplicate!
-
-    println!("Produced 3 events in first batch");
-
-    // First processor instance - process first 3 messages
-    {
-        // Set environment variables for the first service instance
-        env::set_var("KAFKA_CONSUMER_TOPIC", &input_topic);
-        env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
-        env::set_var("OUTPUT_TOPIC", &output_topic);
-        env::set_var("STORE_PATH", store_path.to_str().unwrap());
-        env::set_var("COMMIT_INTERVAL_SECS", "1");
-        env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
-        env::set_var("KAFKA_PRODUCER_LINGER_MS", "0");
-
-        // Create configuration from environment
-        let config = Config::init_with_defaults()?;
-
-        println!("First processor: Creating and initializing service...");
-        let liveness = HealthRegistry::new("test_liveness");
-        let mut service = KafkaDeduplicatorService::new(config, liveness)?;
-        service.initialize().await?;
-
-        println!("First processor: Starting to process first 3 events...");
-
-        // Run service for 3 seconds then shutdown
-        let shutdown_signal = async {
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            println!("First processor: Initiating graceful shutdown...");
-        };
-
-        let service_handle =
-            tokio::spawn(async move { service.run_with_shutdown(shutdown_signal).await });
-
-        // Wait for service to complete
-        let _ = tokio::time::timeout(Duration::from_secs(10), service_handle).await;
-
-        // The processor should have:
-        // - Processed event_a (unique) -> published
-        // - Processed event_b (unique) -> published
-        // - Processed event_a (duplicate) -> skipped
-        // And committed offset at position 3
-
-        println!("First processor: Shutdown complete, RocksDB should be flushed");
-    }
-
-    // Wait a bit to ensure RocksDB files are fully flushed to disk
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // Batch 2: 2 events (event_c unique, event_b duplicate)
-    produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_c", 1, timestamp).await?;
-    produce_duplicate_events_with_timestamp(&input_topic, "user1", "event_b", 1, timestamp).await?; // Duplicate!
-
-    println!("Produced 2 more events in second batch (5 total events: 3 unique, 2 duplicates)");
-
-    println!("Starting second processor instance with same store path");
-
-    // Second processor instance with same store path
-    {
-        // Set environment variables for the second service instance (same store path)
-        env::set_var("KAFKA_CONSUMER_TOPIC", &input_topic);
-        env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
-        env::set_var("OUTPUT_TOPIC", &output_topic);
-        env::set_var("STORE_PATH", store_path.to_str().unwrap());
-        env::set_var("COMMIT_INTERVAL_SECS", "1");
-        env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
-        env::set_var("KAFKA_PRODUCER_LINGER_MS", "0");
-
-        // Create configuration from environment
-        let config = Config::init_with_defaults()?;
-
-        println!("Second processor: Creating and initializing service with same store path...");
-        let liveness = HealthRegistry::new("test_liveness");
-        let mut service = KafkaDeduplicatorService::new(config, liveness)?;
-        service.initialize().await?;
-
-        println!("Second processor: Starting to process remaining 2 events...");
-
-        // Run service for 3 seconds then shutdown
-        let shutdown_signal = async {
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            println!("Second processor: Initiating shutdown...");
-        };
-
-        let service_handle =
-            tokio::spawn(async move { service.run_with_shutdown(shutdown_signal).await });
-
-        // Wait for service to complete
-        let _ = tokio::time::timeout(Duration::from_secs(10), service_handle).await;
-
-        // The processor should:
-        // - Process event_c (unique) -> published
-        // - Process event_b (duplicate from first batch!) -> skipped (if RocksDB persisted)
-
-        println!("Second processor: Shutdown complete");
-    }
-
-    // Verify output - should have exactly 3 unique events
-    println!("Verifying output topic...");
-    let output_messages = consume_output_messages(
-        &output_topic,
-        &format!("verify_{group_id}"),
-        Duration::from_secs(5),
-    )
-    .await?;
-
-    println!("Found {} messages in output topic", output_messages.len());
-
-    // Expected: event_a, event_b, event_c (duplicates should be filtered)
-    assert_eq!(
-        output_messages.len(),
-        3,
-        "Expected 3 unique events (event_a, event_b, event_c), got {}",
-        output_messages.len()
-    );
-
-    // Verify we have the right events
-    // Since output is CapturedEvent format, we need to parse the nested RawEvent from the data field
-    let events: Vec<String> = output_messages
-        .iter()
-        .filter_map(|(msg, _)| {
-            // Get the data field which contains the serialized RawEvent
-            let data_str = msg.get("data")?.as_str()?;
-            // Parse the RawEvent from the data field
-            let raw_event: Value = serde_json::from_str(data_str).ok()?;
-            // Get the event name from the RawEvent
-            raw_event.get("event")?.as_str().map(|s| s.to_string())
-        })
-        .collect();
-
-    assert!(events.contains(&"event_a".to_string()), "Missing event_a");
-    assert!(events.contains(&"event_b".to_string()), "Missing event_b");
-    assert!(events.contains(&"event_c".to_string()), "Missing event_c");
-
-    println!("✓ Persistence test passed: RocksDB correctly preserved deduplication state across restarts");
 
     Ok(())
 }

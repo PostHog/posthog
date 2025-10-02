@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
-from typing import Optional, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union
 
 from jsonref import replace_refs
 from langchain_core.messages import (
@@ -10,13 +10,21 @@ from langchain_core.messages import (
 )
 
 from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
     AssistantMessage,
+    AssistantRetentionQuery,
     AssistantToolCallMessage,
+    AssistantTrendsQuery,
     CachedTeamTaxonomyQueryResponse,
+    FunnelsQuery,
+    HogQLQuery,
     HumanMessage,
     MaxEventContext,
     MaxUIContext,
+    RetentionQuery,
     TeamTaxonomyQuery,
+    TrendsQuery,
     VisualizationMessage,
 )
 
@@ -218,3 +226,41 @@ def extract_content_from_ai_message(response: BaseMessage) -> str:
                 text_parts.append(content_item)
         return "".join(text_parts)
     return str(response.content)
+
+
+def cast_assistant_query(
+    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery,
+) -> TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery:
+    """
+    Convert AssistantQuery types to regular Query types that the frontend expects.
+    """
+    if query.kind == "TrendsQuery":
+        return TrendsQuery(**query.model_dump())
+    elif query.kind == "FunnelsQuery":
+        return FunnelsQuery(**query.model_dump())
+    elif query.kind == "RetentionQuery":
+        return RetentionQuery(**query.model_dump())
+    elif query.kind == "HogQLQuery":
+        return HogQLQuery(**query.model_dump())
+    else:
+        raise ValueError(f"Unsupported query type: {query.kind}")
+
+
+def build_insight_url(team: Team, id: str) -> str:
+    """Build the URL for an insight."""
+    return f"/project/{team.id}/insights/{id}"
+
+
+def build_dashboard_url(team: Team, id: int) -> str:
+    """Build the URL for a dashboard."""
+    return f"/project/{team.id}/dashboard/{id}"
+
+
+def extract_stream_update(update: Any) -> Any:
+    if update[1] == "custom":
+        # Custom streams come from a tool call
+        # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
+        update = update[2]
+
+    update = update[1:]  # we remove the first element, which is the node/subgraph node name
+    return update

@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { EventConfigurationModal } from './EventConfigurationModal'
@@ -12,7 +11,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.MRR_BREAKDOWN_REVENUE_ANALYTICS],
         pageUrl: urls.revenueAnalytics(),
         testOptions: {
             waitForLoadersToDisappear: true,
@@ -22,4 +20,6 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
-export const Default: Story = {}
+export const Default: Story = {
+    args: { onClose: () => {} },
+}

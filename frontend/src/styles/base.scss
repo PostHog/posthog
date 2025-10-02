@@ -315,6 +315,8 @@
     --color-product-messaging-light: rgb(47 128 250);
     --color-product-web-analytics-light: rgb(52 175 102);
     --color-product-web-analytics-dark: rgb(54 196 111); // original color
+    --color-product-embedded-analytics-light: rgb(243 153 109);
+    --color-product-embedded-analytics-dark: rgb(250 158 120);
     --color-product-session-replay-light: rgb(235 162 18);
     --color-product-session-replay-dark: rgb(247 165 1);
     --color-product-heatmaps-light: rgb(220 152 16);
@@ -326,7 +328,7 @@
     --color-product-error-tracking-dark: rgb(247 165 1);
     --color-product-surveys-light: rgb(243 84 84);
     --color-product-data-warehouse-light: rgb(133 103 255);
-    --color-product-max-ai-light: rgb(182 42 217);
+    --color-product-llm-analytics-light: rgb(182 42 217);
     --color-product-links-light: rgb(143 7 255);
     --color-product-revenue-analytics-light: rgb(52 175 102);
     --color-product-revenue-analytics-dark: rgb(54 196 111);
@@ -643,9 +645,11 @@
     --z-top: 9999;
     --z-modal: 1100;
     --z-hedgehog-buddy: 1050;
-    --z-annotation-popover: 100;
+    --z-annotation-popover: 800;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
+    --z-scene-layout-content-panel: 770;
+    --z-scene-layout-content-panel-under: 769;
     --z-layout-panel: 760;
     --z-layout-panel-under: 759;
     --z-layout-navbar-over: 757;

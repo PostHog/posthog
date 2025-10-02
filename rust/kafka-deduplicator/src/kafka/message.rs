@@ -2,9 +2,9 @@ use anyhow::Result;
 use rdkafka::message::OwnedMessage;
 use rdkafka::Message;
 use tokio::sync::OwnedSemaphorePermit;
-use tracing::{error, info, warn};
+use tracing::{debug, error, warn};
 
-use crate::kafka::metrics_consts::MESSAGES_AUTO_NACKED;
+use crate::kafka::metrics_consts::{MESSAGES_AUTO_NACKED, MESSAGES_COMPLETED};
 use crate::kafka::tracker::{MessageCompletion, MessageHandle};
 
 /// Result of message processing - simple success/failure
@@ -54,10 +54,13 @@ impl AckableMessage {
         self.handle.complete(MessageResult::Success).await;
         self.acked = true;
 
-        info!(
+        debug!(
             "Acked message: id={}, offset={}",
             self.handle.message_id, offset
         );
+
+        // Increment completion counter with acked status
+        metrics::counter!(MESSAGES_COMPLETED, "status" => "acked").increment(1);
     }
 
     /// Acknowledge failed processing of this message
@@ -73,10 +76,13 @@ impl AckableMessage {
             .await;
         self.acked = true;
 
-        info!(
+        debug!(
             "Nacked message: id={}, offset={}, error={}",
             self.handle.message_id, offset, error
         );
+
+        // Increment completion counter with nacked status
+        metrics::counter!(MESSAGES_COMPLETED, "status" => "nacked").increment(1);
     }
 
     /// Get the underlying Kafka message
@@ -111,6 +117,7 @@ impl Drop for AckableMessage {
                 offset: self.handle.offset,
                 result: MessageResult::Failed("Message dropped without acking".to_string()),
                 memory_size: self.handle.memory_size,
+                processing_duration_ms: self.handle.created_at.elapsed().as_millis() as u64,
             };
 
             if self.handle.completion_tx.send(completion).is_err() {
@@ -123,8 +130,9 @@ impl Drop for AckableMessage {
                     "Auto-nacked dropped message: id={}, offset={}",
                     self.handle.message_id, self.handle.offset
                 );
-                // Increment auto-nack counter
+                // Increment auto-nack counter (both old metric and new metric for compatibility)
                 metrics::counter!(MESSAGES_AUTO_NACKED).increment(1);
+                metrics::counter!(MESSAGES_COMPLETED, "status" => "auto_nacked").increment(1);
             }
         }
     }

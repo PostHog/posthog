@@ -22,17 +22,20 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
 from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
-from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
+from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, CohortPeople
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
-    GET_STATIC_COHORT_SIZE_SQL,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
 )
-from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
+from posthog.models.person.sql import (
+    DELETE_PERSON_FROM_STATIC_COHORT,
+    INSERT_PERSON_STATIC_COHORT,
+    PERSON_STATIC_COHORT_TABLE,
+)
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
@@ -286,20 +289,28 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
 
 
-def get_static_cohort_size(*, cohort_id: int, team_id: int) -> Optional[int]:
-    tag_queries(cohort_id=cohort_id, team_id=team_id, name="get_static_cohort_size", feature=Feature.COHORT)
-    count_result = sync_execute(
-        GET_STATIC_COHORT_SIZE_SQL,
+def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
+    """Remove a person from a static cohort in ClickHouse.
+
+    Uses DELETE FROM with mutations_sync=0 to avoid replica synchronization issues in production.
+    This is an exception to PostHog's usual pattern due to the table lacking an is_deleted and version columns.
+    """
+    tag_queries(cohort_id=cohort_id, team_id=team_id, name="remove_person_from_static_cohort", feature=Feature.COHORT)
+    sync_execute(
+        DELETE_PERSON_FROM_STATIC_COHORT,
         {
+            "person_id": str(person_uuid),
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
+        settings={"mutations_sync": "0"},
     )
 
-    if count_result and len(count_result) and len(count_result[0]):
-        return count_result[0][0]
-    else:
-        return None
+
+def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
+    count = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id).count()
+
+    return count
 
 
 def recalculate_cohortpeople(
@@ -465,7 +476,21 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     tag_queries(name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
-    return [row[0] for row in res]
+    cohort_ids_from_cohortperson = [row[0] for row in res]
+    cohorts = Cohort.objects.filter(deleted=False, team_id=team_id, pk__in=cohort_ids_from_cohortperson)
+    values_list_result = cohorts.values_list("id", "version")
+    id_latest_version_map = dict(values_list_result)
+    cohort_ids = []
+    for row in res:
+        cohort_id_from_cohortperson = row[0]
+        version_from_cohortperson = row[1]
+        latest_version = id_latest_version_map.get(cohort_id_from_cohortperson)
+        if latest_version is None:
+            continue
+        if latest_version != version_from_cohortperson:
+            continue
+        cohort_ids.append(cohort_id_from_cohortperson)
+    return cohort_ids
 
 
 def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
@@ -481,7 +506,7 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     return [*cohort_ids, *static_cohort_ids]
 
 
-def get_dependent_cohorts(
+def get_all_cohort_dependencies(
     cohort: Cohort,
     using_database: str = "default",
     seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,

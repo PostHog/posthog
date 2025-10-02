@@ -1,4 +1,3 @@
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -17,16 +16,13 @@ export const scene: SceneExport = {
 export function Actions(): JSX.Element {
     return (
         <SceneContent>
-            <PageHeader buttons={<NewActionButton />} />
-
             <SceneTitleSection
                 name="Actions"
                 description="Combine several related events into one, which you can then analyze in insights and dashboards as if it were a single event."
                 resourceType={{
                     type: 'action',
-                    typePlural: 'actions',
                 }}
-                docsURL="https://posthog.com/docs/data/actions"
+                actions={<NewActionButton />}
             />
             <SceneDivider />
             <ActionsTable />

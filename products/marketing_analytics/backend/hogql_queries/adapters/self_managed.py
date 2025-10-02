@@ -97,6 +97,16 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
         coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
         return ast.Call(name="toFloat", args=[coalesce])
 
+    def _get_reported_conversion_field(self) -> ast.Expr:
+        reported_conversion_field = self.config.source_map.reported_conversion
+        inner_expr: ast.Expr
+        if reported_conversion_field is None:
+            inner_expr = ast.Constant(value=0)
+        else:
+            inner_expr = ast.Field(chain=[reported_conversion_field])
+        coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
+        return ast.Call(name="toFloat", args=[coalesce])
+
     def _get_clicks_field(self) -> ast.Expr:
         clicks_field = self.config.source_map.clicks
 

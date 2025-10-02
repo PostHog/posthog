@@ -152,6 +152,7 @@ pub async fn fetch_and_filter(
     query_params: &FlagsQueryParams,
     headers: &axum::http::HeaderMap,
     explicit_runtime: Option<EvaluationRuntime>,
+    environment_tags: Option<&Vec<String>>,
 ) -> Result<(FeatureFlagList, bool), FlagError> {
     let flag_result = flag_service.get_flags_from_cache_or_pg(project_id).await?;
 
@@ -168,14 +169,19 @@ pub async fn fetch_and_filter(
     let flags_after_runtime_filter =
         filter_flags_by_runtime(flags_after_survey_filter, current_runtime);
 
+    // Finally filter by evaluation tags
+    let flags_after_tag_filter =
+        filter_flags_by_evaluation_tags(flags_after_runtime_filter, environment_tags);
+
     tracing::debug!(
-        "Runtime filtering: detected_runtime={:?}, flags_count={}",
+        "Flag filtering: detected_runtime={:?}, environment_tags={:?}, final_count={}",
         current_runtime,
-        flags_after_runtime_filter.len()
+        environment_tags,
+        flags_after_tag_filter.len()
     );
 
     Ok((
-        FeatureFlagList::new(flags_after_runtime_filter),
+        FeatureFlagList::new(flags_after_tag_filter),
         flag_result.had_deserialization_errors,
     ))
 }
@@ -191,6 +197,29 @@ fn filter_survey_flags(flags: Vec<FeatureFlag>, only_survey_flags: bool) -> Vec<
     } else {
         flags
     }
+}
+
+/// Filters flags based on evaluation tags.
+/// Only includes flags that either:
+/// 1. Have no evaluation tags (backward compatibility)
+/// 2. Have at least one evaluation tag that matches the provided environment tags
+fn filter_flags_by_evaluation_tags(
+    flags: Vec<FeatureFlag>,
+    environment_tags: Option<&Vec<String>>,
+) -> Vec<FeatureFlag> {
+    let env_tags = match environment_tags {
+        Some(t) if !t.is_empty() => t,
+        _ => return flags,
+    };
+
+    flags
+        .into_iter()
+        .filter(|flag| match &flag.evaluation_tags {
+            None => true,
+            Some(flag_tags) if flag_tags.is_empty() => true,
+            Some(flag_tags) => flag_tags.iter().any(|tag| env_tags.contains(tag)),
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -222,8 +251,10 @@ pub async fn evaluate_for_request(
         project_id,
         distinct_id,
         feature_flags: filtered_flags,
-        reader: state.reader.clone(),
-        writer: state.writer.clone(),
+        persons_reader: state.database_pools.persons_reader.clone(),
+        persons_writer: state.database_pools.persons_writer.clone(),
+        non_persons_reader: state.database_pools.non_persons_reader.clone(),
+        non_persons_writer: state.database_pools.non_persons_writer.clone(),
         cohort_cache: state.cohort_cache_manager.clone(),
         person_property_overrides,
         group_property_overrides,
@@ -252,6 +283,28 @@ mod tests {
             ensure_experience_continuity: None,
             version: None,
             evaluation_runtime,
+            evaluation_tags: None,
+        }
+    }
+
+    fn create_test_flag_with_tags(
+        id: i32,
+        key: &str,
+        evaluation_runtime: Option<String>,
+        evaluation_tags: Option<Vec<String>>,
+    ) -> FeatureFlag {
+        FeatureFlag {
+            id,
+            team_id: 1,
+            name: Some(format!("Test Flag {id}")),
+            key: key.to_string(),
+            filters: FlagFilters::default(),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: None,
+            version: None,
+            evaluation_runtime,
+            evaluation_tags,
         }
     }
 
@@ -522,7 +575,7 @@ mod tests {
         ];
 
         // Client runtime should only get client and all flags
-        let filtered = filter_flags_by_runtime(flags.clone(), Some(EvaluationRuntime::Client));
+        let filtered = filter_flags_by_runtime(flags, Some(EvaluationRuntime::Client));
         assert_eq!(filtered.len(), 2);
         assert!(filtered.iter().any(|f| f.key == "client-flag"));
         assert!(filtered.iter().any(|f| f.key == "all-flag"));
@@ -547,19 +600,19 @@ mod tests {
 
         // Simulate a client runtime
         let client_runtime = Some(EvaluationRuntime::Client);
-        let filtered = filter_flags_by_runtime(all_flags.clone(), client_runtime);
+        let client_filtered = filter_flags_by_runtime(all_flags.clone(), client_runtime);
 
         // Client should get: client-only-flag, all-flag, no-runtime-flag
         // But NOT server-only-flag
-        assert_eq!(filtered.len(), 3);
-        assert!(filtered.iter().any(|f| f.key == "client-only-flag"));
-        assert!(filtered.iter().any(|f| f.key == "all-flag"));
-        assert!(filtered.iter().any(|f| f.key == "no-runtime-flag"));
-        assert!(!filtered.iter().any(|f| f.key == "server-only-flag"));
+        assert_eq!(client_filtered.len(), 3);
+        assert!(client_filtered.iter().any(|f| f.key == "client-only-flag"));
+        assert!(client_filtered.iter().any(|f| f.key == "all-flag"));
+        assert!(client_filtered.iter().any(|f| f.key == "no-runtime-flag"));
+        assert!(!client_filtered.iter().any(|f| f.key == "server-only-flag"));
 
         // Simulate a server runtime
         let server_runtime = Some(EvaluationRuntime::Server);
-        let filtered = filter_flags_by_runtime(all_flags.clone(), server_runtime);
+        let filtered = filter_flags_by_runtime(all_flags, server_runtime);
 
         // Server should get: server-only-flag, all-flag, no-runtime-flag
         // But NOT client-only-flag
@@ -571,5 +624,111 @@ mod tests {
 
         // Note: Even if flag_keys explicitly requests a server-only flag from a client,
         // the runtime filter will prevent it from being evaluated
+    }
+
+    #[test]
+    fn test_filter_flags_by_evaluation_tags_no_environment_tags() {
+        // When no environment tags are provided, all flags should be returned
+        let flags = vec![
+            create_test_flag_with_tags(1, "flag1", None, None),
+            create_test_flag_with_tags(2, "flag2", None, Some(vec!["app".to_string()])),
+            create_test_flag_with_tags(
+                3,
+                "flag3",
+                None,
+                Some(vec!["docs".to_string(), "marketing".to_string()]),
+            ),
+        ];
+
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), None);
+        assert_eq!(filtered.len(), 3);
+
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&vec![]));
+        assert_eq!(filtered.len(), 3);
+    }
+
+    #[test]
+    fn test_filter_flags_by_evaluation_tags_with_matching_tags() {
+        let flags = vec![
+            create_test_flag_with_tags(1, "no-tags", None, None),
+            create_test_flag_with_tags(2, "app-only", None, Some(vec!["app".to_string()])),
+            create_test_flag_with_tags(3, "docs-only", None, Some(vec!["docs".to_string()])),
+            create_test_flag_with_tags(
+                4,
+                "multi-env",
+                None,
+                Some(vec!["app".to_string(), "docs".to_string()]),
+            ),
+        ];
+
+        // Test with "app" environment
+        let app_env = vec!["app".to_string()];
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&app_env));
+        assert_eq!(filtered.len(), 3); // no-tags, app-only, multi-env
+        assert!(filtered.iter().any(|f| f.key == "no-tags"));
+        assert!(filtered.iter().any(|f| f.key == "app-only"));
+        assert!(filtered.iter().any(|f| f.key == "multi-env"));
+        assert!(!filtered.iter().any(|f| f.key == "docs-only"));
+
+        // Test with "docs" environment
+        let docs_env = vec!["docs".to_string()];
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&docs_env));
+        assert_eq!(filtered.len(), 3); // no-tags, docs-only, multi-env
+        assert!(filtered.iter().any(|f| f.key == "no-tags"));
+        assert!(filtered.iter().any(|f| f.key == "docs-only"));
+        assert!(filtered.iter().any(|f| f.key == "multi-env"));
+        assert!(!filtered.iter().any(|f| f.key == "app-only"));
+    }
+
+    #[test]
+    fn test_filter_flags_by_evaluation_tags_no_matching_tags() {
+        let flags = vec![
+            create_test_flag_with_tags(1, "app-only", None, Some(vec!["app".to_string()])),
+            create_test_flag_with_tags(2, "docs-only", None, Some(vec!["docs".to_string()])),
+        ];
+
+        // Test with unmatched environment
+        let marketing_env = vec!["marketing".to_string()];
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&marketing_env));
+        assert_eq!(filtered.len(), 0);
+    }
+
+    #[test]
+    fn test_filter_flags_by_evaluation_tags_empty_flag_tags() {
+        // Flags with empty evaluation_tags should be included (backward compatibility)
+        let flags = vec![
+            create_test_flag_with_tags(1, "empty-tags", None, Some(vec![])),
+            create_test_flag_with_tags(2, "app-only", None, Some(vec!["app".to_string()])),
+        ];
+
+        let app_env = vec!["app".to_string()];
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&app_env));
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().any(|f| f.key == "empty-tags"));
+        assert!(filtered.iter().any(|f| f.key == "app-only"));
+    }
+
+    #[test]
+    fn test_filter_flags_by_evaluation_tags_multiple_environment_tags() {
+        let flags = vec![
+            create_test_flag_with_tags(1, "app-only", None, Some(vec!["app".to_string()])),
+            create_test_flag_with_tags(2, "docs-only", None, Some(vec!["docs".to_string()])),
+            create_test_flag_with_tags(
+                3,
+                "marketing-only",
+                None,
+                Some(vec!["marketing".to_string()]),
+            ),
+            create_test_flag_with_tags(4, "no-tags", None, None),
+        ];
+
+        // Test with multiple environment tags - should match ANY of them
+        let multi_env = vec!["app".to_string(), "docs".to_string()];
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&multi_env));
+        assert_eq!(filtered.len(), 3); // app-only, docs-only, no-tags
+        assert!(filtered.iter().any(|f| f.key == "app-only"));
+        assert!(filtered.iter().any(|f| f.key == "docs-only"));
+        assert!(filtered.iter().any(|f| f.key == "no-tags"));
+        assert!(!filtered.iter().any(|f| f.key == "marketing-only"));
     }
 }

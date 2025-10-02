@@ -67,6 +67,10 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
     if isinstance(config, GoogleAdsSourceConfig):
         integration = Integration.objects.get(id=config.google_ads_integration_id, team_id=team_id)
 
+        login_customer_id: str | None = None
+        if config.is_mcc_account and config.is_mcc_account.enabled:
+            login_customer_id = config.is_mcc_account.mcc_client_id
+
         client = GoogleAdsClient.load_from_dict(
             {
                 "developer_token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
@@ -74,6 +78,7 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
                 "client_id": settings.GOOGLE_ADS_APP_CLIENT_ID,
                 "client_secret": settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 "use_proto_plus": False,
+                "login_customer_id": login_customer_id,
             }
         )
     else:

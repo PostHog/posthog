@@ -5,7 +5,7 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { iconForType } from './defaultTree'
@@ -101,7 +101,7 @@ export function convertFileSystemEntryToTreeDataItem({
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
-        const icon = iconForType('iconType' in item ? item.iconType : item.type)
+        const icon = iconForType(('iconType' in item ? item.iconType : undefined) || (item.type as FileSystemIconType))
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,
@@ -262,6 +262,18 @@ export function convertFileSystemEntryToTreeDataItem({
                 return a.record.category.localeCompare(b.record.category, undefined, { sensitivity: 'accent' })
             }
 
+            // Sort by visualOrder if both items have it
+            if (a.visualOrder !== undefined && b.visualOrder !== undefined) {
+                return a.visualOrder - b.visualOrder
+            }
+            // If only one has visualOrder, prioritize it
+            if (a.visualOrder !== undefined) {
+                return -1
+            }
+            if (b.visualOrder !== undefined) {
+                return 1
+            }
+
             if (a.id.startsWith(`${root}-load-more/`) || a.id.startsWith(`${root}-loading/`)) {
                 return 1
             }
@@ -334,7 +346,10 @@ export function convertFileSystemEntryToTreeDataItem({
  *   - splitPath("a")              => ["a"]
  *   - splitPath("")               => []
  */
-export function splitPath(path: string): string[] {
+export function splitPath(path: string | undefined): string[] {
+    if (!path) {
+        return []
+    }
     const segments: string[] = []
     let current = ''
     for (let i = 0; i < path.length; i++) {

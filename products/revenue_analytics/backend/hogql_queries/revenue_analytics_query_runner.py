@@ -20,7 +20,9 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.types import ExternalDataSourceType
 
@@ -65,6 +67,10 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
     ]
+
+    def validate_query_runner_access(self, user: User) -> bool:
+        user_access_control = UserAccessControl(user=user, team=self.team)
+        return user_access_control.assert_access_level_for_resource("revenue_analytics", "viewer")
 
     def where_property_exprs(self, join_from: RevenueAnalyticsBaseView) -> list[ast.Expr]:
         # Some filters are not namespaced and they should simply use the raw property
@@ -135,7 +141,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         # Everything else is disallowed
         return False
 
-    def joins_set_for_properties(self, join_from: type[RevenueAnalyticsBaseView]) -> set[str]:
+    def _joins_set_for_properties(self, join_from: type[RevenueAnalyticsBaseView]) -> set[str]:
         joins_set = set()
         for property in self.query.properties:
             if self._can_access_property_from(property, join_from):
@@ -144,7 +150,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
 
         return joins_set
 
-    def joins_set_for_breakdown(self, join_from: type[RevenueAnalyticsBaseView]) -> set[str]:
+    def _joins_set_for_breakdown(self, join_from: type[RevenueAnalyticsBaseView]) -> set[str]:
         joins_set = set()
 
         for breakdown in self.parsed_breakdown_from(join_from):
@@ -160,20 +166,20 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         return self._with_joins(
             join_expr,
             join_from,
-            self.joins_set_for_properties(join_from.__class__) | self.joins_set_for_breakdown(join_from.__class__),
+            self._joins_set_for_properties(join_from.__class__) | self._joins_set_for_breakdown(join_from.__class__),
         )
 
     def _with_where_property_joins(self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        return self._with_joins(join_expr, join_from, self.joins_set_for_properties(join_from.__class__))
+        return self._with_joins(join_expr, join_from, self._joins_set_for_properties(join_from.__class__))
 
     def _with_where_breakdown_joins(self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        return self._with_joins(join_expr, join_from, self.joins_set_for_breakdown(join_from.__class__))
+        return self._with_joins(join_expr, join_from, self._joins_set_for_breakdown(join_from.__class__))
 
     def _with_joins(
         self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView, joins_set: set[str]
     ) -> ast.JoinExpr:
         joins = []
-        for join in joins_set:
+        for join in sorted(joins_set):
             join_to_add: ast.JoinExpr | None = None
             if join == "revenue_analytics_charge" and join_from.__class__ != RevenueAnalyticsChargeView:
                 join_to_add = self._create_charge_join(join_from)
@@ -454,7 +460,6 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         schemas = ExternalDataSchema.objects.filter(
             team=self.team,
             should_sync=True,
-            source__revenue_analytics_enabled=True,
             source__source_type=ExternalDataSourceType.STRIPE,
         )
 

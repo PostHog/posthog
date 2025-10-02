@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconNotification, IconTrash } from '@posthog/icons'
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -132,8 +132,6 @@ export function Comments(): JSX.Element {
                 description="Comments allow you to provide context and discussions on various elements in PostHog."
                 resourceType={{
                     type: 'comment',
-                    typePlural: 'comments',
-                    forceIcon: <IconNotification />,
                 }}
             />
             <SceneDivider />

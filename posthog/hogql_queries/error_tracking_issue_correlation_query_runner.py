@@ -165,7 +165,7 @@ class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner[ErrorTrackin
     )
 )
 SELECT
-    {event} as event,
+    event,
     (SELECT ids FROM issues) as issue_ids,
     (SELECT last_seen_timestamps FROM issues) as issue_last_seen_timestamps,
     (SELECT libraries FROM issues) as issue_libraries,
@@ -173,57 +173,32 @@ SELECT
     sumForEach(success_only) as success_only,
     sumForEach(exception_only) as exception_only,
     sumForEach(neither) as neither
-FROM(
+FROM (
     SELECT
+        event,
         $session_id,
-        minIf(toNullable(timestamp), event={event}) as earliest_success_event,
-        minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), (SELECT ids FROM issues))) as earliest_exceptions,
         arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NOT NULL AND x < earliest_success_event, 1, 0), earliest_exceptions) AS both,
         arrayMap(x -> if(x IS NULL AND earliest_success_event IS NOT NULL, 1, 0), earliest_exceptions) AS success_only,
         arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS exception_only,
         arrayMap(x -> if(x IS NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS neither
-    FROM events
-    WHERE
-        timestamp > now() - INTERVAL 6 HOUR AND
-        notEmpty(events.$session_id)
-    GROUP BY $session_id
-)""",
+    FROM (
+        SELECT
+            $session_id,
+            {events} as events,
+            minForEach(arrayMap(x -> (if(event = x, toNullable(timestamp), NULL)), {events})) as earliest_success_events,
+            minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), (SELECT ids FROM issues))) as earliest_exceptions
+        FROM events
+        WHERE
+            (timestamp > now() - INTERVAL 6 HOUR) AND
+            notEmpty(events.$session_id)
+        GROUP BY $session_id
+    )
+    ARRAY JOIN
+        events AS event,
+        earliest_success_events AS earliest_success_event
+)
+GROUP BY event""",
             placeholders={
-                "event": ast.Constant(value=self.query.events[0]),
+                "events": ast.Constant(value=self.query.events),
             },
         )
-
-        # return parse_select(
-        #     """SELECT
-        #             event,
-        #             any(issue_ids),
-        #             sumForEach(both) as both,
-        #             sumForEach(success_only) as success_only,
-        #             sumForEach(exception_only) as exception_only,
-        #             sumForEach(neither) as neither
-        #         FROM(
-        #             WITH issue_list AS (
-        #                 SELECT groupUniqArray(issue_id) as value
-        #                 FROM events
-        #                 WHERE timestamp > now() - INTERVAL 6 HOUR AND notEmpty(events.$session_id) AND issue_id IS NOT NULL AND event = '$exception'
-        #             )
-        #             select
-        #                 event,
-        #                 $session_id,
-        #                 (SELECT * FROM issue_list) AS issue_ids,
-        #                 minIf(toNullable(timestamp), event != '$exception') as earliest_success_event,
-        #                 minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), issue_ids)) as earliest_exceptions,
-        #                 arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NOT NULL AND x < earliest_success_event, 1, 0), earliest_exceptions) AS both,
-        #                 arrayMap(x -> if(x IS NULL AND earliest_success_event IS NOT NULL, 1, 0), earliest_exceptions) AS success_only,
-        #                 arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS exception_only,
-        #                 arrayMap(x -> if(x IS NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS neither
-        #             from events
-        #             where
-        #                 timestamp > now() - INTERVAL 6 HOUR AND
-        #                 notEmpty(events.$session_id) AND
-        #                 event in ('$pageview', '$pageleave')
-        #             group by $session_id, event
-        #         )
-        #         group by event
-        #     """
-        # )

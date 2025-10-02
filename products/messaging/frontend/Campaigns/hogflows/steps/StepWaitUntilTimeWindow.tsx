@@ -1,7 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
-import { IconDay } from '@posthog/icons'
 import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { timeZoneLabel } from 'lib/utils'
@@ -10,10 +9,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { WeekdayType } from '~/types'
 
-import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { campaignLogic } from '../../campaignLogic'
 import { HogFlowAction } from '../types'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { StepSchemaErrors } from './components/StepSchemaErrors'
 
 type DayConfig = 'any' | 'weekday' | 'weekend' | WeekdayType[]
 type TimeConfig = 'any' | [string, string]
@@ -50,34 +48,6 @@ const TIME_RANGE_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
     value: `${i.toString().padStart(2, '0')}:00`,
     label: `${i.toString().padStart(2, '0')}:00`,
 }))
-
-export const StepWaitUntilTimeWindow: HogFlowStep<'wait_until_time_window'> = {
-    type: 'wait_until_time_window',
-    name: 'Time window',
-    description: 'Wait until a specific time window is reached.',
-    icon: <IconDay className="text-[#005841]" />,
-    color: '#005841',
-    renderNode: (props) => <StepWaitUntilTimeWindowNode {...props} />,
-    renderConfiguration: (node) => <StepWaitUntilTimeWindowConfiguration node={node} />,
-    create: () => ({
-        action: {
-            name: 'Time window',
-            description: '',
-            type: 'wait_until_time_window',
-            on_error: 'continue',
-            config: {
-                timezone: null,
-                day: 'any' as DayConfig,
-                time: 'any' as TimeConfig,
-            },
-        },
-        branchEdges: 1,
-    }),
-}
-
-function StepWaitUntilTimeWindowNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
-}
 
 // Configuration utility functions
 const isCustomDay = (day: DayConfig): day is WeekdayType[] => {
@@ -130,11 +100,11 @@ const getUpdatedTimeRangeConfig = (
     return { time: updatedTime }
 }
 
-function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<WaitUntilTimeWindowAction> }): JSX.Element {
+export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<WaitUntilTimeWindowAction> }): JSX.Element {
     const action = node.data
     const { timezone, day, time } = action.config
 
-    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+    const { partialSetCampaignActionConfig } = useActions(campaignLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -150,49 +120,52 @@ function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<WaitUntilTi
         if (!preflight?.available_timezones) {
             throw new Error('No timezones are available')
         }
-        setCampaignActionConfig(action.id, { timezone: newTimezone[0] })
+        partialSetCampaignActionConfig(action.id, { timezone: newTimezone[0] })
     }
 
     return (
-        <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap">
-                <DayConfiguration
-                    day={day}
-                    isCustomDate={isCustomDate}
-                    onDayChange={(value) => {
-                        const config = getUpdatedDayConfig(value)
-                        setCampaignActionConfig(action.id, config)
-                    }}
-                    onCustomDaysChange={(newDays) =>
-                        setCampaignActionConfig(action.id, { day: [...newDays] as WeekdayType[] })
-                    }
-                />
-
-                <LemonDivider vertical />
-
-                <TimeConfiguration
-                    time={time}
-                    isCustomTime={isCustomTimeRange}
-                    onTimeChange={(value) => {
-                        const config = getUpdatedTimeConfig(value)
-                        setCampaignActionConfig(action.id, config)
-                    }}
-                    onTimeRangeChange={(newTime, index) => {
-                        if (isCustomTimeRange) {
-                            const config = getUpdatedTimeRangeConfig(newTime, index, time)
-                            setCampaignActionConfig(action.id, config)
+        <>
+            <StepSchemaErrors />
+            <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap">
+                    <DayConfiguration
+                        day={day}
+                        isCustomDate={isCustomDate}
+                        onDayChange={(value) => {
+                            const config = getUpdatedDayConfig(value)
+                            partialSetCampaignActionConfig(action.id, config)
+                        }}
+                        onCustomDaysChange={(newDays) =>
+                            partialSetCampaignActionConfig(action.id, { day: [...newDays] as WeekdayType[] })
                         }
-                    }}
+                    />
+
+                    <LemonDivider vertical />
+
+                    <TimeConfiguration
+                        time={time}
+                        isCustomTime={isCustomTimeRange}
+                        onTimeChange={(value) => {
+                            const config = getUpdatedTimeConfig(value)
+                            partialSetCampaignActionConfig(action.id, config)
+                        }}
+                        onTimeRangeChange={(newTime, index) => {
+                            if (isCustomTimeRange) {
+                                const config = getUpdatedTimeRangeConfig(newTime, index, time)
+                                partialSetCampaignActionConfig(action.id, config)
+                            }
+                        }}
+                    />
+                </div>
+
+                <TimezoneConfiguration
+                    timezone={timezone}
+                    currentTeamTimezone={currentTeam?.timezone}
+                    timezoneOptions={timezoneOptions}
+                    onTimezoneChange={handleTimezoneChange}
                 />
             </div>
-
-            <TimezoneConfiguration
-                timezone={timezone}
-                currentTeamTimezone={currentTeam?.timezone}
-                timezoneOptions={timezoneOptions}
-                onTimezoneChange={handleTimezoneChange}
-            />
-        </div>
+        </>
     )
 }
 

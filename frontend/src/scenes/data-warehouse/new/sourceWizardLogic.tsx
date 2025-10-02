@@ -25,8 +25,6 @@ import {
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
     ManualLinkSourceType,
-    PipelineStage,
-    PipelineTab,
     ProductKey,
     manualLinkSources,
 } from '~/types'
@@ -359,14 +357,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Data pipelines',
-                        path: urls.pipeline(PipelineTab.Overview),
+                        path: urls.dataPipelines('overview'),
+                        iconType: 'data_pipeline',
                     },
                     {
-                        key: [Scene.Pipeline, 'sources'],
+                        key: [Scene.DataPipelines, 'sources'],
                         name: `Sources`,
-                        path: urls.pipeline(PipelineTab.Sources),
+                        path: urls.dataPipelines('sources'),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: Scene.DataWarehouseSource,
@@ -375,6 +375,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             (manualLinkingProvider
                                 ? manualConnectors.find((c) => c.type === manualLinkingProvider)?.name
                                 : 'New'),
+                        iconType: 'data_pipeline',
                     },
                 ]
             },
@@ -543,7 +544,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         closeWizard: () => {
             actions.cancelWizard()
-            router.actions.push(urls.pipeline(PipelineTab.Sources))
+            router.actions.push(urls.dataPipelines('sources'))
         },
         cancelWizard: () => {
             actions.onClear()
@@ -650,7 +651,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
         return {
             [urls.dataWarehouseSourceNew()]: handleUrlChange,
-            [urls.pipelineNodeNew(PipelineStage.Source)]: handleUrlChange,
         }
     }),
 

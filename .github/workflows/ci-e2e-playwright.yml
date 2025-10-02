@@ -6,6 +6,7 @@
 name: E2E CI Playwright
 on:
     pull_request:
+    workflow_dispatch:
 
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -38,7 +39,9 @@ env:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    # This is so that the workflow run isn't canceled when a screenshot update is pushed within it by posthog-bot
+    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
+    cancel-in-progress: false
 
 jobs:
     changes:
@@ -222,7 +225,7 @@ jobs:
               # so pointing to v1.1.0 to remove warnings about node version with v1
               # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
               uses: iFaxity/wait-on-action@a7d13170ec542bdca4ef8ac4b15e9c6aa00a6866 # v1.2.1
-              timeout-minutes: 3
+              timeout-minutes: 5
               with:
                   verbose: true
                   log: true
@@ -267,6 +270,11 @@ jobs:
 
             - uses: actions/checkout@v4
               if: needs.changes.outputs.shouldRun == 'true'
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  fetch-depth: 50 # Need enough history for flap detection to find last human commit
 
             - name: Stop/Start stack with Docker Compose
               if: needs.changes.outputs.shouldRun == 'true'
@@ -283,21 +291,21 @@ jobs:
 
                     while [ $attempt -le $max_attempts ]; do
                         echo "Attempt $attempt of $max_attempts to start stack..."
-                        
+
                         if docker compose -f docker-compose.dev.yml down && \
                           docker compose -f docker-compose.dev.yml up -d; then
                             echo "Stack started successfully"
                             exit 0
                         fi
-                        
+
                         echo "Failed to start stack on attempt $attempt"
-                        
+
                         if [ $attempt -lt $max_attempts ]; then
                             sleep_time=$((delay * 2 ** (attempt - 1)))
                             echo "Waiting ${sleep_time} seconds before retry..."
                             sleep $sleep_time
                         fi
-                        
+
                         attempt=$((attempt + 1))
                     done
 
@@ -314,9 +322,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.11.9
-                  cache: pip
-                  cache-dependency-path: '**/requirements*.txt'
+                  python-version: 3.11.13
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
@@ -489,7 +495,149 @@ jobs:
 
             - name: Run Playwright tests
               if: needs.changes.outputs.shouldRun == 'true'
+              continue-on-error: true
+              id: playwright-tests
               run: pnpm --filter=@posthog/playwright exec playwright test
+
+            - name: Configure global git diff log
+              if: needs.changes.outputs.shouldRun == 'true'
+              run: git config --global --add safe.directory '*'
+
+            - name: Count and optimize updated screenshots
+              id: diff
+              # Skip on forks
+              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              run: |
+                  echo $(git diff --name-status playwright/__snapshots__) # Wrapped to ignore exit 1 on empty diff
+                  ADDED=$(git diff --name-status playwright/__snapshots__/ | grep '^A' | wc -l)
+                  MODIFIED=$(git diff --name-status playwright/__snapshots__/ | grep '^M' | wc -l)
+                  DELETED=$(git diff --name-status playwright/__snapshots__/ | grep '^D' | wc -l)
+                  TOTAL=$(git diff --name-status playwright/__snapshots__/ | wc -l)
+
+                  # If added or modified, run OptiPNG
+                  if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
+                    echo "Screenshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
+                    apt update && apt install -y optipng
+                    # TODO: RESTORE OptiPNG - it turns out it never worked before
+                    # optipng -clobber -o4 -strip all playwright/__snapshots__/**/*.png
+
+                    # we don't want to _always_ run OptiPNG
+                    # so, we run it after checking for a diff
+                    # but, the files we diffed might then be changed by OptiPNG
+                    # and as a result they might no longer be different...
+
+                    # we check again
+                    git diff --name-status playwright/__snapshots__/ # For debugging
+                    ADDED=$(git diff --name-status playwright/__snapshots__/ | grep '^A' | wc -l)
+                    MODIFIED=$(git diff --name-status playwright/__snapshots__/ | grep '^M' | wc -l)
+                    DELETED=$(git diff --name-status playwright/__snapshots__/ | grep '^D' | wc -l)
+                    TOTAL=$(git diff --name-status playwright/__snapshots__/ | wc -l)
+
+                    if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
+                        echo "Screenshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
+                        git add playwright/__snapshots__/ playwright/
+                    fi
+                  fi
+
+                  echo "Screenshot changes:"
+                  echo "Added: $ADDED"
+                  echo "Modified: $MODIFIED"
+                  echo "Deleted: $DELETED"
+                  echo "Total: $TOTAL"
+
+            - name: Detect flapping screenshots
+              id: flap-detector
+              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              shell: bash
+              run: |
+                  set +e  # Don't exit on error, we'll handle errors explicitly
+                  PATHS_FLAPPING=()
+
+                  # Find last human commit (not github-actions bot)
+                  last_human_commit=$(git log --pretty=format:"%H %an" | grep -v "github-actions" | head -1 | cut -d' ' -f1 || true)
+                  echo "Last human commit identified: $last_human_commit"
+
+                  if [ -z "$last_human_commit" ]; then
+                      echo "No human commit found in history, cannot detect flapping"
+                      echo "This is expected for bot-only commits or shallow checkouts"
+                      echo "flapping=false" >> $GITHUB_OUTPUT
+                      echo "Paths flapping: none"
+                      exit 0
+                  fi
+
+                  for screenshot_path in $(git diff --name-only HEAD playwright/__snapshots__); do
+                      echo "Checking screenshot path: $screenshot_path"
+                      bot_changes=$(git log --oneline ${last_human_commit}..HEAD --author="github-actions" -- $screenshot_path | wc -l | xargs)
+                      echo "Number of bot changes to $screenshot_path since last human commit: $bot_changes"
+
+                      if [ "$bot_changes" -ge 2 ]; then
+                          PATHS_FLAPPING+=($screenshot_path)
+                      fi
+                  done
+
+                  if [ ${#PATHS_FLAPPING[@]} -gt 0 ]; then
+                      echo "flapping=true" >> $GITHUB_OUTPUT
+                      echo "paths=${PATHS_FLAPPING[*]}" >> $GITHUB_OUTPUT
+                  else
+                      echo "flapping=false" >> $GITHUB_OUTPUT
+                  fi
+
+                  echo "Paths flapping: ${PATHS_FLAPPING[*]:-none}"
+
+            - name: Comment on PR about flapping screenshots
+              if: steps.flap-detector.outputs.flapping == 'true'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const flappingPaths = '${{ steps.flap-detector.outputs.paths }}'.split(' ');
+                      const pathList = flappingPaths.map(p => `- \`${p}\``).join('\n');
+                      const comment = `## ⚠️ Flapping Screenshots Detected
+
+                      The following screenshots have been updated multiple times by the bot, indicating test instability:
+
+                      ${pathList}
+
+                      **What this means:**
+                      - These screenshots are changing on each test run (timing issues, rendering differences, etc.)
+                      - This prevents reliable verification and blocks auto-merge
+                      - Human intervention is required
+
+                      **How to fix:**
+                      1. **Investigate flakiness**: Check test timing, wait for elements, stabilize animations
+                      2. **Fix the underlying issue**: Don't just update snapshots repeatedly
+                      3. **Verify locally**: Run tests multiple times to ensure stability
+                      4. **Push your fix**: This will reset the flap counter
+
+                      **If you need to proceed anyway:**
+                      - Fix the test flakiness first (recommended)
+                      - Or manually verify snapshots are acceptable and revert the bot commits, then push a fix
+
+                      The workflow has been failed to prevent merging unstable tests.`;
+
+                      github.rest.issues.createComment({
+                          issue_number: context.issue.number,
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          body: comment
+                      });
+
+            - name: Fail workflow if screenshots are flapping
+              if: steps.flap-detector.outputs.flapping == 'true'
+              run: |
+                  echo "::error::Screenshots are flapping - this indicates test instability"
+                  echo "Flapping paths: ${{ steps.flap-detector.outputs.paths }}"
+                  exit 1
+
+            - name: Commit updated screenshots
+              uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
+              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && steps.flap-detector.outputs.flapping != 'true'
+              id: commit
+              with:
+                  add: 'playwright/'
+                  message: 'Update E2E screenshots for Playwright'
+                  pull: --rebase --autostash # Make sure we're up to date with other commits
+                  default_author: github_actions
+                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs
@@ -520,6 +668,13 @@ jobs:
                   name: playwright-screenshots
                   path: playwright/test-results
                   retention-days: 30
+
+            - name: Fail workflow if tests failed
+              if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
+              run: |
+                  echo "❌ Playwright tests failed, but screenshots were processed and committed."
+                  echo "Check the test logs above for details on which tests failed."
+                  exit 1
 
     capture-run-time:
         name: Capture run time

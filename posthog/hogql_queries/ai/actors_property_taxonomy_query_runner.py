@@ -7,6 +7,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
@@ -19,6 +20,11 @@ class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner
 
     query: ActorsPropertyTaxonomyQuery
     cached_response: CachedActorsPropertyTaxonomyQueryResponse
+    settings: HogQLGlobalSettings | None
+
+    def __init__(self, *args, settings: HogQLGlobalSettings | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.settings = settings
 
     def _calculate(self):
         query = self.to_query()

@@ -95,15 +95,16 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         return is_licensed_for_tagged_items(self.request.user)  # type: ignore
 
     def prefetch_tagged_items_if_available(self, queryset: QuerySet) -> QuerySet:
-        if self.is_licensed():
-            return queryset.prefetch_related(
-                Prefetch(
-                    "tagged_items",
-                    queryset=TaggedItem.objects.select_related("tag"),
-                    to_attr="prefetched_tags",
-                )
+        if not self.is_licensed():
+            return queryset
+
+        return queryset.prefetch_related(
+            Prefetch(
+                "tagged_items",
+                queryset=TaggedItem.objects.select_related("tag"),
+                to_attr="prefetched_tags",
             )
-        return queryset
+        )
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = super().filter_queryset(queryset)

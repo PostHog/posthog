@@ -42,12 +42,13 @@ const hogFunctionTemplateRetrieveMock: MockSignature = (req, res, ctx) => {
 }
 
 const hogFunctionTemplatesMock: MockSignature = (req, res, ctx) => {
-    const results =
-        req.url.searchParams.get('types') === 'transformation'
-            ? _hogFunctionTemplatesTransformations
-            : _hogFunctionTemplatesDestinations
+    const results = req.url.searchParams.get('types')?.includes('transformation')
+        ? _hogFunctionTemplatesTransformations
+        : req.url.searchParams.get('types')?.includes('destination')
+          ? _hogFunctionTemplatesDestinations
+          : []
 
-    return res(ctx.json({ ...results }))
+    return res(ctx.json(results))
 }
 
 // this really returns MaybePromise<ResponseFunction<any>>
@@ -66,7 +67,7 @@ function posthogCORSResponse(req: RestRequest, res: ResponseComposition, ctx: Re
 
 export const defaultMocks: Mocks = {
     get: {
-        '/api/projects/:team_id/important_changes/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
@@ -106,7 +107,6 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/feature_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/': EMPTY_PAGINATED_RESPONSE,
-        '/api/environments/:team_id/explicit_members/': [],
         '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
@@ -223,7 +223,7 @@ export const defaultMocks: Mocks = {
         '/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/flags/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
-        '/api/environments/:team_id/insights/:insight_id/viewed/': (): MockSignature => [201, null],
+        '/api/environments/:team_id/insights/viewed/': (): MockSignature => [201, null],
         'api/environments/:team_id/query': [200, { results: [] }],
     },
     patch: {

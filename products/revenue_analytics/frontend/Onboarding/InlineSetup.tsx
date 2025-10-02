@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconCheckCircle, IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
+import { IconArrowRight, IconCheckCircle, IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 
@@ -20,9 +22,9 @@ interface RevenueSource {
     isConnected: boolean
 }
 
-// NOTE: This should NOT be used except for testing purposes (storybook)
 interface InlineSetupProps {
-    initialSetupView?: InlineSetupView
+    closeOnboarding: () => void
+    initialSetupView?: InlineSetupView // NOTE: This should NOT be used except for testing purposes (storybook)
 }
 
 export type InlineSetupView = 'overview' | 'add-source'
@@ -32,13 +34,17 @@ export type InlineSetupView = 'overview' | 'add-source'
 const REVENUE_SOURCE_TYPES: ExternalDataSourceType[] = ['Stripe', 'Chargebee', 'Polar', 'RevenueCat']
 const AVAILABLE_REVENUE_SOURCE_TYPES: Set<ExternalDataSourceType> = new Set(['Stripe'])
 
-export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element {
-    const { events, dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
+export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupProps): JSX.Element {
+    const { events, enabledDataWarehouseSources, dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
 
     const hasEvents = events.length > 0
+    const hasSources = enabledDataWarehouseSources.length > 0
 
-    const enabledSources = dataWarehouseSources?.results.filter((source) => source.revenue_analytics_enabled) ?? []
-    const hasSources = enabledSources.length > 0
+    // Check if there are connected Stripe sources that aren't enabled for revenue analytics
+    const hasConnectedButDisabledStripeSources =
+        dataWarehouseSources?.results?.some(
+            (source) => source.source_type === 'Stripe' && !source.revenue_analytics_config?.enabled
+        ) ?? false
 
     const [currentView, setCurrentView] = useState<InlineSetupView>(initialSetupView ?? 'overview')
     const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
@@ -48,7 +54,7 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
         id: source_type,
         description: `Import revenue data from ${source_type}`,
         isAvailable: AVAILABLE_REVENUE_SOURCE_TYPES.has(source_type),
-        isConnected: enabledSources.some((source) => source.source_type === source_type),
+        isConnected: enabledDataWarehouseSources.some((source) => source.source_type === source_type),
     }))
 
     const handleSourceSelect = (sourceId: ExternalDataSourceType): void => {
@@ -73,7 +79,7 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
     return (
         <div className="space-y-6">
             {/* Main Setup Card */}
-            <LemonCard className="border-2 border-dashed border-border" hoverEffect={false}>
+            <LemonCard hoverEffect={false}>
                 <div className="space-y-4">
                     <div className="flex items-center justify-between">
                         <div>
@@ -84,7 +90,7 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                onClick={() => window.location.reload()}
+                                onClick={closeOnboarding}
                                 icon={<IconCheckCircle />}
                             >
                                 View Dashboard
@@ -95,8 +101,8 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                     {/* Current Status */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Events Status */}
-                        <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
-                            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-white border border-border">
+                        <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
+                            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
                                 {hasEvents ? (
                                     <IconCheckCircle className="w-6 h-6" />
                                 ) : (
@@ -116,8 +122,8 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                         </div>
 
                         {/* Sources Status */}
-                        <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
-                            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-white border border-border">
+                        <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
+                            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
                                 {hasSources ? (
                                     <IconCheckCircle className="w-6 h-6" />
                                 ) : (
@@ -129,16 +135,26 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                                     {hasSources ? 'Revenue source connected' : 'No revenue sources connected'}
                                 </span>
                                 <p className="text-xs text-muted-alt mt-0.5">
-                                    {hasSources
-                                        ? 'Revenue data source is set up'
-                                        : 'Connect Stripe to import revenue data'}
+                                    {hasSources ? (
+                                        'Revenue data source is set up'
+                                    ) : hasConnectedButDisabledStripeSources ? (
+                                        <>
+                                            Connect Stripe to import revenue data. Wanna reuse your existing Stripe
+                                            source?{' '}
+                                            <Link to={urls.revenueSettings()} className="text-link">
+                                                Enable it here
+                                            </Link>
+                                        </>
+                                    ) : (
+                                        'Connect Stripe to import revenue data'
+                                    )}
                                 </p>
                             </div>
                         </div>
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border">
+                    <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-primary">
                         <LemonButton
                             type="primary"
                             icon={<IconPlus />}
@@ -160,6 +176,19 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                         >
                             Connect Revenue Source
                         </LemonButton>
+                        {hasConnectedButDisabledStripeSources && (
+                            <LemonButton
+                                type="primary"
+                                icon={<IconArrowRight />}
+                                onClick={() => {
+                                    router.actions.push(urls.revenueSettings())
+                                }}
+                                size="small"
+                                data-attr="enable-existing-stripe-source"
+                            >
+                                Enable Existing Stripe Source
+                            </LemonButton>
+                        )}
                     </div>
                 </div>
             </LemonCard>
@@ -169,7 +198,7 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                 <LemonCard hoverEffect={false}>
                     <div className="space-y-4">
                         <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white border border-border">
+                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white border border-primary">
                                 <IconDatabase className="w-7 h-7" style={{ color: 'var(--primary-3000)' }} />
                             </div>
                             <div>
@@ -187,8 +216,8 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                                         source.isAvailable
                                             ? source.isConnected
                                                 ? 'border-primary bg-primary-lightest'
-                                                : 'border-border bg-bg-light'
-                                            : 'border-border bg-bg-light opacity-60',
+                                                : 'border-primary bg-bg-light'
+                                            : 'border-primary bg-bg-light opacity-60',
                                         source.isAvailable ? 'cursor-pointer' : 'cursor-not-allowed'
                                     )}
                                     onClick={source.isAvailable ? () => handleSourceSelect(source.id) : undefined}

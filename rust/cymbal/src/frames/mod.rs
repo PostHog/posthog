@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use common_types::error_tracking::{FrameData, FrameId};
 use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -8,8 +9,8 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
-        custom::CustomFrame, go::RawGoFrame, js::RawJSFrame, node::RawNodeFrame,
-        python::RawPythonFrame,
+        custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, js::RawJSFrame,
+        node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
     },
     metric_consts::PER_FRAME_TIME,
     sanitize_string,
@@ -27,12 +28,16 @@ pub mod resolver;
 pub enum RawFrame {
     #[serde(rename = "python")]
     Python(RawPythonFrame),
+    #[serde(rename = "ruby")]
+    Ruby(RawRubyFrame),
     #[serde(rename = "web:javascript")]
     JavaScriptWeb(RawJSFrame),
     #[serde(rename = "node:javascript")]
     JavaScriptNode(RawNodeFrame),
     #[serde(rename = "go")]
     Go(RawGoFrame),
+    #[serde(rename = "hermes")]
+    Hermes(RawHermesFrame),
     // TODO - remove once we're happy no clients are using this anymore
     #[serde(rename = "javascript")]
     LegacyJS(RawJSFrame),
@@ -51,13 +56,15 @@ impl RawFrame {
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
+            RawFrame::Ruby(frame) => (Ok(frame.into()), "ruby"),
             RawFrame::Custom(frame) => (Ok(frame.into()), "custom"),
             RawFrame::Go(frame) => (Ok(frame.into()), "go"),
+            RawFrame::Hermes(frame) => (frame.resolve(team_id, catalog).await, "hermes"),
         };
 
         // The raw id of the frame is set after it's resolved
         let res = res.map(|mut f| {
-            f.raw_id = self.frame_id();
+            f.raw_id = self.frame_id(team_id);
             f
         });
 
@@ -76,22 +83,27 @@ impl RawFrame {
         match self {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
             RawFrame::JavaScriptNode(frame) => frame.chunk_id.clone(),
+            RawFrame::Hermes(frame) => frame.chunk_id.clone(),
             // TODO - Python and Go frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
             // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
             // which we'd then use to do a join on the releases table to get release information)
-            RawFrame::Python(_) | RawFrame::Go(_) => None,
+            RawFrame::Python(_) | RawFrame::Ruby(_) | RawFrame::Go(_) => None,
             RawFrame::Custom(_) => None,
         }
     }
 
-    pub fn frame_id(&self) -> String {
-        match self {
+    pub fn frame_id(&self, team_id: i32) -> FrameId {
+        let hash_id = match self {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
+            RawFrame::Ruby(raw) => raw.frame_id(),
             RawFrame::Go(raw) => raw.frame_id(),
             RawFrame::Custom(raw) => raw.frame_id(),
-        }
+            RawFrame::Hermes(raw) => raw.frame_id(),
+        };
+
+        FrameId::new(hash_id, team_id)
     }
 }
 
@@ -99,7 +111,8 @@ impl RawFrame {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Frame {
     // Properties used in processing
-    pub raw_id: String,       // The raw frame id this was resolved from
+    #[serde(flatten)]
+    pub raw_id: FrameId, // The raw frame id this was resolved from
     pub mangled_name: String, // Mangled name of the function
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>, // Line the function is define on, if known
@@ -146,8 +159,8 @@ pub struct ContextLine {
 
 impl FingerprintComponent for Frame {
     fn update(&self, fp: &mut FingerprintBuilder) {
-        let get_part = |s: &str, p: Vec<&str>| FingerprintRecordPart::Frame {
-            raw_id: s.to_string(),
+        let get_part = |s: &FrameId, p: Vec<&str>| FingerprintRecordPart::Frame {
+            raw_id: s.raw_id.to_string(),
             pieces: p.into_iter().map(String::from).collect(),
         };
 
@@ -220,7 +233,7 @@ impl ContextLine {
 
 impl std::fmt::Display for Frame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Frame {}:", self.raw_id)?;
+        writeln!(f, "Frame {}:", self.raw_id.raw_id)?;
 
         // Function name and location
         write!(
@@ -281,6 +294,23 @@ impl std::fmt::Display for Frame {
         }
 
         Ok(())
+    }
+}
+
+impl From<Frame> for FrameData {
+    fn from(frame: Frame) -> Self {
+        FrameData {
+            raw_id: frame.raw_id.raw_id,
+            synthetic: frame.synthetic,
+            resolved_name: frame.resolved_name,
+            mangled_name: frame.mangled_name,
+            source: frame.source,
+            resolved: frame.resolved,
+            in_app: frame.in_app,
+            line: frame.line,
+            column: frame.column,
+            lang: frame.lang,
+        }
     }
 }
 

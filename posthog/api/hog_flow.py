@@ -1,4 +1,5 @@
 import json
+from typing import Optional, cast
 
 from django.db.models import QuerySet
 
@@ -25,11 +26,6 @@ from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
 logger = structlog.get_logger(__name__)
 
 
-class HogFlowTriggerSerializer(serializers.Serializer):
-    filters = HogFunctionFiltersSerializer()
-    type = serializers.ChoiceField(choices=["event"], required=True)
-
-
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
     inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
     inputs = InputsSerializer(required=False)
@@ -49,7 +45,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     )
     created_at = serializers.IntegerField(required=False)
     updated_at = serializers.IntegerField(required=False)
-    filters = HogFunctionFiltersSerializer(required=False, default=dict, allow_null=True)
+    filters = HogFunctionFiltersSerializer(required=False, default=None, allow_null=True)
     type = serializers.CharField(max_length=100)
     config = serializers.JSONField()
 
@@ -59,7 +55,20 @@ class HogFlowActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate(self, data):
-        if "function" in data.get("type", ""):
+        trigger_is_function = False
+        if data.get("type") == "trigger":
+            if data.get("config", {}).get("type") in ["webhook", "tracking_pixel"]:
+                trigger_is_function = True
+            elif data.get("config", {}).get("type") == "event":
+                filters = data.get("config", {}).get("filters", {})
+                if filters:
+                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    serializer.is_valid(raise_exception=True)
+                    data["config"]["filters"] = serializer.validated_data
+            else:
+                raise serializers.ValidationError({"config": "Invalid trigger type"})
+
+        if "function" in data.get("type", "") or trigger_is_function:
             template_id = data.get("config", {}).get("template_id", "")
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
@@ -96,8 +105,8 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
             "created_by",
+            "updated_at",
             "trigger",
-            "trigger_masking",
             "conversion",
             "exit_condition",
             "edges",
@@ -108,7 +117,6 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
-    trigger = HogFlowTriggerSerializer()
     actions = serializers.ListField(child=HogFlowActionSerializer(), required=True)
 
     class Meta:
@@ -121,8 +129,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "status",
             "created_at",
             "created_by",
+            "updated_at",
             "trigger",
-            "trigger_masking",
             "conversion",
             "exit_condition",
             "edges",
@@ -134,9 +142,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "version",
             "created_at",
             "created_by",
-            "trigger_masking",
             "abort_action",
         ]
+
+    def validate(self, data):
+        instance = cast(Optional[HogFlow], self.instance)
+        actions = data.get("actions", instance.actions if instance else [])
+        # The trigger is derived from the actions. We can trust the action level validation and pull it out
+        trigger_actions = [action for action in actions if action.get("type") == "trigger"]
+
+        if len(trigger_actions) != 1:
+            raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
+
+        data["trigger"] = trigger_actions[0]["config"]
+
+        return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
         request = self.context["request"]
@@ -148,6 +168,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
     def update(self, instance, validated_data):
         return super().update(instance, validated_data)
+
+
+class HogFlowInvocationSerializer(serializers.Serializer):
+    configuration = HogFlowSerializer(write_only=True, required=False)
+    globals = serializers.DictField(write_only=True, required=False)
+    mock_async_functions = serializers.BooleanField(default=True, write_only=True)
+    current_action_id = serializers.CharField(write_only=True, required=False)
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -234,10 +261,16 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         except Exception:
             hog_flow = None
 
+        serializer = HogFlowInvocationSerializer(
+            data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
         res = create_hog_flow_invocation_test(
             team_id=self.team_id,
             hog_flow_id=str(hog_flow.id) if hog_flow else "new",
-            payload=request.data,
+            payload=serializer.validated_data,
         )
 
         if res.status_code != 200:

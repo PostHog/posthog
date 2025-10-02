@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Ok, Result};
+use anyhow::{anyhow, bail, Context, Ok, Result};
 use core::str;
 use globset::{Glob, GlobSetBuilder};
 use magic_string::{GenerateDecodedMapOptions, MagicString};
@@ -13,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tracing::{debug, info, warn};
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 use super::constant::{CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE};
 
@@ -174,12 +174,13 @@ pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<So
                 "Skipping because it matches an ignored glob: {}",
                 entry_path.display()
             );
-        } else if is_javascript_file(&entry_path) {
+            continue;
+        } else if is_javascript_file(&entry) {
             info!("Processing file: {}", entry_path.display());
             let source = SourceFile::load(&entry_path)?;
             let sourcemap_path = get_sourcemap_path(&source)?;
             if let Some(path) = sourcemap_path {
-                let sourcemap = SourceFile::load(&path)?;
+                let sourcemap = SourceFile::load(&path).context(format!("reading {path:?}"))?;
                 let chunk_id = get_chunk_id(&sourcemap);
                 pairs.push(SourcePair {
                     chunk_id,
@@ -248,7 +249,10 @@ pub fn guess_sourcemap_path(path: &Path) -> PathBuf {
     sourcemap_path
 }
 
-fn is_javascript_file(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs")
+fn is_javascript_file(entry: &DirEntry) -> bool {
+    entry.file_type().is_file()
+        && entry
+            .path()
+            .extension()
+            .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs")
 }

@@ -10,16 +10,13 @@ import {
     LemonTable,
     LemonTag,
     LemonTagType,
-    Link,
     Spinner,
 } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { PageHeader } from 'lib/components/PageHeader'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -56,17 +53,6 @@ function NewSurveyButton(): JSX.Element {
     const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
 
-    const button = (
-        <LemonButton to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
-            <span className="pr-3">New survey</span>
-        </LemonButton>
-    )
-
-    // If the user is not loaded, just show the button without Max tool
-    if (!user?.uuid) {
-        return button
-    }
-
     return (
         <MaxTool
             identifier="create_survey"
@@ -78,7 +64,7 @@ function NewSurveyButton(): JSX.Element {
                 'Create a quick satisfaction survey for support interactions',
             ]}
             context={{
-                user_id: user.uuid,
+                user_id: user?.uuid,
             }}
             callback={(toolOutput: {
                 survey_id?: string
@@ -97,7 +83,7 @@ function NewSurveyButton(): JSX.Element {
                 })
 
                 if (toolOutput?.error || !toolOutput?.survey_id) {
-                    return captureMaxAISurveyCreationException(toolOutput.error)
+                    return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.MAX_AI)
                 }
 
                 // Refresh surveys list to show new survey, then redirect to it
@@ -105,8 +91,12 @@ function NewSurveyButton(): JSX.Element {
                 router.actions.push(urls.survey(toolOutput.survey_id))
             }}
             position="bottom-right"
+            active={!!user?.uuid}
+            className={cn('mr-3')}
         >
-            {button}
+            <LemonButton size="small" to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
+                <span className="pr-3">New survey</span>
+            </LemonButton>
         </MaxTool>
     )
 }
@@ -124,7 +114,6 @@ function Surveys(): JSX.Element {
         hasNextPage,
         hasNextSearchPage,
     } = useValues(surveysLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab, loadNextPage, loadNextSearchPage } =
         useActions(surveysLogic)
@@ -134,43 +123,19 @@ function Surveys(): JSX.Element {
 
     return (
         <SceneContent>
-            <PageHeader
-                buttons={
-                    <>
-                        <SurveyFeedbackButton />
-                        <NewSurveyButton />
-                    </>
-                }
-                className="flex gap-2 justify-between items-center min-w-full"
-                caption={
-                    !newSceneLayout ? (
-                        <>
-                            <div>
-                                Check out our
-                                <Link
-                                    data-attr="survey-help"
-                                    to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
-                                    target="_blank"
-                                >
-                                    {' '}
-                                    surveys docs
-                                </Link>{' '}
-                                to learn more.
-                            </div>
-                        </>
-                    ) : null
-                }
-                tabbedPage
-            />
             <SurveysDisabledBanner />
             <SceneTitleSection
                 name="Surveys"
                 description="Create surveys to collect feedback from your users"
                 resourceType={{
                     type: 'survey',
-                    typePlural: 'surveys',
                 }}
-                docsURL="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
+                actions={
+                    <>
+                        <SurveyFeedbackButton />
+                        <NewSurveyButton />
+                    </>
+                }
             />
             <SceneDivider />
             <LemonTabs
@@ -183,7 +148,7 @@ function Surveys(): JSX.Element {
                     { key: SurveysTabs.History, label: 'History' },
                     { key: SurveysTabs.Settings, label: 'Settings' },
                 ]}
-                sceneInset={newSceneLayout}
+                sceneInset={true}
             />
             {tab === SurveysTabs.Settings && <SurveySettings />}
             {tab === SurveysTabs.Notifications && (
@@ -205,12 +170,7 @@ function Surveys(): JSX.Element {
                     {!shouldShowEmptyState && (
                         <>
                             <div>
-                                <div
-                                    className={cn(
-                                        'flex flex-wrap gap-2 justify-between mb-4',
-                                        newSceneLayout && 'mb-0'
-                                    )}
-                                >
+                                <div className={cn('flex flex-wrap gap-2 justify-between mb-0')}>
                                     <LemonInput
                                         type="search"
                                         placeholder="Search for surveys"

@@ -17,10 +17,11 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-
-from ..base import AssistantNode
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
 NEXT_RAG_NODES = ["trends", "funnel", "retention", "sql", "end"]
 NextRagNode = Literal["trends", "funnel", "retention", "sql", "end"]
@@ -30,6 +31,10 @@ class InsightRagContextNode(AssistantNode):
     """
     Injects the RAG context of product analytics insights: actions and events.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.INSIGHT_RAG_CONTEXT
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         plan = state.root_tool_insight_plan

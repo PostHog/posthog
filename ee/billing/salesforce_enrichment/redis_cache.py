@@ -2,10 +2,9 @@ import gzip
 import json
 from typing import Any, Optional
 
-from structlog import get_logger
-
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
+from posthog.temporal.common.logger import get_logger
 
 from .constants import REDIS_TTL_SECONDS, SALESFORCE_ACCOUNTS_CACHE_KEY
 

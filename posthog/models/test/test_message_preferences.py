@@ -1,10 +1,12 @@
 import uuid
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db import IntegrityError
 from django.test import Client
 
+import posthog.plugins.plugin_server_api as plugin_server_api
 from posthog.models.message_category import MessageCategory
 from posthog.models.message_preferences import MessageRecipientPreference, PreferenceStatus
 
@@ -26,7 +28,15 @@ class TestMessagePreferences(BaseTest):
             team=self.team, identifier="test@example.com", preferences={}
         )
         self.client = Client()
-        self.token = self.recipient.generate_preferences_token()
+        self._token_patch = patch.object(
+            plugin_server_api, "generate_messaging_preferences_token", return_value="dummy-token"
+        )
+        self._token_patch.start()
+        self.token = plugin_server_api.generate_messaging_preferences_token(self.team.id, self.recipient.identifier)
+
+    def tearDown(self):
+        self._token_patch.stop()
+        super().tearDown()
 
     def test_create_message_category(self):
         category = MessageCategory.objects.create(
@@ -67,7 +77,7 @@ class TestMessagePreferences(BaseTest):
         )
 
         # Test non-existent preference
-        self.assertEqual(recipient.get_preference(uuid.uuid4()), PreferenceStatus.NO_PREFERENCE)
+        self.assertEqual(recipient.get_preference(str(uuid.uuid4())), PreferenceStatus.NO_PREFERENCE)
 
         # Test existing preference
         recipient.set_preference(self.category.id, PreferenceStatus.OPTED_IN)
@@ -88,34 +98,13 @@ class TestMessagePreferences(BaseTest):
 
         # Test get_all_preferences method (returns dict of UUID to PreferenceStatus)
         preferences = recipient.get_all_preferences()
-        self.assertEqual(preferences[self.category.id], PreferenceStatus.OPTED_IN)
-        self.assertEqual(preferences[category2.id], PreferenceStatus.OPTED_OUT)
+        self.assertEqual(preferences[str(self.category.id)], PreferenceStatus.OPTED_IN)
+        self.assertEqual(preferences[str(category2.id)], PreferenceStatus.OPTED_OUT)
 
         # Test get_all_preference method (also returns dict of UUID to PreferenceStatus)
         all_preferences = recipient.get_all_preferences()
-        self.assertEqual(all_preferences[self.category.id], PreferenceStatus.OPTED_IN)
-        self.assertEqual(all_preferences[category2.id], PreferenceStatus.OPTED_OUT)
-
-    def test_get_or_create_for_identifier(self):
-        # Test creating a new recipient
-        defaults = {self.category.id: PreferenceStatus.OPTED_IN}
-        recipient = MessageRecipientPreference.get_or_create_for_identifier(
-            team_id=self.team.id, identifier="new@example.com", defaults=defaults
-        )
-
-        self.assertEqual(recipient.identifier, "new@example.com")
-        self.assertEqual(recipient.team_id, self.team.id)
-        # Check that the preference was set correctly
-        self.assertEqual(recipient.get_preference(self.category.id), PreferenceStatus.OPTED_IN)
-
-        # Test getting an existing recipient
-        existing_recipient = MessageRecipientPreference.get_or_create_for_identifier(
-            team_id=self.team.id, identifier="new@example.com"
-        )
-
-        # Should be the same instance
-        self.assertEqual(existing_recipient.id, recipient.id)
-        self.assertEqual(existing_recipient.get_preference(self.category.id), PreferenceStatus.OPTED_IN)
+        self.assertEqual(all_preferences[str(self.category.id)], PreferenceStatus.OPTED_IN)
+        self.assertEqual(all_preferences[str(category2.id)], PreferenceStatus.OPTED_OUT)
 
     def test_set_preference_validation(self):
         recipient = MessageRecipientPreference.objects.create(
@@ -125,25 +114,3 @@ class TestMessagePreferences(BaseTest):
         # Test that only PreferenceStatus enum values are accepted
         with self.assertRaises(ValueError):
             recipient.set_preference(self.category.id, "INVALID_STATUS")  # type: ignore[arg-type]
-
-    def test_token_generation_and_validation(self):
-        recipient = MessageRecipientPreference.objects.create(
-            team=self.team, identifier="test7@example.com", preferences={}
-        )
-
-        # Test token generation
-        token = recipient.generate_preferences_token()
-        self.assertIsNotNone(token)
-
-        # Test token validation
-        validated_recipient, error = MessageRecipientPreference.validate_preferences_token(token)
-        self.assertIsNotNone(validated_recipient, "Validated recipient should not be None")
-        self.assertEqual(error, "")
-        # Only check ID if we have a recipient
-        if validated_recipient:  # This satisfies the type checker
-            self.assertEqual(validated_recipient.id, recipient.id)
-
-        # Test invalid token
-        invalid_recipient, error = MessageRecipientPreference.validate_preferences_token("invalid-token")
-        self.assertIsNone(invalid_recipient)
-        self.assertNotEqual(error, "")

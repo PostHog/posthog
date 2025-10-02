@@ -5,7 +5,6 @@ import React from 'react'
 import { IconInfo } from '@posthog/icons'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
@@ -16,7 +15,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Comments } from 'scenes/data-management/comments/Comments'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
@@ -181,14 +180,10 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (tab): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.DataManagement,
-                        name: `Data management`,
-                        path: tabs.events.url,
-                    },
-                    {
                         key: tab,
                         name: capitalizeFirstLetter(tab),
                         path: tabs[tab].url,
+                        iconType: 'event_definition',
                     },
                 ]
             },
@@ -197,6 +192,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): DataManagementTab[] => {
                 const allTabs = Object.entries(tabs)
+
                 return allTabs
                     .filter(([_, tab]) => {
                         return !tab.flag || !!featureFlags[tab.flag]
@@ -249,12 +245,7 @@ export function DataManagementScene(): JSX.Element | null {
     const { enabledTabs, tab } = useValues(dataManagementSceneLogic)
 
     if (enabledTabs.includes(tab)) {
-        return (
-            <>
-                <PageHeader buttons={<>{tabs[tab].buttons}</>} />
-                {tabs[tab].content}
-            </>
-        )
+        return <>{tabs[tab].content}</>
     }
     return null
 }

@@ -10,6 +10,7 @@ import {
     IconExpand,
     IconEye,
     IconHide,
+    IconNotebook,
     IconRefresh,
     IconThumbsDown,
     IconThumbsDownFilled,
@@ -29,7 +30,11 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import {
+    InsightBreakdownSummary,
+    PropertiesSummary,
+    SeriesSummary,
+} from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -38,6 +43,8 @@ import { pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -55,10 +62,11 @@ import {
     TaskExecutionMessage,
     TaskExecutionStatus,
     VisualizationItem,
+    VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { ProductKey } from '~/types'
+import { InsightShortId, ProductKey } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -70,6 +78,7 @@ import {
     castAssistantQuery,
     isAssistantMessage,
     isAssistantToolCallMessage,
+    isDeepResearchReportCompletion,
     isFailureMessage,
     isHumanMessage,
     isMultiVisualizationMessage,
@@ -427,10 +436,77 @@ interface NotebookUpdateAnswerProps {
 }
 
 function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Element {
-    const handleOpenNotebook = (): void => {
-        openNotebook(message.notebook_id, NotebookTarget.Scene)
+    const handleOpenNotebook = (notebookId?: string): void => {
+        openNotebook(notebookId || message.notebook_id, NotebookTarget.Scene)
     }
 
+    // Only show the full notebook list if this is the final report message from deep research
+    const isReportCompletion = isDeepResearchReportCompletion(message)
+
+    const NOTEBOOK_TYPE_DISPLAY_NAMES: Record<string, string> = {
+        planning: 'Planning',
+        report: 'Final Report',
+    }
+
+    const NOTEBOOK_TYPE_DESCRIPTIONS: Record<string, string> = {
+        planning: 'Initial research plan and objectives',
+        report: 'Comprehensive analysis and findings',
+    }
+
+    if (isReportCompletion && message.conversation_notebooks) {
+        return (
+            <MessageTemplate type="ai">
+                <div className="bg-bg-light border border-border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                        <IconCheck className="text-success size-4" />
+                        <h4 className="text-sm font-semibold m-0">Deep Research Complete</h4>
+                    </div>
+
+                    <div className="space-y-2">
+                        <p className="text-xs text-muted mb-3">
+                            Your research has been completed. Each notebook contains detailed analysis:
+                        </p>
+
+                        {message.conversation_notebooks.map((notebook) => {
+                            const typeKey = (notebook.notebook_type ??
+                                'general') as keyof typeof NOTEBOOK_TYPE_DISPLAY_NAMES
+                            const displayName = NOTEBOOK_TYPE_DISPLAY_NAMES[typeKey] || notebook.notebook_type
+                            const description = NOTEBOOK_TYPE_DESCRIPTIONS[typeKey] || 'Research documentation'
+
+                            return (
+                                <div
+                                    key={notebook.notebook_id}
+                                    className="flex items-center justify-between p-3 bg-bg-3000 rounded border border-border-light"
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <IconNotebook className="size-4 text-primary-alt mt-0.5" />
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium text-sm">
+                                                    {notebook.title || `${displayName} Notebook`}
+                                                </span>
+                                            </div>
+                                            <div className="text-xs text-muted">{description}</div>
+                                        </div>
+                                    </div>
+                                    <LemonButton
+                                        onClick={() => handleOpenNotebook(notebook.notebook_id)}
+                                        size="xsmall"
+                                        type="primary"
+                                        icon={<IconOpenInNew />}
+                                    >
+                                        Open
+                                    </LemonButton>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            </MessageTemplate>
+        )
+    }
+
+    // Default single notebook update message
     return (
         <MessageTemplate type="ai">
             <div className="flex items-center justify-between gap-2">
@@ -438,7 +514,7 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                     <IconCheck className="text-success size-4" />
                     <span>A notebook has been updated</span>
                 </div>
-                <LemonButton onClick={handleOpenNotebook} size="xsmall" type="primary" icon={<IconOpenInNew />}>
+                <LemonButton onClick={() => handleOpenNotebook()} size="xsmall" type="primary" icon={<IconOpenInNew />}>
                     Open notebook
                 </LemonButton>
             </div>
@@ -512,10 +588,7 @@ function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element
                                     <IconCheck className="text-success size-3.5" />
                                 )}
                                 {task.status === TaskExecutionStatus.InProgress && (
-                                    <img
-                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
-                                    />
+                                    <div className="size-3 rounded-full bg-border animate-pulse" />
                                 )}
                                 {task.status === TaskExecutionStatus.Pending && (
                                     <div className="size-3 rounded-full bg-border" />
@@ -637,7 +710,7 @@ const Visualization = React.memo(function Visualization({
                     {!isHogQLQuery(query.source) && (
                         <div className="flex flex-wrap gap-4 mt-1 *:grow">
                             <PropertiesSummary properties={query.source.properties} />
-                            <BreakdownSummary query={query.source} />
+                            <InsightBreakdownSummary query={query.source} />
                         </div>
                     )}
                 </>
@@ -646,23 +719,44 @@ const Visualization = React.memo(function Visualization({
     )
 })
 
+function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
+    const { insight } = useValues(insightSceneLogic({ tabId }))
+    const insightProps = { dashboardItemId: insight?.short_id }
+    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
+    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
+
+    return (
+        <>
+            {suggestedQuery && (
+                <LemonButton
+                    onClick={() => {
+                        if (previousQuery) {
+                            onRejectSuggestedInsight()
+                        } else {
+                            onReapplySuggestedInsight()
+                        }
+                    }}
+                    sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
+                    size="xsmall"
+                    tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                />
+            )}
+        </>
+    )
+}
+
 const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
     isEditingInsight,
 }: {
-    message: VisualizationItem
+    message: VisualizationMessage
     status?: MessageStatus
     isEditingInsight: boolean
 }): JSX.Element | null {
-    const { insight } = useValues(insightSceneLogic)
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    // Get insight props for the logic
-    const insightProps = { dashboardItemId: insight?.short_id }
-
-    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
-    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
+    const { activeTabId, activeSceneId } = useValues(sceneLogic)
 
     useEffect(() => {
         setIsCollapsed(isEditingInsight)
@@ -695,27 +789,20 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               </LemonButton>
                           </div>
                           <div className="flex items-center gap-1.5">
-                              {isEditingInsight && suggestedQuery && (
-                                  <LemonButton
-                                      onClick={() => {
-                                          if (previousQuery) {
-                                              onRejectSuggestedInsight()
-                                          } else {
-                                              onReapplySuggestedInsight()
-                                          }
-                                      }}
-                                      sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
-                                      size="xsmall"
-                                      tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
-                                  />
+                              {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && (
+                                  <InsightSuggestionButton tabId={activeTabId} />
                               )}
                               {!isEditingInsight && (
                                   <LemonButton
-                                      to={urls.insightNew({ query })}
+                                      to={
+                                          message.short_id
+                                              ? urls.insightView(message.short_id as InsightShortId)
+                                              : urls.insightNew({ query })
+                                      }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"
                                       targetBlank
-                                      tooltip="Open as new insight"
+                                      tooltip={message.short_id ? 'Open insight' : 'Open as new insight'}
                                   />
                               )}
                               <LemonButton
@@ -733,7 +820,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               {!isHogQLQuery(query.source) && (
                                   <div className="flex flex-wrap gap-4 mt-1 *:grow">
                                       <PropertiesSummary properties={query.source.properties} />
-                                      <BreakdownSummary query={query.source} />
+                                      <InsightBreakdownSummary query={query.source} />
                                   </div>
                               )}
                           </>

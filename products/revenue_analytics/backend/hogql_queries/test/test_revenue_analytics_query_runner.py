@@ -4,10 +4,17 @@ from posthog.test.base import APIBaseTest
 
 from posthog.schema import IntervalType, RevenueAnalyticsGrossRevenueQuery
 
+from posthog.constants import AvailableFeature
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
 
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
 
 # This is required because we can't instantiate the base class directly
@@ -46,7 +53,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create a schema that's running but has never synced
@@ -70,7 +76,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create schemas with different sync intervals
@@ -106,7 +111,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create schemas without sync intervals
@@ -141,7 +145,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create schemas with mixed sync intervals
@@ -187,7 +190,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.POSTGRES,  # Not Stripe
-            revenue_analytics_enabled=True,
         )
 
         # Create a schema for the non-Stripe source
@@ -204,32 +206,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
         # Should use our default cache target age since no Stripe sources
         self.assertDiff(RevenueAnalyticsQueryRunner.DEFAULT_CACHE_TARGET_AGE)
 
-    def test_cache_target_age_revenue_analytics_disabled_ignored(self):
-        """Test that sources with revenue_analytics_enabled=False are ignored"""
-
-        # Create a Stripe source with revenue analytics disabled
-        source = ExternalDataSource.objects.create(
-            team=self.team,
-            source_id="src_test",
-            connection_id="conn_test",
-            source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=False,  # Disabled
-        )
-
-        # Create a schema for the disabled source
-        ExternalDataSchema.objects.create(
-            team=self.team,
-            source=source,
-            name="schema_1",
-            should_sync=True,
-            status=ExternalDataSchema.Status.COMPLETED,
-            last_synced_at=datetime.now(),
-            sync_frequency_interval=timedelta(hours=1),
-        )
-
-        # Should use our default cache target age since revenue analytics is disabled
-        self.assertDiff(RevenueAnalyticsQueryRunner.DEFAULT_CACHE_TARGET_AGE)
-
     def test_cache_target_age_should_sync_false_ignored(self):
         """Test that schemas with should_sync=False are ignored"""
 
@@ -239,7 +215,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create a schema that shouldn't sync
@@ -265,7 +240,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create a schema that's running but has never synced (first-time sync)
@@ -295,13 +269,12 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
     def test_cache_target_age_complex_scenario(self):
         """Test a complex scenario with multiple schemas and edge cases"""
 
-        # Create a Stripe source with revenue analytics enabled
+        # Create a Stripe source with revenue analytics enabled (default)
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create multiple schemas with different configurations
@@ -347,3 +320,17 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
 
         # Should return our small cache target age since it's the first time syncing
         self.assertDiff(RevenueAnalyticsQueryRunner.SMALL_CACHE_TARGET_AGE)
+
+    def test_validate_query_runner_access(self):
+        """Test that the query runner can access the query runner"""
+        runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
+        self.assertTrue(runner.validate_query_runner_access(self.user))
+
+    def test_validate_query_runner_access_without_access(self):
+        """Test that the query runner cannot access the query runner without view access control"""
+        AccessControl.objects.create(team=self.team, resource="revenue_analytics", access_level="none")
+        self.organization.available_product_features.append({"key": AvailableFeature.ADVANCED_PERMISSIONS})  # type: ignore[union-attr]
+        self.organization.save()
+
+        runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
+        self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)

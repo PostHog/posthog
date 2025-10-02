@@ -1,5 +1,5 @@
 import logging
-from typing import Literal, cast
+from typing import Literal, Optional, cast
 from uuid import uuid4
 
 from langchain_core.messages import (
@@ -19,6 +19,7 @@ from posthog.schema import (
     PlanningMessage,
     PlanningStep,
     ProsemirrorJSONContent,
+    ReasoningMessage,
     VisualizationItem,
 )
 
@@ -40,15 +41,17 @@ from ee.hogai.graph.deep_research.planner.prompts import (
 )
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
+    DeepResearchNodeName,
     DeepResearchState,
+    DeepResearchTask,
     DeepResearchTodo,
-    InsightArtifact,
     PartialDeepResearchState,
-    TaskExecutionItem,
 )
 from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.utils.helpers import extract_content_from_ai_message
 from ee.hogai.utils.types import WithCommentary
+from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages, InsightArtifact, TaskArtifact
+from ee.hogai.utils.types.composed import MaxNodeName
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +61,7 @@ class execute_tasks(WithCommentary):
     Execute a batch of work, assigning tasks to assistants. Returns the aggregated results of the tasks.
     """
 
-    tasks: list[TaskExecutionItem] = Field(description="The tasks to execute")
+    tasks: list[DeepResearchTask] = Field(description="The tasks to execute")
 
 
 class todo_write(WithCommentary):
@@ -96,6 +99,10 @@ class finalize_research(WithCommentary):
 
 
 class DeepResearchPlannerNode(DeepResearchNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return DeepResearchNodeName.PLANNER
+
     async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState:
         # We use instructions with the OpenAI Responses API
         instructions = DEEP_RESEARCH_PLANNER_PROMPT.format(
@@ -134,7 +141,12 @@ class DeepResearchPlannerNode(DeepResearchNode):
             else:
                 raise ValueError("Unexpected message type.")
         else:
-            notebook = await Notebook.objects.aget(short_id=state.notebook_short_id)
+            # Get the planning notebook from current_run_notebooks (should be the first one)
+            if not state.current_run_notebooks:
+                raise ValueError("No notebooks found in current run.")
+
+            planning_notebook_id = state.current_run_notebooks[0].notebook_id
+            notebook = await Notebook.objects.aget(short_id=planning_notebook_id)
             if not notebook:
                 raise ValueError("Notebook not found.")
 
@@ -181,6 +193,37 @@ class DeepResearchPlannerNode(DeepResearchNode):
 
 
 class DeepResearchPlannerToolsNode(DeepResearchNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return DeepResearchNodeName.PLANNER_TOOLS
+
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
+        if not input.messages:
+            return None
+        assert isinstance(input.messages[-1], AssistantMessage)
+        tool_calls = input.messages[-1].tool_calls or []
+        assert len(tool_calls) <= 1
+        if len(tool_calls) == 0:
+            return None
+        tool_call = tool_calls[0]
+        if tool_call.name == "todo_write":
+            return ReasoningMessage(content="Writing todos")
+        elif tool_call.name == "todo_read":
+            return ReasoningMessage(content="Reading todos")
+        elif tool_call.name == "artifacts_read":
+            return ReasoningMessage(content="Reading artifacts")
+        elif tool_call.name == "execute_tasks":
+            return ReasoningMessage(content="Executing tasks")
+        elif tool_call.name == "result_write":
+            return ReasoningMessage(content="Writing intermediate results")
+        elif tool_call.name == "finalize_research":
+            return ReasoningMessage(content="Finalizing research")
+        return None
+
     async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage):
@@ -308,13 +351,13 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
     async def _handle_artifacts_read(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
         """Read artifacts generated from completed tasks."""
         # Collect all artifacts from task results
-        artifacts: list[InsightArtifact] = []
+        artifacts: list[TaskArtifact] = []
         for single_task_result in state.task_results:
             artifacts.extend(single_task_result.artifacts)
 
         # Format artifacts for display
         if artifacts:
-            formatted_artifacts = "\n".join([f"- {artifact.id}: {artifact.description}" for artifact in artifacts])
+            formatted_artifacts = "\n".join([f"- {artifact.task_id}: {artifact.content}" for artifact in artifacts])
         else:
             formatted_artifacts = ARTIFACTS_READ_FAILED_TOOL_RESULT
 
@@ -352,12 +395,12 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Collect all available artifacts
-        artifacts: list[InsightArtifact] = []
+        artifacts: list[TaskArtifact] = []
         for single_task_result in state.task_results:
             artifacts.extend(single_task_result.artifacts)
 
         # Validate artifact IDs referenced in the result
-        existing_ids = {artifact.id for artifact in artifacts}
+        existing_ids = {artifact.task_id for artifact in artifacts}
         invalid_ids = set(intermediate_result.artifact_ids) - existing_ids
 
         if invalid_ids:
@@ -372,12 +415,14 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Create visualization messages from selected artifacts
-        selected_artifacts = [artifact for artifact in artifacts if artifact.id in intermediate_result.artifact_ids]
+        selected_artifacts = [
+            artifact for artifact in artifacts if artifact.task_id in intermediate_result.artifact_ids
+        ]
 
         visualization_messages = [
-            VisualizationItem(query=artifact.description, answer=artifact.query)
+            VisualizationItem(query=artifact.content, answer=artifact.query)
             for artifact in selected_artifacts
-            if artifact.query
+            if isinstance(artifact, InsightArtifact)
         ]
 
         return PartialDeepResearchState(

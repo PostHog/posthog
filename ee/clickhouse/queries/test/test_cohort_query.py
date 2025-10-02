@@ -3596,7 +3596,7 @@ class TestCohortNegationValidation(BaseTest):
         assert has_reg is False
 
     def test_empty_property_group(self):
-        property_group = PropertyGroup(type=PropertyOperatorType.AND, values=[])  # type: ignore
+        property_group = PropertyGroup(type=PropertyOperatorType.AND, values=[])
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
         assert has_pending_neg is False

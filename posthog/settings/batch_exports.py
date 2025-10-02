@@ -1,6 +1,7 @@
 import os
 
 from posthog.settings.utils import get_from_env, get_list
+from posthog.utils import str_to_bool
 
 BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 50  # 50MB
 BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
@@ -40,6 +41,11 @@ BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
     "BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES", 1024 * 1024 * 300, type_cast=int
 )
 
+BATCH_EXPORT_DATABRICKS_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 100  # 100MB
+BATCH_EXPORT_DATABRICKS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
+    "BATCH_EXPORT_DATABRICKS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES", 1024 * 1024 * 300, type_cast=int
+)
+
 BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES: int = get_from_env(
     "BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES", 1024 * 1024 * 50, type_cast=int
 )
@@ -66,3 +72,7 @@ BATCH_EXPORT_INTERNAL_STAGING_BUCKET: str = os.getenv("BATCH_EXPORT_INTERNAL_STA
 # The number of partitions controls how many files ClickHouse writes to concurrently
 BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS: int = get_from_env("BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS", 5, type_cast=int)
 BATCH_EXPORT_TRANSFORMER_MAX_WORKERS: int = get_from_env("BATCH_EXPORT_TRANSFORMER_MAX_WORKERS", 2, type_cast=int)
+
+BATCH_EXPORTS_ENABLE_BILLING_CHECK: bool = get_from_env(
+    "BATCH_EXPORTS_ENABLE_BILLING_CHECK", False, type_cast=str_to_bool
+)

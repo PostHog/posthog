@@ -7,6 +7,7 @@ pub mod server;
 pub mod sinks;
 pub mod test_endpoint;
 pub mod time;
+pub mod timestamp;
 pub mod token;
 pub mod utils;
 pub mod v0_endpoint;

@@ -8,7 +8,7 @@ import { compress, uncompress } from 'snappy'
 
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { PluginsServerConfig } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError, PluginsServerConfig } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
@@ -59,8 +59,11 @@ export class CyclotronJobQueueKafka {
         await this.kafkaProducer?.disconnect()
     }
 
-    public isHealthy() {
-        return this.kafkaConsumer?.isHealthy() ?? false
+    public isHealthy(): HealthCheckResult {
+        if (!this.kafkaConsumer) {
+            return new HealthCheckResultError('Kafka consumer not initialized', {})
+        }
+        return this.kafkaConsumer.isHealthy()
     }
 
     public async queueInvocations(invocations: CyclotronJobInvocation[]) {
@@ -80,17 +83,24 @@ export class CyclotronJobQueueKafka {
 
                 cdpJobSizeKb.observe(value.length / 1024)
 
+                const headers: Record<string, string> = {
+                    // NOTE: Later we should remove hogFunctionId as it is no longer used
+                    hogFunctionId: x.functionId,
+                    functionId: x.functionId,
+                    teamId: x.teamId.toString(),
+                }
+
+                if (x.queueScheduledAt && x.state?.returnTopic) {
+                    headers.queueScheduledAt = x.queueScheduledAt.toString()
+                    headers.returnTopic = `cdp_cyclotron_${x.state.returnTopic}`
+                }
+
                 await producer
                     .produce({
                         value: Buffer.from(value),
                         key: Buffer.from(x.id),
                         topic: `cdp_cyclotron_${x.queue}`,
-                        headers: {
-                            // NOTE: Later we should remove hogFunctionId as it is no longer used
-                            hogFunctionId: x.functionId,
-                            functionId: x.functionId,
-                            teamId: x.teamId.toString(),
-                        },
+                        headers,
                     })
                     .catch((e) => {
                         logger.error('🔄', 'Error producing kafka message', {

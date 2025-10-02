@@ -5,6 +5,7 @@ use crate::api::types::{
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
+use crate::database::PostgresRouter;
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
@@ -28,7 +29,6 @@ use crate::utils::graph_utils::{
     log_dependency_graph_operation_error, DependencyGraph,
 };
 use anyhow::Result;
-use common_database::{PostgresReader, PostgresWriter};
 use common_metrics::{inc, timing_guard};
 use common_types::{PersonId, ProjectId, TeamId};
 use rayon::prelude::*;
@@ -38,6 +38,15 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
+
+/// Parameters for feature flag evaluation with various override options
+#[derive(Debug, Default)]
+pub struct FlagEvaluationOverrides {
+    pub person_property_overrides: Option<HashMap<String, Value>>,
+    pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    pub hash_key_overrides: Option<HashMap<String, String>>,
+    pub hash_key_override_error: bool,
+}
 
 #[derive(Debug)]
 struct SuperConditionEvaluation {
@@ -159,10 +168,8 @@ pub struct FeatureFlagMatcher {
     pub team_id: TeamId,
     /// Project ID for scoping flag evaluations
     pub project_id: ProjectId,
-    /// Database connection for reading data
-    pub reader: PostgresReader,
-    /// Database connection for writing data (e.g. experience continuity overrides)
-    pub writer: PostgresWriter,
+    /// Router for database connections across persons/non-persons pools
+    pub router: PostgresRouter,
     /// Cache manager for cohort definitions and memberships
     pub cohort_cache: Arc<CohortCacheManager>,
     /// Cache for mapping between group types and their indices
@@ -180,13 +187,11 @@ pub struct FeatureFlagMatcher {
 }
 
 impl FeatureFlagMatcher {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         distinct_id: String,
         team_id: TeamId,
         project_id: ProjectId,
-        reader: PostgresReader,
-        writer: PostgresWriter,
+        router: PostgresRouter,
         cohort_cache: Arc<CohortCacheManager>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         groups: Option<HashMap<String, Value>>,
@@ -195,8 +200,7 @@ impl FeatureFlagMatcher {
             distinct_id,
             team_id,
             project_id,
-            reader: reader.clone(),
-            writer: writer.clone(),
+            router,
             cohort_cache,
             group_type_mapping_cache: group_type_mapping_cache
                 .unwrap_or_else(|| GroupTypeMappingCache::new(project_id)),
@@ -223,7 +227,7 @@ impl FeatureFlagMatcher {
         feature_flags: FeatureFlagList,
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-        hash_key_override: Option<String>,
+        hash_key_override: Option<String>, // Aka $anon_distinct_id
         request_id: Uuid,
         flag_keys: Option<Vec<String>>,
     ) -> FlagsResponse {
@@ -241,15 +245,15 @@ impl FeatureFlagMatcher {
             )
             .await;
 
+        let overrides = FlagEvaluationOverrides {
+            person_property_overrides,
+            group_property_overrides,
+            hash_key_overrides,
+            hash_key_override_error: flag_hash_key_override_error,
+        };
+
         let flags_response = self
-            .evaluate_flags_with_overrides(
-                feature_flags,
-                person_property_overrides,
-                group_property_overrides,
-                hash_key_overrides,
-                request_id,
-                flag_keys,
-            )
+            .evaluate_flags_with_overrides(feature_flags, overrides, request_id, flag_keys)
             .await;
 
         eval_timer
@@ -295,7 +299,7 @@ impl FeatureFlagMatcher {
         target_distinct_ids: Vec<String>,
     ) -> (Option<HashMap<String, String>>, bool) {
         let should_write = match should_write_hash_key_override(
-            self.reader.clone(),
+            &self.router,
             self.team_id,
             self.distinct_id.clone(),
             self.project_id,
@@ -323,8 +327,8 @@ impl FeatureFlagMatcher {
 
         if should_write {
             if let Err(e) = set_feature_flag_hash_key_overrides(
-                // NB: this is the only method that writes to the database, so it's the only one that should use the writer
-                self.writer.clone(),
+                // NB: this is the only method that writes to the database
+                &self.router,
                 self.team_id,
                 target_distinct_ids.clone(),
                 self.project_id,
@@ -357,9 +361,9 @@ impl FeatureFlagMatcher {
         // This is because we need to make sure the write is successful before we read it back
         // to avoid read-after-write consistency issues with database replication lag
         let database_for_reading = if writing_hash_key_override {
-            self.writer.clone()
+            self.router.get_persons_writer().clone()
         } else {
-            self.reader.clone()
+            self.router.get_persons_reader().clone()
         };
 
         match get_feature_flag_hash_key_overrides(
@@ -425,14 +429,28 @@ impl FeatureFlagMatcher {
     pub async fn evaluate_flags_with_overrides(
         &mut self,
         feature_flags: FeatureFlagList,
-        person_property_overrides: Option<HashMap<String, Value>>,
-        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-        hash_key_overrides: Option<HashMap<String, String>>,
+        overrides: FlagEvaluationOverrides,
         request_id: Uuid,
         flag_keys: Option<Vec<String>>,
     ) -> FlagsResponse {
-        let mut errors_while_computing_flags = false;
+        let mut errors_while_computing_flags = overrides.hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
+
+        // Handle hash key override errors by creating error responses for flags that need experience continuity
+        if overrides.hash_key_override_error && overrides.hash_key_overrides.is_none() {
+            let flags_needing_continuity: Vec<&FeatureFlag> = feature_flags
+                .flags
+                .iter()
+                .filter(|flag| flag.ensure_experience_continuity.unwrap_or(false))
+                .collect();
+
+            for flag in flags_needing_continuity {
+                evaluated_flags_map.insert(
+                    flag.key.clone(),
+                    FlagDetails::create_error(flag, "hash_key_override_error", None),
+                );
+            }
+        }
 
         // Step 1: Initialize group type mappings if needed
         errors_while_computing_flags |= self
@@ -443,7 +461,7 @@ impl FeatureFlagMatcher {
         let db_prep_errors = self
             .prepare_evaluation_state_if_needed(
                 &feature_flags,
-                &person_property_overrides,
+                &overrides.person_property_overrides,
                 &mut evaluated_flags_map,
             )
             .await;
@@ -491,9 +509,9 @@ impl FeatureFlagMatcher {
         let graph_evaluation_errors = self
             .evaluate_flags_with_dependency_graph(
                 dependency_graph,
-                &person_property_overrides,
-                &group_property_overrides,
-                &hash_key_overrides,
+                &overrides.person_property_overrides,
+                &overrides.group_property_overrides,
+                &overrides.hash_key_overrides,
                 &mut evaluated_flags_map,
             )
             .await;
@@ -854,15 +872,11 @@ impl FeatureFlagMatcher {
                 }
             }
         }
-        // Sort conditions with variant overrides to the top so that we can evaluate them first
-        let mut sorted_conditions: Vec<(usize, &FlagPropertyGroup)> =
+        let conditions: Vec<(usize, &FlagPropertyGroup)> =
             flag.get_conditions().iter().enumerate().collect();
 
-        sorted_conditions
-            .sort_by_key(|(_, condition)| if condition.variant.is_some() { 0 } else { 1 });
-
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
-        for (index, condition) in sorted_conditions {
+        for (index, condition) in conditions {
             let (is_match, reason) = self.is_condition_match(
                 flag,
                 condition,
@@ -1325,7 +1339,7 @@ impl FeatureFlagMatcher {
         let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
         match fetch_and_locally_cache_all_relevant_properties(
             &mut self.flag_evaluation_state,
-            self.reader.clone(),
+            self.router.get_persons_reader().clone(),
             self.distinct_id.clone(),
             self.team_id,
             &group_data.type_indexes,
@@ -1478,7 +1492,7 @@ impl FeatureFlagMatcher {
                     // In addition, this behavior is consistent with /decide.
                     None => {
                         match get_feature_flag_hash_key_overrides(
-                            self.reader.clone(),
+                            self.router.get_persons_reader().clone(),
                             self.team_id,
                             vec![self.distinct_id.clone()],
                         )
@@ -1547,7 +1561,7 @@ impl FeatureFlagMatcher {
 
         if self
             .group_type_mapping_cache
-            .init(self.reader.clone())
+            .init(self.router.get_persons_reader().clone())
             .await
             .is_err()
         {

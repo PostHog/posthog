@@ -16,6 +16,11 @@ from posthog.warehouse.types import ExternalDataSourceType
 logger = structlog.get_logger(__name__)
 
 
+class ExternalDataSourceManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().select_related("revenue_analytics_config")
+
+
 class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
@@ -47,9 +52,32 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     job_inputs = EncryptedJSONField(null=True, blank=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
+
+    # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
 
+    objects = ExternalDataSourceManager()
+
     __repr__ = sane_repr("id", "source_id", "connection_id", "destination_id", "team_id")
+
+    @property
+    def revenue_analytics_config_safe(self):
+        """
+        Safely access revenue_analytics_config with automatic creation fallback.
+        Use this instead of direct access when you need to guarantee the config exists.
+        """
+        from .revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+
+        try:
+            return self.revenue_analytics_config
+        except ExternalDataSourceRevenueAnalyticsConfig.DoesNotExist:
+            config, _ = ExternalDataSourceRevenueAnalyticsConfig.objects.get_or_create(
+                external_data_source=self,
+                defaults={
+                    "enabled": self.source_type == ExternalDataSourceType.STRIPE,
+                },
+            )
+            return config
 
     def soft_delete(self):
         self.deleted = True

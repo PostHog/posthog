@@ -25,13 +25,16 @@ from posthog.hogql.database.database import create_hogql_database, serialize_dat
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.mixins import TaxonomyReasoningNodeMixin
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
-from ..base import AssistantNode
 from .prompts import (
     ACTIONS_EXPLANATION_PROMPT,
     EVENT_DEFINITIONS_PROMPT,
@@ -54,7 +57,11 @@ from .toolkit import (
 )
 
 
-class QueryPlannerNode(AssistantNode):
+class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.QUERY_PLANNER
+
     def _get_dynamic_entity_tools(self):
         """Create dynamic Pydantic models with correct entity types for this team."""
         # Create Literal type with actual entity names
@@ -148,6 +155,7 @@ class QueryPlannerNode(AssistantNode):
             reasoning={
                 "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
             },
+            include=["reasoning.encrypted_content"],
             team=self._team,
             user=self._user,
         ).bind_tools(
@@ -240,6 +248,10 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
     the agent will terminate the conversation and return a message to the root node
     to request additional information.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.QUERY_PLANNER_TOOLS
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = TaxonomyAgentToolkit(self._team)

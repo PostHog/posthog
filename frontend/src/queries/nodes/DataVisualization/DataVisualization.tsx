@@ -89,7 +89,9 @@ export function DataTableVisualization({
         dataNodeCollectionId,
         loadPriority: insightProps.loadPriority,
         editMode,
-        setQuery,
+        setQuery: (setter) => {
+            setQuery(setter(query))
+        },
         cachedResults,
         variablesOverride,
     }

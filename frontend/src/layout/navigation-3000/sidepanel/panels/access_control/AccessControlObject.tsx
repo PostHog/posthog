@@ -1,9 +1,7 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -56,10 +54,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                                 <Tooltip
                                     title={`You don't have permission to edit access controls for ${suffix}. You must be the creator of it, a Project admin, an Organization admin, or have manager access to the resource.`}
                                 >
-                                    <div className="flex items-center gap-2">
-                                        <IconWarning className={clsx('LemonBanner__icon')} />
-                                        <b>Permission required</b>
-                                    </div>
+                                    <span className="font-medium">Permission required</span>
                                 </Tooltip>
                             </LemonBanner>
                         ) : null}

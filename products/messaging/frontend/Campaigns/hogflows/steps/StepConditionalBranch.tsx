@@ -2,58 +2,17 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconDecisionTree, IconPlus, IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
-import { HogFlowFilters } from '../filters/HogFlowFilters'
+import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { StepSchemaErrors } from './components/StepSchemaErrors'
 
-export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
-    type: 'conditional_branch',
-    name: 'Conditional branch',
-    description: 'Branch based on a condition such as the event trigger or a person property.',
-    icon: <IconDecisionTree className="text-[#e5991e]" />,
-    color: '#e5991e',
-    renderNode: (props) => <StepConditionalBranchNode {...props} />,
-    renderConfiguration: (node) => <StepConditionalBranchConfiguration node={node} />,
-    create: () => {
-        return {
-            action: {
-                name: 'Conditional',
-                description: '',
-                type: 'conditional_branch',
-                on_error: 'continue',
-                config: {
-                    conditions: [
-                        {
-                            filters: {
-                                events: [
-                                    {
-                                        id: '$pageview',
-                                        name: '$pageview',
-                                        type: 'events',
-                                    },
-                                ],
-                            },
-                        },
-                    ],
-                },
-            },
-            branchEdges: 1,
-        }
-    },
-}
-
-function StepConditionalBranchNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
-}
-
-function StepConditionalBranchConfiguration({
+export function StepConditionalBranchConfiguration({
     node,
 }: {
     node: Node<Extract<HogFlowAction, { type: 'conditional_branch' }>>
@@ -61,7 +20,7 @@ function StepConditionalBranchConfiguration({
     const action = node.data
     const { conditions } = action.config
 
-    const { edgesByActionId } = useValues(hogFlowEditorLogic)
+    const { edgesByActionId, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
     const { setCampaignAction, setCampaignActionEdges } = useActions(hogFlowEditorLogic)
 
     const nodeEdges = edgesByActionId[action.id]
@@ -127,17 +86,26 @@ function StepConditionalBranchConfiguration({
 
     return (
         <>
+            <StepSchemaErrors />
             {conditions.map((condition, index) => (
                 <div key={index} className="flex flex-col gap-2 p-2 rounded border">
                     <div className="flex justify-between items-center">
                         <LemonLabel>Condition {index + 1}</LemonLabel>
-                        <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCondition(index)} />
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconX />}
+                            onClick={() => removeCondition(index)}
+                            disabledReason={selectedNodeCanBeDeleted ? undefined : 'Clean up branching steps first'}
+                        />
                     </div>
 
-                    <HogFlowFilters
+                    <HogFlowPropertyFilters
+                        actionId={`${action.id}.${index}`}
                         filters={condition.filters ?? {}}
                         setFilters={(filters) =>
-                            setConditions(conditions.map((condition, i) => (i === index ? { filters } : condition)))
+                            setConditions(
+                                conditions.map((condition, i) => (i === index ? { filters: filters ?? {} } : condition))
+                            )
                         }
                         typeKey={`campaign-trigger-${index}`}
                     />

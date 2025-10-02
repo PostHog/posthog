@@ -29,10 +29,11 @@ function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLi
         loginParams.idp = 'posthog_custom'
     }
     const loginUrl = combineUrl(`/login/${provider}/`, loginParams).url
+    const iframed = window !== window.parent
 
     return (
         // eslint-disable-next-line react/forbid-elements
-        <a className="block" href={loginUrl}>
+        <a className="block" href={loginUrl} {...(iframed ? { target: '_blank', rel: 'noopener' } : {})}>
             {children}
         </a>
     )

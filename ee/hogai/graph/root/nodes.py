@@ -31,7 +31,12 @@ from posthog.schema import (
     HumanMessage,
     MaxInsightContext,
     MaxUIContext,
+    ReasoningMessage,
     RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsTopCustomersQuery,
     TrendsQuery,
 )
 
@@ -41,12 +46,16 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.models.organization import OrganizationMembership
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
+from ee.hogai.utils.helpers import find_last_ui_context
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName, BaseState, BaseStateWithMessages, InsightQuery
+from ee.hogai.utils.types.composed import MaxNodeName
 
-from ..base import AssistantNode
 from .prompts import (
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
@@ -70,6 +79,10 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
     "FunnelsQuery": FunnelsQuery,
     "RetentionQuery": RetentionQuery,
     "HogQLQuery": HogQLQuery,
+    "RevenueAnalyticsGrossRevenueQuery": RevenueAnalyticsGrossRevenueQuery,
+    "RevenueAnalyticsMetricsQuery": RevenueAnalyticsMetricsQuery,
+    "RevenueAnalyticsMRRQuery": RevenueAnalyticsMRRQuery,
+    "RevenueAnalyticsTopCustomersQuery": RevenueAnalyticsTopCustomersQuery,
 }
 
 SLASH_COMMAND_INIT = "/init"
@@ -84,6 +97,7 @@ RouteName = Literal[
     "insights_search",
     "billing",
     "session_summarization",
+    "create_dashboard",
 ]
 
 
@@ -299,6 +313,20 @@ class RootNode(RootNodeUIContextMixin):
     """
     CONVERSATION_WINDOW_SIZE = 64000
 
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.ROOT
+
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
+        ui_context = find_last_ui_context(input.messages)
+        if ui_context and (ui_context.dashboards or ui_context.insights):
+            return ReasoningMessage(content="Calculating context")
+        return None
+
     def _has_session_summarization_feature_flag(self) -> bool:
         """
         Check if the user has the session summarization feature flag enabled.
@@ -467,6 +495,7 @@ class RootNode(RootNodeUIContextMixin):
 
         from ee.hogai.tool import (
             create_and_query_insight,
+            create_dashboard,
             get_contextual_tool_class,
             search_documentation,
             search_insights,
@@ -480,6 +509,8 @@ class RootNode(RootNodeUIContextMixin):
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
             available_tools.append(session_summarization)
+        # Add dashboard creation tool (always available)
+        available_tools.append(create_dashboard)
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
@@ -629,6 +660,42 @@ class RootNode(RootNodeUIContextMixin):
 
 
 class RootNodeTools(AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.ROOT_TOOLS
+
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
+        if not input.messages:
+            return None
+        assert isinstance(input.messages[-1], AssistantMessage)
+        tool_calls = input.messages[-1].tool_calls or []
+        assert len(tool_calls) <= 1
+        if len(tool_calls) == 0:
+            return None
+        tool_call = tool_calls[0]
+        content = None
+        if tool_call.name == "create_and_query_insight":
+            content = "Coming up with an insight"
+        elif tool_call.name == "search_documentation":
+            content = "Checking PostHog docs"
+        elif tool_call.name == "retrieve_billing_information":
+            content = "Checking your billing data"
+        else:
+            # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
+            # when the tool has been removed from the backend since the user's frontend was loaded
+            ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
+            content = (
+                ToolClass(team=self._team, user=self._user).thinking_message
+                if ToolClass
+                else f"Running tool {tool_call.name}"
+            )
+
+        return ReasoningMessage(content=content) if content else None
+
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
@@ -670,6 +737,17 @@ class RootNodeTools(AssistantNode):
                 session_summarization_query=tool_call.args["session_summarization_query"],
                 # Safety net in case the argument is missing to avoid raising exceptions internally
                 should_use_current_filters=tool_call.args.get("should_use_current_filters", False),
+                summary_title=tool_call.args.get("summary_title"),
+                root_tool_calls_count=tool_call_count + 1,
+            )
+        elif tool_call.name == "create_dashboard":
+            raw_queries = tool_call.args["search_insights_queries"]
+            search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
+
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                dashboard_name=tool_call.args.get("dashboard_name"),
+                search_insights_queries=search_insights_queries,
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
@@ -743,6 +821,8 @@ class RootNodeTools(AssistantNode):
                 tool_call_name = tool_call.name
                 if tool_call_name == "retrieve_billing_information":
                     return "billing"
+                if tool_call_name == "create_dashboard":
+                    return "create_dashboard"
             if state.root_tool_insight_plan:
                 return "insights"
             elif state.search_insights_query:

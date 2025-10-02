@@ -6,6 +6,7 @@ use kafka_deduplicator::kafka::{
     stateful_consumer::StatefulKafkaConsumer,
     types::Partition,
 };
+use kafka_deduplicator::processor_pool::ProcessorPool;
 use rdkafka::{
     config::ClientConfig,
     consumer::Consumer,
@@ -105,14 +106,15 @@ impl RebalanceHandler for TestRebalanceHandler {
     }
 }
 
-/// Helper to create a StatefulKafkaConsumer using our abstractions
-fn create_stateful_kafka_consumer(
+/// Helper to create a StatefulKafkaConsumer and ProcessorPool using our abstractions
+fn create_stateful_kafka_consumer_with_pool(
     topic: &str,
     group_id: &str,
-    processor: Arc<TestProcessor>,
+    processor: TestProcessor,
     rebalance_handler: Arc<dyn RebalanceHandler>,
 ) -> Result<(
-    StatefulKafkaConsumer<TestProcessor>,
+    StatefulKafkaConsumer,
+    Vec<tokio::task::JoinHandle<()>>,
     tokio::sync::oneshot::Sender<()>,
 )> {
     let mut config = ClientConfig::new();
@@ -127,10 +129,14 @@ fn create_stateful_kafka_consumer(
     // Create shutdown channel - return sender so test can control shutdown
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
+    // Create processor pool with one worker for testing
+    let (message_sender, processor_pool) = ProcessorPool::new(processor, 1);
+    let pool_handles = processor_pool.start();
+
     let kafka_consumer = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler,
-        processor,
+        message_sender,
         10,
         Duration::from_secs(1),
         shutdown_rx,
@@ -138,7 +144,7 @@ fn create_stateful_kafka_consumer(
 
     kafka_consumer.inner_consumer().subscribe(&[topic])?;
 
-    Ok((kafka_consumer, shutdown_tx))
+    Ok((kafka_consumer, pool_handles.0, shutdown_tx))
 }
 
 /// Helper to send test messages
@@ -182,10 +188,10 @@ async fn test_generic_kafka_consumer_message_processing() -> Result<()> {
     send_test_messages(&test_topic, test_messages.clone()).await?;
 
     // Create consumer using our abstractions
-    let processor = Arc::new(TestProcessor::new());
+    let processor = TestProcessor::new();
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
-    let (kafka_consumer, shutdown_tx) = create_stateful_kafka_consumer(
+    let (kafka_consumer, _pool_handles, shutdown_tx) = create_stateful_kafka_consumer_with_pool(
         &test_topic,
         &group_id,
         processor.clone(),
@@ -244,12 +250,12 @@ async fn test_generic_kafka_consumer_error_handling() -> Result<()> {
     send_test_messages(&test_topic, test_messages.clone()).await?;
 
     // Create consumer with failing processor
-    let processor = Arc::new(TestProcessor::new());
+    let processor = TestProcessor::new();
     processor.set_should_fail(2); // Fail first 2 messages
 
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
-    let (kafka_consumer, shutdown_tx) = create_stateful_kafka_consumer(
+    let (kafka_consumer, _pool_handles, shutdown_tx) = create_stateful_kafka_consumer_with_pool(
         &test_topic,
         &group_id,
         processor.clone(),
@@ -295,11 +301,15 @@ async fn test_generic_kafka_consumer_tracker_stats() -> Result<()> {
     let group_id = format!("test-group-stats-{}", uuid::Uuid::new_v4());
 
     // Create consumer using our abstractions
-    let processor = Arc::new(TestProcessor::new());
+    let processor = TestProcessor::new();
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
-    let (kafka_consumer, _shutdown_tx) =
-        create_stateful_kafka_consumer(&test_topic, &group_id, processor, rebalance_handler)?;
+    let (kafka_consumer, _pool_handles, _shutdown_tx) = create_stateful_kafka_consumer_with_pool(
+        &test_topic,
+        &group_id,
+        processor,
+        rebalance_handler,
+    )?;
 
     // Check initial stats
     let initial_stats = kafka_consumer.get_tracker_stats().await;
@@ -327,7 +337,7 @@ async fn test_partition_aware_message_filtering() -> Result<()> {
     send_test_messages(&test_topic, test_messages.clone()).await?;
 
     // Create processor that tracks which messages were processed
-    let processor = Arc::new(TestProcessor::new());
+    let processor = TestProcessor::new();
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
     let config = rdkafka::ClientConfig::new()
@@ -342,10 +352,14 @@ async fn test_partition_aware_message_filtering() -> Result<()> {
     // Create shutdown channel
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
+    // Create processor pool with one worker for testing
+    let (message_sender, processor_pool) = ProcessorPool::new(processor.clone(), 1);
+    let _pool_handles = processor_pool.start();
+
     let kafka_consumer = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler.clone(),
-        processor.clone(),
+        message_sender,
         10,
         Duration::from_secs(5),
         shutdown_rx,
@@ -418,9 +432,9 @@ async fn test_graceful_shutdown_with_in_flight_messages() -> Result<()> {
         }
     }
 
-    let processor = Arc::new(SlowProcessor {
+    let processor = SlowProcessor {
         processed_count: Arc::new(AtomicUsize::new(0)),
-    });
+    };
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
     let config = rdkafka::ClientConfig::new()
@@ -435,10 +449,14 @@ async fn test_graceful_shutdown_with_in_flight_messages() -> Result<()> {
     // Create shutdown channel for graceful shutdown
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
+    // Create processor pool with one worker for testing
+    let (message_sender, processor_pool) = ProcessorPool::new(processor.clone(), 1);
+    let _pool_handles = processor_pool.start();
+
     let kafka_consumer = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler.clone(),
-        processor.clone(),
+        message_sender,
         10,
         Duration::from_secs(1),
         shutdown_rx,
@@ -492,7 +510,7 @@ async fn test_factory_method_integration() -> Result<()> {
     let test_topic = format!("{}-factory-{}", TEST_TOPIC, uuid::Uuid::new_v4());
     let group_id = format!("test-group-factory-{}", uuid::Uuid::new_v4());
 
-    let processor = Arc::new(TestProcessor::new());
+    let processor = TestProcessor::new();
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
     let config = rdkafka::ClientConfig::new()
@@ -504,20 +522,24 @@ async fn test_factory_method_integration() -> Result<()> {
 
     // Test both factory methods
     let (_, shutdown_rx1) = tokio::sync::oneshot::channel();
+    let (message_sender1, processor_pool1) = ProcessorPool::new(processor.clone(), 1);
+    let _pool_handles1 = processor_pool1.start();
     let consumer1 = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler.clone(),
-        processor.clone(),
+        message_sender1,
         5,
         Duration::from_secs(5),
         shutdown_rx1,
     )?;
 
     let (_, shutdown_rx2) = tokio::sync::oneshot::channel();
+    let (message_sender2, processor_pool2) = ProcessorPool::new(processor.clone(), 1);
+    let _pool_handles2 = processor_pool2.start();
     let consumer2 = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler.clone(),
-        processor.clone(),
+        message_sender2,
         10,
         Duration::from_secs(2),
         shutdown_rx2,
@@ -571,10 +593,10 @@ async fn test_rebalance_barrier_with_fencing() -> Result<()> {
         }
     }
 
-    let processor = Arc::new(RebalanceTestProcessor {
+    let processor = RebalanceTestProcessor {
         processed_count: Arc::new(AtomicUsize::new(0)),
         processing_delay: Arc::new(AtomicUsize::new(100)), // 100ms delay
-    });
+    };
 
     // Track rebalance events
     #[derive(Default)]
@@ -622,10 +644,14 @@ async fn test_rebalance_barrier_with_fencing() -> Result<()> {
     // Create shutdown channel
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
+    // Create processor pool with one worker for testing
+    let (message_sender, processor_pool) = ProcessorPool::new(processor.clone(), 1);
+    let _pool_handles = processor_pool.start();
+
     let kafka_consumer = StatefulKafkaConsumer::from_config(
         &config,
         rebalance_handler.clone(),
-        processor.clone(),
+        message_sender,
         5, // limit in-flight messages
         Duration::from_secs(5),
         shutdown_rx,

@@ -16,5 +16,8 @@
         "@dnd-kit/utilities": "*",
         "react-dom": "*",
         "@types/react-dom": "*"
+    },
+    "devDependencies": {
+        "kea-test-utils": "*"
     }
 }

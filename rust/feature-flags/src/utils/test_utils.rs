@@ -15,7 +15,7 @@ use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
-use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres, Row};
+use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -155,23 +155,86 @@ pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client +
     )
 }
 
+/// Setup dual database clients for tests that need to work with both persons and non-persons databases.
+/// If persons DB routing is not enabled, returns the same client twice.
+pub async fn setup_dual_pg_readers(
+    config: Option<&Config>,
+) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
+    let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+
+    if config.is_persons_db_routing_enabled() {
+        // Separate persons and non-persons databases
+        let persons_reader = Arc::new(
+            get_pool(
+                &config.get_persons_read_database_url(),
+                config.max_pg_connections,
+            )
+            .await
+            .expect("Failed to create Postgres persons reader client"),
+        );
+        let non_persons_reader = Arc::new(
+            get_pool(&config.read_database_url, config.max_pg_connections)
+                .await
+                .expect("Failed to create Postgres client"),
+        );
+        (persons_reader, non_persons_reader)
+    } else {
+        // Same database for both
+        let client = Arc::new(
+            get_pool(&config.read_database_url, config.max_pg_connections)
+                .await
+                .expect("Failed to create Postgres client"),
+        );
+        (client.clone(), client)
+    }
+}
+
+/// Setup dual database writers for tests that need to write to both persons and non-persons databases.
+/// If persons DB routing is not enabled, returns the same client twice.
+pub async fn setup_dual_pg_writers(
+    config: Option<&Config>,
+) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
+    let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+
+    if config.is_persons_db_routing_enabled() {
+        // Separate persons and non-persons databases
+        let persons_writer = Arc::new(
+            get_pool(
+                &config.get_persons_write_database_url(),
+                config.max_pg_connections,
+            )
+            .await
+            .expect("Failed to create Postgres persons writer client"),
+        );
+        let non_persons_writer = Arc::new(
+            get_pool(&config.write_database_url, config.max_pg_connections)
+                .await
+                .expect("Failed to create Postgres client"),
+        );
+        (persons_writer, non_persons_writer)
+    } else {
+        // Same database for both
+        let client = Arc::new(
+            get_pool(&config.write_database_url, config.max_pg_connections)
+                .await
+                .expect("Failed to create Postgres client"),
+        );
+        (client.clone(), client)
+    }
+}
+
 pub struct MockPgClient;
 
 #[async_trait]
 impl Client for MockPgClient {
-    async fn run_query(
-        &self,
-        _query: String,
-        _parameters: Vec<String>,
-        _timeout_ms: Option<u64>,
-    ) -> Result<Vec<PgRow>, CustomDatabaseError> {
+    async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
         // Simulate a database connection failure
         Err(CustomDatabaseError::Other(SqlxError::PoolTimedOut))
     }
 
-    async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
-        // Simulate a database connection failure
-        Err(CustomDatabaseError::Other(SqlxError::PoolTimedOut))
+    fn get_pool_stats(&self) -> Option<common_database::PoolStats> {
+        // Return None for mock client
+        None
     }
 }
 
@@ -180,21 +243,22 @@ pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {
 }
 
 pub async fn insert_new_team_in_pg(
-    client: Arc<dyn Client + Send + Sync>,
+    persons_client: Arc<dyn Client + Send + Sync>,
+    non_persons_client: Arc<dyn Client + Send + Sync>,
     team_id: Option<i32>,
 ) -> Result<Team, Error> {
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
-    // Create new organization from scratch
-    client.run_query(
-        r#"INSERT INTO posthog_organization
+    // Create new organization from scratch (in non-persons database)
+    let mut conn = non_persons_client.get_connection().await?;
+    sqlx::query(r#"INSERT INTO posthog_organization
         (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources)
         VALUES
         ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true)
-        ON CONFLICT DO NOTHING"#.to_string(),
-        vec![ORG_ID.to_string()],
-        Some(2000),
-    ).await?;
+        ON CONFLICT DO NOTHING"#)
+        .bind(ORG_ID)
+        .execute(&mut *conn)
+        .await?;
 
     // Create team model
     let id = match team_id {
@@ -213,9 +277,9 @@ pub async fn insert_new_team_in_pg(
     };
     let uuid = Uuid::now_v7();
 
-    let mut conn = client.get_connection().await?;
+    let mut non_persons_conn = non_persons_client.get_connection().await?;
 
-    // Insert a project for the team
+    // Insert a project for the team (in non-persons database)
     let res = sqlx::query(
         r#"INSERT INTO posthog_project
         (id, organization_id, name, created_at) VALUES
@@ -224,19 +288,20 @@ pub async fn insert_new_team_in_pg(
     .bind(team.project_id)
     .bind(ORG_ID)
     .bind(&team.name)
-    .execute(&mut *conn)
+    .execute(&mut *non_persons_conn)
     .await?;
     assert_eq!(res.rows_affected(), 1);
 
-    // Insert a team with the correct team-project relationship
+    // Insert a team with the correct team-project relationship (in non-persons database)
     let res = sqlx::query(
         r#"INSERT INTO posthog_team
         (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES
         ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD', '30d', false)"#
-    ).bind(team.id).bind(uuid).bind(ORG_ID).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode).execute(&mut *conn).await?;
+    ).bind(team.id).bind(uuid).bind(ORG_ID).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode).execute(&mut *non_persons_conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
-    // Insert group type mappings
+    // Insert group type mappings (in persons database)
+    let mut persons_conn = persons_client.get_connection().await?;
     let group_types = vec![
         ("project", 0),
         ("organization", 1),
@@ -256,7 +321,7 @@ pub async fn insert_new_team_in_pg(
         .bind(group_type_index)
         .bind(team.id)
         .bind(team.project_id)
-        .execute(&mut *conn)
+        .execute(&mut *persons_conn)
         .await?;
         assert_eq!(res.rows_affected(), 1);
     }
@@ -299,6 +364,7 @@ pub async fn insert_flag_for_team_in_pg(
             }),
             version: None,
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
     };
 
@@ -312,6 +378,49 @@ pub async fn insert_flag_for_team_in_pg(
     assert_eq!(res.rows_affected(), 1);
 
     Ok(payload_flag)
+}
+
+pub async fn insert_evaluation_tags_for_flag_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    flag_id: i32,
+    team_id: i32,
+    tag_names: Vec<&str>,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+
+    for tag_name in tag_names {
+        // First, insert the tag if it doesn't exist
+        let tag_uuid = Uuid::now_v7();
+        let tag_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO posthog_tag (id, name, team_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (name, team_id) DO UPDATE 
+            SET name = EXCLUDED.name
+            RETURNING id
+            "#,
+        )
+        .bind(tag_uuid)
+        .bind(tag_name)
+        .bind(team_id)
+        .fetch_one(&mut *conn)
+        .await?;
+
+        // Then, create the association
+        sqlx::query(
+            r#"
+            INSERT INTO posthog_featureflagevaluationtag (feature_flag_id, tag_id, created_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (feature_flag_id, tag_id) DO NOTHING
+            "#,
+        )
+        .bind(flag_id)
+        .bind(tag_id)
+        .execute(&mut *conn)
+        .await?;
+    }
+
+    Ok(())
 }
 
 pub async fn insert_person_for_team_in_pg(
@@ -543,6 +652,7 @@ pub fn create_test_flag(
         ensure_experience_continuity: Some(ensure_experience_continuity.unwrap_or(false)),
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
     }
 }
 
@@ -643,4 +753,178 @@ pub fn create_test_flag_that_depends_on_flag(
             negation: None,
         },
     )
+}
+
+/// Test context that encapsulates all database connections needed for testing
+/// This struct manages the proper routing of database operations to the correct
+/// database (persons vs non-persons) based on the configuration
+pub struct TestContext {
+    pub persons_reader: Arc<dyn Client + Send + Sync>,
+    pub persons_writer: Arc<dyn Client + Send + Sync>,
+    pub non_persons_reader: Arc<dyn Client + Send + Sync>,
+    pub non_persons_writer: Arc<dyn Client + Send + Sync>,
+}
+
+impl TestContext {
+    pub async fn new(config: Option<&Config>) -> Self {
+        let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+
+        let (persons_reader, non_persons_reader) = setup_dual_pg_readers(Some(config)).await;
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(Some(config)).await;
+
+        Self {
+            persons_reader,
+            persons_writer,
+            non_persons_reader,
+            non_persons_writer,
+        }
+    }
+
+    pub fn create_postgres_router(&self) -> crate::database::PostgresRouter {
+        crate::database::PostgresRouter::new(
+            self.persons_reader.clone(),
+            self.persons_writer.clone(),
+            self.non_persons_reader.clone(),
+            self.non_persons_writer.clone(),
+        )
+    }
+
+    pub async fn insert_new_team(&self, team_id: Option<i32>) -> Result<Team, Error> {
+        insert_new_team_in_pg(
+            self.persons_writer.clone(),
+            self.non_persons_writer.clone(),
+            team_id,
+        )
+        .await
+    }
+
+    pub async fn insert_flag(
+        &self,
+        team_id: i32,
+        flag: Option<FeatureFlagRow>,
+    ) -> Result<FeatureFlagRow, Error> {
+        insert_flag_for_team_in_pg(self.non_persons_writer.clone(), team_id, flag).await
+    }
+
+    pub async fn insert_person(
+        &self,
+        team_id: i32,
+        distinct_id: String,
+        properties: Option<Value>,
+    ) -> Result<PersonId, Error> {
+        insert_person_for_team_in_pg(
+            self.persons_writer.clone(),
+            team_id,
+            distinct_id,
+            properties,
+        )
+        .await
+    }
+
+    pub async fn insert_cohort(
+        &self,
+        team_id: i32,
+        name: Option<String>,
+        filters: serde_json::Value,
+        is_static: bool,
+    ) -> Result<Cohort, Error> {
+        insert_cohort_for_team_in_pg(
+            self.non_persons_writer.clone(),
+            team_id,
+            name,
+            filters,
+            is_static,
+        )
+        .await
+    }
+
+    pub async fn insert_evaluation_tags_for_flag(
+        &self,
+        flag_id: i32,
+        team_id: i32,
+        tag_names: Vec<&str>,
+    ) -> Result<(), Error> {
+        insert_evaluation_tags_for_flag_in_pg(
+            self.non_persons_writer.clone(),
+            flag_id,
+            team_id,
+            tag_names,
+        )
+        .await
+    }
+
+    pub async fn add_person_to_cohort(
+        &self,
+        cohort_id: CohortId,
+        person_id: PersonId,
+    ) -> Result<(), Error> {
+        add_person_to_cohort(self.persons_writer.clone(), person_id, cohort_id).await
+    }
+
+    pub async fn get_feature_flag_hash_key_overrides(
+        &self,
+        team_id: i32,
+        distinct_ids: Vec<String>,
+    ) -> Result<std::collections::HashMap<String, String>, super::super::api::errors::FlagError>
+    {
+        super::super::flags::flag_matching_utils::get_feature_flag_hash_key_overrides(
+            self.persons_reader.clone(),
+            team_id,
+            distinct_ids,
+        )
+        .await
+    }
+
+    pub async fn get_persons_connection(
+        &self,
+    ) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+        self.persons_writer.get_connection().await
+    }
+
+    pub async fn get_non_persons_connection(
+        &self,
+    ) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+        self.non_persons_writer.get_connection().await
+    }
+
+    pub async fn create_group(
+        &self,
+        team_id: i32,
+        group_type: &str,
+        group_key: &str,
+        group_properties: Value,
+    ) -> Result<Group, Error> {
+        create_group_in_pg(
+            self.persons_writer.clone(),
+            team_id,
+            group_type,
+            group_key,
+            group_properties,
+        )
+        .await
+    }
+
+    pub async fn insert_suppression_rule(
+        &self,
+        team_id: i32,
+        filters: serde_json::Value,
+    ) -> Result<uuid::Uuid, Error> {
+        insert_suppression_rule_in_pg(self.non_persons_writer.clone(), team_id, filters).await
+    }
+
+    pub async fn update_team_autocapture_exceptions(
+        &self,
+        team_id: i32,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        update_team_autocapture_exceptions(self.non_persons_writer.clone(), team_id, enabled).await
+    }
+
+    pub async fn get_person_id_by_distinct_id(
+        &self,
+        team_id: i32,
+        distinct_id: &str,
+    ) -> Result<PersonId, Error> {
+        get_person_id_by_distinct_id(self.persons_reader.clone(), team_id, distinct_id).await
+    }
 }

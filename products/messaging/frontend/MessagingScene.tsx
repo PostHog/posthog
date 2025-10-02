@@ -1,22 +1,28 @@
 import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconLetter, IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
+import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
 import { CampaignsTable } from './Campaigns/CampaignsTable'
 import { MessageChannels } from './Channels/MessageChannels'
 import type { messagingSceneLogicType } from './MessagingSceneType'
 import { OptOutScene } from './OptOuts/OptOutScene'
+import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 
 const MESSAGING_SCENE_TABS = ['campaigns', 'library', 'channels', 'opt-outs'] as const
@@ -47,12 +53,9 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
             (tab): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Messaging,
-                        name: 'Messaging',
-                    },
-                    {
                         key: [Scene.Messaging, tab],
                         name: capitalizeFirstLetter(tab.replaceAll('_', ' ')),
+                        iconType: 'messaging',
                     },
                 ]
             },
@@ -86,8 +89,11 @@ export const scene: SceneExport<MessagingSceneProps> = {
 export function MessagingScene(): JSX.Element {
     const { currentTab } = useValues(messagingSceneLogic)
     const { setCurrentTab } = useActions(messagingSceneLogic)
+    const { openSetupModal } = useActions(integrationsLogic)
+    const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
 
     const hasMessagingFeatureFlag = useFeatureFlag('MESSAGING')
+    const hasMessagingSesFeatureFlag = useFeatureFlag('MESSAGING_SES')
 
     if (!hasMessagingFeatureFlag) {
         return (
@@ -100,53 +106,62 @@ export function MessagingScene(): JSX.Element {
         )
     }
 
+    const newChannelMenuItems: LemonMenuItems = [
+        hasMessagingSesFeatureFlag
+            ? {
+                  label: (
+                      <div className="flex gap-1 items-center">
+                          <IconLetter /> Email
+                      </div>
+                  ),
+                  onClick: () => openSetupModal(undefined, 'email'),
+              }
+            : null,
+        {
+            label: (
+                <div className="flex gap-1 items-center">
+                    <IconSlack /> Slack
+                </div>
+            ),
+            disableClientSideRouting: true,
+            to: api.integrations.authorizeUrl({
+                kind: 'slack',
+                next: urls.messaging('channels'),
+            }),
+        },
+        {
+            label: (
+                <div className="flex gap-1 items-center">
+                    <IconTwilio /> Twilio
+                </div>
+            ),
+            onClick: () => openSetupModal(undefined, 'twilio'),
+        },
+    ].filter(Boolean)
+
     const tabs: LemonTab<MessagingSceneTab>[] = [
         {
             label: 'Campaigns',
             key: 'campaigns',
             content: (
                 <>
-                    <PageHeader
-                        caption="Create automated messaging campaigns triggered by events"
-                        buttons={
-                            <LemonButton
-                                data-attr="new-campaign"
-                                to={urls.messagingCampaignNew()}
-                                type="primary"
-                                icon={<IconPlusSmall />}
-                            >
-                                New campaign
-                            </LemonButton>
-                        }
-                    />
+                    <p>Create automated messaging campaigns triggered by events</p>
                     <CampaignsTable />
                 </>
             ),
         },
-        {
-            label: 'Library',
-            key: 'library',
-            content: (
-                <>
-                    <PageHeader
-                        caption="Create and manage messages"
-                        buttons={
-                            <LemonButton
-                                data-attr="new-message-button"
-                                icon={<IconPlusSmall />}
-                                size="small"
-                                type="primary"
-                                to={urls.messagingLibraryTemplateNew()}
-                            >
-                                New template
-                            </LemonButton>
-                        }
-                    />
-
-                    <MessageTemplatesTable />
-                </>
-            ),
-        },
+        hasMessagingSesFeatureFlag
+            ? {
+                  label: 'Library',
+                  key: 'library',
+                  content: (
+                      <>
+                          <p>Create and manage messages</p>
+                          <MessageTemplatesTable />
+                      </>
+                  ),
+              }
+            : null,
         {
             label: 'Channels',
             key: 'channels',
@@ -157,7 +172,64 @@ export function MessagingScene(): JSX.Element {
             key: 'opt-outs',
             content: <OptOutScene />,
         },
-    ]
+    ].filter(Boolean) as LemonTab<MessagingSceneTab>[]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return (
+        <SceneContent className="messaging">
+            <SceneTitleSection
+                name="Messaging"
+                resourceType={{ type: 'messaging' }}
+                description="Create automated workflows triggered by PostHog events to onboard, retain, and re-engage your users."
+                actions={
+                    <>
+                        {currentTab === 'campaigns' && (
+                            <LemonButton
+                                data-attr="new-campaign"
+                                to={urls.messagingCampaignNew()}
+                                type="primary"
+                                size="small"
+                            >
+                                New campaign
+                            </LemonButton>
+                        )}
+                        {currentTab === 'library' && (
+                            <LemonButton
+                                data-attr="new-message-button"
+                                to={urls.messagingLibraryTemplateNew()}
+                                type="primary"
+                                size="small"
+                            >
+                                New template
+                            </LemonButton>
+                        )}
+                        {currentTab === 'channels' && (
+                            <LemonMenu items={newChannelMenuItems} matchWidth>
+                                <LemonButton
+                                    data-attr="new-channel-button"
+                                    icon={<IconPlusSmall />}
+                                    size="small"
+                                    type="primary"
+                                >
+                                    New channel
+                                </LemonButton>
+                            </LemonMenu>
+                        )}
+                        {currentTab === 'opt-outs' && (
+                            <LemonButton
+                                data-attr="new-optout-category"
+                                icon={<IconPlusSmall />}
+                                size="small"
+                                type="primary"
+                                onClick={() => openNewCategoryModal()}
+                            >
+                                New category
+                            </LemonButton>
+                        )}
+                    </>
+                }
+            />
+            <SceneDivider />
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+        </SceneContent>
+    )
 }

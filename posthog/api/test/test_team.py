@@ -16,7 +16,7 @@ from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog, EarlyAccessFeature
+from posthog.models import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
@@ -30,6 +30,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
+
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -357,6 +359,27 @@ def team_api_test_factory():
             expected_activity = [
                 {
                     "_state": ANY,
+                    "id": ANY,
+                    "team_id": team.pk,
+                    "organization_id": ANY,
+                    "user_id": None,
+                    "was_impersonated": False,
+                    "is_system": True,
+                    "activity": "created",
+                    "item_id": ANY,
+                    "scope": "Dashboard",
+                    "detail": {
+                        "name": "My App Dashboard",
+                        "type": "dashboard",
+                        "changes": [],
+                        "context": None,
+                        "short_id": None,
+                        "trigger": None,
+                    },
+                    "created_at": ANY,
+                },
+                {
+                    "_state": ANY,
                     "activity": "deleted",
                     "created_at": ANY,
                     "detail": {
@@ -379,7 +402,7 @@ def team_api_test_factory():
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
                 expected_activity.insert(
-                    0,
+                    1,
                     {
                         "_state": ANY,
                         "activity": "deleted",
@@ -509,9 +532,6 @@ def team_api_test_factory():
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
-            ]
             self.organization.save()
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
@@ -1471,16 +1491,25 @@ def team_api_test_factory():
         def test_can_complete_product_onboarding_as_member(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
-            from ee.models import ExplicitTeamMembership
+            from ee.models.rbac.access_control import AccessControl
 
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
-            ExplicitTeamMembership.objects.create(
+
+            # Set up new access control system - restrict project to no default access
+            AccessControl.objects.create(
                 team=self.team,
-                parent_membership=self.organization_membership,
-                level=ExplicitTeamMembership.Level.MEMBER,
+                access_level="none",
+                resource="project",
+                resource_id=str(self.team.id),
+            )
+            # Grant specific member access to this user
+            AccessControl.objects.create(
+                team=self.team,
+                access_level="member",
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=self.organization_membership,
             )
 
             if self.client_class is EnvironmentToProjectRewriteClient:

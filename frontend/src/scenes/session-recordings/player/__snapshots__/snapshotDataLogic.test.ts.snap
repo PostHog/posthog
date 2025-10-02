@@ -1,0 +1,191 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`snapshotDataLogic snapshot parsing handles data with unparseable lines 1`] = `
+[
+  {
+    "data": {
+      "height": 914,
+      "href": "http://localhost:8000/project/1",
+      "width": 719,
+    },
+    "timestamp": 1725560859629,
+    "type": 4,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+  {
+    "data": {
+      "id": 320,
+      "source": 2,
+      "type": 0,
+      "x": 21.41059112548828,
+      "y": 28.776042938232422,
+    },
+    "timestamp": 1725560861395,
+    "type": 3,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+  {
+    "data": {
+      "id": 320,
+      "pointerType": 0,
+      "source": 2,
+      "type": 2,
+      "x": 21,
+      "y": 28,
+    },
+    "timestamp": 1725560861398,
+    "type": 3,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+  {
+    "data": {
+      "adds": [],
+      "attributes": [
+        {
+          "attributes": {
+            "class": "Navbar3000",
+          },
+          "id": 59,
+        },
+        {
+          "attributes": {
+            "class": "Navbar3000__overlay",
+          },
+          "id": 313,
+        },
+      ],
+      "removes": [],
+      "source": 0,
+      "texts": [],
+    },
+    "timestamp": 1725560861402,
+    "type": 3,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+]
+`;
+
+exports[`snapshotDataLogic snapshot parsing handles normal web data 1`] = `
+[
+  {
+    "data": {
+      "height": 914,
+      "href": "http://localhost:8000/project/1",
+      "width": 719,
+    },
+    "timestamp": 1725560859629,
+    "type": 4,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+  {
+    "data": {
+      "id": 320,
+      "source": 2,
+      "type": 0,
+      "x": 21.41059112548828,
+      "y": 28.776042938232422,
+    },
+    "timestamp": 1725560861395,
+    "type": 3,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+  {
+    "data": {
+      "id": 320,
+      "pointerType": 0,
+      "source": 2,
+      "type": 2,
+      "x": 21,
+      "y": 28,
+    },
+    "timestamp": 1725560861398,
+    "type": 3,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+  {
+    "data": {
+      "adds": [],
+      "attributes": [
+        {
+          "attributes": {
+            "class": "Navbar3000",
+          },
+          "id": 59,
+        },
+        {
+          "attributes": {
+            "class": "Navbar3000__overlay",
+          },
+          "id": 313,
+        },
+      ],
+      "removes": [],
+      "source": 0,
+      "texts": [],
+    },
+    "timestamp": 1725560861402,
+    "type": 3,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+  {
+    "data": {
+      "height": 914,
+      "href": "http://localhost:8000/project/1",
+      "width": 719,
+    },
+    "timestamp": 1725560859629,
+    "type": 4,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+  {
+    "data": {
+      "id": 320,
+      "source": 2,
+      "type": 0,
+      "x": 21.41059112548828,
+      "y": 28.776042938232422,
+    },
+    "timestamp": 1725560861395,
+    "type": 3,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+  {
+    "data": {
+      "id": 320,
+      "pointerType": 0,
+      "source": 2,
+      "type": 2,
+      "x": 21,
+      "y": 28,
+    },
+    "timestamp": 1725560861398,
+    "type": 3,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+  {
+    "data": {
+      "adds": [],
+      "attributes": [
+        {
+          "attributes": {
+            "class": "Navbar3000",
+          },
+          "id": 59,
+        },
+        {
+          "attributes": {
+            "class": "Navbar3000__overlay",
+          },
+          "id": 313,
+        },
+      ],
+      "removes": [],
+      "source": 0,
+      "texts": [],
+    },
+    "timestamp": 1725560861402,
+    "type": 3,
+    "windowId": "0191c366-dd75-708c-bb41-c0d5bd2bb0dc",
+  },
+]
+`;

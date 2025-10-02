@@ -396,6 +396,53 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             },
         )
 
+    def test_disabling_invoiceless_charges(self):
+        self.source.revenue_analytics_config.include_invoiceless_charges = False
+        self.source.revenue_analytics_config.save()
+
+        # Use huge date range to collect all data
+        results = self._run_revenue_analytics_gross_revenue_query(
+            date_range=DateRange(date_from="2024-11-01", date_to="2026-05-01")
+        ).results
+
+        self.assertEqual(len(results), 1)
+
+        self.assertEqual(
+            results[0],
+            {
+                "label": "stripe.posthog_test",
+                "days": ALL_MONTHS_DAYS,
+                "labels": ALL_MONTHS_LABELS,
+                "data": [
+                    0,
+                    0,
+                    Decimal("647.2435553432"),
+                    Decimal("2507.2183953432"),
+                    Decimal("2110.2725453432"),
+                    # This value is different from the one in the tests above because it doesn't include invoiceless charges
+                    Decimal("2415.3402353432"),
+                    Decimal("1631.9303277469"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                ],
+                "action": {
+                    "days": ALL_MONTHS_FAKEDATETIMES,
+                    "id": "stripe.posthog_test",
+                    "name": "stripe.posthog_test",
+                },
+            },
+        )
+
     def test_with_empty_date_range(self):
         results = self._run_revenue_analytics_gross_revenue_query(
             date_range=DateRange(date_from="2024-12-01", date_to="2024-12-31")

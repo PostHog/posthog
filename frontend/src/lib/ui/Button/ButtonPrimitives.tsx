@@ -46,6 +46,7 @@ type ButtonBaseProps = {
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
+    tooltipVisible?: boolean
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
     inert?: boolean
@@ -121,7 +122,9 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 /*                              Button Base Component                         */
 /* -------------------------------------------------------------------------- */
 
-export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {}
+export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
+    'data-attr'?: string
+}
 
 export const buttonPrimitiveVariants = cva({
     base: 'button-primitive group/button-primitive',
@@ -259,6 +262,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltip,
         tooltipPlacement,
         tooltipDocLink,
+        tooltipVisible,
         autoHeight,
         inert,
         ...rest
@@ -310,6 +314,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                 }
                 placement={tooltipPlacement}
                 docLink={tooltipDocLink}
+                visible={tooltipVisible}
             >
                 {buttonComponent}
             </Tooltip>

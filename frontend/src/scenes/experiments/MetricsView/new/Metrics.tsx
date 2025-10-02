@@ -3,18 +3,20 @@ import { useActions, useValues } from 'kea'
 import { IconInfo, IconList } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../../experimentLogic'
 import { modalsLogic } from '../../modalsLogic'
 import { MetricsReorderModal } from '../MetricsReorderModal'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
+import { HowToReadTooltip } from './HowToReadTooltip'
 import { MetricsTable } from './MetricsTable'
 import { ResultDetails } from './ResultDetails'
 
-export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
+export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element | null {
     const {
         experiment,
         getInsightType,
@@ -24,13 +26,14 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         secondaryMetricsResultsErrors,
         primaryMetricsResultsErrors,
         hasMinimumExposureForResults,
+        featureFlags,
     } = useValues(experimentLogic)
 
     const { openPrimaryMetricsReorderModal, openSecondaryMetricsReorderModal } = useActions(modalsLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
     if (!variants) {
-        return <></>
+        return null
     }
 
     const unorderedResults = isSecondary ? secondaryMetricsResults : primaryMetricsResults
@@ -63,6 +66,10 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     const errors = metrics.map((metric) => errorsMap.get(metric.uuid))
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
+    const hasSomeResults =
+        results?.some((result) => result?.variant_results && result.variant_results.length > 0) &&
+        hasMinimumExposureForResults
+    const hasHowToReadTooltip = featureFlags[FEATURE_FLAGS.HOW_TO_READ_METRICS_EXPLANATION] === 'test'
 
     return (
         <div className="mb-4 -mt-2">
@@ -89,6 +96,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                 <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
+                        {hasSomeResults && !isSecondary && hasHowToReadTooltip && <HowToReadTooltip />}
                     </div>
                 </div>
 

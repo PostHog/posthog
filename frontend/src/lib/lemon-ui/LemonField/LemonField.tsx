@@ -94,6 +94,7 @@ export const LemonField = ({
     inline,
     info,
     renderError,
+    labelClassName,
     ...keaFieldProps
 }: LemonFieldProps): JSX.Element => {
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
@@ -107,6 +108,7 @@ export const LemonField = ({
                 inline={inline}
                 info={info}
                 renderError={renderError}
+                labelClassName={labelClassName}
             >
                 {kids}
             </LemonPureField>
