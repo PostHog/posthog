@@ -19,6 +19,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_snapshot
 from posthog.temporal.data_imports.pipelines.pipeline.utils import append_partition_key_to_table
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.hogql_query_snapshots.backup import clear_backup_object, create_backup_object, restore_from_backup
@@ -280,6 +281,10 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
         logger,
         delta_snapshot.schema.to_hogql_types(),
     )
+
+    logger.debug("Triggering workflow to compact and vacuum")
+    compaction_job_id = trigger_compaction_snapshot(saved_query, logger)
+    logger.debug(f"Compaction workflow id: {compaction_job_id}")
 
     return snapshot_ts, snapshot_table_id
 

@@ -1,4 +1,5 @@
 import json
+from abc import ABC, abstractmethod
 
 from django.conf import settings
 
@@ -11,8 +12,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.warehouse.s3 import ensure_bucket_exists, get_s3_client
 
 
-class DeltaMixin:
-    _resource_name: str
+class DeltaBase(ABC):
+    @abstractmethod
+    def _get_delta_table_uri(self) -> str:
+        pass
 
     def _get_credentials(self):
         if not settings.AIRBYTE_BUCKET_KEY or not settings.AIRBYTE_BUCKET_SECRET or not settings.AIRBYTE_BUCKET_REGION:

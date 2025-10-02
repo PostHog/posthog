@@ -12,14 +12,14 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.delta.base import DeltaMixin
+from posthog.temporal.data_imports.delta.base import DeltaBase
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
 
 
-class DeltaTableHelper(DeltaMixin):
+class DeltaTableHelper(DeltaBase):
     _resource_name: str
     _job: ExternalDataJob
     _logger: FilteringBoundLogger

@@ -7,7 +7,7 @@ import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 
-from posthog.temporal.data_imports.delta.base import DeltaMixin
+from posthog.temporal.data_imports.delta.base import DeltaBase
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
@@ -26,7 +26,7 @@ def make_schema_nullable(schema: pa.Schema) -> pa.Schema:
     return pa.schema(nullable_fields)
 
 
-class DeltaSnapshot(DeltaMixin):
+class DeltaSnapshot(DeltaBase):
     VALID_UNTIL_COLUMN: str = "_ph_valid_until"
 
     def __init__(self, saved_query: DataWarehouseSavedQuery):
