@@ -44,11 +44,15 @@ class Command(BaseCommand):
         team_id = options["team_id"]
 
         # Fetch the fingerprints
-        fingerprints = ErrorTrackingIssueFingerprintV2.objects.filter(
-            team_id=team_id,
-            created_at__gte=fingerprint_start_date,
-            created_at__lte=fingerprint_end_date,
-        ).order_by("created_at")
+        fingerprints = (
+            ErrorTrackingIssueFingerprintV2.objects.filter(
+                team_id=team_id,
+                created_at__gte=fingerprint_start_date,
+                created_at__lte=fingerprint_end_date,
+            )
+            .order_by("created_at")
+            .iterator()
+        )
 
         logger.info(f"Found {fingerprints.count()} fingerprints")
 
