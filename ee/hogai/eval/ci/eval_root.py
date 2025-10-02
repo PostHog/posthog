@@ -26,7 +26,7 @@ def call_root(demo_org_team_user):
                 "billing": AssistantNodeName.END,
                 "insights_search": AssistantNodeName.END,
                 "search_documentation": AssistantNodeName.END,
-                "root": AssistantNodeName.END,
+                "root": AssistantNodeName.ROOT,
                 "end": AssistantNodeName.END,
             }
         )

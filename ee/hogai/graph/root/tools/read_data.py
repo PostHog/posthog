@@ -79,7 +79,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         """
         args: type[BaseModel] = ReadDataToolArgs
         billing_prompt = ""
-        if cls._check_user_has_billing_access(team, user):
+        if await cls._check_user_has_billing_access(team, user):
             args = ReadDataAdminAccessToolArgs
             billing_prompt = READ_DATA_BILLING_PROMPT
         description = cls._format_prompt(READ_DATA_PROMPT, billing_prompt=billing_prompt)

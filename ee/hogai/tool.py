@@ -87,7 +87,15 @@ class MaxTool(AssistantContextMixin, BaseTool):
         context_manager: AssistantContextManager | None = None,
         **kwargs,
     ):
-        super().__init__(name=name, description=description, args_schema=args_schema, **kwargs)
+        tool_kwargs: dict[str, Any] = {}
+        if name is not None:
+            tool_kwargs["name"] = name
+        if description is not None:
+            tool_kwargs["description"] = description
+        if args_schema is not None:
+            tool_kwargs["args_schema"] = args_schema
+
+        super().__init__(**tool_kwargs, **kwargs)
         self._team = team
         self._user = user
         self._state = state if state else AssistantState(messages=[])
