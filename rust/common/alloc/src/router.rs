@@ -1,5 +1,5 @@
 use crate::pprof::{
-    handle_allocation_report, handle_alloctaion_flamegraph, handle_profile_flamegraph,
+    handle_allocation_flamegraph, handle_allocation_report, handle_profile_flamegraph,
     handle_profile_report,
 };
 use axum::{routing::get, Router};
@@ -10,5 +10,5 @@ pub fn apply_pprof_routes(router: Router) -> Router {
         .route("/pprof/profile/report", get(handle_profile_report))
         .route("/pprof/profile/flamegraph", get(handle_profile_flamegraph))
         .route("/pprof/heap/report", get(handle_allocation_report))
-        .route("/pprof/heap/flamegraph", get(handle_alloctaion_flamegraph))
+        .route("/pprof/heap/flamegraph", get(handle_allocation_flamegraph))
 }

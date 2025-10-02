@@ -93,7 +93,7 @@ pub async fn handle_allocation_report() -> Result<impl IntoResponse, (StatusCode
     Ok(pprof)
 }
 
-pub async fn handle_alloctaion_flamegraph() -> Result<impl IntoResponse, (StatusCode, String)> {
+pub async fn handle_allocation_flamegraph() -> Result<impl IntoResponse, (StatusCode, String)> {
     use axum::body::Body;
     use axum::http::header::CONTENT_TYPE;
     use axum::response::Response;
