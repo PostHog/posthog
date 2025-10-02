@@ -29,6 +29,8 @@ import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
 
+const HOG_FUNCTIONS_PAGINATION_PAGE_SIZE = 20
+
 const urlForHogFunction = (hogFunction: HogFunctionType): string => {
     if (hogFunction.id.startsWith('plugin-')) {
         return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
@@ -243,7 +245,7 @@ export function HogFunctionList({
                     columns={columns}
                     pagination={{
                         controlled: false,
-                        pageSize: 20,
+                        pageSize: HOG_FUNCTIONS_PAGINATION_PAGE_SIZE,
                     }}
                     emptyState={
                         hogFunctions.length === 0 && !loading ? (
