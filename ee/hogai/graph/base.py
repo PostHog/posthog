@@ -1,13 +1,11 @@
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any, Generic, Literal, Union
 from uuid import UUID
 
 from django.conf import settings
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.config import get_stream_writer
-from langgraph.types import StreamWriter
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage, ReasoningMessage
 
@@ -17,6 +15,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin, ReasoningNodeMixin
+from ee.hogai.utils.dispatch import internal_dispatch
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.state import LangGraphState
@@ -27,13 +26,13 @@ from ee.hogai.utils.types import (
     PartialStateType,
     StateType,
 )
+from ee.hogai.utils.types.actions import AssistantAction
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
 
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, ReasoningNodeMixin, ABC):
-    _writer: StreamWriter | None = None
-    config: RunnableConfig | None = None
+    _config: RunnableConfig | None = None
     _context_manager: AssistantContextManager | None = None
 
     def __init__(self, team: Team, user: User):
@@ -49,7 +48,7 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         """
         Run the assistant node and handle cancelled conversation before the node is run.
         """
-        self.config = config
+        self._config = config
         thread_id = (config.get("configurable") or {}).get("thread_id")
         if thread_id and await self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
@@ -68,32 +67,21 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         raise NotImplementedError
 
     @property
-    def writer(self) -> StreamWriter | Callable[[Any], None]:
-        if self._writer:
-            return self._writer
-        try:
-            self._writer = get_stream_writer()
-        except RuntimeError:
-            # Not in a LangGraph context (e.g., during testing)
-            def noop(*args, **kwargs):
-                pass
-
-            return noop
-        return self._writer
-
-    @property
     def context_manager(self) -> AssistantContextManager:
         if self._context_manager is None:
-            if self.config is None:
+            if self._config is None:
                 # Only allow default config in test environments
                 if settings.TEST:
                     config = RunnableConfig(configurable={})
                 else:
                     raise ValueError("Config is required to create AssistantContextManager")
             else:
-                config = self.config
+                config = self._config
             self._context_manager = AssistantContextManager(self._team, self._user, config)
         return self._context_manager
+
+    def dispatch(self, event: AssistantAction):
+        internal_dispatch(self.writer, self._config)(event)
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)
