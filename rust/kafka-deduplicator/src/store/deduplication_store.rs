@@ -211,7 +211,7 @@ impl DeduplicationStore {
                 similarity
                     .different_fields
                     .iter()
-                    .map(|(field, orig, new)| format!("{}({}->{})", field, orig, new))
+                    .map(|(field, orig, new)| format!("{field}({orig}->{new})"))
                     .collect::<Vec<_>>()
                     .join(", ")
             };
@@ -225,7 +225,7 @@ impl DeduplicationStore {
                     .iter()
                     .map(|(prop, values)| {
                         if let Some((orig, new)) = values {
-                            format!("{}({}->{})", prop, orig, new)
+                            format!("{prop}({orig}->{new})")
                         } else {
                             prop.clone()
                         }
@@ -367,7 +367,7 @@ impl DeduplicationStore {
                 similarity
                     .different_fields
                     .iter()
-                    .map(|(field, orig, new)| format!("{}({}->{})", field, orig, new))
+                    .map(|(field, orig, new)| format!("{field}({orig}->{new})"))
                     .collect::<Vec<_>>()
                     .join(", ")
             };
@@ -381,7 +381,7 @@ impl DeduplicationStore {
                     .iter()
                     .map(|(prop, values)| {
                         if let Some((orig, new)) = values {
-                            format!("{}({}->{})", prop, orig, new)
+                            format!("{prop}({orig}->{new})")
                         } else {
                             prop.clone()
                         }
