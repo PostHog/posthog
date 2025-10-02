@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
+    "django_structlog",
     "drf_spectacular",
     *PRODUCTS_APPS,
     "django_otp",
@@ -76,7 +77,6 @@ MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
-    "django_structlog.middlewares.CeleryMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
@@ -109,6 +109,8 @@ MIDDLEWARE = [
     "posthog.middleware.AdminCSPMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
+
+DJANGO_STRUCTLOG_CELERY_ENABLED = True
 
 if DEBUG:
     # rebase_migration command
