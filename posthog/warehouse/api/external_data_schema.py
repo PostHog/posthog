@@ -88,7 +88,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         return schema.status
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
-        return schema.is_incremental
+        return schema.is_incremental or schema.is_append
 
     def get_incremental_field(self, schema: ExternalDataSchema) -> str | None:
         return schema.sync_type_config.get("incremental_field")
