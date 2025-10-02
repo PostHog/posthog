@@ -71,10 +71,9 @@ async def saved_query(ateam, auser, credential):
     await sync_to_async(DataWarehouseSnapshotConfig.objects.create)(
         team=ateam,
         saved_query=saved_query,
-        config={
-            "merge_key": "id",
-            "fields": ["id", "name", "created_at"],
-        },
+        merge_key="id",
+        fields=["id", "name", "created_at"],
+        timestamp_field="created_at",
     )
 
     # Create a mock source table for the query to reference
