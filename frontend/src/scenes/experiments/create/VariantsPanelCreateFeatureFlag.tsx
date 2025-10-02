@@ -1,6 +1,3 @@
-import { useActions } from 'kea'
-import { useId } from 'react'
-
 import { IconBalance } from '@posthog/icons'
 import { IconTrash } from '@posthog/icons'
 import { IconPlus } from '@posthog/icons'
@@ -17,7 +14,6 @@ import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { percentageDistribution } from '../utils'
-import { variantsPanelLogic } from './variantsPanelLogic'
 
 interface VariantsPanelCreateFeatureFlagProps {
     experiment: Experiment
@@ -34,7 +30,6 @@ export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
-    const { generateFeatureFlagKey } = useActions(variantsPanelLogic)
     const variants = experiment.parameters?.feature_flag_variants || [
         { key: 'control', rollout_percentage: 50 },
         { key: 'test', rollout_percentage: 50 },
@@ -102,11 +97,10 @@ export const VariantsPanelCreateFeatureFlag = ({
     return (
         <div>
             <div className="max-w-2xl mb-4">
-                <label htmlFor={useId()} className="text-sm font-semibold">
+                <label htmlFor="experiment-feature-flag-key" className="text-sm font-semibold">
                     Feature flag key
                 </label>
                 <LemonInput
-                    id={useId()}
                     className="mt-1"
                     placeholder="pricing-page-conversion"
                     data-attr="experiment-feature-flag-key"
@@ -126,7 +120,6 @@ export const VariantsPanelCreateFeatureFlag = ({
                                 parameters: {
                                     feature_flag_variants: variants,
                                     ensure_experience_continuity: ensureExperienceContinuity,
-                                    feature_flag_key: generateFeatureFlagKey(experiment.name),
                                 },
                             })
                         }
@@ -253,7 +246,6 @@ export const VariantsPanelCreateFeatureFlag = ({
 
             <div className="max-w-2xl mt-4">
                 <LemonCheckbox
-                    id={useId()}
                     label="Persist flag across authentication steps"
                     onChange={(checked) => {
                         onChange({

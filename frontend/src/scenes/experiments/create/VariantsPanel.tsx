@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { match } from 'ts-pattern'
 
 import { LemonButton, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
@@ -76,7 +76,6 @@ const SelectExistingFeatureFlagModal = ({
                     />
                 </div>
                 <LemonTable
-                    id={useId()}
                     dataSource={availableFeatureFlags}
                     loading={availableFeatureFlagsLoading}
                     columns={[

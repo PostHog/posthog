@@ -111,7 +111,7 @@ export const CreateExperiment = (): JSX.Element => {
                                 header: 'Feature flag & variants',
                                 content: (
                                     <div className="p-4">
-                                        <VariantsPanel experiment={experiment} onChange={(updates) => {}} />
+                                        <VariantsPanel experiment={experiment} onChange={(updates) => updates} />
                                     </div>
                                 ),
                             },
