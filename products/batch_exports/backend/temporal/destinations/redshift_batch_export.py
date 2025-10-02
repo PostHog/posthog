@@ -367,22 +367,6 @@ class RedshiftConsumer(Consumer):
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
-IAMRole = str
-
-
-@dataclasses.dataclass
-class CopyCredentials:
-    access_key_id: str
-    secret_access_key: str
-
-
-@dataclasses.dataclass
-class CopyParameters:
-    s3_bucket: str
-    region: str
-    authorization: IAMRole | CopyCredentials
-
-
 @dataclasses.dataclass(kw_only=True)
 class RedshiftInsertInputs(PostgresInsertInputs):
     """Inputs for Redshift insert activity.
@@ -392,7 +376,6 @@ class RedshiftInsertInputs(PostgresInsertInputs):
     """
 
     properties_data_type: str = "varchar"
-    copy_parameters: CopyParameters | None = None
 
 
 @activity.defn
@@ -779,7 +762,6 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
         destination="Redshift",
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
-        copy=inputs.copy_parameters is not None,
         database=inputs.database,
         schema=inputs.schema,
     )
