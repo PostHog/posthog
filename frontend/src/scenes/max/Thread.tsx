@@ -648,11 +648,11 @@ function ReasoningAnswer({ message, id }: ReasoningAnswerProps): JSX.Element {
     )
 }
 
-interface ToolExecutionAnswerProps {
+interface TaskExecutionAnswerProps {
     message: TaskExecutionMessage
 }
 
-function TaskExecutionAnswer({ message }: ToolExecutionAnswerProps): JSX.Element {
+function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element {
     const completedCount = message.tasks.filter((t) => t.status === TaskExecutionStatus.Completed).length
     const totalCount = message.tasks.length
 
