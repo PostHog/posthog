@@ -16,7 +16,7 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
     const { ref: inViewRef, inView } = useInView()
 
     useEffect(() => {
-        if ((inStorybookTestRunner() || inView) && !appMetricsTrendsLoading) {
+        if (inStorybookTestRunner() || (inView && !appMetricsTrends && !appMetricsTrendsLoading)) {
             loadAppMetricsTrends()
         }
     }, [inView])
