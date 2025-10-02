@@ -54,7 +54,7 @@ IMPORTANT: When adding insights, you must provide a complete description of what
     show_tool_call_message: bool = False
 
     @database_sync_to_async
-    def _check_user_permissions(self, dashboard: Dashboard) -> bool:
+    def _check_user_permissions(self, dashboard: Dashboard) -> bool | None:
         # Legacy check: TODO: remove once all users are on the new access control
         if dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
             # Legacy check: use old UserPermissions system
@@ -86,7 +86,8 @@ IMPORTANT: When adding insights, you must provide a complete description of what
             capture_exception(e)
             return "Dashboard was not found.", None
 
-        if not await self._check_user_permissions(dashboard):
+        permission_result = await self._check_user_permissions(dashboard)
+        if permission_result is None or not permission_result:
             logger.exception("The user does not have permission to edit this dashboard.")
             return "The user does not have permission to edit this dashboard.", None
 
