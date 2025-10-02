@@ -137,7 +137,7 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
 
 
-@pytest.fixture(scope="package")
+@pytest.fixture(scope="session")
 def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     # Create PostgreSQL extensions for xdist workers
     # With --nomigrations, extensions aren't created since they're not in models
