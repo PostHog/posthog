@@ -55,6 +55,11 @@ JS_DATA_VERSION = 1
 JS_DATA_TYPE_SOURCE_AND_MAP = 2
 PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 
+# Error tracking embedding configuration defaults
+DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-large"
+DEFAULT_EMBEDDING_VERSION = 1
+DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
+
 logger = structlog.get_logger(__name__)
 
 
@@ -319,6 +324,41 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         )
         return similar_embeddings
 
+    def _get_embedding_configuration(self) -> tuple[float, str, int]:
+        """Get embedding configuration from feature flag or return defaults."""
+        min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+        model_name = DEFAULT_EMBEDDING_MODEL_NAME
+        embedding_version = DEFAULT_EMBEDDING_VERSION
+
+        if hasattr(self, "team") and self.team:
+            # Try to get configuration from feature flag, fall back to defaults if not available
+            try:
+                team_id = str(self.team.id)
+                config_payload = posthoganalytics.get_feature_flag_payload(
+                    "error-tracking-embedding-configuration", team_id
+                )
+                if config_payload:
+                    min_distance_threshold = config_payload.get(
+                        "min_distance_threshold", DEFAULT_MIN_DISTANCE_THRESHOLD
+                    )
+                    model_name = config_payload.get("model_name", DEFAULT_EMBEDDING_MODEL_NAME)
+                    embedding_version = config_payload.get("embedding_version", DEFAULT_EMBEDDING_VERSION)
+
+                    # Validate types
+                    if not isinstance(min_distance_threshold, (int | float)):
+                        min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+                    if not isinstance(model_name, str):
+                        model_name = DEFAULT_EMBEDDING_MODEL_NAME
+                    if not isinstance(embedding_version, int):
+                        embedding_version = DEFAULT_EMBEDDING_VERSION
+            except Exception:
+                # Fall back to defaults on any error
+                min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+                model_name = DEFAULT_EMBEDDING_MODEL_NAME
+                embedding_version = DEFAULT_EMBEDDING_VERSION
+
+        return min_distance_threshold, model_name, embedding_version
+
     def _serialize_issues_to_related_issues(self, issues):
         """Serialize ErrorTrackingIssue objects to related issues format."""
         return [
@@ -336,20 +376,16 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         """Process all embeddings to find similar fingerprints and return top 10 most similar."""
         all_similar_results = []
 
+        # Get model configuration from feature flag
+        min_distance_threshold, model_name, embedding_version = self._get_embedding_configuration()
+
         # Search for similarities across all embeddings from the current issue
         for _, embedding_row in enumerate(issue_embeddings):
             embedding_vector = embedding_row[0]  # Get the embedding vector
 
-            # TODO: model_name, embedding_version and min_distance
-            # should come from a feature flag
-            model_name = embedding_row[1]  # Get the model name for this embedding
-            embedding_version = embedding_row[2]  # Get the embedding version for this embedding
-            distance_threshold = 0.10
-
             # Search for similar embeddings using cosine similarity
-            # TODO: distance_threshold should come from a feature flag
             similar_embeddings = self._get_similar_embeddings(
-                embedding_vector, model_name, embedding_version, issue_fingerprints, distance_threshold
+                embedding_vector, model_name, embedding_version, issue_fingerprints, min_distance_threshold
             )
 
             if not similar_embeddings or len(similar_embeddings) == 0:
