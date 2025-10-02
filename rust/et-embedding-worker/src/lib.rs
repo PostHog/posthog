@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use common_kafka::kafka_consumer::Offset;
-use common_types::error_tracking::{EmbeddingRecord, NewFingerprintEvent};
+use common_types::error_tracking::{EmbeddingModel, EmbeddingRecord, NewFingerprintEvent};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -22,17 +22,19 @@ pub async fn handle_batch(
     let client = Client::new();
     let api_key = context.config.openai_api_key.clone();
     for fingerprint in fingerprints {
-        handles.push(generate_embedding(
-            client.clone(),
-            api_key.clone(),
-            fingerprint,
-        ));
+        for model in &fingerprint.models {
+            handles.push(generate_embedding(
+                client.clone(),
+                api_key.clone(),
+                model.clone(),
+                fingerprint.clone(),
+            ));
+        }
     }
     let results = futures::future::join_all(handles).await;
     results.into_iter().collect()
 }
 
-const OPENAI_EMBEDDING_MODEL: &str = "text-embedding-3-large";
 const EMBEDDING_VERSION: i64 = 1;
 
 #[derive(Serialize)]
@@ -54,6 +56,7 @@ struct EmbeddingData {
 pub async fn generate_embedding(
     client: Client,
     api_key: String,
+    model: EmbeddingModel,
     fingerprint: NewFingerprintEvent,
 ) -> Result<EmbeddingRecord> {
     // Generate text representation of the exception and frames
@@ -62,7 +65,7 @@ pub async fn generate_embedding(
     // Call OpenAI API to generate embeddings
     let request = OpenAIEmbeddingRequest {
         input: text,
-        model: OPENAI_EMBEDDING_MODEL.to_string(),
+        model: model.to_string(),
     };
 
     let response = client
@@ -103,7 +106,7 @@ pub async fn generate_embedding(
 
     Ok(EmbeddingRecord::new(
         fingerprint.team_id,
-        OPENAI_EMBEDDING_MODEL.to_string(),
+        model,
         EMBEDDING_VERSION,
         fingerprint.fingerprint.to_string(),
         embeddings,
@@ -117,7 +120,12 @@ fn generate_text_representation(fingerprint: &NewFingerprintEvent) -> String {
         // Add exception type and value
         text_parts.push(format!(
             "{}: {}",
-            exception.exception_type, exception.exception_value
+            exception.exception_type,
+            exception
+                .exception_value
+                .chars()
+                .take(300)
+                .collect::<String>()
         ));
 
         // Add frame information
