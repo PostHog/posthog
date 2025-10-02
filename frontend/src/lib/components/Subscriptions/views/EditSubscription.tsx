@@ -235,7 +235,6 @@ export function EditSubscription({
                                         <LemonField name="target_integration" label="Which Slack integration to use">
                                             {({ value, onChange }) => (
                                                 <>
-                                                    {}
                                                     <IntegrationChoice
                                                         // Fallback to the first integration as this was the previous behavior
                                                         value={
