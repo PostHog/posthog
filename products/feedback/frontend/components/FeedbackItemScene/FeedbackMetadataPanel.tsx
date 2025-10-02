@@ -25,19 +25,19 @@ export function FeedbackMetadataPanel(): JSX.Element | null {
     const { feedbackCategories, feedbackTopics, getStatusesForCategory } = useValues(feedbackGeneralSettingsLogic)
     const { updateStatus, updateAssignment, updateCategory, updateTopic } = useActions(feedbackItemSceneLogic)
 
-    if (feedbackItemLoading || !feedbackItem) {
+    if (feedbackItemLoading && !feedbackItem) {
         return null
     }
 
     return (
         <div className="flex flex-col gap-2">
-            <ScenePanelLabel title="Feedback ID">{feedbackItem.id}</ScenePanelLabel>
+            <ScenePanelLabel title="Feedback ID">{feedbackItem?.id}</ScenePanelLabel>
 
             <ScenePanelLabel title="Category">
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <ButtonPrimitive fullWidth className="flex justify-between" variant="panel" menuItem>
-                            <span>{feedbackItem.category?.name ?? 'Select category'}</span>
+                            <span>{feedbackItem?.category?.name ?? 'Select category'}</span>
                             <DropdownMenuOpenIndicator />
                         </ButtonPrimitive>
                     </DropdownMenuTrigger>
@@ -61,14 +61,14 @@ export function FeedbackMetadataPanel(): JSX.Element | null {
                             className="flex justify-between"
                             variant="panel"
                             menuItem
-                            disabled={!feedbackItem.category}
+                            disabled={!feedbackItem?.category}
                         >
-                            <span>{feedbackItem.status?.name ?? 'Select status'}</span>
-                            {feedbackItem.category && <DropdownMenuOpenIndicator />}
+                            <span>{feedbackItem?.status?.name ?? 'Select status'}</span>
+                            {feedbackItem?.category && <DropdownMenuOpenIndicator />}
                         </ButtonPrimitive>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent loop matchTriggerWidth>
-                        {feedbackItem.category?.id &&
+                        {feedbackItem?.category?.id &&
                             getStatusesForCategory(feedbackItem.category.id).map((status) => (
                                 <DropdownMenuItem key={status.id} asChild>
                                     <ButtonPrimitive menuItem onClick={() => updateStatus(status.id)}>
@@ -84,7 +84,7 @@ export function FeedbackMetadataPanel(): JSX.Element | null {
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <ButtonPrimitive fullWidth className="flex justify-between" variant="panel" menuItem>
-                            <span>{feedbackItem.topic?.name ?? 'Select topic'}</span>
+                            <span>{feedbackItem?.topic?.name ?? 'Select topic'}</span>
                             <DropdownMenuOpenIndicator />
                         </ButtonPrimitive>
                     </DropdownMenuTrigger>
@@ -102,7 +102,7 @@ export function FeedbackMetadataPanel(): JSX.Element | null {
 
             <ScenePanelLabel title="Assigned to">
                 <MemberSelect
-                    value={feedbackItem.assignment?.user?.id ?? null}
+                    value={feedbackItem?.assignment?.user?.id ?? null}
                     onChange={(user) => updateAssignment(user?.id ?? null)}
                     defaultLabel="Unassigned"
                     allowNone={true}
@@ -111,7 +111,7 @@ export function FeedbackMetadataPanel(): JSX.Element | null {
                 />
             </ScenePanelLabel>
 
-            <SceneActivityIndicator at={feedbackItem.created_at} prefix="Created" />
+            <SceneActivityIndicator at={feedbackItem?.created_at} prefix="Created" />
 
             <ScenePanelDivider />
 

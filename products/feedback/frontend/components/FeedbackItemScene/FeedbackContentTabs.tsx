@@ -25,15 +25,7 @@ export function FeedbackContentTabs(): JSX.Element {
         }
     }
 
-    if (feedbackItemLoading) {
-        return (
-            <div className="border rounded-lg p-6 bg-surface">
-                <p className="text-muted m-0">Loading</p>
-            </div>
-        )
-    }
-
-    if (!feedbackItem) {
+    if (!feedbackItem && !feedbackItemLoading) {
         return (
             <div className="border rounded-lg p-6 bg-surface">
                 <p className="text-muted m-0">Feedback item not found</p>
@@ -46,7 +38,7 @@ export function FeedbackContentTabs(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <LemonCard hoverEffect={false} className="p-4">
-                <p className="text-sm m-0 whitespace-pre-wrap">{feedbackItem.content}</p>
+                <p className="text-sm m-0 whitespace-pre-wrap">{feedbackItem?.content}</p>
             </LemonCard>
 
             <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">

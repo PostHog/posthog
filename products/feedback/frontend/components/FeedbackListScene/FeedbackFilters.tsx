@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBadge, LemonInput, LemonSelect, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { feedbackListSceneLogic } from '../../scenes/FeedbackListScene/feedbackListSceneLogic'
 import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSettingsLogic'
@@ -86,12 +86,7 @@ export const FeedbackFilters = (): JSX.Element => {
                     placeholder="Select status"
                     options={feedbackStatusesToDisplay.map((status) => ({
                         value: status.value,
-                        label: (
-                            <div className="flex items-center gap-2 text-sm">
-                                <LemonBadge status="success" size="small" />
-                                <span>{status.label}</span>
-                            </div>
-                        ),
+                        label: status.label,
                     }))}
                     size="small"
                     onChange={(status) => {
