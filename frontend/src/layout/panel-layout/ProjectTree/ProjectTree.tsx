@@ -356,7 +356,7 @@ export function ProjectTree({
                             </MenuItem>
                         ) : null
                     ) : isItemAlreadyInShortcut ? (
-                        <MenuItem asChild disabled={true} data-attr="tree-item-menu-add-to-shortcuts-disabutton">
+                        <MenuItem asChild disabled={true} data-attr="tree-item-menu-add-to-shortcuts-disabled-button">
                             <ButtonPrimitive menuItem disabled={true}>
                                 Already in shortcuts panel
                             </ButtonPrimitive>
