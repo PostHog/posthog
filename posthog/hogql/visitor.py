@@ -221,6 +221,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_float_type(self, node: ast.FloatType):
         pass
 
+    def visit_decimal_type(self, node: ast.DecimalType):
+        pass
+
     def visit_string_type(self, node: ast.StringType):
         pass
 

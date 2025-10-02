@@ -43,7 +43,7 @@ class ConversationSerializer(serializers.ModelSerializer):
         user = self.context["user"]
         graph_class, state_class = CONVERSATION_TYPE_MAP[conversation.type]  # type: ignore[index]
         graph: CompiledStateGraph = graph_class(team, user).compile_full_graph()
-        snapshot = await graph.aget_state({"configurable": {"thread_id": str(conversation.id)}})
+        snapshot = await graph.aget_state({"configurable": {"thread_id": str(conversation.id), "checkpoint_ns": ""}})
         try:
             state = state_class.model_validate(snapshot.values)
             return [message.model_dump() for message in state.messages if should_output_assistant_message(message)]

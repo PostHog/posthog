@@ -147,6 +147,7 @@ export function SceneCommonButtons({
                         className: 'justify-center',
                     }}
                     data-attr={`${dataAttrKey}-view-recordings`}
+                    target="_blank"
                 >
                     <IconRewindPlay />
                     View recordings

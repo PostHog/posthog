@@ -8,9 +8,11 @@ import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 import { urls } from 'scenes/urls'
@@ -18,7 +20,7 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -45,11 +47,13 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         refreshDashboardItem,
         moveToDashboard,
+        setTileOverride,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
     const { push } = useActions(router)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
@@ -63,6 +67,15 @@ export function DashboardItems(): JSX.Element {
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
     const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
+
+    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_OVERRIDES]
+    const duplicate = (tile: DashboardTile<QueryBasedInsightModel>, insight: QueryBasedInsightModel): void => {
+        if (canAccessTileOverrides) {
+            duplicateTile(tile)
+        } else {
+            duplicateInsight(insight)
+        }
+    }
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -148,6 +161,7 @@ export function DashboardItems(): JSX.Element {
                             return (
                                 <InsightCard
                                     key={tile.id}
+                                    tile={tile}
                                     insight={insight}
                                     loadingQueued={loadingQueued}
                                     loading={loading}
@@ -159,7 +173,8 @@ export function DashboardItems(): JSX.Element {
                                     refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
-                                    duplicate={() => duplicateInsight(insight)}
+                                    duplicate={() => duplicate(tile, insight)}
+                                    setOverride={() => setTileOverride(tile)}
                                     showDetailsControls={
                                         placement != DashboardPlacement.Export &&
                                         !getCurrentExporterData()?.hideExtraDetails

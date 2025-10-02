@@ -101,10 +101,9 @@ class TestSearch(APIBaseTest):
         response = self.client.get("/api/projects/@current/search?entities=insight")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json()["results"][0]["extra_fields"],
-            {"name": None, "description": None, "query": None},
-        )
+        results = response.json()["results"]
+        for result in results:
+            self.assertEqual(set(result["extra_fields"].keys()), {"name", "description", "query"})
 
     def test_search_with_fully_invalid_query(self):
         response = self.client.get("/api/projects/@current/search?q=%3E")

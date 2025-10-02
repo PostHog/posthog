@@ -405,7 +405,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(22):
+        with self.assertNumQueries(23):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1137,6 +1137,7 @@ class TestSurvey(APIBaseTest):
                         "has_encrypted_payloads": False,
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
+                        "evaluation_tags": [],
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,

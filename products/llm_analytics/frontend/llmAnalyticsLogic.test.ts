@@ -7,6 +7,7 @@ import { NON_TIME_SERIES_DISPLAY_TYPES } from '~/lib/constants'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { sceneLogic } from '../../../frontend/src/scenes/sceneLogic'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 
 describe('llmAnalyticsLogic', () => {
@@ -14,8 +15,9 @@ describe('llmAnalyticsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        sceneLogic.mount()
         router.actions.push(urls.llmAnalyticsTraces())
-        logic = llmAnalyticsLogic()
+        logic = llmAnalyticsLogic({ tabId: sceneLogic.values.activeTabId || '' })
         logic.mount()
     })
 

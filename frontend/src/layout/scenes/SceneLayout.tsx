@@ -37,24 +37,21 @@ export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Ele
         <>
             {children &&
                 scenePanelElement &&
-                createPortal(<div className="flex flex-col gap-px">{children}</div>, scenePanelElement)}
+                createPortal(<div className="flex flex-col gap-2">{children}</div>, scenePanelElement)}
         </>
     )
 }
 
 export function ScenePanelDivider({ className }: { className?: string }): JSX.Element {
-    return <LemonDivider className={cn('-mx-2 my-2 w-[calc(100%+1rem)]', className)} />
+    return <LemonDivider className={cn('-mx-2 w-[calc(100%+1rem)]', className)} />
 }
 
-// Should be first!
 export const ScenePanelCommonActions = ({ children }: { children: React.ReactNode }): JSX.Element => {
     return (
         <>
             <div
-                // This is a hack to make the meta info panel have a margin top of 0 when it's the first child of the panel
                 className={`
-                    [&+.scene-panel-meta-info]:mt-0 
-                    flex flex-col gap-2 min-h-[var(--scene-layout-header-height)] py-2 border-b border-primary -mx-2 px-2 mb-2
+                    flex flex-col gap-2 -mx-2 px-2
                 `}
             >
                 {children}
@@ -63,21 +60,12 @@ export const ScenePanelCommonActions = ({ children }: { children: React.ReactNod
     )
 }
 
-// Should be second!
-export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="scene-panel-meta-info pl-1 pb-1 flex flex-col gap-2 mt-2">{children}</div>
+export function ScenePanelInfoSection({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="scene-panel-info-section pl-1 flex flex-col gap-2">{children}</div>
 }
 
-// Should be third!
-export function ScenePanelActions({ children }: { children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2 pl-1 -ml-1">
-            <Label intent="menu" className="mx-2">
-                Actions
-            </Label>
-            <div className="flex flex-col gap-px -ml-1 pl-1">{children}</div>
-        </div>
-    )
+export function ScenePanelActionsSection({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="scene-panel-actions-section flex flex-col gap-px -ml-1 pl-1">{children}</div>
 }
 
 export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren<LabelProps>): JSX.Element {
@@ -95,7 +83,7 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
         useActions(sceneLayoutLogic)
-    const { useSceneTabs, forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
+    const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
 
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
 
@@ -110,13 +98,13 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
         <>
             <div
                 className={cn(
-                    'col-span-2 h-[var(--scene-layout-header-height)] sticky top-0 z-10 flex justify-center items-start',
+                    'col-span-2 h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start',
                     {
                         'col-start-1 col-span-1': scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
                     }
                 )}
             >
-                {useSceneTabs ? <SceneTabs /> : null}
+                <SceneTabs />
             </div>
 
             <div
@@ -171,6 +159,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                                               ? 'Force close Info & actions panel'
                                               : 'Close Info & actions panel'
                                     }
+                                    data-attr="info-actions-panel"
                                 >
                                     <IconX className="size-4" />
                                 </ButtonPrimitive>
@@ -179,7 +168,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                         <ScrollableShadows
                             direction="vertical"
                             className="h-full flex-1"
-                            innerClassName="px-2 pb-4 bg-primary"
+                            innerClassName="px-2 py-2 bg-primary"
                             styledScrollbars
                         >
                             <div ref={registerScenePanelElement} />

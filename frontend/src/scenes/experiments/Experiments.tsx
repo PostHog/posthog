@@ -5,13 +5,12 @@ import { match } from 'ts-pattern'
 
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -19,7 +18,6 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -30,12 +28,21 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ActivityScope, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    Experiment,
+    ExperimentsTabs,
+    ProductKey,
+    ProgressStatus,
+} from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
 import { StatusTag, createMaxToolExperimentSurveyConfig } from './ExperimentView/components'
 import { ExperimentsSettings } from './ExperimentsSettings'
 import { Holdouts } from './Holdouts'
+import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 import { EXPERIMENTS_PER_PAGE, ExperimentsFilters, experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { isLegacyExperiment } from './utils'
 
@@ -44,7 +51,7 @@ export const scene: SceneExport = {
     logic: experimentsLogic,
 }
 
-const EXPERIMENTS_PRODUCT_DESCRIPTION =
+export const EXPERIMENTS_PRODUCT_DESCRIPTION =
     'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
 
 // Component for the survey button using MaxTool
@@ -248,73 +255,85 @@ const ExperimentsTable = ({
                                 {!experiment.archived &&
                                     experiment?.end_date &&
                                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
-                                        <LemonButton
-                                            onClick={() => {
-                                                LemonDialog.open({
-                                                    title: 'Archive this experiment?',
-                                                    content: (
-                                                        <div className="text-sm text-secondary">
-                                                            This action will move the experiment to the archived tab. It
-                                                            can be restored at any time.
-                                                        </div>
-                                                    ),
-                                                    primaryButton: {
-                                                        children: 'Archive',
-                                                        type: 'primary',
-                                                        onClick: () => archiveExperiment(experiment.id as number),
-                                                        size: 'small',
-                                                    },
-                                                    secondaryButton: {
-                                                        children: 'Cancel',
-                                                        type: 'tertiary',
-                                                        size: 'small',
-                                                    },
-                                                })
-                                            }}
-                                            data-attr={`experiment-${experiment.id}-dropdown-archive`}
-                                            fullWidth
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.Experiment}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={experiment.user_access_level}
                                         >
-                                            Archive experiment
-                                        </LemonButton>
-                                    )}
-                                <LemonDivider />
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete this experiment?',
-                                            content: (
-                                                <div className="text-sm text-secondary">
-                                                    Experiment with its settings will be deleted, but event data will be
-                                                    preserved.
-                                                </div>
-                                            ),
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                type: 'primary',
-                                                onClick: () => {
-                                                    void deleteWithUndo({
-                                                        endpoint: `projects/${currentProjectId}/experiments`,
-                                                        object: { name: experiment.name, id: experiment.id },
-                                                        callback: () => {
-                                                            loadExperiments()
+                                            <LemonButton
+                                                onClick={() => {
+                                                    LemonDialog.open({
+                                                        title: 'Archive this experiment?',
+                                                        content: (
+                                                            <div className="text-sm text-secondary">
+                                                                This action will move the experiment to the archived
+                                                                tab. It can be restored at any time.
+                                                            </div>
+                                                        ),
+                                                        primaryButton: {
+                                                            children: 'Archive',
+                                                            type: 'primary',
+                                                            onClick: () => archiveExperiment(experiment.id as number),
+                                                            size: 'small',
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                            type: 'tertiary',
+                                                            size: 'small',
                                                         },
                                                     })
-                                                },
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
-                                    data-attr={`experiment-${experiment.id}-dropdown-remove`}
-                                    fullWidth
+                                                }}
+                                                data-attr={`experiment-${experiment.id}-dropdown-archive`}
+                                                fullWidth
+                                            >
+                                                Archive experiment
+                                            </LemonButton>
+                                        </AccessControlAction>
+                                    )}
+                                <LemonDivider />
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Experiment}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={experiment.user_access_level}
                                 >
-                                    Delete experiment
-                                </LemonButton>
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Delete this experiment?',
+                                                content: (
+                                                    <div className="text-sm text-secondary">
+                                                        Experiment with its settings will be deleted, but event data
+                                                        will be preserved.
+                                                    </div>
+                                                ),
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    type: 'primary',
+                                                    onClick: () => {
+                                                        void deleteWithUndo({
+                                                            endpoint: `projects/${currentProjectId}/experiments`,
+                                                            object: { name: experiment.name, id: experiment.id },
+                                                            callback: () => {
+                                                                loadExperiments()
+                                                            },
+                                                        })
+                                                    },
+                                                    size: 'small',
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'tertiary',
+                                                    size: 'small',
+                                                },
+                                            })
+                                        }}
+                                        data-attr={`experiment-${experiment.id}-dropdown-remove`}
+                                        fullWidth
+                                    >
+                                        Delete experiment
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
@@ -324,31 +343,41 @@ const ExperimentsTable = ({
     ]
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             {match(tab)
                 .with(ExperimentsTabs.All, () => (
-                    <ProductIntroduction
-                        productName="Experiments"
-                        productKey={ProductKey.EXPERIMENTS}
-                        thingName="experiment"
-                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                        docsURL="https://posthog.com/docs/experiments"
-                        action={() => router.actions.push(urls.experiment('new'))}
-                        isEmpty={shouldShowEmptyState}
-                        customHog={ExperimentsHog}
-                        className="my-0"
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Experiment}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <ProductIntroduction
+                            productName="Experiments"
+                            productKey={ProductKey.EXPERIMENTS}
+                            thingName="experiment"
+                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                            docsURL="https://posthog.com/docs/experiments"
+                            action={() => router.actions.push(urls.experiment('new'))}
+                            isEmpty={shouldShowEmptyState}
+                            customHog={ExperimentsHog}
+                            className="my-0"
+                        />
+                    </AccessControlAction>
                 ))
                 .with(ExperimentsTabs.Archived, () => (
-                    <ProductIntroduction
-                        productName="Experiments"
-                        productKey={ProductKey.EXPERIMENTS}
-                        thingName="archived experiment"
-                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                        docsURL="https://posthog.com/docs/experiments"
-                        isEmpty={shouldShowEmptyState}
-                        className="my-0"
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Experiment}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <ProductIntroduction
+                            productName="Experiments"
+                            productKey={ProductKey.EXPERIMENTS}
+                            thingName="archived experiment"
+                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                            docsURL="https://posthog.com/docs/experiments"
+                            isEmpty={shouldShowEmptyState}
+                            className="my-0"
+                        />
+                    </AccessControlAction>
                 ))
                 .otherwise(() => null)}
             <ExperimentsTableFilters tab={tab} filters={filters} onFiltersChange={setExperimentsFilters} />
@@ -390,46 +419,38 @@ const ExperimentsTable = ({
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
     const { setExperimentsTab } = useActions(experimentsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
 
     return (
-        <SceneContent forceNewSpacing>
-            <PageHeader
-                buttons={
-                    <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
-                        New experiment
-                    </LemonButton>
-                }
-                caption={
-                    !newSceneLayout && (
-                        <>
-                            <Link
-                                data-attr="experiment-help"
-                                to="https://posthog.com/docs/experiments/installation?utm_medium=in-product&utm_campaign=new-experiment"
-                                target="_blank"
-                            >
-                                &nbsp; Visit the guide
-                            </Link>
-                            &nbsp; to learn more.
-                        </>
-                    )
-                }
-                tabbedPage={true}
-            />
+        <SceneContent>
             <SceneTitleSection
                 name="Experiments"
                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                 resourceType={{
                     type: 'experiment',
                 }}
+                actions={
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Experiment}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            data-attr="create-experiment"
+                            to={urls.experiment('new')}
+                        >
+                            New experiment
+                        </LemonButton>
+                    </AccessControlAction>
+                }
             />
             <SceneDivider />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newKey) => setExperimentsTab(newKey)}
-                sceneInset={newSceneLayout}
+                sceneInset
                 tabs={[
                     {
                         key: ExperimentsTabs.All,
@@ -445,7 +466,7 @@ export function Experiments(): JSX.Element {
                     {
                         key: ExperimentsTabs.SharedMetrics,
                         label: 'Shared metrics',
-                        link: urls.experimentsSharedMetrics(),
+                        content: <SharedMetrics />,
                     },
                     {
                         key: ExperimentsTabs.History,

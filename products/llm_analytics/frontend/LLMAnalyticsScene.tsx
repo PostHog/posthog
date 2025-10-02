@@ -7,12 +7,10 @@ import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link } from '@
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -38,6 +36,7 @@ import { normalizeMessages, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
+    logic: llmAnalyticsLogic,
 }
 
 const Filters = (): JSX.Element => {
@@ -72,6 +71,7 @@ const Tiles = (): JSX.Element => {
             {tiles.map(({ title, description, query, context }, i) => (
                 <QueryCard
                     key={i}
+                    attachTo={llmAnalyticsLogic}
                     title={title}
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
@@ -258,8 +258,6 @@ export function LLMAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     const tabs: LemonTab<string>[] = [
         {
             key: 'dashboard',
@@ -322,20 +320,6 @@ export function LLMAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <PageHeader
-                buttons={
-                    <div className="flex gap-2">
-                        <LemonButton
-                            to="https://posthog.com/docs/llm-analytics/installation"
-                            type="secondary"
-                            targetBlank
-                        >
-                            Documentation
-                        </LemonButton>
-                    </div>
-                }
-            />
-
             <SceneContent>
                 {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
                 <SceneTitleSection
@@ -344,15 +328,22 @@ export function LLMAnalyticsScene(): JSX.Element {
                     resourceType={{
                         type: 'llm_analytics',
                     }}
+                    actions={
+                        <>
+                            <LemonButton
+                                to="https://posthog.com/docs/llm-analytics/installation"
+                                type="secondary"
+                                targetBlank
+                                size="small"
+                            >
+                                Documentation
+                            </LemonButton>
+                        </>
+                    }
                 />
                 <SceneDivider />
 
-                <LemonTabs
-                    activeKey={activeTab}
-                    data-attr="llm-analytics-tabs"
-                    tabs={tabs}
-                    sceneInset={newSceneLayout}
-                />
+                <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>
         </BindLogic>
     )

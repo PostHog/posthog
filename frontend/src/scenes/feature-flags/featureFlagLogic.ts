@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
@@ -70,7 +71,6 @@ import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
-import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
@@ -90,6 +90,7 @@ const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
 export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
+    updated_at: null,
     key: '',
     name: '',
     filters: {
@@ -117,6 +118,7 @@ export const NEW_FLAG: FeatureFlagType = {
     version: 0,
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    evaluation_tags: [],
 }
 const NEW_VARIANT = {
     key: '',
@@ -346,6 +348,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             defaults: {
                 ...NEW_FLAG,
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+                _should_create_usage_dashboard: true,
             },
             errors: ({ key, filters, is_remote_configuration }) => {
                 return {
@@ -723,9 +726,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
                         )
-                        if (values.roleBasedAccessEnabled && savedFlag.id) {
-                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
-                        }
                         actions.addProductIntent({
                             product_type: ProductKey.FEATURE_FLAGS,
                             intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
@@ -776,9 +776,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
                         )
-                        if (values.roleBasedAccessEnabled && savedFlag.id) {
-                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
-                        }
                     } else {
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
@@ -1000,11 +997,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagFailure: async () => {
-            // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
-            setTimeout(
-                () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
-                1
-            )
+            scrollToFormError()
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
@@ -1241,8 +1234,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     key: Scene.FeatureFlags,
                     name: 'Feature Flags',
                     path: urls.featureFlags(),
+                    iconType: 'feature_flag',
                 },
-                { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
+                {
+                    key: [Scene.FeatureFlag, featureFlag.id || 'unknown'],
+                    name: featureFlag.key || 'Unnamed',
+                    iconType: 'feature_flag',
+                },
             ],
         ],
         projectTreeRef: [

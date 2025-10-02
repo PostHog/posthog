@@ -64,9 +64,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.PasswordReset]: () => import('./authentication/PasswordReset'),
     [Scene.Person]: () => import('./persons/PersonScene'),
     [Scene.Persons]: () => import('./persons/PersonsScene'),
-    [Scene.PipelineNodeNew]: () => import('./pipeline/PipelineNodeNew'),
-    [Scene.PipelineNode]: () => import('./pipeline/PipelineNode'),
-    [Scene.Pipeline]: () => import('./pipeline/Pipeline'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.Products]: () => import('./products/Products'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
@@ -97,6 +94,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.WebAnalyticsMarketing]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
-    [Scene.EmbeddedAnalytics]: () => import('./embedded-analytics/EmbeddedAnalyticsScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
 }

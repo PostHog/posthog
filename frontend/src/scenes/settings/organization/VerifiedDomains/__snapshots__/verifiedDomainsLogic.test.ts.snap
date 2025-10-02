@@ -40,7 +40,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "slug": "mockhog-fstn",
     "teams": [
       {
-        "access_control": true,
         "anonymize_ips": false,
         "api_token": "default-team-api-token",
         "app_urls": [
@@ -195,6 +194,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "recordHeaders": true,
         },
         "session_recording_opt_in": true,
+        "session_recording_retention_period": "30d",
         "session_recording_sample_rate": "1.0",
         "session_replay_config": null,
         "slack_incoming_webhook": "",

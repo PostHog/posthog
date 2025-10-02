@@ -1,6 +1,6 @@
 from datetime import datetime
 from functools import cached_property
-from typing import Literal, cast
+from typing import Literal, Optional, cast
 
 import structlog
 
@@ -29,17 +29,10 @@ from posthog.models.team.team import DEFAULT_CURRENCY
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
-from .constants import (
-    BASE_COLUMN_MAPPING,
-    CAMPAIGN_COST_CTE_NAME,
-    DEFAULT_LIMIT,
-    PAGINATION_EXTRA,
-    TOTAL_CLICKS_FIELD,
-    TOTAL_COST_FIELD,
-    TOTAL_IMPRESSIONS_FIELD,
-    to_marketing_analytics_data,
-)
+from .constants import BASE_COLUMN_MAPPING, DEFAULT_LIMIT, PAGINATION_EXTRA, to_marketing_analytics_data
 from .conversion_goal_processor import ConversionGoalProcessor
+from .conversion_goals_aggregator import ConversionGoalsAggregator
+from .marketing_analytics_config import MarketingAnalyticsConfig
 from .utils import convert_team_conversion_goals_to_objects
 
 logger = structlog.get_logger(__name__)
@@ -54,6 +47,8 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
+        # Initialize configuration
+        self.config = MarketingAnalyticsConfig()
 
     @cached_property
     def query_date_range(self):
@@ -111,34 +106,26 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
     ) -> ast.SelectQuery:
         """Build the complete query with CTEs using AST expressions"""
 
+        # Create conversion goals aggregator if needed
+        conversion_aggregator = ConversionGoalsAggregator(processors, self.config) if processors else None
+
         # Build the main SELECT query
-        main_query = self._build_select_query(processors)
+        main_query = self._build_select_query(conversion_aggregator)
 
         # Build CTEs as a dictionary
         ctes: dict[str, ast.CTE] = {}
 
         # Add campaign_costs CTE
         campaign_cost_select = self._build_campaign_cost_select(union_query_string)
-        campaign_cost_cte = ast.CTE(name=CAMPAIGN_COST_CTE_NAME, expr=campaign_cost_select, cte_type="subquery")
-        ctes[CAMPAIGN_COST_CTE_NAME] = campaign_cost_cte
+        campaign_cost_cte = ast.CTE(
+            name=self.config.campaign_costs_cte_name, expr=campaign_cost_select, cte_type="subquery"
+        )
+        ctes[self.config.campaign_costs_cte_name] = campaign_cost_cte
 
-        # Add conversion goal CTEs if any
-        if processors:
-            for processor in processors:
-                # Build additional conditions (date range and global filters)
-                date_field = processor.get_date_field()
-                additional_conditions = self._get_where_conditions(
-                    date_range=date_range,
-                    include_date_range=True,
-                    date_field=date_field,
-                    use_date_not_datetime=True,  # Conversion goals use toDate instead of toDateTime
-                )
-
-                # Generate CTE
-                cte_alias = processor.generate_cte_query_expr(additional_conditions)
-                cte_name = processor.get_cte_name()
-                cte = ast.CTE(name=cte_name, expr=cte_alias.expr, cte_type="subquery")
-                ctes[cte_name] = cte
+        # Add unified conversion goal CTE if any
+        if conversion_aggregator:
+            unified_cte = conversion_aggregator.generate_unified_cte(date_range, self._get_where_conditions)
+            ctes["unified_conversion_goals"] = unified_cte
 
         # Add CTEs to the main query
         main_query.ctes = ctes
@@ -343,19 +330,23 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
         """Build the campaign_costs CTE SELECT query"""
         # Build SELECT columns for the CTE
         select_columns: list[ast.Expr] = [
-            ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
-            ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
+            ast.Field(chain=[self.config.campaign_field]),
+            ast.Field(chain=[self.config.source_field]),
             ast.Alias(
-                alias=TOTAL_COST_FIELD,
+                alias=self.config.total_cost_field,
                 expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.cost_field])]),
             ),
             ast.Alias(
-                alias=TOTAL_CLICKS_FIELD,
+                alias=self.config.total_clicks_field,
                 expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.clicks_field])]),
             ),
             ast.Alias(
-                alias=TOTAL_IMPRESSIONS_FIELD,
+                alias=self.config.total_impressions_field,
                 expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.impressions_field])]),
+            ),
+            ast.Alias(
+                alias=self.config.total_reported_conversions_field,
+                expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.reported_conversion_field])]),
             ),
         ]
 
@@ -363,40 +354,72 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
         union_subquery = parse_select(union_query_string)
         union_join_expr = ast.JoinExpr(table=union_subquery)
 
-        # Build GROUP BY
-        group_by_exprs: list[ast.Expr] = [
-            ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
-            ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
-        ]
+        # Build GROUP BY using configuration
+        group_by_exprs: list[ast.Expr] = [ast.Field(chain=[field]) for field in self.config.group_by_fields]
 
         # Build the CTE SELECT query
         return ast.SelectQuery(select=select_columns, select_from=union_join_expr, group_by=group_by_exprs)
 
-    def _build_select_columns_mapping(self, processors: list[ConversionGoalProcessor]) -> dict[str, ast.Expr]:
+    def _build_select_columns_mapping(
+        self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
+    ) -> dict[str, ast.Expr]:
         all_columns: dict[str, ast.Expr] = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
-        for processor in processors:
-            conversion_goal_expr, cost_per_goal_expr = processor.generate_select_columns()
-            all_columns.update(
-                {conversion_goal_expr.alias: conversion_goal_expr, cost_per_goal_expr.alias: cost_per_goal_expr}
-            )
+
+        # Add conversion goal columns using the aggregator
+        if conversion_aggregator:
+            # For FULL OUTER JOIN: use COALESCE to show conversion goal UTM values when campaign costs are empty
+            if self.query.includeAllConversions:
+                coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns()
+                all_columns.update(coalesce_columns)
+
+            # Add conversion goal columns
+            conversion_columns = conversion_aggregator.get_conversion_goal_columns()
+            all_columns.update(conversion_columns)
 
         return all_columns
 
-    def _build_select_query(self, processors: list) -> ast.SelectQuery:
+    def _build_select_query(self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None) -> ast.SelectQuery:
         """Build the complete SELECT query with base columns and conversion goal columns"""
-        # Get conversion goal components (processors already created and passed in)
-        conversion_columns_mapping = self._build_select_columns_mapping(processors)
-        if processors:
-            conversion_joins = self._generate_conversion_goal_joins_from_processors(processors)
-        else:
-            conversion_joins = []
+        # Get conversion goal components
+        conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
 
         # Create the FROM clause with base table
-        from_clause = ast.JoinExpr(table=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME]))
+        from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
 
-        # Add conversion goal joins
-        if conversion_joins:
-            from_clause = self._append_joins(from_clause, conversion_joins)
+        # Add single unified conversion goals join if we have conversion goals
+        if conversion_aggregator:
+            join_type = "FULL OUTER JOIN" if self.query.includeAllConversions else "LEFT JOIN"
+            unified_join = ast.JoinExpr(
+                join_type=join_type,
+                table=ast.Field(chain=["unified_conversion_goals"]),
+                alias=self.config.unified_conversion_goals_cte_alias,
+                constraint=ast.JoinConstraint(
+                    expr=ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(
+                                    chain=self.config.get_campaign_cost_field_chain(self.config.campaign_field)
+                                ),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Field(
+                                    chain=self.config.get_unified_conversion_field_chain(self.config.campaign_field)
+                                ),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(
+                                    chain=self.config.get_campaign_cost_field_chain(self.config.source_field)
+                                ),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Field(
+                                    chain=self.config.get_unified_conversion_field_chain(self.config.source_field)
+                                ),
+                            ),
+                        ]
+                    ),
+                    constraint_type="ON",
+                ),
+            )
+            from_clause.next_join = unified_join
 
         return ast.SelectQuery(
             select=list(conversion_columns_mapping.values()),
@@ -468,22 +491,11 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
                 in self.query.select
             )
             if should_create:
-                processor = ConversionGoalProcessor(goal=conversion_goal, index=index, team=self.team)
+                processor = ConversionGoalProcessor(
+                    goal=conversion_goal, index=index, team=self.team, config=self.config
+                )
                 processors.append(processor)
         return processors
-
-    def _generate_conversion_goal_joins_from_processors(self, processors: list) -> list[ast.JoinExpr]:
-        """Generate JOIN clauses for conversion goals"""
-        if not processors:
-            return []
-
-        joins = []
-        for processor in processors:
-            # Let the processor generate its own JOIN clause
-            join_clause = processor.generate_join_clause()
-            joins.append(join_clause)
-
-        return joins
 
     def _generate_conversion_goal_selects_from_processors(
         self, processors: list[ConversionGoalProcessor]

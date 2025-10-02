@@ -74,14 +74,17 @@ impl FromStr for TeamIdCollection {
             let mut team_ids = Vec::new();
             for part in s.split(',').map(|p| p.trim()) {
                 if part.contains(':') {
-                    let bounds: Vec<&str> = part.split(':').collect();
-                    if bounds.len() != 2 {
+                    let mut bounds = part.split(':');
+                    let (Some(start_str), Some(end_str)) = (bounds.next(), bounds.next()) else {
+                        return Err(ParseTeamIdsError::InvalidRange(part.to_string()));
+                    };
+                    if bounds.next().is_some() {
                         return Err(ParseTeamIdsError::InvalidRange(part.to_string()));
                     }
-                    let start = bounds[0]
+                    let start = start_str
                         .parse::<i32>()
                         .map_err(ParseTeamIdsError::InvalidNumber)?;
-                    let end = bounds[1]
+                    let end = end_str
                         .parse::<i32>()
                         .map_err(ParseTeamIdsError::InvalidNumber)?;
                     if end < start {
@@ -122,7 +125,11 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
-    #[envconfig(default = "50")]
+    // Database connection pool settings:
+    // - High traffic: Increase max_pg_connections (e.g., 20-50)
+    // - Bursty traffic: Increase idle_timeout_secs to keep connections warm
+    // - Note: With 4 pools (readers/writers × persons/non-persons), total connections = 4 × max_pg_connections
+    #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
     #[envconfig(default = "redis://localhost:6379/")]
@@ -134,8 +141,61 @@ pub struct Config {
     #[envconfig(default = "")]
     pub redis_writer_url: String,
 
-    #[envconfig(default = "1")]
+    // How long to wait for a connection from the pool before timing out
+    // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
+    // - Decrease for faster failure detection (minimum 1s)
+    #[envconfig(default = "3")]
     pub acquire_timeout_secs: u64,
+
+    // Close connections that have been idle for this many seconds
+    // - Set to 0 to disable (connections never close due to idle)
+    // - Increase for bursty traffic to avoid reconnection overhead (e.g., 600-900)
+    // - Decrease to free resources more aggressively (e.g., 60-120)
+    #[envconfig(default = "300")]
+    pub idle_timeout_secs: u64,
+
+    // Force refresh connections after this many seconds regardless of activity
+    // - Set to 0 to disable (connections never refresh automatically)
+    // - Decrease for unreliable networks or frequent DB restarts (e.g., 600-900)
+    // - Increase for stable environments to reduce overhead (e.g., 3600-7200)
+    #[envconfig(default = "1800")]
+    pub max_lifetime_secs: u64,
+
+    // Test connection health before returning from pool
+    // - Set to true for production to catch stale connections
+    // - Set to false in tests or very stable environments for slight performance gain
+    #[envconfig(default = "true")]
+    pub test_before_acquire: FlexBool,
+
+    // How often to report database pool metrics (seconds)
+    // - Decrease for more granular monitoring (e.g., 10-15)
+    // - Increase to reduce metric volume (e.g., 60-120)
+    #[envconfig(default = "30")]
+    pub db_monitor_interval_secs: u64,
+
+    // Pool utilization percentage that triggers warnings (0.0-1.0)
+    // - Lower values (e.g., 0.7) provide earlier warnings
+    // - Higher values (e.g., 0.9) reduce alert noise
+    #[envconfig(default = "0.8")]
+    pub db_pool_warn_utilization: f64,
+
+    // How long to cache billing quota checks (seconds)
+    // - Lower values ensure fresh quota data but increase Redis load
+    // - Higher values reduce Redis queries but may allow brief overages
+    #[envconfig(default = "5")]
+    pub billing_limiter_cache_ttl_secs: u64,
+
+    // Health check registration interval (seconds)
+    // - Should be less than your orchestrator's liveness probe timeout
+    // - Common values: 10-30 for Kubernetes environments
+    #[envconfig(default = "30")]
+    pub health_check_interval_secs: u64,
+
+    // OpenTelemetry exporter timeout (seconds)
+    // - Increase if OTEL endpoint is slow or remote
+    // - Decrease to fail fast and avoid blocking
+    #[envconfig(default = "3")]
+    pub otel_export_timeout_secs: u64,
 
     #[envconfig(from = "MAXMIND_DB_PATH", default = "")]
     pub maxmind_db_path: String,
@@ -220,7 +280,15 @@ impl Config {
             persons_read_database_url: "".to_string(),
             max_concurrency: 1000,
             max_pg_connections: 10,
-            acquire_timeout_secs: 5,
+            acquire_timeout_secs: 3,
+            idle_timeout_secs: 300,
+            max_lifetime_secs: 1800,
+            test_before_acquire: FlexBool(true),
+            db_monitor_interval_secs: 30,
+            db_pool_warn_utilization: 0.8,
+            billing_limiter_cache_ttl_secs: 5,
+            health_check_interval_secs: 30,
+            otel_export_timeout_secs: 3,
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
             team_ids_to_track: TeamIdCollection::All,
@@ -347,7 +415,7 @@ mod tests {
             "postgres://posthog:posthog@localhost:5432/posthog"
         );
         assert_eq!(config.max_concurrency, 1000);
-        assert_eq!(config.max_pg_connections, 50);
+        assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(

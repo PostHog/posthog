@@ -1213,8 +1213,10 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
+        or report.cdp_billable_invocations_in_period > 0
         or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0
+        or report.ai_event_count_in_period > 0
     )
 
 

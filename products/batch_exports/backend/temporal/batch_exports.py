@@ -80,6 +80,23 @@ def default_fields() -> list[BatchExportField]:
     ]
 
 
+def events_model_default_fields() -> list[BatchExportField]:
+    """Return list of default batch export Fields for the events model.
+
+    This set of fields can be used for new events batch exports that do not need to support legacy fields (such as `set`
+    and `set_once`).
+    """
+    return [
+        BatchExportField(expression="uuid", alias="uuid"),
+        BatchExportField(expression="team_id", alias="team_id"),
+        BatchExportField(expression="timestamp", alias="timestamp"),
+        BatchExportField(expression="_inserted_at", alias="_inserted_at"),
+        BatchExportField(expression="event", alias="event"),
+        BatchExportField(expression="properties", alias="properties"),
+        BatchExportField(expression="distinct_id", alias="distinct_id"),
+    ]
+
+
 class RecordBatchProducerError(Exception):
     """Raised when an error occurs during production of record batches."""
 
@@ -892,7 +909,7 @@ async def execute_batch_export_insert_activity(
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     if interval == "hour":
-        start_to_close_timeout = dt.timedelta(hours=1)
+        start_to_close_timeout = dt.timedelta(hours=2)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
     elif interval.startswith("every"):

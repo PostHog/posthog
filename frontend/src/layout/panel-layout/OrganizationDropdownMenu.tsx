@@ -29,9 +29,11 @@ import { panelLayoutLogic } from './panelLayoutLogic'
 export function OrganizationDropdownMenu({
     buttonProps = { className: 'font-semibold' },
     showName = true,
+    allowCreate = true,
 }: {
     showName?: boolean
     buttonProps?: ButtonPrimitiveProps
+    allowCreate?: boolean
 }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { otherOrganizations } = useValues(userLogic)
@@ -174,6 +176,32 @@ export function OrganizationDropdownMenu({
                                     </Combobox.Item>
                                 </Combobox.Group>
                             ))}
+
+                            {preflight?.can_create_org && allowCreate && (
+                                <Combobox.Item asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        data-attr="new-organization-button"
+                                        onClick={() =>
+                                            guardAvailableFeature(
+                                                AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                                () => {
+                                                    closeAccountPopover()
+                                                    showCreateOrganizationModal()
+                                                },
+                                                {
+                                                    guardOnCloud: false,
+                                                }
+                                            )
+                                        }
+                                        tooltip="Create a new organization"
+                                        tooltipPlacement="right"
+                                    >
+                                        <IconPlusSmall className="size-4" />
+                                        New organization
+                                    </ButtonPrimitive>
+                                </Combobox.Item>
+                            )}
                         </Combobox.Content>
                     </Combobox>
                 </PopoverPrimitiveContent>

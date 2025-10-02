@@ -7,7 +7,6 @@ import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -15,9 +14,6 @@ import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ExperimentStatsMethod, ProgressStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
@@ -80,7 +76,6 @@ export function Info(): JSX.Element {
         secondaryMetricsResultsLoading,
         statsMethod,
         usesNewQueryRunner,
-        experimentLoading,
         isExperimentDraft,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
@@ -89,7 +84,6 @@ export function Info(): JSX.Element {
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     useEffect(() => {
         setTempDescription(experiment.description || '')
@@ -112,21 +106,7 @@ export function Info(): JSX.Element {
     const status = getExperimentStatus(experiment)
 
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name={experiment?.name}
-                description={null}
-                resourceType={{
-                    type: 'experiment',
-                }}
-                isLoading={experimentLoading}
-                onNameChange={(name) => updateExperiment({ name })}
-                onDescriptionChange={(description) => updateExperiment({ description })}
-                canEdit
-                forceEdit
-                renameDebounceMs={1000}
-            />
-            <SceneDivider />
+        <>
             <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1200px]:grid-cols-[1fr_26rem]">
                 {/* Column 1 */}
                 <div className="flex flex-col gap-0 overflow-hidden">
@@ -208,11 +188,9 @@ export function Info(): JSX.Element {
                             />
                         </div>
                         {experiment.description ? (
-                            <p className={cn('py-2 m-0', newSceneLayout && 'py-0')}>{experiment.description}</p>
+                            <p className={cn('m-0 mt-2')}>{experiment.description}</p>
                         ) : (
-                            <p className={cn('py-2 m-0 text-secondary', newSceneLayout && 'py-0')}>
-                                Add your hypothesis for this test
-                            </p>
+                            <p className={cn('m-0 mt-2 text-secondary italic')}>Add your hypothesis for this test</p>
                         )}
 
                         <LemonModal
@@ -271,38 +249,35 @@ export function Info(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <div className={cn('block mt-4', newSceneLayout && 'mt-0')}>
-                <div className="flex gap-6">
-                    {experiment.conclusion && experiment.end_date && (
-                        <div className="w-[500px]">
-                            <div className="flex items-center gap-2">
-                                <Label intent="menu">Conclusion</Label>
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={<IconPencil />}
-                                    onClick={openEditConclusionModal}
-                                />
-                            </div>
-                            <div className={cn('py-2', newSceneLayout && 'py-0')}>
-                                <div className="font-semibold flex items-center gap-2">
-                                    <div
-                                        className={clsx(
-                                            'w-2 h-2 rounded-full',
-                                            CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.color || ''
-                                        )}
-                                    />
-                                    <span>
-                                        {CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.title ||
-                                            experiment.conclusion}
-                                    </span>
-                                </div>
-                                <div>{experiment.conclusion_comment}</div>
-                            </div>
+            <div className="flex gap-6">
+                {experiment.conclusion && experiment.end_date && (
+                    <div className="w-[500px]">
+                        <div className="flex items-center gap-2">
+                            <Label intent="menu">Conclusion</Label>
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconPencil />}
+                                onClick={openEditConclusionModal}
+                            />
                         </div>
-                    )}
-                </div>
+                        <div>
+                            <div className="font-semibold flex items-center gap-2">
+                                <div
+                                    className={clsx(
+                                        'w-2 h-2 rounded-full',
+                                        CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.color || ''
+                                    )}
+                                />
+                                <span>
+                                    {CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.title || experiment.conclusion}
+                                </span>
+                            </div>
+                            <div>{experiment.conclusion_comment}</div>
+                        </div>
+                    </div>
+                )}
             </div>
-        </SceneContent>
+        </>
     )
 }

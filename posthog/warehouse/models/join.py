@@ -81,7 +81,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=self.joining_table_name_chain)),
                 ),
-                join_type="GLOBAL LEFT JOIN",
+                join_type="LEFT JOIN",
                 alias=join_to_add.to_table,
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(

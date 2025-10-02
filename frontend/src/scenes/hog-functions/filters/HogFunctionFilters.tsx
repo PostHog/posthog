@@ -58,7 +58,7 @@ export function HogFunctionFilters({
     showTriggerOptions?: boolean
 }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters } =
+    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters, isLegacyPlugin } =
         useValues(hogFunctionConfigurationLogic)
     const {
         setOldFilters,
@@ -70,7 +70,6 @@ export function HogFunctionFilters({
         reportAIFiltersPromptOpen,
     } = useActions(hogFunctionConfigurationLogic)
 
-    const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
     const isTransformation = type === 'transformation'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
 

@@ -9,7 +9,6 @@ import {
     GroupTypeIndex,
     Hub,
     ISOTimestamp,
-    KafkaConsumerBreadcrumb,
     Person,
     PersonMode,
     PreIngestionEvent,
@@ -260,15 +259,12 @@ export class EventsProcessor {
         return rawEvent
     }
 
-    emitEvent(rawEvent: RawKafkaEvent, breadcrumbs: KafkaConsumerBreadcrumb[]): Promise<void> {
+    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
         return this.kafkaProducer
             .produce({
                 topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
-                headers: {
-                    'kafka-consumer-breadcrumbs': JSON.stringify(breadcrumbs),
-                },
             })
             .catch(async (error) => {
                 // Some messages end up significantly larger than the original

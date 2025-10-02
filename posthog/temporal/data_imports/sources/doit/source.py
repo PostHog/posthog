@@ -51,7 +51,8 @@ class DoItSource(BaseSource[DoItSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.DO_IT,
             label="DoIt",
-            caption="",
+            iconPath="/static/services/doit.svg",
+            docsUrl="https://posthog.com/docs/cdp/sources/doit",
             fields=cast(
                 list[FieldType],
                 [

@@ -12,6 +12,7 @@ import {
     EmojiCommentOnRecordingButton,
 } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 import {
+    ModesWithInteractions,
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -43,11 +44,11 @@ function PlayPauseButton(): JSX.Element {
             }
         >
             {showPause ? (
-                <IconPause className="text-2xl" />
+                <IconPause className="text-3xl" />
             ) : endReached ? (
-                <IconRewindPlay className="text-2xl" />
+                <IconRewindPlay className="text-3xl" />
             ) : (
-                <IconPlay className="text-2xl" />
+                <IconPlay className="text-3xl" />
             )}
         </LemonButton>
     )
@@ -124,7 +125,7 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
 }
 
 export function PlayerController(): JSX.Element {
-    const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { playlistLogic, logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
@@ -135,7 +136,17 @@ export function PlayerController(): JSX.Element {
     })
 
     return (
-        <div className="bg-surface-primary flex flex-col select-none">
+        <div
+            className={cn(
+                'flex flex-col select-none',
+                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-750 ease-in-out' : '',
+                hoverModeIsEnabled && showPlayerChrome
+                    ? 'opacity-100 bg-surface-primary pointer-events-auto'
+                    : hoverModeIsEnabled
+                      ? 'opacity-0 pointer-events-none'
+                      : 'bg-surface-primary'
+            )}
+        >
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
                 <Timestamp size={size} />
@@ -145,15 +156,17 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                 </div>
                 <div className="flex justify-end items-center">
-                    {!isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && (
+                    {!isCinemaMode && ModesWithInteractions.includes(playerMode) && (
                         <>
                             <CommentOnRecordingButton />
                             <EmojiCommentOnRecordingButton />
                             <Screenshot />
                             <ClipRecording />
-                            {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}
+                    {playlistLogic && ModesWithInteractions.includes(playerMode) ? (
+                        <PlayerUpNext playlistLogic={playlistLogic} />
+                    ) : undefined}
                     {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
                     <FullScreen />
                 </div>

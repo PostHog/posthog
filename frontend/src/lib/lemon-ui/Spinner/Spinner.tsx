@@ -6,8 +6,6 @@ import { twJoin, twMerge } from 'tailwind-merge'
 
 import { IconPencil } from '@posthog/icons'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 function useTimingCapture(captureTime: boolean): void {
     const mountTimeRef = useRef<number>(performance.now())
 
@@ -84,13 +82,12 @@ export function SpinnerOverlay({
     /** @default "spinning" */
     mode?: 'spinning' | 'editing'
 }): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
         <div
             className={twJoin(
                 'SpinnerOverlay',
                 sceneLevel && 'SpinnerOverlay--scene-level',
-                newSceneLayout && 'h-[calc(100vh-var(--scene-layout-header-height))]'
+                sceneLevel && 'h-[calc(100vh-var(--scene-layout-header-height))]'
             )}
             aria-hidden={!visible}
         >

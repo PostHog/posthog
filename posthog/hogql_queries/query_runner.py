@@ -49,6 +49,7 @@ from posthog.schema import (
     StickinessQuery,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
+    TraceQuery,
     TracesQuery,
     TrendsQuery,
     VectorSearchQuery,
@@ -72,7 +73,7 @@ from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, las
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
-    get_api_personal_rate_limiter,
+    get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
     get_app_org_rate_limiter,
     get_org_app_concurrency_limit,
@@ -87,6 +88,7 @@ from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
@@ -112,6 +114,12 @@ class ExecutionMode(StrEnum):
     CACHE_ONLY_NEVER_CALCULATE = "force_cache"
     """Do not initiate calculation."""
 
+
+BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
+    ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+}
 
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
     **ExecutionMode._value2member_map_,  # type: ignore
@@ -643,10 +651,33 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "TracesQuery":
-        from .ai.traces_query_runner import TracesQueryRunner
+        from .legacy_compatibility.feature_flag import llm_analytics_traces_query_v2
 
-        return TracesQueryRunner(
-            query=cast(TracesQuery | dict[str, Any], query),
+        if llm_analytics_traces_query_v2(team):
+            from .ai.traces_query_runner_v2 import TracesQueryRunnerV2
+
+            return TracesQueryRunnerV2(
+                query=cast(TracesQuery | dict[str, Any], query),
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+            )
+        else:
+            from .ai.traces_query_runner import TracesQueryRunner
+
+            return TracesQueryRunner(
+                query=cast(TracesQuery | dict[str, Any], query),
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+            )
+    if kind == "TraceQuery":
+        from .ai.trace_query_runner import TraceQueryRunner
+
+        return TraceQueryRunner(
+            query=cast(TraceQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -817,6 +848,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
+            cache_key=cache_manager.cache_key,
             refresh_requested=refresh_requested,
             is_query_service=self.is_query_service,
         )
@@ -933,6 +965,32 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
 
+            # Abort early if the user doesn't have access to the query runner
+            # We'll proceed as usual if there's no user connected to this request
+            # We're capturing the error for analytics purposes, but we reraise the same one
+            if user is not None:
+                try:
+                    self.validate_query_runner_access(user)
+                except UserAccessControlError as error:
+                    posthoganalytics.capture(
+                        distinct_id=user.distinct_id,
+                        event="query access control error",
+                        properties={
+                            "query_runner": self.__class__.__name__,
+                            "query_id": self.query_id,
+                            "insight_id": insight_id,
+                            "dashboard_id": dashboard_id,
+                            "execution_mode": execution_mode.value,
+                            "query_type": getattr(self.query, "kind", "Other"),
+                            "resource": error.resource,
+                            "required_level": error.required_level,
+                            "resource_id": error.resource_id,
+                            "cache_key": cache_key,
+                        },
+                    )
+
+                    raise
+
             trigger: str | None = get_query_tag_value("trigger")
 
             self.query_id = query_id or self.query_id
@@ -942,7 +1000,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 cache_key=cache_key,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
-                user=user,
             )
 
             if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
@@ -1005,10 +1062,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.modifiers.useMaterializedViews = True
 
             concurrency_limit = self.get_api_queries_concurrency_limit()
-            with get_api_personal_rate_limiter().run(
+            with get_api_team_rate_limiter().run(
                 is_api=self.is_query_service,
                 team_id=self.team.pk,
-                org_id=self.team.organization_id,
                 task_id=self.query_id,
                 limit=concurrency_limit,
             ):
@@ -1063,11 +1119,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if trigger:
                 fresh_response_dict["calculation_trigger"] = trigger
 
-            fresh_response = CachedResponse(**fresh_response_dict)
-
             # Don't cache debug queries with errors and export queries
-            has_error: Optional[list] = fresh_response_dict.get("error", None)
-            if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
+            errors: Optional[list] = fresh_response_dict.get("error", None)
+            has_error = errors is not None and len(errors) > 0
+            if not has_error and self.limit_context != LimitContext.EXPORT:
                 cache_manager.set_cache_data(
                     response=fresh_response_dict,
                     # This would be a possible place to decide to not ever keep this cache warm
@@ -1089,12 +1144,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     "query_type": getattr(self.query, "kind", "Other"),
                     "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
                     "query_duration_ms": query_duration_ms,
-                    "has_error": has_error is not None and len(has_error) > 0,
+                    "has_error": has_error,
                 },
                 groups=(groups(self.team.organization, self.team)),
             )
 
-            return fresh_response
+            return CachedResponse(**fresh_response_dict)
 
     def get_api_queries_concurrency_limit(self):
         """
@@ -1168,6 +1223,43 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         interval = query_date_range.interval_name if query_date_range else "minute"
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
         return cache_target_age(interval, last_refresh=last_refresh, mode=mode)
+
+    def validate_query_runner_access(self, user: User) -> bool:
+        """
+        Child query runners can override this to check if the user has access to the query runner
+        by using the user_access_control.check_access_level_for_resource method
+
+        It should return `True` if the user has access to the query runner, or raise a `UserAccessControlError` if they don't.
+
+        Example:
+        ```
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        def validate_query_runner_access(self, user: User) -> bool:
+            user_access_control = UserAccessControl(user=user, team=self.team)
+            if not user_access_control.check_access_level_for_resource("revenue_analytics", "viewer"):
+                raise UserAccessControlError("revenue_analytics", "viewer")
+        ```
+
+        Example using `assert_access_level_for_resource`:
+        ```
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        def validate_query_runner_access(self, user: User) -> bool:
+            user_access_control = UserAccessControl(user=user, team=self.team)
+            return user_access_control.assert_access_level_for_resource("revenue_analytics", "viewer")
+        ```
+
+        Args:
+            user: The user to check access for
+
+        Returns:
+            `True` if the user has access to the query runner
+
+        Raises:
+            `UserAccessControlError` if the user does not have access to the query runner
+        """
+        return True
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)

@@ -15,6 +15,7 @@ from posthog.tasks.alerts.checks import (
     reset_stuck_alerts_task,
 )
 from posthog.tasks.email import send_hog_functions_daily_digest
+from posthog.tasks.enforce_max_replay_retention_period import enforce_max_replay_retention_period
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
@@ -43,6 +44,7 @@ from posthog.tasks.tasks import (
     process_scheduled_changes,
     redis_celery_queue_depth,
     redis_heartbeat,
+    refresh_activity_log_fields_cache,
     replay_count_metrics,
     schedule_all_subscriptions,
     send_org_usage_reports,
@@ -54,6 +56,7 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
     verify_persons_data_in_sync,
 )
+from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
 from posthog.utils import get_crontab
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
@@ -93,6 +96,21 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="0"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
+    )
+
+    # Team access cache warming - every 10 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        600,  # Every 10 minutes (no TTL, just fill missing entries)
+        warm_all_team_access_caches_task.s(),
+        name="warm team access caches",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="1", minute="0"),  # daily
+        enforce_max_replay_retention_period.s(),
+        name="daily enforce max replay retention period",
+        expires=12 * 60 * 60,  # 12 hours
     )
 
     # Update events table partitions twice a week
@@ -234,6 +252,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*/12"),
         stop_surveys_reached_target.s(),
         name="stop surveys that reached responses limits",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*/12", minute="0"),
+        refresh_activity_log_fields_cache.s(),
+        name="refresh activity log fields cache for large orgs",
     )
 
     sender.add_periodic_task(

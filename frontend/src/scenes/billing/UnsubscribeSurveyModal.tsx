@@ -23,7 +23,6 @@ import { HeartHog } from 'lib/components/hedgehogs'
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
-import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
 import { billingLogic } from './billingLogic'
 import {
     UNSUBSCRIBE_REASONS,
@@ -53,19 +52,12 @@ export const UnsubscribeSurveyModal = ({
     } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
     const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
-    const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
     const { openSupportForm } = useActions(supportLogic)
     const [randomizedReasons] = useState(
         process?.env.STORYBOOK ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
 
     const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0
-    const includesPipelinesAddon =
-        product.type == 'data_pipelines' ||
-        (product.type == 'product_analytics' &&
-            (product as BillingProductV2Type)?.addons?.filter((addon) => addon.type === 'data_pipelines')[0]
-                ?.subscribed) ||
-        (billing?.subscription_level === 'paid' && !isAddonProduct)
 
     let action = 'Unsubscribe'
     let actionVerb = 'unsubscribing'
@@ -160,9 +152,7 @@ export const UnsubscribeSurveyModal = ({
                                         ? 'Please select a reason'
                                         : !textAreaNotEmpty
                                           ? 'Please share your feedback'
-                                          : includesPipelinesAddon
-                                            ? unsubscribeDisabledReason
-                                            : undefined
+                                          : undefined
                                 }
                                 onClick={handleUnsubscribe}
                                 loading={billingLoading}
@@ -276,16 +266,6 @@ export const UnsubscribeSurveyModal = ({
                                 .
                             </p>
                         </LemonBanner>
-                        {includesPipelinesAddon && itemsToDisable.length > 0 ? (
-                            <div className="mt-6">
-                                <h3 className="mt-2 mb-2 mr-8">Important: Disable remaining export apps</h3>
-                                <p>
-                                    To avoid unexpected impact on your data, you must explicitly disable the following
-                                    apps and exports before unsubscribing:
-                                </p>
-                                <ExportsUnsubscribeTable />
-                            </div>
-                        ) : null}
                     </div>
                 ) : (
                     renderHedgehogStep()

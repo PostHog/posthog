@@ -30,6 +30,7 @@ pub struct QueryTui {
     state_dirty: bool,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum LowerPanelState {
     TableState(TableState),
     DebugState(TextArea<'static>),

@@ -4,7 +4,6 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { VM } from 'vm2'
-import { z } from 'zod'
 
 import {
     Element,
@@ -83,6 +82,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_behavioural_events = 'cdp-behavioural-events',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
+    cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
 }
@@ -197,6 +197,13 @@ export type CdpConfig = {
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
+
+    // Heap dump configuration
+    HEAP_DUMP_ENABLED: boolean
+    HEAP_DUMP_S3_BUCKET: string
+    HEAP_DUMP_S3_PREFIX: string
+    HEAP_DUMP_S3_ENDPOINT: string
+    HEAP_DUMP_S3_REGION: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -374,6 +381,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
+    LAZY_LOADER_MAX_SIZE: number
     CAPTURE_INTERNAL_URL: string
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
@@ -457,6 +465,19 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Messaging
     MAILJET_PUBLIC_KEY: string
     MAILJET_SECRET_KEY: string
+
+    // SES
+    SES_ENDPOINT: string
+    SES_ACCESS_KEY_ID: string
+    SES_SECRET_ACCESS_KEY: string
+    SES_REGION: string
+
+    // Heap dump configuration
+    HEAP_DUMP_ENABLED: boolean
+    HEAP_DUMP_S3_BUCKET: string
+    HEAP_DUMP_S3_PREFIX: string
+    HEAP_DUMP_S3_ENDPOINT: string
+    HEAP_DUMP_S3_REGION: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -522,6 +543,7 @@ export interface PluginServerCapabilities {
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
+    cdpCyclotronWorkerDelay?: boolean
     cdpBehaviouralEvents?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -855,22 +877,6 @@ export interface RawClickHouseEvent extends BaseEvent {
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
 }
-
-export type KafkaConsumerBreadcrumb = {
-    topic: string
-    offset: string | number
-    partition: number
-    processed_at: string
-    consumer_id: string
-}
-
-export const KafkaConsumerBreadcrumbSchema = z.object({
-    topic: z.string(),
-    offset: z.union([z.string(), z.number()]),
-    partition: z.number(),
-    processed_at: z.string(),
-    consumer_id: z.string(),
-})
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
     /**
@@ -1347,10 +1353,11 @@ export interface EventHeaders {
     token?: string
     distinct_id?: string
     timestamp?: string
+    event?: string
+    uuid?: string
 }
 
 export interface IncomingEvent {
-    message: Message
     event: PipelineEvent
     headers?: EventHeaders
 }

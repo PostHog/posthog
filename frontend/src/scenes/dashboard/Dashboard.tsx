@@ -7,7 +7,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
@@ -71,8 +70,6 @@ function DashboardScene(): JSX.Element {
     } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     useOnMountEffect(() => {
         reportDashboardViewed()
 
@@ -118,7 +115,7 @@ function DashboardScene(): JSX.Element {
     }
 
     return (
-        <SceneContent className={cn('dashboard', !newSceneLayout && 'space-y-0')}>
+        <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
             {canEditDashboard && <AddInsightToDashboardModal />}
 

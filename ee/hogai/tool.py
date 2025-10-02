@@ -16,6 +16,7 @@ import products
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import InsightQuery
 
 
 # Lower casing matters here. Do not change it.
@@ -40,6 +41,9 @@ class search_insights(BaseModel):
     """
     Search through existing insights to find matches based on the user's query.
     Use this tool when users ask to find, search for, or look up existing insights.
+    IMPORTANT: NEVER CALL THIS TOOL IF THE USER ASKS TO CREATE A DASHBOARD.
+    Only use this tool when users ask to find, search for, or look up insights.
+    If the user asks to create a dashboard, use the `create_dashboard` tool instead.
     """
 
     search_query: str = Field(
@@ -108,6 +112,26 @@ class session_summarization(BaseModel):
     )
 
 
+class create_dashboard(BaseModel):
+    """
+    Create a dashboard with insights based on the user's request.
+    Use this tool when users ask to create, build, or make a new dashboard with insights.
+    This tool will search for existing insights that match the user's requirements so no need to call `search_insights` tool.
+    or create new insights if none are found, then combine them into a dashboard.
+    Do not call this tool if the user only asks to find, search for, or look up existing insights and does not ask to create a dashboard.
+    If you decided to use this tool, there is no need to call `search_insights` tool beforehand. The tool will search for existing insights that match the user's requirements and create new insights if none are found.
+    """
+
+    search_insights_queries: list[InsightQuery] = Field(
+        description="A list of insights to be included in the dashboard. Include all the insights that the user mentioned."
+    )
+    dashboard_name: str = Field(
+        description=(
+            "The name of the dashboard to be created based on the user request. It should be short and concise as it will be displayed as a header in the dashboard tile."
+        )
+    )
+
+
 class search_documentation(BaseModel):
     """
     Answer the question using the latest PostHog documentation. This performs a documentation search.
@@ -154,12 +178,14 @@ class MaxTool(AssistantContextMixin, BaseTool):
     """The message shown to let the user know this tool is being used. One sentence, no punctuation.
     For example, "Updating filters"
     """
+
     root_system_prompt_template: str = "No context provided for this tool."
     """The template for context associated with this tool, that will be injected into the root node's system prompt.
     Use this if you need to strongly steer the root node in deciding _when_ and _whether_ to use the tool.
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
+
     show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
     _context: dict[str, Any]
@@ -200,14 +226,16 @@ class MaxTool(AssistantContextMixin, BaseTool):
         try:
             return self._run_impl(*args, **kwargs)
         except NotImplementedError:
-            return async_to_sync(self._arun_impl)(*args, **kwargs)
+            pass
+        return async_to_sync(self._arun_impl)(*args, **kwargs)
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
         self._init_run(config)
         try:
             return await self._arun_impl(*args, **kwargs)
         except NotImplementedError:
-            return await super()._arun(*args, config=config, **kwargs)
+            pass
+        return await super()._arun(*args, config=config, **kwargs)
 
     def _init_run(self, config: RunnableConfig):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})

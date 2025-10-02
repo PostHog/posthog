@@ -165,7 +165,23 @@ export class SegmentDestinationExecutorService {
 
                     let body: string | undefined = undefined
                     if (options?.json) {
-                        body = JSON.stringify(options.json)
+                        let jsonData = options.json
+
+                        // For the pipedrive activities endpoint, we need to omit the id field if it's null or an empty string
+                        // https://devcommunity.pipedrive.com/t/getting-bad-request-for-all-post-and-put-at-activities/345
+                        if (
+                            endpoint.endsWith('.pipedrive.com/api/v1/activities') &&
+                            jsonData &&
+                            typeof jsonData === 'object' &&
+                            'id' in jsonData
+                        ) {
+                            const { id, ...rest } = jsonData as any
+                            if (id === null || id === '') {
+                                jsonData = rest
+                            }
+                        }
+
+                        body = JSON.stringify(jsonData)
                         headers['Content-Type'] = 'application/json'
                     } else if (options?.body && options.body instanceof URLSearchParams) {
                         body = options.body.toString()

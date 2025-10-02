@@ -51,6 +51,7 @@ def calculate_for_query_based_insight(
     user: Optional[User],
     filters_override: Optional[dict] = None,
     variables_override: Optional[dict] = None,
+    tile_filters_override: Optional[dict] = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
@@ -59,19 +60,24 @@ def calculate_for_query_based_insight(
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
+    dashboard_filters_json = (
+        filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
+    )
+
+    variables_override_json = (
+        variables_override if variables_override is not None else dashboard.variables if dashboard is not None else None
+    )
+
+    # Tile filters overrides all other filters
+    if tile_filters_override is not None and tile_filters_override != {}:
+        dashboard_filters_json = tile_filters_override
+        variables_override_json = None
+
     response = process_response = process_query_dict(
         team,
         insight.query,
-        dashboard_filters_json=(
-            filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
-        ),
-        variables_override_json=(
-            variables_override
-            if variables_override is not None
-            else dashboard.variables
-            if dashboard is not None
-            else None
-        ),
+        dashboard_filters_json=dashboard_filters_json,
+        variables_override_json=variables_override_json,
         execution_mode=execution_mode,
         user=user,
         insight_id=insight.pk,

@@ -6,31 +6,27 @@ import { CustomMenuProps } from '../types'
 
 interface BrowserLikeMenuProps extends CustomMenuProps {
     href: string
-    canOpenInPostHogTab: boolean
     resetPanelLayout: (animate: boolean) => void
 }
 
 export function BrowserLikeMenuItems({
     MenuItem = DropdownMenuItem,
     href,
-    canOpenInPostHogTab,
     resetPanelLayout,
 }: BrowserLikeMenuProps): JSX.Element {
     return (
         <>
-            {canOpenInPostHogTab ? (
-                <MenuItem
-                    asChild
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        sceneLogic.findMounted()?.actions.newTab(href)
-                        resetPanelLayout(false)
-                    }}
-                    data-attr="tree-item-menu-open-link-button"
-                >
-                    <ButtonPrimitive menuItem>Open link in new PostHog tab</ButtonPrimitive>
-                </MenuItem>
-            ) : null}
+            <MenuItem
+                asChild
+                onClick={(e) => {
+                    e.stopPropagation()
+                    sceneLogic.findMounted()?.actions.newTab(href)
+                    resetPanelLayout(false)
+                }}
+                data-attr="tree-item-menu-open-link-button"
+            >
+                <ButtonPrimitive menuItem>Open link in new PostHog tab</ButtonPrimitive>
+            </MenuItem>
             <MenuItem
                 asChild
                 onClick={(e) => {
@@ -39,7 +35,7 @@ export function BrowserLikeMenuItems({
                 }}
                 data-attr="tree-item-menu-open-link-button"
             >
-                <ButtonPrimitive menuItem>Open link in new {canOpenInPostHogTab ? 'browser ' : ''}tab</ButtonPrimitive>
+                <ButtonPrimitive menuItem>Open link in new browser tab</ButtonPrimitive>
             </MenuItem>
             <MenuItem
                 asChild

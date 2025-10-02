@@ -1,12 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -20,6 +22,7 @@ import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
     BaseMathType,
+    Breadcrumb,
     ChartDisplayType,
     EventDefinitionType,
     HogQLMathType,
@@ -719,7 +722,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
                 FROM (
-                    SELECT 
+                    SELECT
                         distinct_id,
                         timestamp,
                         JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
@@ -765,9 +768,21 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             (s) => [s.refreshStatus],
             (refreshStatus) => Object.values(refreshStatus).some((status) => status.loading),
         ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        key: 'llm_analytics',
+                        name: 'LLM Analytics',
+                        iconType: 'llm_analytics',
+                    },
+                ]
+            },
+        ],
     }),
 
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
             // Normal parameter handling
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
@@ -797,7 +812,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         }
     }),
 
-    actionToUrl(() => ({
+    tabAwareActionToUrl(() => ({
         setPropertyFilters: ({ propertyFilters }) => [
             router.values.location.pathname,
             {

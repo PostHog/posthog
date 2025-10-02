@@ -7,11 +7,11 @@ export class TimeTree<T extends { timestamp: Dayjs }> {
     tree: RBTree<T>
 
     constructor() {
-        this.tree = new RBTree((a, b) => a.timestamp.diff(b.timestamp))
+        this.tree = new RBTree(this.compare)
     }
 
     clear(): void {
-        this.tree = new RBTree((a, b) => a.timestamp.diff(b.timestamp))
+        this.tree = new RBTree(this.compare)
     }
 
     getAll(): T[] {
@@ -28,17 +28,32 @@ export class TimeTree<T extends { timestamp: Dayjs }> {
         }
     }
 
-    next(from: Dayjs): T | undefined {
-        const nextIter = this.tree.upperBound({
-            timestamp: from,
-        } as T)
-        return nextIter.next() ?? undefined
+    // Return the previous item in the tree, or undefined if there is no previous item.
+    previous(to: Dayjs): T | undefined {
+        const needle = {
+            timestamp: to,
+        } as T
+        const it = this.tree.lowerBound(needle) // first >= x
+        if (it.data() === null) {
+            // x is greater than all items; predecessor is max (if any)
+            const v = this.tree.max()
+            return v === null ? undefined : v
+        }
+        const prev = it.prev()
+        return prev === null ? undefined : prev
     }
 
-    previous(to: Dayjs): T | undefined {
-        const prevIter = this.tree.lowerBound({
-            timestamp: to,
-        } as T)
-        return prevIter.prev() ?? undefined
+    // Return the next item in the tree, or undefined if there is no next item.
+    next(from: Dayjs): T | undefined {
+        const needle = {
+            timestamp: from,
+        } as T
+        const it = this.tree.upperBound(needle) // first > x
+        const v = it.data()
+        return v === null ? undefined : v // bintrees returns null at end
+    }
+
+    private compare(a: T, b: T): number {
+        return a.timestamp.diff(b.timestamp)
     }
 }

@@ -32,6 +32,19 @@ const meta: Meta = {
                         },
                     ]
                 },
+                '/api/environments/:team_id/external_data_sources/wizard': () => {
+                    return [
+                        200,
+                        {
+                            Stripe: {
+                                name: 'Stripe',
+                                iconPath: '/static/services/stripe.png',
+                                fields: [],
+                                caption: '',
+                            },
+                        },
+                    ]
+                },
             },
         }),
     ],
@@ -39,5 +52,5 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
-export const Onboarding: Story = {}
-export const OnboardingAddSource: Story = { args: { initialSetupView: 'add-source' } }
+export const Onboarding: Story = { args: { closeOnboarding: () => {} } }
+export const OnboardingAddSource: Story = { args: { initialSetupView: 'add-source', closeOnboarding: () => {} } }

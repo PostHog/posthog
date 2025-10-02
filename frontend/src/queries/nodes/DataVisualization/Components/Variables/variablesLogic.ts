@@ -59,6 +59,7 @@ export const variablesLogic = kea<variablesLogicType>([
         setEditorQuery: (query: string) => ({ query }),
         updateSourceQuery: true,
         resetVariables: true,
+        updateInternalSelectedVariable: (variable: HogQLVariable) => ({ variable }),
     })),
     propsChanged(({ props, actions, values }, oldProps) => {
         if (oldProps.queryInput !== props.queryInput) {
@@ -110,7 +111,6 @@ export const variablesLogic = kea<variablesLogicType>([
 
                     const variableType = allVariables.find((n) => n.id === variableId)?.type
                     const valueWithType = convertValueToCorrectType(value, variableType ?? 'String')
-
                     const variablesInState = [...state]
                     variablesInState[variableIndex] = {
                         ...variablesInState[variableIndex],
@@ -140,6 +140,18 @@ export const variablesLogic = kea<variablesLogicType>([
                 },
                 resetVariables: () => {
                     return []
+                },
+                updateInternalSelectedVariable: (state, { variable }) => {
+                    const variableIndex = state.findIndex((n) => n.variableId === variable.variableId)
+                    if (variableIndex < 0) {
+                        return state
+                    }
+                    const variablesInState = [...state]
+                    variablesInState[variableIndex] = {
+                        ...variable,
+                    }
+
+                    return variablesInState
                 },
             },
         ],

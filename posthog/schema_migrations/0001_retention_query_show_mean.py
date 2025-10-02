@@ -1,12 +1,10 @@
-from posthog.schema import NodeKind
-
 from posthog.schema_migrations.base import SchemaMigration
 
 
 class Migration(SchemaMigration):
     """Convert boolean 'showMean' field to a 'meanRetentionCalculation' field with 'simple'/'weighted' values."""
 
-    targets = {NodeKind.RETENTION_QUERY: 1}
+    targets = {"RetentionQuery": 1}
 
     def transform(self, query: dict) -> dict:
         if query["kind"] != "RetentionQuery":

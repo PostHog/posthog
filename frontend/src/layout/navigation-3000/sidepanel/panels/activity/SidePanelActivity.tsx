@@ -11,7 +11,6 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -53,21 +52,16 @@ export const SidePanelActivity = (): JSX.Element => {
 
     const { hasNotifications, notifications, importantChangesLoading, hasUnread } =
         useValues(sidePanelNotificationsLogic)
-    const { togglePolling, markAllAsRead, loadImportantChanges } = useActions(sidePanelNotificationsLogic)
+    const { markAllAsRead, loadImportantChanges } = useActions(sidePanelNotificationsLogic)
 
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-
-    usePageVisibilityCb((pageIsVisible) => {
-        togglePolling(pageIsVisible)
-    })
 
     useOnMountEffect(() => {
         loadImportantChanges(false)
 
         return () => {
             markAllAsRead()
-            togglePolling(false)
         }
     })
 

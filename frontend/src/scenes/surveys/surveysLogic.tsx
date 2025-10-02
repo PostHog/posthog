@@ -341,12 +341,6 @@ export const surveysLogic = kea<surveysLogicType>([
         },
     })),
     selectors({
-        isOnNewSceneLayout: [
-            (s) => [s.enabledFlags],
-            (enabledFlags: FeatureFlagsSet): boolean => {
-                return !!enabledFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-            },
-        ],
         isOnNewEmptyStateExperiment: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
@@ -403,6 +397,7 @@ export const surveysLogic = kea<surveysLogicType>([
                     key: Scene.Surveys,
                     name: 'Surveys',
                     path: urls.surveys(),
+                    iconType: 'survey',
                 },
             ],
         ],

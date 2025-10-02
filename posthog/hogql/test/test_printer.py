@@ -856,6 +856,17 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
+        self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
+        self.assertEqual(self._expr("groupArraySample(5, 123456)(event)"), "groupArraySample(5, 123456)(events.event)")
+        self.assertEqual(
+            self._expr("groupArraySampleIf(5)(event, event is not null)"),
+            "groupArraySampleIf(5)(events.event, isNotNull(events.event))",
+        )
+        self.assertEqual(
+            self._expr("groupArraySampleIf(5, 123456)(event, event is not null)"),
+            "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
+        )
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
@@ -1696,6 +1707,69 @@ class TestPrinter(BaseTest):
             "hogql_val_5": [1, 0],
         }
 
+    @patch("posthog.hogql.printer.get_materialized_column_for_property")
+    def test_ai_trace_id_optimizations(self, mock_get_mat_col):
+        """Test that $ai_trace_id gets special treatment for bloom filter index optimization"""
+
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        mock_mat_col = MaterializedColumn(
+            name="mat_$ai_trace_id",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="$ai_trace_id", is_disabled=False
+            ),
+            is_nullable=True,
+        )
+
+        # Basic equality comparison - no ifNull wrapping
+        mock_get_mat_col.return_value = mock_mat_col
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id = 'trace123'", context)
+
+        # Should generate: equals(mat_$ai_trace_id, 'trace123') without ifNull wrapper
+        # Check that the WHERE clause contains the direct equals check for $ai_trace_id
+        self.assertIn("equals(events.`mat_$ai_trace_id`, %(hogql_val_4)s)", sql)
+        # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
+        self.assertIn("WHERE and(equals(events.team_id,", sql)
+        self.assertIn("equals(events.`mat_$ai_trace_id`, %(hogql_val_4)s))", sql)
+
+        # Verify the placeholder value (it's hogql_val_4 due to other parameters in the query)
+        self.assertEqual(context.values["hogql_val_4"], "trace123")
+
+        # With materialized column - no nullIf wrapping
+        context = HogQLContext(team_id=self.team.pk)
+        sql = self._expr("properties.$ai_trace_id", context)
+
+        # Should be: events.mat_$ai_trace_id
+        # NOT: nullIf(nullIf(events.mat_$ai_trace_id, ''), 'null')
+        self.assertEqual(sql.strip(), "events.`mat_$ai_trace_id`")
+        self.assertNotIn("nullIf", sql)
+
+        # IN operations - no ifNull wrapping
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id IN ('trace1', 'trace2')", context)
+
+        # Should generate clean IN without ifNull wrapper
+        self.assertIn("in(events.`mat_$ai_trace_id`, tuple(%(hogql_val_4)s, %(hogql_val_5)s))", sql)
+        self.assertNotIn("ifNull(in", sql)
+
+        # Verify the placeholder values
+        self.assertEqual(context.values["hogql_val_4"], "trace1")
+        self.assertEqual(context.values["hogql_val_5"], "trace2")
+
+        # Verify other properties still get normal treatment
+        mock_get_mat_col.return_value = None  # No materialized column for other props
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        sql = self._select("SELECT * FROM events WHERE properties.other_prop = 'value'", context)
+
+        # Other properties should still have null handling with ifNull wrapping
+        self.assertIn(
+            "ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_7)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_8)s), 0)",
+            sql,
+        )
+
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
         context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
@@ -2505,6 +2579,14 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
             )
+
+    def test_team_id_guarding_events(self):
+        sql = self._select(
+            "SELECT event FROM events",
+        )
+        assert (
+            sql == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
+        )
 
     @parameterized.expand([[True], [False]])
     @pytest.mark.usefixtures("unittest_snapshot")

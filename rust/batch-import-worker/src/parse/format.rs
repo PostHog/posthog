@@ -45,8 +45,10 @@ impl FormatConfig {
             team_id: model.team_id,
             token: context.get_token_for_team_id(model.team_id).await?,
             identify_cache: context.identify_cache.clone(),
+            group_cache: context.group_cache.clone(),
             import_events: model.import_config.import_events,
             generate_identify_events: model.import_config.generate_identify_events,
+            generate_group_identify_events: model.import_config.generate_group_identify_events,
         };
 
         match content {

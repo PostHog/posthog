@@ -191,16 +191,19 @@ export const groupLogic = kea<groupLogicType>([
                     key: Scene.DataManagement,
                     name: 'People',
                     path: urls.persons(),
+                    iconType: 'person',
                 })
                 breadcrumbs.push({
                     key: groupTypeIndex,
                     name: capitalizeFirstLetter(groupTypeName),
                     path: urls.groups(String(groupTypeIndex)),
+                    iconType: 'group',
                 })
                 breadcrumbs.push({
                     key: [Scene.Group, `${groupTypeIndex}-${groupKey}`],
                     name: groupDisplayId(groupKey, groupData?.group_properties || {}),
                     path: urls.group(String(groupTypeIndex), groupKey),
+                    iconType: 'group',
                 })
 
                 return breadcrumbs

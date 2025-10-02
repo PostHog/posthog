@@ -38,6 +38,7 @@ import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries
 import { UserBasicType } from '~/types'
 
 import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
+import { getExperimentalProductsTree } from './projectTreeWebAnalyticsExperiment'
 
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
@@ -709,7 +710,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     })
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const data: [string, FileSystemImport[]][] = [
-                        ['products://', getDefaultTreeProducts()],
+                        ['products://', getExperimentalProductsTree(featureFlags) || getDefaultTreeProducts()],
                         ['data://', getDefaultTreeData()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],

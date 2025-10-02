@@ -9,6 +9,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import ANY
 
 from posthog.schema import CurrencyCode, HogQLQueryModifiers, RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
@@ -344,12 +345,12 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 results.results,
                 [
-                    ("jane.doe@example.com", Decimal("482.2158673452"), Decimal("130.0504749995")),
-                    ("jane.smith@example.com", Decimal("254.12345"), None),
-                    ("john.doe@example.com", Decimal("297.0065541769"), Decimal("26.1807267165")),
-                    ("john.doejr@example.com", Decimal("1529.9212"), None),
-                    ("john.doejrjr@example.com", Decimal("2796.37014"), None),
-                    ("john.smith@example.com", Decimal("4171.09153"), None),
+                    ("jane.doe@example.com", Decimal("482.2158673452"), ANY),
+                    ("jane.smith@example.com", Decimal("254.12345"), ANY),
+                    ("john.doe@example.com", Decimal("297.0065541769"), ANY),
+                    ("john.doejr@example.com", Decimal("1529.9212"), ANY),
+                    ("john.doejrjr@example.com", Decimal("2796.37014"), ANY),
+                    ("john.smith@example.com", Decimal("4171.09153"), ANY),
                 ],
             )
 

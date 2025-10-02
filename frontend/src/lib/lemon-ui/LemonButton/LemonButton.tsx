@@ -3,12 +3,9 @@ import './LemonButton.scss'
 import clsx from 'clsx'
 import React, { useContext } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconExternal } from '@posthog/icons'
 
-import { accessLevelSatisfied, resourceTypeToString } from 'lib/components/AccessControlAction'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'
@@ -76,6 +73,8 @@ export interface LemonButtonPropsBase
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
+    /** Prevent dialog from closing when clicked */
+    preventClosing?: boolean
     /** Wrap the main button element with a container element */
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     /** Static offset (px) to adjust tooltip arrow position. Should only be used with fixed tooltipPlacement */
@@ -84,12 +83,6 @@ export interface LemonButtonPropsBase
     tooltipForceMount?: boolean
     /** Whether to stop event propagation on click */
     stopPropagation?: boolean
-    /** Access control props for automatic permission checking */
-    accessControl?: {
-        resourceType: AccessControlResourceType
-        minAccessLevel: AccessControlLevel
-        userAccessLevel?: AccessControlLevel
-    }
 }
 
 export type SideAction = Pick<
@@ -123,11 +116,13 @@ export interface LemonButtonWithoutSideActionProps extends LemonButtonPropsBase 
     sideIcon?: React.ReactElement | null
     sideAction?: null
 }
+
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
     sideAction?: SideAction
     sideIcon?: null
 }
+
 export type LemonButtonProps = LemonButtonWithoutSideActionProps | LemonButtonWithSideActionProps
 
 /** Styled button. */
@@ -163,7 +158,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 tooltipDocLink,
                 tooltipForceMount,
                 stopPropagation,
-                accessControl,
                 ...buttonProps
             },
             ref
@@ -202,22 +196,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             }
             if (within3000PageHeader && parentPopoverLevel === -1) {
                 size = 'small' // Ensure that buttons in the page header are small (but NOT inside dropdowns!)
-            }
-
-            // Handle access control
-            if (accessControl) {
-                const { userAccessLevel, minAccessLevel, resourceType } = accessControl
-                const hasAccess = userAccessLevel
-                    ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel)
-                    : true
-                if (!hasAccess) {
-                    disabled = true
-                    if (!disabledReason) {
-                        disabledReason = `You don't have sufficient permissions for this ${resourceTypeToString(
-                            resourceType
-                        )}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
-                    }
-                }
             }
 
             let tooltipContent: TooltipProps['title']
@@ -286,7 +264,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     <span className="LemonButton__chrome">
                         {icon ? <span className="LemonButton__icon">{icon}</span> : null}
                         {children ? <span className="LemonButton__content">{children}</span> : null}
-                        {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
+                        {sideIcon ? (
+                            <span className="LemonButton__icon">{sideIcon}</span>
+                        ) : targetBlank ? (
+                            <IconExternal />
+                        ) : null}
                     </span>
                 </ButtonComponent>
             )

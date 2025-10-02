@@ -12,11 +12,7 @@ import aioboto3
 import pytest_asyncio
 from rest_framework import status
 
-from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import create_batch_export_ok
-from posthog.api.test.test_team import create_team
-from posthog.api.test.test_user import create_user
 from posthog.models import BatchExportDestination
 
 from products.batch_exports.backend.api.destination_tests import (
@@ -32,10 +28,7 @@ pytestmark = [
 
 
 @pytest.mark.parametrize("destination", ["S3", "BigQuery", "Snowflake"])
-def test_can_get_test_for_destination(client: HttpClient, destination: str):
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
+def test_can_get_test_for_destination(client: HttpClient, destination: str, organization, team, user):
     client.force_login(user)
 
     response = client.get(
@@ -99,7 +92,9 @@ async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
                 await minio_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
 
-def test_can_run_s3_test_step_for_new_destination(client: HttpClient, bucket_name, minio_client):
+def test_can_run_s3_test_step_for_new_destination(
+    client: HttpClient, bucket_name, minio_client, organization, team, user
+):
     destination_data = {
         "type": "S3",
         "config": {
@@ -118,9 +113,6 @@ def test_can_run_s3_test_step_for_new_destination(client: HttpClient, bucket_nam
         "interval": "hour",
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
     response = client.post(
@@ -137,7 +129,9 @@ def test_can_run_s3_test_step_for_new_destination(client: HttpClient, bucket_nam
     assert destination_test["result"]["message"] is None
 
 
-def test_can_run_s3_test_step_for_destination(client: HttpClient, bucket_name, minio_client, temporal):
+def test_can_run_s3_test_step_for_destination(
+    client: HttpClient, bucket_name, minio_client, temporal, organization, team, user
+):
     destination_data = {
         "type": "S3",
         "config": {
@@ -156,23 +150,19 @@ def test_can_run_s3_test_step_for_destination(client: HttpClient, bucket_name, m
         "interval": "hour",
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    with start_test_worker(temporal):
-        batch_export = create_batch_export_ok(
-            client,
-            team.pk,
-            batch_export_data,
-        )
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
 
-        response = client.post(
-            f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
-            {**{"step": 0}, **batch_export_data},
-            content_type="application/json",
-        )
+    response = client.post(
+        f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
+        {**{"step": 0}, **batch_export_data},
+        content_type="application/json",
+    )
 
     assert response.status_code == status.HTTP_200_OK, response.json()
 
@@ -225,7 +215,9 @@ def snowflake_config(database, schema) -> dict[str, str | None]:
     return config
 
 
-def test_can_run_snowflake_test_step_for_partial_config(client: HttpClient, snowflake_config, temporal):
+def test_can_run_snowflake_test_step_for_partial_config(
+    client: HttpClient, snowflake_config, temporal, organization, team, user
+):
     config = {
         "role": snowflake_config["role"],
         "schema": snowflake_config["schema"],
@@ -252,39 +244,35 @@ def test_can_run_snowflake_test_step_for_partial_config(client: HttpClient, snow
         "interval": "hour",
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    with start_test_worker(temporal):
-        batch_export = create_batch_export_ok(
-            client,
-            team.pk,
-            batch_export_data,
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    batch_export_data = {
+        "name": "my-production-snowflake-destination",
+        "destination": {
+            "type": "Snowflake",
+            "config": {"account": "Something", "authentication_type": "password"},
+        },
+        "interval": "hour",
+    }
+
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.destination_tests.DestinationTest.run_step"
+    ) as run_step_mocked:
+        fake_test_step = SnowflakeEstablishConnectionTestStep()
+        fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
+        run_step_mocked.return_value = fake_test_step
+
+        response = client.post(
+            f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
+            {**{"step": 0}, **batch_export_data},
+            content_type="application/json",
         )
-
-        batch_export_data = {
-            "name": "my-production-snowflake-destination",
-            "destination": {
-                "type": "Snowflake",
-                "config": {"account": "Something", "authentication_type": "password"},
-            },
-            "interval": "hour",
-        }
-
-        with unittest.mock.patch(
-            "products.batch_exports.backend.api.destination_tests.DestinationTest.run_step"
-        ) as run_step_mocked:
-            fake_test_step = SnowflakeEstablishConnectionTestStep()
-            fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
-            run_step_mocked.return_value = fake_test_step
-
-            response = client.post(
-                f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
-                {**{"step": 0}, **batch_export_data},
-                content_type="application/json",
-            )
 
     assert response.status_code == status.HTTP_200_OK, response.json()
 
@@ -294,7 +282,9 @@ def test_can_run_snowflake_test_step_for_partial_config(client: HttpClient, snow
     assert destination_test["result"]["message"] is None
 
 
-def test_can_run_s3_test_step_with_additional_fields(client: HttpClient, bucket_name, minio_client, temporal):
+def test_can_run_s3_test_step_with_additional_fields(
+    client: HttpClient, bucket_name, minio_client, temporal, organization, team, user
+):
     """Test we can run test steps successfully even with additional configuration fields.
 
     Configuration can change over time, and we should ensure backwards compatibility in
@@ -320,26 +310,22 @@ def test_can_run_s3_test_step_with_additional_fields(client: HttpClient, bucket_
         "interval": "hour",
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    with start_test_worker(temporal):
-        batch_export = create_batch_export_ok(
-            client,
-            team.pk,
-            batch_export_data,
-        )
-        dest = BatchExportDestination.objects.get(batchexport=batch_export["id"])
-        dest.config["unknown_field"] = "unknown"
-        dest.save()
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+    dest = BatchExportDestination.objects.get(batchexport=batch_export["id"])
+    dest.config["unknown_field"] = "unknown"
+    dest.save()
 
-        response = client.post(
-            f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
-            {**{"step": 0}, **batch_export_data},
-            content_type="application/json",
-        )
+    response = client.post(
+        f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
+        {**{"step": 0}, **batch_export_data},
+        content_type="application/json",
+    )
 
     assert response.status_code == status.HTTP_200_OK, response.json()
 
@@ -362,7 +348,9 @@ def bigquery_config() -> dict[str, str]:
     }
 
 
-def test_can_run_bigquery_test_step_with_castable_type(client: HttpClient, bigquery_config, temporal):
+def test_can_run_bigquery_test_step_with_castable_type(
+    client: HttpClient, bigquery_config, temporal, organization, team, user
+):
     """Test a destination test with invalid types that can be casted to required types."""
     config = {"use_json_type": "True", **bigquery_config}  # "True" (string) can be casted to True (bool)
 
@@ -377,30 +365,26 @@ def test_can_run_bigquery_test_step_with_castable_type(client: HttpClient, bigqu
         "interval": "hour",
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    with start_test_worker(temporal):
-        batch_export = create_batch_export_ok(
-            client,
-            team.pk,
-            batch_export_data,
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.destination_tests.DestinationTest.run_step"
+    ) as run_step_mocked:
+        fake_test_step = BigQueryProjectTestStep()
+        fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
+        run_step_mocked.return_value = fake_test_step
+
+        response = client.post(
+            f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
+            {**{"step": 0}, **batch_export_data},
+            content_type="application/json",
         )
-
-        with unittest.mock.patch(
-            "products.batch_exports.backend.api.destination_tests.DestinationTest.run_step"
-        ) as run_step_mocked:
-            fake_test_step = BigQueryProjectTestStep()
-            fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
-            run_step_mocked.return_value = fake_test_step
-
-            response = client.post(
-                f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
-                {**{"step": 0}, **batch_export_data},
-                content_type="application/json",
-            )
 
     assert response.status_code == status.HTTP_200_OK, response.json()
 

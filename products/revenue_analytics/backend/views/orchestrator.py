@@ -46,8 +46,9 @@ def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHa
         )
 
         for source in queryset:
-            with timings.measure(f"source.{source.pk}"):
-                yield SourceHandle(type=source.source_type.lower(), team=team, source=source)
+            if source.revenue_analytics_config_safe.enabled:
+                with timings.measure(f"source.{source.pk}"):
+                    yield SourceHandle(type=source.source_type.lower(), team=team, source=source)
 
 
 def _query_to_view(

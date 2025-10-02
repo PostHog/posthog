@@ -385,7 +385,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
         # Validate linkedFlagVariant if provided
-        linked_flag_variant = data.get("conditions", {}).get("linkedFlagVariant")
+        conditions = data.get("conditions") or {}
+        linked_flag_variant = conditions.get("linkedFlagVariant")
         if linked_flag_variant and linked_flag and linked_flag_variant != "any":
             # Get available variants from the linked feature flag
             available_variants = [variant["key"] for variant in linked_flag.variants]
@@ -1285,9 +1286,25 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if question_index is None and question_id is None:
             raise exceptions.ValidationError("question_index or question_id is required")
+        # Extract the question text from the survey
+        question_text = None
+        if survey.questions and question_id:
+            # Find the question with the matching ID
+            for question in survey.questions:
+                if question.get("id", None) == question_id:
+                    question_text = question.get("question")
+                    break
+        elif survey.questions and question_index is not None:
+            # Fallback to question index if question_id is not provided
+            if 0 <= question_index < len(survey.questions):
+                question_text = survey.questions[question_index].get("question")
+
+        if question_text is None:
+            raise exceptions.ValidationError("the text of the question is required")
 
         summary = summarize_survey_responses(
             survey_id=survey_id,
+            question_text=question_text,
             question_index=question_index,
             question_id=question_id,
             survey_start=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),

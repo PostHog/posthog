@@ -15,7 +15,7 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
 
     return (
         <>
-            <LemonButton type="primary" onClick={() => setVisible(true)} data-attr="create-action">
+            <LemonButton size="small" type="primary" onClick={() => setVisible(true)} data-attr="create-action">
                 New action
             </LemonButton>
             <LemonModal

@@ -505,7 +505,7 @@ mod tests {
                 if let Some(&last_offset) = last_offsets.get(key) {
                     if offset <= last_offset {
                         self.ordering_violations.fetch_add(1, Ordering::SeqCst);
-                        eprintln!(
+                        warn!(
                             "Order violation: key {key:?} processed offset {offset} after {last_offset}"
                         );
                     }
