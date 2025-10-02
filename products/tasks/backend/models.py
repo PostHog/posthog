@@ -221,6 +221,17 @@ class WorkflowStage(models.Model):
         return None
 
 
+class TaskCounter(models.Model):
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, related_name="task_counter")
+    next_number = models.IntegerField(
+        default=0,  # Arrays start at zero :)
+        help_text="Next task number to assign",
+    )
+
+    class Meta:
+        db_table = "posthog_task_counter"
+
+
 class Task(models.Model):
     class OriginProduct(models.TextChoices):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
@@ -231,6 +242,7 @@ class Task(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
@@ -278,6 +290,7 @@ class Task(models.Model):
         db_table = "posthog_task"
         managed = True
         ordering = ["position"]
+        unique_together = [("team", "task_number")]
 
     def __str__(self):
         if self.current_stage:
@@ -285,7 +298,9 @@ class Task(models.Model):
         return f"{self.title} (no workflow)"
 
     def save(self, *args, **kwargs):
-        """Override save to handle workflow consistency."""
+        if self.task_number is None:
+            self._assign_task_number()
+
         # Auto-assign default workflow if no workflow is set
         if not self.workflow:
             default_workflow = TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
@@ -303,6 +318,21 @@ class Task(models.Model):
             self.current_stage = None
 
         super().save(*args, **kwargs)
+
+    @staticmethod
+    def generate_team_prefix(team_name: str) -> str:
+        clean_name = "".join(c for c in team_name if c.isalnum())
+        uppercase_letters = [c for c in clean_name if c.isupper()]
+        if len(uppercase_letters) >= 3:
+            return "".join(uppercase_letters[:3])
+        return clean_name[:3].upper() if clean_name else "TSK"
+
+    @property
+    def slug(self) -> str:
+        if self.task_number is None:
+            return ""
+        prefix = self.generate_team_prefix(self.team.name)
+        return f"{prefix}-{self.task_number}"
 
     # TODO: Support only one repository, 1 Task = 1 PR probably makes the most sense for scoping
     @property
@@ -374,6 +404,13 @@ class Task(models.Model):
             return workflow.stages.filter(is_archived=False).order_by("position").first()
 
         return current_stage.next_stage
+
+    def _assign_task_number(self) -> None:
+        with transaction.atomic():
+            counter, _ = TaskCounter.objects.select_for_update().get_or_create(team_id=self.team.pk)
+            self.task_number = counter.next_number
+            counter.next_number += 1
+            counter.save()
 
 
 class TaskProgress(models.Model):
