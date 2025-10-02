@@ -72,7 +72,7 @@ class PersonDBRouter:
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
         """
-        don't run any migrations against the persons db, only against hte default
+        don't run any migrations against the persons db, only against the default
         run all migrations against the default
         """
         return db != "persons_db_writer"
