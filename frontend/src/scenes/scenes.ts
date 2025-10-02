@@ -501,6 +501,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.propertyDefinitions()]: [Scene.DataManagement, 'propertyDefinitions'],
     [urls.propertyDefinition(':id')]: [Scene.PropertyDefinition, 'propertyDefinition'],
     [urls.propertyDefinitionEdit(':id')]: [Scene.PropertyDefinitionEdit, 'propertyDefinitionEdit'],
+    [urls.schemaManagement()]: [Scene.DataManagement, 'schemaManagement'],
     [urls.dataManagementHistory()]: [Scene.DataManagement, 'dataManagementHistory'],
     [urls.database()]: [Scene.DataManagement, 'database'],
     [urls.activity(ActivityTab.ExploreEvents)]: [Scene.ExploreEvents, 'exploreEvents'],

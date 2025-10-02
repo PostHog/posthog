@@ -349,6 +349,12 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         href: urls.propertyDefinitions(),
     },
     {
+        path: 'Schema Management',
+        category: 'Definitions',
+        iconType: 'event_definition',
+        href: urls.schemaManagement(),
+    },
+    {
         path: 'Annotations',
         category: 'Metadata',
         iconType: 'annotation',

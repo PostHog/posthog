@@ -38,6 +38,7 @@ export const urls = {
     propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,
     propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
     propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
+    schemaManagement: (): string => '/data-management/schema',
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
