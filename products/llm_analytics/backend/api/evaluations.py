@@ -79,11 +79,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mod
     filterset_class = EvaluationFilter
 
     def safely_get_queryset(self, queryset: QuerySet[Evaluation]) -> QuerySet[Evaluation]:
-        return (
-            queryset.filter(
-                team_id=self.team_id,
-                deleted=False,
-            )
-            .select_related("created_by")
-            .order_by("-created_at")
-        )
+        queryset = queryset.filter(team_id=self.team_id).select_related("created_by").order_by("-created_at")
+        if not self.action.endswith("update"):
+            queryset = queryset.filter(deleted=False)
+
+        return queryset

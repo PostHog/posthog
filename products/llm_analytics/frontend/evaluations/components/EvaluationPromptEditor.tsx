@@ -15,7 +15,7 @@ export function EvaluationPromptEditor(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <Field name="prompt" label="Evaluation Prompt">
+            <Field name="prompt" label="Evaluation prompt">
                 <div className="space-y-2">
                     <LemonTextArea
                         value={evaluation.prompt}
@@ -39,7 +39,7 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
 
             {evaluation.prompt.length > 0 && (
                 <div className="bg-bg-light border rounded p-3">
-                    <h4 className="text-sm font-semibold mb-2">Prompt Guidelines:</h4>
+                    <h4 className="text-sm font-semibold mb-2">Prompt guidelines:</h4>
                     <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                         <li>Be specific about what you want to evaluate</li>
                         <li>

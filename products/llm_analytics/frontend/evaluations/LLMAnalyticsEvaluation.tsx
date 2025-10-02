@@ -66,7 +66,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
             {/* Header */}
             <div className="flex justify-between items-start pb-4 border-b">
                 <div className="space-y-2">
-                    <h1 className="text-2xl font-semibold">{isNewEvaluation ? 'New Evaluation' : evaluation.name}</h1>
+                    <h1 className="text-2xl font-semibold">{isNewEvaluation ? 'New evaluation' : evaluation.name}</h1>
                     <div className="flex items-center gap-2">
                         {isNewEvaluation ? (
                             <LemonTag type="primary">New</LemonTag>
@@ -100,7 +100,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                 <Form logic={llmEvaluationLogic} formKey="evaluation" className="space-y-6">
                     {/* Basic Information */}
                     <div className="bg-bg-light border rounded p-6">
-                        <h3 className="text-lg font-semibold mb-4">Basic Information</h3>
+                        <h3 className="text-lg font-semibold mb-4">Basic information</h3>
 
                         <div className="space-y-4">
                             <Field name="name" label="Name">
@@ -143,7 +143,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
 
                     {/* Prompt Configuration */}
                     <div className="bg-bg-light border rounded p-6">
-                        <h3 className="text-lg font-semibold mb-4">Evaluation Prompt</h3>
+                        <h3 className="text-lg font-semibold mb-4">Evaluation prompt</h3>
                         <EvaluationPromptEditor />
                     </div>
 
@@ -165,7 +165,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     <div className="max-w-6xl">
                         <div className="flex justify-between items-center mb-4">
                             <div>
-                                <h3 className="text-lg font-semibold">Evaluation Runs</h3>
+                                <h3 className="text-lg font-semibold">Evaluation runs</h3>
                                 <p className="text-muted text-sm">History of when this evaluation has been executed.</p>
                             </div>
                             {runsSummary && (

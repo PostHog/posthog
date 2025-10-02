@@ -222,7 +222,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data["results"]), 0)
 
-        # Should not be accessible directly
+        # Should not be accessible for retrieval
         response = self.client.get(f"/api/environments/{self.team.id}/evaluations/{evaluation_config.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 

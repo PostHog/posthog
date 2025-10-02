@@ -66,7 +66,7 @@ export function EvaluationTriggers(): JSX.Element {
                     {/* Header */}
                     <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2">
-                            <h4 className="font-semibold">Condition Set {index + 1}</h4>
+                            <h4 className="font-semibold">Condition set {index + 1}</h4>
                             {evaluation.conditions.length > 1 && (
                                 <div className="text-sm text-muted">{index === 0 ? 'IF' : 'OR IF'}</div>
                             )}
@@ -94,7 +94,7 @@ export function EvaluationTriggers(): JSX.Element {
 
                     {/* Percentage Control */}
                     <div className="space-y-2">
-                        <label className="block text-sm font-medium">Sampling Percentage</label>
+                        <label className="block text-sm font-medium">Sampling percentage</label>
                         <div className="flex items-center gap-4 max-w-md">
                             <div className="flex-1">
                                 <LemonSlider
@@ -120,13 +120,14 @@ export function EvaluationTriggers(): JSX.Element {
                             </div>
                         </div>
                         <div className="text-xs text-muted">
-                            This evaluation will run on {condition.rollout_percentage}% of matching generations
+                            This evaluation will run on {condition.rollout_percentage.toFixed(2)}% of matching
+                            generations
                         </div>
                     </div>
 
                     {/* Property Filters */}
                     <div className="space-y-2">
-                        <label className="block text-sm font-medium">Generation Properties</label>
+                        <label className="block text-sm font-medium">Generation properties</label>
                         <div className="text-sm text-muted mb-2">
                             Define which generation events should trigger this evaluation. Leave empty to match all
                             generations.

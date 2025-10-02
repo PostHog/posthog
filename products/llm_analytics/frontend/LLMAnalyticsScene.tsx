@@ -26,7 +26,9 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -261,8 +263,9 @@ function LLMAnalyticsEvaluations(): JSX.Element {
 
 function LLMAnalyticsEvaluationsContent(): JSX.Element {
     const { filteredEvaluations, evaluationsLoading, evaluationsFilter } = useValues(llmEvaluationsLogic)
-    const { setEvaluationsFilter, toggleEvaluationEnabled, deleteEvaluation, duplicateEvaluation } =
+    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations } =
         useActions(llmEvaluationsLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
 
     const columns: LemonTableColumns<EvaluationConfig> = [
@@ -363,9 +366,11 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                                 icon={<IconTrash />}
                                 status="danger"
                                 onClick={() => {
-                                    if (window.confirm(`Are you sure you want to delete "${evaluation.name}"?`)) {
-                                        deleteEvaluation(evaluation.id)
-                                    }
+                                    deleteWithUndo({
+                                        endpoint: `environments/${currentTeamId}/evaluations`,
+                                        object: evaluation,
+                                        callback: () => loadEvaluations(),
+                                    })
                                 }}
                                 fullWidth
                             >

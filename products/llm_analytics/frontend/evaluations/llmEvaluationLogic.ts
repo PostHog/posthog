@@ -171,7 +171,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     })),
 
     selectors({
-        isNewEvaluation: [() => [(props) => props.evaluationId], (evaluationId: string) => evaluationId === 'new'],
+        isNewEvaluation: [(_, props) => [props.evaluationId], (evaluationId: string) => evaluationId === 'new'],
 
         formValid: [
             (s) => [s.evaluation],
