@@ -9,7 +9,7 @@ import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
+import { LemonModalContent, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -298,20 +298,6 @@ const RelatedIssues = (): JSX.Element => {
                 <LemonModalContent>
                     {selectedIssue && <IssueModalContent issueId={selectedIssue.id} />}
                 </LemonModalContent>
-                <LemonModalFooter>
-                    <div className="flex gap-2">
-                        <Link
-                            to={urls.errorTrackingIssue(selectedIssue?.id || '')}
-                            className="text-link hover:underline"
-                            onClick={() => setSelectedIssue(null)}
-                        >
-                            Open in New Tab
-                        </Link>
-                        <ButtonPrimitive variant="secondary" onClick={() => setSelectedIssue(null)}>
-                            Close
-                        </ButtonPrimitive>
-                    </div>
-                </LemonModalFooter>
             </LemonModal>
         </ScenePanelLabel>
     )
