@@ -207,9 +207,13 @@ const RelatedIssues = (): JSX.Element => {
                         return (
                             <div
                                 key={relatedIssue.id}
-                                className="flex items-center justify-between p-2 border rounded hover:bg-gray-50"
+                                className="flex items-center justify-between p-2 border rounded hover:bg-gray-50 bg-surface-primary"
                             >
-                                <Link to={urls.errorTrackingIssue(relatedIssue.id)} className="flex-1 min-w-0">
+                                <Link
+                                    to={urls.errorTrackingIssue(relatedIssue.id)}
+                                    className="flex flex-col gap-1 min-w-0"
+                                    subtle
+                                >
                                     <div className="flex items-center gap-2">
                                         {/* <span className="shrink-0 text-gray-600">
                                             <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" />
@@ -221,13 +225,12 @@ const RelatedIssues = (): JSX.Element => {
                                     )}
                                 </Link>
                                 <ButtonPrimitive
-                                    size="xs"
-                                    variant="outline"
+                                    size="xxs"
                                     onClick={(e) => {
                                         e.preventDefault()
                                         handleMerge(relatedIssue.id)
                                     }}
-                                    className="ml-2 shrink-0"
+                                    className="shrink-0 px-2 py-3"
                                 >
                                     Merge
                                 </ButtonPrimitive>
