@@ -48,7 +48,7 @@ def call_root_for_insight_generation(demo_org_team_user):
             path_map={
                 "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
                 "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
-                "root": AssistantNodeName.END,
+                "root": AssistantNodeName.ROOT,
                 "search_documentation": AssistantNodeName.END,
                 "end": AssistantNodeName.END,
             }

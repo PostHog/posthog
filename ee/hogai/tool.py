@@ -1,12 +1,12 @@
 import json
 import pkgutil
 import importlib
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantContextualTool
 
@@ -80,14 +80,26 @@ class MaxTool(AssistantContextMixin, BaseTool):
         user: User,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
+        name: str | None = None,
+        description: str | None = None,
+        args_schema: type[BaseModel] | None = None,
+        context_manager: AssistantContextManager | None = None,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        tool_kwargs: dict[str, Any] = {}
+        if name is not None:
+            tool_kwargs["name"] = name
+        if description is not None:
+            tool_kwargs["description"] = description
+        if args_schema is not None:
+            tool_kwargs["args_schema"] = args_schema
+
+        super().__init__(**tool_kwargs, **kwargs)
         self._team = team
         self._user = user
         self._state = state if state else AssistantState(messages=[])
         self._config = config if config else RunnableConfig(configurable={})
-        self._context_manager = AssistantContextManager(team, user, self._config)
+        self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -128,3 +140,19 @@ class MaxTool(AssistantContextMixin, BaseTool):
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
         return self.root_system_prompt_template.format(**formatted_context)
+
+    @classmethod
+    async def create_tool_class(
+        cls,
+        *,
+        team: Team,
+        user: User,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+    ) -> Self:
+        """
+        Factory that creates a tool class.
+
+        Override this factory to dynamically modify the tool name, description, args schema, etc.
+        """
+        raise NotImplementedError

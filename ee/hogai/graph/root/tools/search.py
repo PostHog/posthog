@@ -60,7 +60,7 @@ class SearchToolArgs(BaseModel):
 
 
 class SearchTool(MaxTool):
-    name: Literal["Search"] = "Search"
+    name: Literal["search"] = "search"
     description: str = SEARCH_TOOL_PROMPT
     thinking_message: str = "Searching for information"
     root_system_prompt_template: str = "Searches documentation or user data in PostHog (insights)"
@@ -68,6 +68,7 @@ class SearchTool(MaxTool):
     show_tool_call_message: bool = False
 
     async def _arun_impl(self, kind: SearchKind, query: str) -> tuple[str, dict[str, Any] | None]:
-        if not settings.INKEEP_API_KEY:
+        if kind == "docs" and not settings.INKEEP_API_KEY:
             return "This tool is not available in this environment.", None
+        # Used for routing
         return "Search tool executed", SearchToolArgs(kind=kind, query=query).model_dump()

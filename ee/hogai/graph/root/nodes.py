@@ -11,7 +11,7 @@ from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
 )
-from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
@@ -38,6 +38,7 @@ from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
 from ee.hogai.utils.helpers import find_start_message, insert_messages_before_start
+from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
     AssistantNodeName,
@@ -55,6 +56,7 @@ from .prompts import (
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
     ROOT_CONVERSATION_SUMMARY_PROMPT,
+    ROOT_GROUPS_PROMPT,
     ROOT_HARD_LIMIT_REACHED_PROMPT,
     ROOT_SYSTEM_PROMPT,
 )
@@ -108,10 +110,11 @@ class RootNode(AssistantNode):
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         # Add context messages on start of the conversation.
-        tools, billing_context_prompt, core_memory = await asyncio.gather(
+        tools, billing_context_prompt, core_memory, groups = await asyncio.gather(
             self._get_tools(state, config),
             self._get_billing_prompt(config),
             self._aget_core_memory_text(),
+            self.context_manager.get_group_names(),
         )
 
         # Add context messages on start of the conversation.
@@ -147,20 +150,15 @@ class RootNode(AssistantNode):
             window_id = self._find_new_window_id(messages_to_replace)
             langchain_messages = self._construct_messages(messages_to_replace, window_id, state.root_tool_calls_count)
 
-        core_memory_prompt = (
-            PromptTemplate.from_template(CORE_MEMORY_PROMPT, template_format="mustache")
-            .format_prompt(core_memory=core_memory)
-            .to_string()
-        )
-
         system_prompts = ChatPromptTemplate.from_messages(
             [
                 ("system", ROOT_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         ).format_messages(
-            core_memory_prompt=core_memory_prompt,
+            groups_prompt=f" {format_prompt_string(ROOT_GROUPS_PROMPT, groups=', '.join(groups))}" if groups else "",
             billing_context=billing_context_prompt,
+            core_memory_prompt=format_prompt_string(CORE_MEMORY_PROMPT, core_memory=core_memory),
         )
 
         # Mark the longest default prefix as cacheable
@@ -290,8 +288,15 @@ class RootNode(AssistantNode):
 
         available_tools: list[type[BaseModel] | MaxTool] = []
 
-        # Add the basic toolkit
-        toolkit: list[type[MaxTool]] = [ReadTaxonomyTool, SearchTool, ReadDataTool, TodoWriteTool]
+        # Dynamically initialize some tools based on conditions
+        dynamic_tools = await asyncio.gather(
+            ReadTaxonomyTool.create_tool_class(team=self._team, user=self._user, state=state, config=config),
+            ReadDataTool.create_tool_class(team=self._team, user=self._user, state=state, config=config),
+        )
+        available_tools.extend(dynamic_tools)
+
+        # Add the static toolkit
+        toolkit = (SearchTool, TodoWriteTool)
         for StaticMaxToolClass in toolkit:
             available_tools.append(StaticMaxToolClass(team=self._team, user=self._user, state=state, config=config))
 
@@ -486,7 +491,7 @@ class RootNodeTools(AssistantNode):
             # Handle the basic toolkit
             if (
                 isinstance(result, LangchainToolMessage)
-                and result.name == "Search"
+                and result.name == "search"
                 and isinstance(result.artifact, dict)
             ):
                 match result.artifact.get("kind"):
@@ -504,7 +509,7 @@ class RootNodeTools(AssistantNode):
 
             if (
                 isinstance(result, LangchainToolMessage)
-                and result.name == "ReadData"
+                and result.name == "read_data"
                 and isinstance(result.artifact, dict)
                 and result.artifact.get("kind") == "billing_info"
             ):
@@ -565,7 +570,7 @@ class RootNodeTools(AssistantNode):
             if tool_calls and len(tool_calls) > 0:
                 tool_call = tool_calls[0]
                 tool_call_name = tool_call.name
-                if tool_call_name == "ReadData" and tool_call.args.get("kind") == "billing_info":
+                if tool_call_name == "read_data" and tool_call.args.get("kind") == "billing_info":
                     return "billing"
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"
