@@ -365,15 +365,39 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         return min_distance_threshold, model_name, embedding_version
 
-    def _serialize_issues_to_related_issues(self, issues):
+    def _get_issues_library_data(self, issue_ids: list[str]) -> dict[str, str]:
+        """Get library information for issues from ClickHouse events."""
+        query = """
+            SELECT DISTINCT issue_id, $lib
+            FROM events
+            WHERE team_id = %(team_id)s
+            AND issue_id IN %(issue_ids)s
+            AND $lib != ''
+            ORDER BY timestamp DESC
+        """
+
+        results = sync_execute(
+            query,
+            {
+                "team_id": self.team.pk,
+                "issue_ids": issue_ids,
+            },
+        )
+
+        # Return dict mapping issue_id to library
+        return dict(results)
+
+    def _serialize_issues_to_related_issues(self, issues, library_data: dict[str, str]):
         """Serialize ErrorTrackingIssue objects to related issues format."""
+        if library_data is None:
+            library_data = {}
+
         return [
             {
                 "id": issue.id,
                 "title": issue.name,
                 "description": issue.description,
-                # TODO: library isn't part of the issue
-                # "library": issue.library,
+                "library": library_data.get(str(issue.id), ""),
             }
             for issue in issues
         ]
@@ -470,7 +494,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if not issues or len(issues) == 0:
             return Response([])
 
-        related_issues = self._serialize_issues_to_related_issues(issues)
+        # Get library data for the issues
+        library_data = self._get_issues_library_data(fingerprints_to_issue_ids)
+
+        related_issues = self._serialize_issues_to_related_issues(issues, library_data)
         return Response(related_issues)
 
     @action(methods=["POST"], detail=True)

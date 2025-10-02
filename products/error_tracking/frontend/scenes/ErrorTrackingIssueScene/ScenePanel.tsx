@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonModal, Link, Spinner } from '@posthog/lemon-ui'
 
-// import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
@@ -27,7 +27,6 @@ import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
-// import { RuntimeIcon } from '../../components/RuntimeIcon'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ExternalReferences } from '../../components/ExternalReferences'
@@ -36,6 +35,7 @@ import { issueActionsLogic } from '../../components/IssueActions/issueActionsLog
 import { ErrorFilters } from '../../components/IssueFilters'
 import { Metadata } from '../../components/IssueMetadata'
 import { IssueTasks } from '../../components/IssueTasks'
+import { RuntimeIcon } from '../../components/RuntimeIcon'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
@@ -45,6 +45,7 @@ interface RelatedIssue {
     id: string
     title: string
     description?: string
+    library?: string
 }
 
 const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
@@ -305,7 +306,7 @@ const RelatedIssues = (): JSX.Element => {
             ) : relatedIssues.length > 0 ? (
                 <div className="flex flex-col gap-1">
                     {relatedIssues.map((relatedIssue: RelatedIssue) => {
-                        // const relatedRuntime = getRuntimeFromLib(relatedIssue.library)
+                        const relatedRuntime = getRuntimeFromLib(relatedIssue.library)
                         return (
                             <div
                                 key={relatedIssue.id}
@@ -316,9 +317,9 @@ const RelatedIssues = (): JSX.Element => {
                                     onClick={() => setSelectedIssue(relatedIssue)}
                                 >
                                     <div className="flex items-center gap-2">
-                                        {/* <span className="shrink-0 text-gray-600">
+                                        <span className="shrink-0 text-gray-600">
                                             <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" />
-                                        </span> */}
+                                        </span>
                                         <div className="font-medium text-sm truncate text-link hover:underline">
                                             {relatedIssue.title}
                                         </div>
