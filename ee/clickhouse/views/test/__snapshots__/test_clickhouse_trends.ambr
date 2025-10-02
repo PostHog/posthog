@@ -490,7 +490,7 @@
                  CROSS JOIN
                    (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                     FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')))) AS numbers) AS d
-                 WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+                 WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
                  GROUP BY d.timestamp,
                           breakdown_value
                  ORDER BY d.timestamp ASC)
