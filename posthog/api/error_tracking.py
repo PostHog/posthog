@@ -339,17 +339,25 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 embedding_vector, model_name, embedding_version, issue_fingerprints
             )
 
-            if similar_embeddings and len(similar_embeddings) > 0:
-                # Collect both fingerprint and distance
-                for row in similar_embeddings:
-                    fingerprint, distance = row[0], row[1]
-                    all_similar_results.append((fingerprint, distance))
+            if not similar_embeddings or len(similar_embeddings) == 0:
+                continue
+
+            # Collect both fingerprint and distance
+            for row in similar_embeddings:
+                fingerprint, distance = row[0], row[1]
+                all_similar_results.append((fingerprint, distance))
+
+        if not all_similar_results or len(all_similar_results) == 0:
+            return []
 
         # Remove duplicates by fingerprint, keeping the best (smallest) distance for each
         fingerprint_best_distance: dict[str, float] = {}
         for fingerprint, distance in all_similar_results:
             if fingerprint not in fingerprint_best_distance or distance < fingerprint_best_distance[fingerprint]:
                 fingerprint_best_distance[fingerprint] = distance
+
+        if not fingerprint_best_distance:
+            return []
 
         # Sort by distance (ascending - smaller distance = more similar) and take top 10
         sorted_results = sorted(fingerprint_best_distance.items(), key=lambda x: x[1])[:10]
