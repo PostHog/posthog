@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
             name="TaskCounter",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("next_number", models.IntegerField(default=1, help_text="Next task number to assign")),
+                ("next_number", models.IntegerField(default=0, help_text="Next task number to assign")),
                 (
                     "team",
                     models.OneToOneField(
