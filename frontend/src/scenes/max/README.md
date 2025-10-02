@@ -4,13 +4,13 @@ Scene logics can expose a `maxContext` selector to provide relevant context to M
 
 To do so:
 
-1.  Import the necessary types and helpers:
+1. Import the necessary types and helpers:
 
     ```typescript
     import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
     ```
 
-2.  Add a `maxContext` selector that returns MaxContextInput[]:
+2. Add a `maxContext` selector that returns MaxContextInput[]:
 
     ```typescript
     selectors({
@@ -26,7 +26,8 @@ To do so:
     })
     ```
 
-3.  For multiple context items:
+3. For multiple context items:
+
     ```typescript
     maxContext: [
         (s) => [s.insight, s.events],

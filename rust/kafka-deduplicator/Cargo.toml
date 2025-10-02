@@ -29,7 +29,7 @@ once_cell = "1.21"
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
-pprof = { version = "0.13", features = ["protobuf-codec"] }
+pprof = { version = "0.15", features = ["protobuf-codec", "flamegraph"] }
 rdkafka = { workspace = true }
 rocksdb = "0.24.0"
 serde = { workspace = true }
