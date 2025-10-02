@@ -2,6 +2,7 @@ import './SessionRecordingPreview.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
 import { IconBug, IconCursorClick, IconKeyboard, IconLive } from '@posthog/icons'
 
@@ -226,7 +227,7 @@ function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.E
     )
 }
 
-export function SessionRecordingPreview({
+export const SessionRecordingPreview = memo(function SessionRecordingPreview({
     recording,
     isActive,
     onClick,
@@ -328,7 +329,7 @@ export function SessionRecordingPreview({
             </div>
         </DraggableToNotebook>
     )
-}
+})
 
 export function SessionRecordingPreviewSkeleton(): JSX.Element {
     return (
