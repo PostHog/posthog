@@ -6,6 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { Experiment } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from './createExperimentLogic'
@@ -27,8 +28,8 @@ describe('createExperimentLogic', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/projects/@current/experiments': (req) => {
-                    const body = req.body as any
+                '/api/projects/@current/experiments': async (req) => {
+                    const body = (await req.json()) as Experiment
                     if (!body.name || !body.description) {
                         return [400, { detail: 'Validation error' }]
                     }
@@ -45,6 +46,9 @@ describe('createExperimentLogic', () => {
                         },
                     ]
                 },
+            },
+            patch: {
+                '/api/environments/@current/add_product_intent/': () => [200, {}],
             },
         })
         initKeaTests()

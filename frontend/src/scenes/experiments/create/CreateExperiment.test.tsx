@@ -29,6 +29,9 @@ describe('CreateExperiment Integration', () => {
                     ]
                 },
             },
+            patch: {
+                '/api/environments/@current/add_product_intent/': () => [200, {}],
+            },
         })
         initKeaTests()
         logic = createExperimentLogic()
