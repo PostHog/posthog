@@ -19,7 +19,6 @@ common-alloc = { path = "../common/alloc" }
 common-types = { path = "../common/types" }
 dashmap = "6.1"
 envconfig = { workspace = true }
-flate2 = { workspace = true }
 futures = { workspace = true }
 health = { path = "../common/health" }
 metrics = { workspace = true }

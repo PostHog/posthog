@@ -3936,7 +3936,6 @@ dependencies = [
  "common-types",
  "dashmap 6.1.0",
  "envconfig",
- "flate2",
  "futures",
  "health",
  "metrics",
