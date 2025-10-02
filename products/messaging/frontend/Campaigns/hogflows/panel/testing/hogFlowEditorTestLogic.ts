@@ -48,6 +48,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
+        setSampleGlobals: (globals: string | null) => ({ globals }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
         cancelSampleGlobalsLoading: true,
         receiveExampleGlobals: (globals: object | null) => ({ globals }),
@@ -84,6 +85,18 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             null as string | null,
             {
                 setNextActionId: (_, { nextActionId }) => nextActionId,
+            },
+        ],
+        sampleGlobals: [
+            null as string | null,
+            {
+                setSampleGlobals: (previousGlobals, { globals }) => {
+                    try {
+                        return globals ? JSON.parse(globals) : previousGlobals
+                    } catch {
+                        return previousGlobals
+                    }
+                },
             },
         ],
     }),
@@ -292,6 +305,9 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     })),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
+            actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
+        },
+        setSampleGlobals: () => {
             actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },
         cancelSampleGlobalsLoading: () => {
