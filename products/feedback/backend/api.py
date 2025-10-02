@@ -97,7 +97,7 @@ class FeedbackItemSerializer(serializers.ModelSerializer):
             "attachments",
             "created_at",
         ]
-        read_only_fields = ["id", "content", "created_at"]
+        read_only_fields = ["id", "created_at"]
 
     def update(self, instance, validated_data):
         assigned_user = validated_data.pop("assigned_user_id", None)
@@ -119,6 +119,9 @@ class FeedbackItemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = FeedbackItemSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["category", "topic", "status"]
+
+    def perform_create(self, serializer):
+        serializer.save(team_id=self.team_id)
 
 
 class FeedbackItemCategoryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

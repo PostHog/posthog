@@ -7,7 +7,8 @@ import { feedbackListSceneLogic } from '../../scenes/FeedbackListScene/feedbackL
 import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSettingsLogic'
 
 export const FeedbackFilters = (): JSX.Element => {
-    const { feedbackCategories, feedbackTopics, feedbackStatuses } = useValues(feedbackGeneralSettingsLogic)
+    const { feedbackCategories, feedbackTopics, feedbackStatuses, getStatusesForCategory } =
+        useValues(feedbackGeneralSettingsLogic)
 
     const { statusFilter, categoryFilter, topicFilter } = useValues(feedbackListSceneLogic)
     const { setStatusFilter, setCategoryFilter, setTopicFilter } = useActions(feedbackListSceneLogic)
@@ -36,14 +37,15 @@ export const FeedbackFilters = (): JSX.Element => {
     }, [feedbackCategories])
 
     const feedbackStatusesToDisplay = useMemo(() => {
+        const statuses = categoryFilter ? getStatusesForCategory(categoryFilter) : feedbackStatuses
         return [
             { value: 'all', label: 'All statuses' },
-            ...feedbackStatuses.map((status) => ({
+            ...statuses.map((status) => ({
                 value: status.id,
                 label: status.name,
             })),
         ]
-    }, [feedbackStatuses])
+    }, [feedbackStatuses, categoryFilter, getStatusesForCategory])
 
     const statusOption = useMemo(() => {
         if (!statusFilter) {

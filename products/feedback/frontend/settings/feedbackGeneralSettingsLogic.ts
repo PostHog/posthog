@@ -22,6 +22,8 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
 
         createFeedbackStatus: (name: string, categoryId: string) => ({ name, categoryId }),
         deleteFeedbackStatus: (id: string) => ({ id }),
+
+        initializeDefaultData: true,
     }),
 
     loaders(() => ({
@@ -85,6 +87,30 @@ export const feedbackGeneralSettingsLogic = kea<feedbackGeneralSettingsLogicType
         deleteFeedbackStatus: async ({ id }) => {
             await api.feedback.statuses.delete(id)
             actions.loadFeedbackCategories()
+        },
+        initializeDefaultData: async () => {
+            const categoryDefinitions = [
+                { name: 'Feature request', statuses: ['New', 'Great idea', 'Ignore', 'Done'] },
+                { name: 'Feedback', statuses: ['New', 'Acknowledged'] },
+                { name: 'Bug', statuses: ['New', 'Confirmed bug', 'Not a bug', 'Fixed'] },
+            ]
+
+            const topicNames = ['Auth', 'Payments', 'User interface']
+
+            for (const categoryDef of categoryDefinitions) {
+                const category = await api.feedback.categories.create({ name: categoryDef.name })
+                for (const statusName of categoryDef.statuses) {
+                    await api.feedback.statuses.create({ name: statusName, category: category.id })
+                }
+            }
+
+            for (const topicName of topicNames) {
+                await api.feedback.topics.create({ name: topicName })
+            }
+
+            actions.loadFeedbackCategories()
+            actions.loadFeedbackStatuses()
+            actions.loadFeedbackTopics()
         },
     })),
 

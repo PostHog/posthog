@@ -1,4 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { IconPlus } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -7,9 +10,19 @@ import { urls } from 'scenes/urls'
 
 import { FeedbackItem } from '../../models'
 import { feedbackListSceneLogic } from '../../scenes/FeedbackListScene/feedbackListSceneLogic'
+import { feedbackGeneralSettingsLogic } from '../../settings/feedbackGeneralSettingsLogic'
 
 export function FeedbackList(): JSX.Element {
     const { feedbackItems, feedbackItemsLoading } = useValues(feedbackListSceneLogic)
+    const { feedbackCategories, feedbackTopics, feedbackStatuses } = useValues(feedbackGeneralSettingsLogic)
+    const { initializeDefaultData } = useActions(feedbackGeneralSettingsLogic)
+
+    const shouldShowWizard =
+        feedbackCategories.length === 0 &&
+        feedbackTopics.length === 0 &&
+        feedbackStatuses.length === 0 &&
+        feedbackItems.length === 0 &&
+        !feedbackItemsLoading
 
     const columns: LemonTableColumns<FeedbackItem> = [
         {
@@ -47,6 +60,22 @@ export function FeedbackList(): JSX.Element {
             ),
         },
     ]
+
+    if (shouldShowWizard) {
+        return (
+            <div className="flex flex-col items-center justify-center py-16 gap-4">
+                <div className="text-center">
+                    <h3 className="text-lg font-semibold mb-2">Get started with feedback</h3>
+                    <p className="text-muted">
+                        Set up default categories, topics, and statuses to start organizing feedback
+                    </p>
+                </div>
+                <LemonButton type="primary" icon={<IconPlus />} size="large" onClick={() => initializeDefaultData()}>
+                    Initialize feedback system
+                </LemonButton>
+            </div>
+        )
+    }
 
     return (
         <LemonTable

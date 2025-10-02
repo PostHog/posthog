@@ -55,8 +55,11 @@ export const feedbackListSceneLogic = kea<feedbackListSceneLogicType>([
         ],
     })),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         categoryFilter: () => {
+            if (values.statusFilter) {
+                actions.setStatusFilter(null)
+            }
             return actions.loadFeedbackItems()
         },
         statusFilter: () => {
