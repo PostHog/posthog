@@ -854,7 +854,7 @@ export const TaskExecutionComponent: StoryFn = () => {
                 description: 'Calculating conversion rates',
                 prompt: 'Processing funnel metrics across key paths',
                 status: TaskExecutionStatus.InProgress,
-                progress_text: 'Exploring data',
+                progress: { content: 'Exploring data', substeps: ['Substep 1', 'Substep 2'] },
                 task_type: 'create_insight',
             },
             {
