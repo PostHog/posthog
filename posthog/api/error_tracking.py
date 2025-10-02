@@ -23,6 +23,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.error_tracking import (
@@ -36,9 +37,11 @@ from posthog.models.error_tracking import (
     ErrorTrackingStackFrame,
     ErrorTrackingSuppressionRule,
     ErrorTrackingSymbolSet,
+    resolve_fingerprints_for_issues,
 )
 from posthog.models.error_tracking.hogvm_stl import RUST_HOGVM_STL
 from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
+from posthog.models.plugin import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT, uuid7
 from posthog.storage import object_storage
@@ -259,6 +262,123 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
         return Response({"success": True})
+
+    @action(methods=["GET"], detail=True)
+    def related_issues(self, request: request.Request, **kwargs):
+        issue_id = kwargs.get("pk")
+
+        related_issues = []
+        if issue_id:
+            issue_ids = [issue_id]
+            # print(f"DEBUG: issue_ids = {issue_ids}")
+            issue_fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
+            # print(f"DEBUG: issue_fingerprints = {issue_fingerprints}")
+
+            if issue_fingerprints:
+                # Query ClickHouse for matching fingerprints
+
+                # TODO: we should also return the embedding version
+                # and use the version for searching similar embeddings
+                query = """
+                    SELECT DISTINCT embeddings
+                    FROM error_tracking_issue_fingerprint_embeddings
+                    WHERE team_id = %(team_id)s
+                    AND fingerprint IN %(fingerprints)s
+                """
+
+                issue_embeddings = sync_execute(
+                    query,
+                    {
+                        "team_id": self.team.pk,
+                        "fingerprints": issue_fingerprints,
+                    },
+                )
+                # print(f"DEBUG: issue_embeddings count = {len(issue_embeddings) if issue_embeddings else 0}")
+
+                if issue_embeddings:
+                    all_similar_results = []
+
+                    # Search for similarities across all embeddings from the current issue
+                    for _, embedding_row in enumerate(issue_embeddings):
+                        embedding_vector = embedding_row[0]  # Get the embedding vector
+                        # print(f"DEBUG: Processing embedding {i+1}/{len(issue_embeddings)}")
+
+                        # Search for similar embeddings using cosine similarity
+
+                        # TODO: add a where clause to only return when the distance is small enough
+                        # we don't want totally unrelated issues being listed
+                        query = """
+                            SELECT DISTINCT fingerprint, cosineDistance(embeddings, %(target_embedding)s) as distance
+                            FROM error_tracking_issue_fingerprint_embeddings
+                            WHERE team_id = %(team_id)s
+                            AND model_name = 'text-embedding-3-large'
+                            AND fingerprint NOT IN %(fingerprints)s
+                            ORDER BY distance ASC
+                            LIMIT 10
+                        """
+
+                        similar_embeddings = sync_execute(
+                            query,
+                            {
+                                "team_id": self.team.pk,
+                                "target_embedding": embedding_vector,
+                                "fingerprints": issue_fingerprints,
+                            },
+                        )
+                        # print(f"DEBUG: similar_embeddings count = {len(similar_embeddings) if similar_embeddings else 0}")
+
+                        if similar_embeddings:
+                            # Collect both fingerprint and distance
+                            for row in similar_embeddings:
+                                fingerprint, distance = row[0], row[1]
+                                all_similar_results.append((fingerprint, distance))
+
+                    # Remove duplicates by fingerprint, keeping the best (smallest) distance for each
+                    fingerprint_best_distance: dict[str, float] = {}
+                    for fingerprint, distance in all_similar_results:
+                        if (
+                            fingerprint not in fingerprint_best_distance
+                            or distance < fingerprint_best_distance[fingerprint]
+                        ):
+                            fingerprint_best_distance[fingerprint] = distance
+
+                    # Sort by distance (ascending - smaller distance = more similar) and take top 10
+                    sorted_results = sorted(fingerprint_best_distance.items(), key=lambda x: x[1])[:10]
+                    all_similar_fingerprints = [fingerprint for fingerprint, _ in sorted_results]
+
+                    # print(f"DEBUG: top 10 similar fingerprints with distances = {sorted_results}")
+                    # print(f"DEBUG: final fingerprints for lookup = {all_similar_fingerprints}")
+
+                    if all_similar_fingerprints:
+                        # Get issue IDs that have these fingerprints
+                        fingerprints_to_issue_ids = (
+                            ErrorTrackingIssueFingerprintV2.objects.filter(
+                                team_id=self.team.pk, fingerprint__in=all_similar_fingerprints
+                            )
+                            .values_list("issue_id", flat=True)
+                            .distinct()
+                        )
+                        # print(f"DEBUG: fingerprints_to_issue_ids = {list(fingerprints_to_issue_ids)}")
+
+                        if fingerprints_to_issue_ids:
+                            # Get the actual issues from PostgreSQL
+                            issues = ErrorTrackingIssue.objects.filter(team=self.team, id__in=fingerprints_to_issue_ids)
+                            # print(f"DEBUG: issues found = {list(issues.values_list('id', 'name'))}")
+
+                            if issues:
+                                related_issues = [
+                                    {
+                                        "id": issue.id,
+                                        "title": issue.name,
+                                        "description": issue.description,
+                                        # TODO: library isn't part of the issue
+                                        # "library": issue.library,
+                                    }
+                                    for issue in issues
+                                ]
+                                # print(f"DEBUG: final related_issues = {related_issues}")
+
+        return Response(related_issues)
 
     @action(methods=["POST"], detail=True)
     def split(self, request, **kwargs):
@@ -767,6 +887,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                     pass
 
             raise
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_uploaded",
+            distinct_id=request.user.pk,
+            groups=groups(self.team.organization, self.team),
+        )
 
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 
