@@ -72,12 +72,12 @@ export function ExperimentMetricOutlierHandling({
                         }`}
                     >
                         <Tooltip
-                            title="Ignore zero values when calculating the upper bound."
+                            title="Useful if a large number of participants in the experiment does not have the event resulting in a 0 value."
                             docLink="https://posthog.com/docs/experiments/metrics#outlier-handling"
                         >
                             <span>
                                 <LemonCheckbox
-                                    label="Ignore zeros"
+                                    label="Ignore zeros when calculating upper bound"
                                     checked={metric.ignore_zeros ?? false}
                                     onChange={(checked) => handleSetMetric({ ...metric, ignore_zeros: checked })}
                                 />
