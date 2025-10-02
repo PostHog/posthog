@@ -130,3 +130,4 @@ clickhouse = { version = "0.13.2", features = [
 
 # Used for decrypting django encrypted fields
 fernet = "0.2"
+tiktoken-rs = "0.7.0"
