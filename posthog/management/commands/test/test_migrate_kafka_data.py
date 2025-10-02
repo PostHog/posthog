@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import pytest
 from unittest import mock
 
 from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
@@ -9,6 +10,8 @@ from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
 
 from bin.migrate_kafka_data import run as migrate_kafka_data
+
+pytestmark = pytest.mark.xdist_group(name="kafka_migration")
 
 
 def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():

@@ -138,7 +138,16 @@ def reset_clickhouse_tables():
 
 
 @pytest.fixture(scope="package")
-def django_db_setup(django_db_setup, django_db_keepdb):
+def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
+    # Create PostgreSQL extensions for xdist workers
+    # With --nomigrations, extensions aren't created since they're not in models
+    from django.db import connection
+
+    with django_db_blocker.unblock():
+        with connection.cursor() as cursor:
+            cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+            cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
+
     database = Database(
         settings.CLICKHOUSE_DATABASE,
         db_url=settings.CLICKHOUSE_HTTP_URL,
