@@ -301,6 +301,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance: ExternalDataSchema = self.get_object()
         instance.delete_table()
 
+        instance.sync_type_config.update({"reset_pipeline": True})
+
         return Response(status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)

@@ -265,9 +265,6 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.status = None
             self.save()
 
-        self.sync_type_config.update({"reset_pipeline": True})
-        self.save()
-
 
 def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any:
     if value is None or value == "None" or field_type is None:
