@@ -268,13 +268,15 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue.merge(issue_ids=ids)
         return Response({"success": True})
 
-    def _get_issue_embeddings(self, issue_fingerprints: list[str]):
+    def _get_issue_embeddings(self, issue_fingerprints: list[str], model_name: str, embedding_version: int):
         """Get embeddings along with model info for given fingerprints."""
         query = """
-            SELECT DISTINCT embeddings, model_name, embedding_version
+            SELECT DISTINCT embeddings
             FROM error_tracking_issue_fingerprint_embeddings
             WHERE team_id = %(team_id)s
             AND fingerprint IN %(fingerprints)s
+            AND model_name = %(model_name)s
+            AND embedding_version = %(embedding_version)s
         """
 
         issue_embeddings = sync_execute(
@@ -282,6 +284,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             {
                 "team_id": self.team.pk,
                 "fingerprints": issue_fingerprints,
+                "model_name": model_name,
+                "embedding_version": embedding_version,
             },
         )
 
@@ -372,12 +376,16 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             for issue in issues
         ]
 
-    def _process_embeddings_for_similarity(self, issue_embeddings, issue_fingerprints: list[str]) -> list[str]:
+    def _process_embeddings_for_similarity(
+        self,
+        issue_embeddings,
+        issue_fingerprints: list[str],
+        min_distance_threshold: float,
+        model_name: str,
+        embedding_version: int,
+    ) -> list[str]:
         """Process all embeddings to find similar fingerprints and return top 10 most similar."""
         all_similar_results = []
-
-        # Get model configuration from feature flag
-        min_distance_threshold, model_name, embedding_version = self._get_embedding_configuration()
 
         # Search for similarities across all embeddings from the current issue
         for _, embedding_row in enumerate(issue_embeddings):
@@ -427,12 +435,17 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if not issue_fingerprints or len(issue_fingerprints) == 0:
             return Response([])
 
-        issue_embeddings = self._get_issue_embeddings(issue_fingerprints)
+        # Get model configuration from feature flag
+        min_distance_threshold, model_name, embedding_version = self._get_embedding_configuration()
+
+        issue_embeddings = self._get_issue_embeddings(issue_fingerprints, model_name, embedding_version)
 
         if not issue_embeddings or len(issue_embeddings) == 0:
             return Response([])
 
-        all_similar_fingerprints = self._process_embeddings_for_similarity(issue_embeddings, issue_fingerprints)
+        all_similar_fingerprints = self._process_embeddings_for_similarity(
+            issue_embeddings, issue_fingerprints, min_distance_threshold, model_name, embedding_version
+        )
 
         if not all_similar_fingerprints or len(all_similar_fingerprints) == 0:
             return Response([])
