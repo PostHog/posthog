@@ -56,6 +56,7 @@ class SandboxEnvironmentConfig(BaseModel):
     entrypoint: Optional[str] = None
     snapshot_id: Optional[str] = None
     ttl_seconds: int = 60 * 30  # 30 minutes
+    metadata: Optional[dict[str, str]] = None
 
 
 def get_runloop_client() -> AsyncRunloop:
@@ -112,6 +113,7 @@ class SandboxEnvironment:
                 name=config.name,
                 environment_variables=config.environment_variables or {},
                 entrypoint=config.entrypoint,
+                metadata=config.metadata or {},
                 launch_parameters={
                     "keep_alive_time_seconds": config.ttl_seconds,
                 },
@@ -202,14 +204,14 @@ class SandboxEnvironment:
 
         return result
 
-    async def initiate_snapshot(self) -> str:
+    async def initiate_snapshot(self, metadata: Optional[dict[str, str]] = None) -> str:
         if not self.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
 
         try:
             devbox = await self._client.devboxes.retrieve(self.id)
 
-            snapshot = await self._client.devboxes.snapshot_disk_async(devbox.id)
+            snapshot = await self._client.devboxes.snapshot_disk_async(devbox.id, metadata=metadata)
 
             snapshot_id = snapshot.id
 
