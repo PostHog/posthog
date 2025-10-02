@@ -203,7 +203,7 @@ const loadAppMetricsTimeSeries = async (
         `) as HogQLQueryString
 
     const response = await api.queryHogQL(query, {
-        refresh: 'force_cache',
+        refresh: 'async',
     })
 
     const labels = response.results?.[0]?.[0].map((label: string) => {
