@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Sequence
+from functools import lru_cache
 from typing import Any, Optional, cast
 from uuid import uuid4
 
@@ -23,6 +24,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -54,10 +56,10 @@ SUPPORTED_QUERY_MODEL_BY_KIND: dict[str, type[AnyAssistantSupportedQuery]] = {
 class AssistantContextManager(AssistantContextMixin):
     """Manager that provides context formatting capabilities."""
 
-    def __init__(self, team: Team, user: User, config: RunnableConfig):
+    def __init__(self, team: Team, user: User, config: RunnableConfig | None = None):
         self._team = team
         self._user = user
-        self._config = config
+        self._config = config or {}
 
     async def aget_state_messages_with_context(self, state: BaseStateWithMessages) -> Sequence[AssistantMessageUnion]:
         if context_prompts := await self._get_context_prompts(state):
@@ -99,6 +101,19 @@ class AssistantContextManager(AssistantContextMixin):
         if not billing_context:
             return None
         return MaxBillingContext.model_validate(billing_context)
+
+    def get_groups(self):
+        """
+        Returns the ORM chain of the team's groups.
+        """
+        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
+
+    @lru_cache(maxsize=1)
+    async def get_group_names(self) -> list[str]:
+        """
+        Returns the names of the team's groups.
+        """
+        return [group async for group in self.get_groups().values_list("group_type", flat=True)]
 
     async def _format_ui_context(self, ui_context: MaxUIContext | None) -> str | None:
         """

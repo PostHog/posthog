@@ -1,10 +1,15 @@
-from typing import Any, Literal, Union
+from typing import Any, Literal, Self, Union
 
-from pydantic import BaseModel, Field
+from langchain_core.runnables import RunnableConfig
+from pydantic import BaseModel, Field, create_model
 
+from posthog.models import Team, User
+
+from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.helpers import format_events_yaml
+from ee.hogai.utils.types.base import AssistantState
 
 READ_TAXONOMY_TOOL_DESCRIPTION = """
 Use this tool to explore the user's taxonomy (i.e. data schema).
@@ -62,9 +67,8 @@ class ReadEntityProperties(BaseModel):
     """Returns the properties list for a provided entity."""
 
     kind: Literal["entity_properties"] = "entity_properties"
-    entity: Literal["person", "session", "organization", "instance", "project", "customer"] = Field(
-        description="The type of the entity that you want to retrieve properties for."
-    )
+    entity: str = Field(description="The type of the entity that you want to retrieve properties for.")
+    """Keep entity as string to allow for dynamic entity types."""
 
 
 class ReadActionProperties(BaseModel):
@@ -78,9 +82,8 @@ class ReadEntitySamplePropertyValues(BaseModel):
     """For a provided entity and a property, returns a list of maximum 25 sample values that the combination has."""
 
     kind: Literal["entity_property_values"] = "entity_property_values"
-    entity: Literal["person", "session", "organization", "instance", "project", "customer"] = Field(
-        description="The type of the entity that you want to retrieve properties for."
-    )
+    entity: str = Field(description="The type of the entity that you want to retrieve properties for.")
+    """Keep entity as string to allow for dynamic entity types."""
     property_name: str = Field(description="Verified property name of an entity.")
 
 
@@ -122,13 +125,14 @@ class ReadTaxonomyTool(MaxTool):
         "Explores the user's events, actions, properties, and property values (i.e. taxonomy)."
     )
     thinking_message: str = "Searching the taxonomy"
-    args_schema: type[BaseModel] = ReadTaxonomyToolArgs
     show_tool_call_message: bool = False
 
-    def _run_impl(self, query: ReadTaxonomyQuery) -> tuple[str, Any]:
+    def _run_impl(self, query: dict[str, Any]) -> tuple[str, Any]:
+        # Langchain can't parse a dynamically created Pydantic model, so we need to additionally validate the query here.
+        validated_query = ReadTaxonomyToolArgs(query=query).query
         toolkit = TaxonomyAgentToolkit(self._team)
         res = ""
-        match query:
+        match validated_query:
             case ReadEvents():
                 res = format_events_yaml([], self._team)
             case ReadEventProperties() as schema:
@@ -143,4 +147,54 @@ class ReadTaxonomyTool(MaxTool):
                 res = toolkit.retrieve_entity_properties(schema.entity)
             case ReadEntitySamplePropertyValues() as schema:
                 res = toolkit.retrieve_entity_property_values(schema.entity, schema.property_name)
+            case _:
+                raise ValueError(f"Invalid query: {query}")
         return res, None
+
+    @classmethod
+    async def create_tool_class(
+        cls,
+        *,
+        team: Team,
+        user: User,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+    ) -> Self:
+        context_manager = AssistantContextManager(team, user, config)
+        group_names = await context_manager.get_group_names()
+
+        # Create Literal type with actual entity names
+        EntityKind = Literal["person", "session", *group_names]  # type: ignore
+
+        ReadEntityPropertiesWithGroups = create_model(
+            "ReadEntityProperties",
+            __base__=ReadEntityProperties,
+            entity=(
+                EntityKind,
+                Field(description=ReadEntityProperties.model_fields["entity"].description),
+            ),
+        )
+
+        ReadEntitySamplePropertyValuesWithGroups = create_model(
+            "ReadEntitySamplePropertyValues",
+            __base__=ReadEntitySamplePropertyValues,
+            entity=(
+                EntityKind,
+                Field(description=ReadEntitySamplePropertyValues.model_fields["entity"].description),
+            ),
+        )
+
+        ReadTaxonomyQueryWithGroups = Union[
+            ReadEvents,
+            ReadEventProperties,
+            ReadEventSamplePropertyValues,
+            ReadEntityPropertiesWithGroups,  # type: ignore[valid-type]
+            ReadEntitySamplePropertyValuesWithGroups,  # type: ignore[valid-type]
+            ReadActionProperties,
+            ReadActionSamplePropertyValues,
+        ]
+
+        class ReadTaxonomyToolArgsWithGroups(BaseModel):
+            query: ReadTaxonomyQueryWithGroups = Field(..., discriminator="kind")
+
+        return cls(team=team, user=user, state=state, config=config, args_schema=ReadTaxonomyToolArgsWithGroups)

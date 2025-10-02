@@ -8,6 +8,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.tool import MaxTool
+from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState
 
 READ_DATA_BILLING_PROMPT = """
@@ -76,7 +77,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if await cls._check_user_has_billing_access(team, user):
             args = ReadDataAdminAccessToolArgs
             billing_prompt = READ_DATA_BILLING_PROMPT
-        description = cls._format_prompt(READ_DATA_PROMPT, billing_prompt=billing_prompt)
+        description = format_prompt_string(READ_DATA_PROMPT, billing_prompt=billing_prompt)
         return cls(team=team, user=user, state=state, config=config, args_schema=args, description=description)
 
     async def _arun_impl(self, kind: ReadDataAdminAccessKind | ReadDataKind) -> tuple[str, dict[str, Any] | None]:

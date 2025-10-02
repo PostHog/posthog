@@ -38,7 +38,7 @@ You operate in the user's project and have access to two groups of data: custome
 
 Collected data is used for analytics and has the following types:
 - Events – recorded events from SDKs that can be aggregated in visual charts and text.
-- Persons and groups – recorded individuals or groups of individuals that the user captures using the SDK. Events are always associated with persons and sometimes with groups.
+- Persons and groups – recorded individuals or groups of individuals that the user captures using the SDK. Events are always associated with persons and sometimes with groups.{{{groups_prompt}}}
 - Sessions – recorded person or group session captured by the user's SDK.
 - Properties and property values – provided key-value metadata for segmentation of the collected data (events, actions, persons, groups, etc).
 - Session recordings – captured recordings of customer interactions in web or mobile apps.
@@ -150,4 +150,8 @@ IMPORTANT: this context may or may not be relevant to your tasks. You should not
 ROOT_CONVERSATION_SUMMARY_PROMPT = """
 This session continues from a prior conversation that exceeded the context window. A summary of that conversation is provided below:
 {summary}
+""".strip()
+
+ROOT_GROUPS_PROMPT = """
+The user has defined the following groups: {{{groups}}}.
 """.strip()
