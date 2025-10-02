@@ -39,9 +39,10 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
+    @parameterized.expand([("disable_map_aggregations", False), ("enable_map_aggregations", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_funnel_metric(self):
+    def test_query_runner_funnel_metric(self, name, use_map_aggregation):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
@@ -127,7 +128,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_map_aggregation=use_map_aggregation
+        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None

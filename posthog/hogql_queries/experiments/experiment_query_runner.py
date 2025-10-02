@@ -133,6 +133,27 @@ class ExperimentQueryRunner(QueryRunner):
 
         return self.use_map_aggregation is True
 
+    def _should_use_new_query_builder(self) -> bool:
+        """
+        Determines whether to use the new CTE-based query builder.
+        Supports both mean and funnel metrics.
+        """
+        # Check if metric type is supported
+        if not isinstance(self.metric, ExperimentMeanMetric | ExperimentFunnelMetric):
+            return False
+
+        # No data warehouse support yet
+        if self.is_data_warehouse_query:
+            return False
+
+        # Mean metric-specific checks
+        if isinstance(self.metric, ExperimentMeanMetric):
+            # No outlier handling supported yet for mean metrics
+            if self.metric.lower_bound_percentile or self.metric.upper_bound_percentile:
+                return False
+
+        return self.use_map_aggregation is True
+
     def _get_metrics_aggregated_per_entity_query(
         self,
         exposure_query: ast.SelectQuery,
@@ -469,9 +490,8 @@ class ExperimentQueryRunner(QueryRunner):
         Returns the main experiment query.
         Branches to map aggregation implementation if enabled, otherwise uses legacy approach.
         """
-        if self.is_map_aggregation_supported:
-            # Already asserted, but needed here to make mypy happy
-            assert isinstance(self.metric, ExperimentMeanMetric)
+        if self._should_use_new_query_builder():
+            assert isinstance(self.metric, ExperimentMeanMetric | ExperimentFunnelMetric)
             builder = ExperimentQueryBuilder(
                 experiment=self.experiment,
                 team=self.team,
