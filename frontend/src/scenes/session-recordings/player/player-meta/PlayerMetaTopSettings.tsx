@@ -11,7 +11,6 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { SettingsBar, SettingsButton, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-meta/PlayerInspectorButton'
-import { PlayerMetaBreakpoints } from 'scenes/session-recordings/player/player-meta/PlayerMeta'
 import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
@@ -115,41 +114,55 @@ function TTLWarning(): JSX.Element | null {
     )
 }
 
-export function PlayerMetaTopSettings({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
+export function PlayerMetaTopSettings(): JSX.Element {
     const {
         logicProps: { noInspector },
+        hoverModeIsEnabled,
+        showPlayerChrome,
     } = useValues(sessionRecordingPlayerLogic)
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
-    const isSmall = size === 'small'
 
     return (
-        <SettingsBar border="top">
-            <div className="flex w-full justify-between items-center gap-0.5">
-                <div className="flex flex-row gap-0.5 h-full items-center">
-                    <SetPlaybackSpeed />
-                </div>
-                {!isSmall && (
+        <div
+            className={cn(
+                hoverModeIsEnabled
+                    ? 'absolute top-full left-0 right-0 z-10 transition-all duration-750 ease-in-out'
+                    : '',
+                hoverModeIsEnabled && showPlayerChrome
+                    ? 'opacity-100 pointer-events-auto'
+                    : hoverModeIsEnabled
+                      ? 'opacity-0 pointer-events-none'
+                      : ''
+            )}
+        >
+            <SettingsBar border="top">
+                <div className="flex w-full justify-between items-center gap-0.5">
+                    <div className="flex flex-row gap-0.5 h-full items-center">
+                        <SetPlaybackSpeed />
+                    </div>
+
                     <div>
                         <TTLWarning />
                     </div>
-                )}
-                <div className="flex flex-row gap-0.5">
-                    <FlaggedFeature match={true} flag={FEATURE_FLAGS.HEATMAPS_UI}>
-                        <SettingsButton
-                            size="xsmall"
-                            icon={<IconHeatmap />}
-                            onClick={() => {
-                                setPause()
-                                openHeatmap()
-                            }}
-                            label="View heatmap"
-                            tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
-                        />
-                    </FlaggedFeature>
-                    {noInspector ? null : <InspectDOM />}
-                    <PlayerInspectorButton />
+
+                    <div className="flex flex-row gap-0.5">
+                        <FlaggedFeature match={true} flag={FEATURE_FLAGS.HEATMAPS_UI}>
+                            <SettingsButton
+                                size="xsmall"
+                                icon={<IconHeatmap />}
+                                onClick={() => {
+                                    setPause()
+                                    openHeatmap()
+                                }}
+                                label="View heatmap"
+                                tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
+                            />
+                        </FlaggedFeature>
+                        {noInspector ? null : <InspectDOM />}
+                        {noInspector ? null : <PlayerInspectorButton />}
+                    </div>
                 </div>
-            </div>
-        </SettingsBar>
+            </SettingsBar>
+        </div>
     )
 }

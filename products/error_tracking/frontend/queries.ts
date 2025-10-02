@@ -3,7 +3,6 @@ import {
     DateRange,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
-    ErrorTrackingRelationalIssue,
     EventsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -163,10 +162,13 @@ export const errorTrackingIssueCorrelationQuery = ({
     })
 }
 
-export const errorTrackingIssueFingerprintsQuery = (issue: ErrorTrackingRelationalIssue): HogQLQueryString => {
-    return hogql`SELECT properties.$exception_fingerprint, count(), groupUniqArray(properties.$exception_types[1]), groupUniqArray(properties.$exception_values[1])
-FROM events
-WHERE event = '$exception' and issue_id = ${issue.id} and timestamp >= toDateTime(${issue.first_seen})
-GROUP BY properties.$exception_fingerprint
-`
+export const errorTrackingIssueFingerprintsQuery = (
+    issue_id: string,
+    first_seen: string,
+    fingerprints: string[]
+): HogQLQueryString => {
+    return hogql`SELECT properties.$exception_fingerprint as fingerprint, count() as c, groupUniqArray(map('type', properties.$exception_types[1], 'value', properties.$exception_values[1])) as samples
+                FROM events
+                WHERE event = '$exception' and issue_id = ${issue_id} and has(${fingerprints}, properties.$exception_fingerprint) and timestamp >= toDateTime(${first_seen})
+                GROUP BY properties.$exception_fingerprint`
 }

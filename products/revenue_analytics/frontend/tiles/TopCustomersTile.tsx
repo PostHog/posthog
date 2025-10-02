@@ -91,7 +91,7 @@ export const TopCustomersTile = (): JSX.Element => {
                 />
             </div>
 
-            <Query query={query} readOnly context={context} />
+            <Query attachTo={revenueAnalyticsLogic} query={query} readOnly context={context} />
         </div>
     )
 }

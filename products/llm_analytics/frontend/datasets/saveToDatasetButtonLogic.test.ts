@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { initKeaTests } from '~/test/init'
@@ -16,7 +16,7 @@ import {
 } from './saveToDatasetButtonLogic'
 
 jest.mock('~/lib/api')
-jest.mock('lib/lemon-ui/LemonToast/LemonToast')
+jest.mock('lib/lemon-ui/LemonToast')
 
 describe('saveToDatasetButtonLogic', () => {
     const mockDataset1: Dataset = {
@@ -75,6 +75,10 @@ describe('saveToDatasetButtonLogic', () => {
 
         // Clear localStorage to ensure persistent state doesn't leak between tests
         window.localStorage.clear()
+
+        // Mock lemonToast methods
+        ;(lemonToast.success as jest.Mock) = jest.fn()
+        ;(lemonToast.error as jest.Mock) = jest.fn()
 
         mockApi.datasets = {
             create: jest.fn(),

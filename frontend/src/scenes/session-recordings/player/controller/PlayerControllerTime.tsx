@@ -115,6 +115,7 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 size="xsmall"
                 noPadding={true}
                 onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}
+                className="ph-no-rageclick"
             >
                 <div className="PlayerControlSeekIcon">
                     <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>

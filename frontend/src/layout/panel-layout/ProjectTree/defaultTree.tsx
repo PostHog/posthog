@@ -15,6 +15,7 @@ import {
     IconFunnels,
     IconGraph,
     IconHogQL,
+    IconHome,
     IconLifecycle,
     IconLive,
     IconMegaphone,
@@ -103,6 +104,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     user_interview: {
         icon: <IconApp />,
         iconColor: ['var(--color-product-user-interviews-light)'],
+    },
+    home: {
+        icon: <IconHome />,
     },
     task: {
         icon: <IconBug />,
@@ -202,6 +206,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     'insight/hog': {
         icon: <IconHogQL />,
         iconColor: ['var(--color-insight-sql-light)'],
+    },
+    team_activity: {
+        icon: <IconNotification />,
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
 }
 
@@ -379,13 +387,6 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         type: 'hog_function/destination',
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('destinations'),
-    } as FileSystemImport,
-    {
-        path: `Activity logs`,
-        category: 'Activity',
-        iconType: 'logs',
-        href: urls.advancedActivityLogs(),
-        flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
     } as FileSystemImport,
 ]
 

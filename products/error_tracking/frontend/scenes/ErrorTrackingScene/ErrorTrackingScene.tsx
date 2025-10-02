@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     TabsPrimitive,
@@ -42,13 +41,13 @@ export function ErrorTrackingScene(): JSX.Element {
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
 
     return (
-        <ErrorTrackingSetupPrompt>
-            <Header />
+        <SceneContent className="py-2">
+            <ErrorTrackingSetupPrompt>
+                <Header />
 
-            <ErrorTrackingIssueFilteringTool />
-            {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
+                <ErrorTrackingIssueFilteringTool />
+                {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
 
-            <SceneContent className="py-2">
                 {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
                 {hasIssueCorrelation ? (
                     <div>
@@ -82,8 +81,8 @@ export function ErrorTrackingScene(): JSX.Element {
                         <IssuesList />
                     </div>
                 )}
-            </SceneContent>
-        </ErrorTrackingSetupPrompt>
+            </ErrorTrackingSetupPrompt>
+        </SceneContent>
     )
 }
 
@@ -98,36 +97,47 @@ const Header = (): JSX.Element => {
 
     return (
         <>
-            <PageHeader
-                buttons={
-                    <>
-                        {isDev ? (
-                            <>
-                                <LemonButton
-                                    onClick={() => {
-                                        posthog.captureException(new Error('Kaboom !'))
-                                    }}
-                                >
-                                    Send an exception
-                                </LemonButton>
-                                <LemonButton onClick={onClick}>Start exception loop</LemonButton>
-                            </>
-                        ) : null}
-                        <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
-                            Documentation
-                        </LemonButton>
-                        <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
-                            Configure
-                        </LemonButton>
-                    </>
-                }
-            />
             <SceneTitleSection
                 name="Error tracking"
                 description="Track and analyze errors in your website or application to understand and fix issues."
                 resourceType={{
                     type: 'error_tracking',
                 }}
+                actions={
+                    <>
+                        {isDev ? (
+                            <>
+                                <LemonButton
+                                    size="small"
+                                    onClick={() => {
+                                        posthog.captureException(new Error('Kaboom !'))
+                                    }}
+                                >
+                                    Send an exception
+                                </LemonButton>
+                                <LemonButton size="small" onClick={onClick}>
+                                    Start exception loop
+                                </LemonButton>
+                            </>
+                        ) : null}
+                        <LemonButton
+                            size="small"
+                            to="https://posthog.com/docs/error-tracking"
+                            type="secondary"
+                            targetBlank
+                        >
+                            Documentation
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            to={urls.errorTrackingConfiguration()}
+                            type="secondary"
+                            icon={<IconGear />}
+                        >
+                            Configure
+                        </LemonButton>
+                    </>
+                }
             />
             <SceneDivider />
         </>

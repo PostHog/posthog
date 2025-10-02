@@ -1,9 +1,9 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
-import { useActions } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions } from 'kea'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { Query } from '~/queries/Query/Query'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
@@ -25,11 +25,27 @@ import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnC
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
     insightProps: InsightLogicProps
+    attachTo?: LogicWrapper | BuiltLogic
 }
 
-export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyticsTableProps): JSX.Element => {
+export const MarketingAnalyticsTable = ({
+    query,
+    insightProps,
+    attachTo,
+}: MarketingAnalyticsTableProps): JSX.Element => {
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
     const { showColumnConfigModal } = useActions(marketingAnalyticsLogic)
+
+    const handleIncludeAllConversionsChange = (checked: boolean): void => {
+        const sourceQuery = query.source as MarketingAnalyticsTableQuery
+        setQuery({
+            ...query,
+            source: {
+                ...sourceQuery,
+                includeAllConversions: checked,
+            },
+        })
+    }
 
     // Create custom context with sortable headers for marketing analytics
     const marketingAnalyticsContext: QueryContext = {
@@ -66,15 +82,28 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                     <div className="flex-1">
                         <DraftConversionGoalControls />
                     </div>
-                    <div className="self-start">
+                    <div className="self-start flex flex-col gap-2">
                         <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
                             Configure columns
                         </LemonButton>
+                        <LemonSwitch
+                            checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
+                            onChange={handleIncludeAllConversionsChange}
+                            label="Show organic conversions"
+                            tooltip="Show conversion goal rows even when they don't match any campaign data from integrations"
+                            size="small"
+                        />
                     </div>
                 </div>
             </div>
             <div className="relative marketing-analytics-table-container">
-                <Query query={query} readOnly={false} context={marketingAnalyticsContext} setQuery={setQuery} />
+                <Query
+                    attachTo={attachTo}
+                    query={query}
+                    readOnly={false}
+                    context={marketingAnalyticsContext}
+                    setQuery={setQuery}
+                />
             </div>
             <MarketingAnalyticsColumnConfigModal query={query} />
         </div>

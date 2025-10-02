@@ -9,6 +9,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import ANY
 
 from parameterized import parameterized
 
@@ -334,11 +335,13 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         self.join.save()
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            execute_hogql_query(
+            results = execute_hogql_query(
                 parse_select("SELECT * FROM persons_revenue_analytics ORDER BY person_id ASC"),
                 self.team,
                 modifiers=self.MODIFIERS,
             )
+
+            self.assertEqual(results.results, [(ANY, Decimal("9530.7287415221"), ANY)])
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
     def test_virtual_property_in_trend(self, mode):

@@ -16,7 +16,6 @@ import { AccessControlAction, getAccessControlDisabledReason } from 'lib/compone
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -62,19 +61,15 @@ function PinToPlaylistButton(): JSX.Element {
         <AccessControlAction
             resourceType={AccessControlResourceType.SessionRecording}
             minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
         >
-            {({ disabledReason }) => (
-                <PlaylistPopoverButton
-                    tooltip={tooltip}
-                    setPinnedInCurrentPlaylist={logicProps.setPinned}
-                    icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
-                    size="xsmall"
-                    disabledReason={disabledReason}
-                >
-                    {description}
-                </PlaylistPopoverButton>
-            )}
+            <PlaylistPopoverButton
+                tooltip={tooltip}
+                setPinnedInCurrentPlaylist={logicProps.setPinned}
+                icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
+                size="xsmall"
+            >
+                {description}
+            </PlaylistPopoverButton>
         </AccessControlAction>
     )
 }
@@ -120,16 +115,10 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
 }
 
 const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'fullWidth'>): JSX.Element => {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
     const { setPause } = useActions(sessionRecordingPlayerLogic)
 
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
-
-    const getCurrentPlayerTime = (): number => {
-        // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
-        const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
-        return Math.floor(playerTime / 1000)
-    }
 
     return (
         <NotebookSelectButton
@@ -141,19 +130,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
                 attrs: { id: sessionRecordingId, __init: { expanded: true } },
             }}
             onClick={() => setPause()}
-            onNotebookOpened={(theNotebookLogic, theNodeLogic) => {
-                const time = getCurrentPlayerTime() * 1000
-
-                if (theNodeLogic) {
-                    // Node already exists, we just add a comment
-                    theNodeLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
-                    return
-                }
-                theNotebookLogic.actions.insertReplayCommentByTimestamp({
-                    timestamp: time,
-                    sessionRecordingId,
-                })
-
+            onNotebookOpened={() => {
                 closeSessionPlayer()
                 personsModalLogic.findMounted()?.actions.closeModal()
             }}
@@ -245,7 +222,6 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                     icon: <IconTrash />,
                     disabledReason: getAccessControlDisabledReason(
                         AccessControlResourceType.SessionRecording,
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
                         AccessControlLevel.Editor
                     ),
                     tooltip: 'Delete recording',

@@ -397,6 +397,7 @@ export const surveysLogic = kea<surveysLogicType>([
                     key: Scene.Surveys,
                     name: 'Surveys',
                     path: urls.surveys(),
+                    iconType: 'survey',
                 },
             ],
         ],

@@ -25,7 +25,7 @@ const ManyColumns: DataTableNode = {
         'person',
         'properties.$current_url',
         'properties.$browser',
-        'properties.$browser_version',
+        'properties.$geoip_country_code',
         'properties.$lib',
         'person.properties.email',
     ],

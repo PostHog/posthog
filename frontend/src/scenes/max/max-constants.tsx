@@ -62,6 +62,11 @@ export const TOOL_DEFINITIONS: Omit<
         product: null,
         flag: 'max-session-summarization',
     },
+    create_dashboard: {
+        name: 'Create dashboards',
+        description: 'Create dashboards with insights based on your requirements',
+        product: null,
+    },
     search_docs: {
         name: 'Search docs',
         description: 'Search docs for answers regarding PostHog',
@@ -139,6 +144,11 @@ export const TOOL_DEFINITIONS: Omit<
         name: 'Create email templates',
         description: 'Create email templates from scratch or using a URL for inspiration',
         product: Scene.Messaging,
+    },
+    filter_revenue_analytics: {
+        name: 'Filter revenue analytics',
+        description: 'Filter revenue analytics to find the most impactful revenue insights',
+        product: Scene.RevenueAnalytics,
     },
 }
 

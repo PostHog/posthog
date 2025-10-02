@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { IconApps } from '@posthog/icons'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -24,7 +23,6 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     return (
         <SceneContent>
-            <PageHeader tabbedPage />
             <LemonTabs
                 activeKey={ActivityTab.ExploreEvents}
                 tabs={[

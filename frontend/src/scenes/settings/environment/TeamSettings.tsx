@@ -14,7 +14,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -121,6 +121,12 @@ function DebugInfoPanel(): JSX.Element | null {
     const hasRequiredInfo = region && currentOrganization && currentTeam
 
     if (!hasRequiredInfo && !anyLoading) {
+        return null
+    }
+
+    if (inStorybookTestRunner() || inStorybook()) {
+        // this data changes e.g. when session id changes, so it flaps in visual regression tests
+        // so...
         return null
     }
 

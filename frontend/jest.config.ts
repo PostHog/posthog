@@ -8,7 +8,17 @@ process.env.TZ = process.env.TZ || 'UTC'
  * https://jestjs.io/docs/en/configuration.html
  */
 
-const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv', 'monaco-editor']
+const esmModules = [
+    'query-selector-shadow-dom',
+    'react-syntax-highlighter',
+    '@react-hook',
+    '@medv',
+    'monaco-editor',
+    'mdast-util-find-and-replace',
+    'escape-string-regexp',
+    'unist-util-visit-parents',
+    'unist-util-is',
+]
 const eeFolderExists = fs.existsSync('../ee/frontend/exports.ts')
 function rootDirectories(): string[] {
     const rootDirectories = ['<rootDir>/src', '<rootDir>/../products']

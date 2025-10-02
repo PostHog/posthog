@@ -8,7 +8,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { FullScreen } from 'lib/components/FullScreen'
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -18,11 +17,8 @@ import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
-import { privilegeLevelToName } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
-import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -36,30 +32,21 @@ import { userLogic } from 'scenes/userLogic'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import {
     ScenePanel,
-    ScenePanelActions,
+    ScenePanelActionsSection,
     ScenePanelCommonActions,
     ScenePanelDivider,
-    ScenePanelMetaInfo,
+    ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DashboardMode,
-    DashboardType,
-    ExporterFormat,
-    QueryBasedInsightModel,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
 
-import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
-import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
@@ -183,110 +170,6 @@ export function DashboardHeader(): JSX.Element | null {
                 </>
             )}
 
-            <PageHeader
-                buttons={
-                    dashboardMode === DashboardMode.Edit ? (
-                        <>
-                            <LemonButton
-                                data-attr="dashboard-edit-mode-discard"
-                                type="secondary"
-                                onClick={() =>
-                                    setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-                                }
-                                tabIndex={9}
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                data-attr="dashboard-edit-mode-save"
-                                type="primary"
-                                onClick={() =>
-                                    setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
-                                }
-                                tabIndex={10}
-                                disabledReason={
-                                    dashboardLoading
-                                        ? 'Wait for dashboard to finish loading'
-                                        : canEditDashboard
-                                          ? undefined
-                                          : 'Not privileged to edit this dashboard'
-                                }
-                            >
-                                Save
-                            </LemonButton>
-                        </>
-                    ) : dashboardMode === DashboardMode.Fullscreen ? (
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderExitFullscreen)}
-                            data-attr="dashboard-exit-presentation-mode"
-                            disabled={dashboardLoading}
-                        >
-                            Exit full screen
-                        </LemonButton>
-                    ) : (
-                        <>
-                            {dashboard && (
-                                <>
-                                    {dashboard.access_control_version === 'v1' && (
-                                        <CollaboratorBubbles
-                                            dashboard={dashboard}
-                                            onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                                        />
-                                    )}
-                                    <LemonButton
-                                        type="secondary"
-                                        data-attr="dashboard-share-button"
-                                        onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                                    >
-                                        Share
-                                    </LemonButton>
-                                </>
-                            )}
-                            {dashboard ? (
-                                <LemonButton
-                                    accessControl={{
-                                        resourceType: AccessControlResourceType.Dashboard,
-                                        minAccessLevel: AccessControlLevel.Editor,
-                                        userAccessLevel: dashboard.user_access_level,
-                                    }}
-                                    onClick={showAddInsightToDashboardModal}
-                                    type="primary"
-                                    data-attr="dashboard-add-graph-header"
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <>
-                                                    <LemonButton
-                                                        accessControl={{
-                                                            resourceType: AccessControlResourceType.Dashboard,
-                                                            minAccessLevel: AccessControlLevel.Editor,
-                                                            userAccessLevel: dashboard.user_access_level,
-                                                        }}
-                                                        fullWidth
-                                                        onClick={() => {
-                                                            push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                        }}
-                                                        data-attr="add-text-tile-to-dashboard"
-                                                    >
-                                                        Add text card
-                                                    </LemonButton>
-                                                </>
-                                            ),
-                                        },
-                                        disabled: false,
-                                        'data-attr': 'dashboard-add-dropdown',
-                                    }}
-                                >
-                                    Add insight
-                                </LemonButton>
-                            ) : null}
-                        </>
-                    )
-                }
-            />
-
             <ScenePanel>
                 <ScenePanelCommonActions>
                     <SceneCommonButtons
@@ -330,7 +213,8 @@ export function DashboardHeader(): JSX.Element | null {
                         }
                     />
                 </ScenePanelCommonActions>
-                <ScenePanelMetaInfo>
+                <ScenePanelDivider />
+                <ScenePanelInfoSection>
                     <SceneTags
                         onSave={(tags) => {
                             triggerDashboardUpdate({ tags })
@@ -344,10 +228,10 @@ export function DashboardHeader(): JSX.Element | null {
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
 
                     <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
-                </ScenePanelMetaInfo>
+                </ScenePanelInfoSection>
                 <ScenePanelDivider />
 
-                <ScenePanelActions>
+                <ScenePanelActionsSection>
                     {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
 
                     {dashboard && canEditDashboard && hasDashboardColors && (
@@ -433,10 +317,11 @@ export function DashboardHeader(): JSX.Element | null {
                             Save as template
                         </ButtonPrimitive>
                     )}
-
-                    {dashboard && canEditDashboard && (
-                        <>
-                            <ScenePanelDivider />
+                </ScenePanelActionsSection>
+                {dashboard && canEditDashboard && (
+                    <>
+                        <ScenePanelDivider />
+                        <ScenePanelActionsSection>
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Dashboard}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -455,9 +340,9 @@ export function DashboardHeader(): JSX.Element | null {
                                     </ButtonPrimitive>
                                 )}
                             </AccessControlAction>
-                        </>
-                    )}
-                </ScenePanelActions>
+                        </ScenePanelActionsSection>
+                    </>
+                )}
             </ScenePanel>
 
             <SceneTitleSection
@@ -475,48 +360,112 @@ export function DashboardHeader(): JSX.Element | null {
                 isLoading={dashboardLoading}
                 forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
                 renameDebounceMs={1000}
+                actions={
+                    <>
+                        {dashboardMode === DashboardMode.Edit ? (
+                            <>
+                                <LemonButton
+                                    data-attr="dashboard-edit-mode-discard"
+                                    type="secondary"
+                                    onClick={() =>
+                                        setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                                    }
+                                    size="small"
+                                    tabIndex={9}
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    data-attr="dashboard-edit-mode-save"
+                                    type="primary"
+                                    onClick={() =>
+                                        setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
+                                    }
+                                    size="small"
+                                    tabIndex={10}
+                                    disabledReason={
+                                        dashboardLoading
+                                            ? 'Wait for dashboard to finish loading'
+                                            : canEditDashboard
+                                              ? undefined
+                                              : 'Not privileged to edit this dashboard'
+                                    }
+                                >
+                                    Save
+                                </LemonButton>
+                            </>
+                        ) : dashboardMode === DashboardMode.Fullscreen ? (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() =>
+                                    setDashboardMode(null, DashboardEventSource.DashboardHeaderExitFullscreen)
+                                }
+                                data-attr="dashboard-exit-presentation-mode"
+                                disabled={dashboardLoading}
+                                size="small"
+                            >
+                                Exit full screen
+                            </LemonButton>
+                        ) : (
+                            <>
+                                {dashboard && (
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            data-attr="dashboard-share-button"
+                                            onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                            size="small"
+                                        >
+                                            Share
+                                        </LemonButton>
+                                    </>
+                                )}
+                                {dashboard ? (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Dashboard}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={dashboard.user_access_level}
+                                    >
+                                        <LemonButton
+                                            onClick={showAddInsightToDashboardModal}
+                                            type="primary"
+                                            data-attr="dashboard-add-graph-header"
+                                            sideAction={{
+                                                dropdown: {
+                                                    placement: 'bottom-end',
+                                                    overlay: (
+                                                        <AccessControlAction
+                                                            resourceType={AccessControlResourceType.Dashboard}
+                                                            minAccessLevel={AccessControlLevel.Editor}
+                                                            userAccessLevel={dashboard.user_access_level}
+                                                        >
+                                                            <LemonButton
+                                                                fullWidth
+                                                                onClick={() => {
+                                                                    push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                                }}
+                                                                data-attr="add-text-tile-to-dashboard"
+                                                            >
+                                                                Add text card
+                                                            </LemonButton>
+                                                        </AccessControlAction>
+                                                    ),
+                                                },
+                                                disabled: false,
+                                                'data-attr': 'dashboard-add-dropdown',
+                                            }}
+                                            size="small"
+                                        >
+                                            Add insight
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                ) : null}
+                            </>
+                        )}
+                    </>
+                }
             />
             <SceneDivider />
         </>
     ) : null
-}
-
-function CollaboratorBubbles({
-    dashboard,
-    onClick,
-}: {
-    dashboard: DashboardType<QueryBasedInsightModel>
-    onClick: () => void
-}): JSX.Element | null {
-    const { allCollaborators } = useValues(dashboardCollaboratorsLogic({ dashboardId: dashboard.id }))
-
-    if (!dashboard) {
-        return null
-    }
-
-    const effectiveRestrictionLevelOption = DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level]
-    const tooltipParts: string[] = []
-    if (
-        isLemonSelectSection(effectiveRestrictionLevelOption) &&
-        typeof effectiveRestrictionLevelOption?.title === 'string'
-    ) {
-        tooltipParts.push(effectiveRestrictionLevelOption.title)
-    }
-    if (dashboard.is_shared) {
-        tooltipParts.push('Shared publicly')
-    }
-
-    return (
-        <ProfileBubbles
-            people={allCollaborators.map((collaborator) => ({
-                email: collaborator.user.email,
-                name: collaborator.user.first_name,
-                title: `${collaborator.user.first_name} <${collaborator.user.email}> (${
-                    privilegeLevelToName[collaborator.level]
-                })`,
-            }))}
-            tooltip={tooltipParts.join(' • ')}
-            onClick={onClick}
-        />
-    )
 }

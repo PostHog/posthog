@@ -1,7 +1,7 @@
 import { match } from 'ts-pattern'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { concatValues } from 'lib/components/Errors/utils'
@@ -55,12 +55,7 @@ function ContextTable({ entries }: ContextTableProps): JSX.Element {
         <LemonTable
             embedded
             size="small"
-            dataSource={entries
-                .filter(([, value]) => value !== undefined)
-                .map(([key, value]) => ({
-                    key,
-                    value: String(value),
-                }))}
+            dataSource={entries.filter(([, value]) => value !== undefined).map(([key, value]) => ({ key, value }))}
             showHeader={false}
             columns={[
                 {
@@ -77,7 +72,7 @@ function ContextTable({ entries }: ContextTableProps): JSX.Element {
                                 tooltip="Copy value"
                                 className="invisible group-hover:visible"
                                 onClick={() =>
-                                    copyToClipboard(record.value).catch((error) => {
+                                    copyToClipboard(copyValue(record.value)).catch((error) => {
                                         console.error('Failed to copy to clipboard:', error)
                                     })
                                 }
@@ -92,10 +87,45 @@ function ContextTable({ entries }: ContextTableProps): JSX.Element {
                     key: 'value',
                     dataIndex: 'value',
                     className: 'whitespace-nowrap',
+                    render: (value) => {
+                        return <div className="whitespace-nowrap">{renderValue(value)}</div>
+                    },
                 },
             ]}
             rowClassName="even:bg-fill-tertiary odd:bg-surface-primary group"
             firstColumnSticky
         />
     )
+}
+
+function copyValue(value: unknown): string {
+    // oxlint-disable-next-line
+    if (value && typeof value === 'object') {
+        return JSON.stringify(value)
+    }
+    return String(value)
+}
+
+function renderValue(value: unknown): React.ReactNode {
+    if (Array.isArray(value)) {
+        return '[' + value.map(renderValue).join(', ') + ']'
+    } else if (value && typeof value === 'object') {
+        return (
+            '{' +
+            Object.entries(value)
+                .map(([k, v]) => `${k}: ${renderValue(v)}`)
+                .join(', ') +
+            '}'
+        )
+    } else if (typeof value === 'string') {
+        if (/^https?:\/\/.+/.test(value)) {
+            return (
+                <Link to={value as string} target="_blank">
+                    {value}
+                </Link>
+            )
+        }
+        return value // no quotes
+    }
+    return String(value)
 }

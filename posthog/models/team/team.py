@@ -223,7 +223,6 @@ class CookielessServerHashMode(models.IntegerChoices):
 
 
 class SessionRecordingRetentionPeriod(models.TextChoices):
-    LEGACY = "legacy", "Legacy Retention"
     THIRTY_DAYS = "30d", "30 Days"
     NINETY_DAYS = "90d", "90 Days"
     ONE_YEAR = "1y", "1 Year"
@@ -353,9 +352,9 @@ class Team(UUIDTClassicModel):
     )
     session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "session_recording", "editor")
     session_recording_retention_period = models.CharField(
-        max_length=6,
+        max_length=3,
         choices=SessionRecordingRetentionPeriod.choices,
-        default=SessionRecordingRetentionPeriod.LEGACY,
+        default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
     survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
@@ -428,11 +427,6 @@ class Team(UUIDTClassicModel):
 
     # DEPRECATED, DISUSED: recordings on CH are cleared with Clickhouse's TTL
     session_recording_retention_period_days = models.IntegerField(null=True, default=None, blank=True)
-    session_recording_retention_period = models.CharField(
-        max_length=6,
-        choices=SessionRecordingRetentionPeriod.choices,
-        default=SessionRecordingRetentionPeriod.LEGACY,
-    )
     # DEPRECATED, DISUSED: plugins are enabled for everyone now
     plugins_opt_in = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
@@ -754,26 +748,8 @@ class Team(UUIDTClassicModel):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
-        from ee.models.explicit_team_membership import ExplicitTeamMembership
         from ee.models.rbac.access_control import AccessControl
         from ee.models.rbac.role import RoleMembership
-
-        # This path is deprecated, and will be removed soon
-        if self.access_control:
-            user_ids_queryset = (
-                OrganizationMembership.objects.filter(
-                    organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
-                )
-                .values_list("user_id", flat=True)
-                .union(
-                    ExplicitTeamMembership.objects.filter(team_id=self.id).values_list(
-                        "parent_membership__user_id", flat=True
-                    )
-                )
-            )
-            return User.objects.filter(is_active=True, id__in=user_ids_queryset)
-
-        # New access control checks
 
         # First, check if the team is private
         team_is_private = AccessControl.objects.filter(

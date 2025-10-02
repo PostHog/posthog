@@ -1,4 +1,4 @@
-import { actions, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import posthog, { JsonRecord } from 'posthog-js'
 
@@ -192,7 +192,14 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
+    afterMount(({ cache, actions }) => {
+        cache.onVisibilityChange = () => {
+            actions.togglePolling(document.visibilityState === 'visible')
+        }
+        document.addEventListener('visibilitychange', cache.onVisibilityChange)
+    }),
     beforeUnmount(({ cache }) => {
         clearTimeout(cache.pollTimeout)
+        document.removeEventListener('visibilitychange', cache.onVisibilityChange)
     }),
 ])

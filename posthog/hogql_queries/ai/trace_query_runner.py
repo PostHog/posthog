@@ -1,28 +1,27 @@
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Any, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 import orjson
 import structlog
 
 from posthog.schema import (
-    CachedTracesQueryResponse,
+    CachedTraceQueryResponse,
     IntervalType,
     LLMTrace,
     LLMTraceEvent,
     LLMTracePerson,
     NodeKind,
     TraceQuery,
-    TracesQueryResponse,
+    TraceQueryResponse,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -50,30 +49,19 @@ class TraceQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
 
-class TraceQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
+class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     query: TraceQuery
-    cached_response: CachedTracesQueryResponse
-    paginator: HogQLHasMorePaginator
+    cached_response: CachedTraceQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=LimitContext.QUERY,
-            limit=1,  # Always return single trace for detail view
-            offset=0,
-        )
 
     def _calculate(self):
         with self.timings.measure("trace_query_hogql_execute"):
-            # For single trace detail, we only need 1 trace
-            pagination_limit = 1
-
-            query_result = self.paginator.execute_hogql_query(
+            query_result = execute_hogql_query(
                 query=self.to_query(),
                 placeholders={
-                    "subquery_conditions": self._get_subquery_filter(),
                     "filter_conditions": self._get_where_clause(),
-                    "pagination_limit": ast.Constant(value=pagination_limit),
                 },
                 team=self.team,
                 query_type=NodeKind.TRACE_QUERY,
@@ -85,28 +73,17 @@ class TraceQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         columns: list[str] = query_result.columns or []
         results = self._map_results(columns, query_result.results)
 
-        return TracesQueryResponse(
+        return TraceQueryResponse(
             columns=columns,
             results=results,
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
-            **self.paginator.response_params(),
         )
 
     def to_query(self):
         query = parse_select(
             """
-            WITH relevant_trace_ids AS (
-                SELECT properties.$ai_trace_id as trace_id
-                FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-                  AND properties.$ai_trace_id IS NOT NULL
-                  AND {subquery_conditions}
-                ORDER BY timestamp DESC
-                LIMIT 1 BY properties.$ai_trace_id
-                LIMIT {pagination_limit}
-            )
             SELECT
                 properties.$ai_trace_id AS id,
                 min(timestamp) AS first_timestamp,
@@ -117,10 +94,19 @@ class TraceQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     argMin(person.properties, timestamp)
                 ) AS first_person,
                 round(
-                    sumIf(toFloat(properties.$ai_latency),
-                        properties.$ai_parent_id IS NULL
-                        OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
-                    ), 2
+                    CASE
+                        -- If all events with latency are generations, sum them all
+                        WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
+                             AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
+                        THEN sumIf(toFloat(properties.$ai_latency),
+                                   event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
+                             )
+                        -- Otherwise sum the direct children of the trace
+                        ELSE sumIf(toFloat(properties.$ai_latency),
+                                   properties.$ai_parent_id IS NULL
+                                   OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                             )
+                    END, 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
                       event = '$ai_generation'
@@ -173,10 +159,9 @@ class TraceQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
             )
-              AND properties.$ai_trace_id IN (SELECT trace_id FROM relevant_trace_ids)
               AND {filter_conditions}
             GROUP BY properties.$ai_trace_id
-            ORDER BY first_timestamp DESC
+            LIMIT 1
             """,
         )
         return cast(ast.SelectQuery, query)
@@ -271,23 +256,11 @@ class TraceQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             properties=orjson.loads(properties) if properties else {},
         )
 
-    def _get_subquery_filter(self) -> ast.Expr:
-        properties_filter = self._get_properties_filter()
-        if properties_filter is None:
-            return self._get_where_clause()
-        return ast.And(exprs=[self._get_where_clause(), properties_filter])
-
-    def _get_properties_filter(self) -> ast.Expr | None:
-        property_filters: list[ast.Expr] = []
-        if self.query.properties:
-            with self.timings.measure("property_filters"):
-                for prop in self.query.properties:
-                    property_filters.append(property_to_expr(prop, self.team))
-
-        if not property_filters:
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
             return None
 
-        return ast.And(exprs=property_filters)
+        return last_refresh + timedelta(minutes=1)
 
     def _get_where_clause(self) -> ast.Expr:
         where_exprs: list[ast.Expr] = [
@@ -303,12 +276,6 @@ class TraceQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             ),
         ]
 
-        if self.query.filterTestAccounts:
-            with self.timings.measure("test_account_filters"):
-                for prop in self.team.test_account_filters or []:
-                    where_exprs.append(property_to_expr(prop, self.team))
-
-        # traceId is always required for detail view
         where_exprs.append(
             ast.CompareOperation(
                 left=ast.Field(chain=["properties", "$ai_trace_id"]),
@@ -317,7 +284,9 @@ class TraceQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             ),
         )
 
-        return ast.And(exprs=where_exprs)
+        if self.query.properties:
+            with self.timings.measure("property_filters"):
+                for prop in self.query.properties:
+                    where_exprs.append(property_to_expr(prop, self.team))
 
-    def _get_order_by_clause(self):
-        return [ast.OrderExpr(expr=ast.Field(chain=["trace_timestamp"]), order="DESC")]
+        return ast.And(exprs=where_exprs)

@@ -464,7 +464,7 @@ class SessionsTableV2(LazyTable):
         ]
 
 
-def session_id_to_session_id_v7_expr(session_id: ast.Expr) -> ast.Expr:
+def session_id_to_session_id_v7_as_uint128_expr(session_id: ast.Expr) -> ast.Expr:
     return ast.Call(
         name="_toUInt128",
         args=[ast.Call(name="toUUID", args=[session_id])],
@@ -495,7 +495,9 @@ def join_events_table_to_sessions_table_v2(
         join_expr.constraint = ast.JoinConstraint(
             expr=ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
-                left=session_id_to_session_id_v7_expr(ast.Field(chain=[join_to_add.from_table, "$session_id"])),
+                left=session_id_to_session_id_v7_as_uint128_expr(
+                    ast.Field(chain=[join_to_add.from_table, "$session_id"])
+                ),
                 right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
             ),
             constraint_type="ON",

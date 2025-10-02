@@ -7,7 +7,12 @@ import { CurrencyCode } from '~/queries/schema/schema-general'
 
 import { CurrencyDropdown } from './CurrencyDropdown'
 
-export function BaseCurrency({ hideTitle = false }: { hideTitle?: boolean }): JSX.Element {
+interface BaseCurrencyProps {
+    hideTitle?: boolean
+    disabledReason?: string
+}
+
+export function BaseCurrency({ hideTitle = false, disabledReason }: BaseCurrencyProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
@@ -22,6 +27,7 @@ export function BaseCurrency({ hideTitle = false }: { hideTitle?: boolean }): JS
                     onChange={(currency: CurrencyCode | null) => {
                         updateCurrentTeam({ base_currency: currency ?? undefined })
                     }}
+                    disabledReason={disabledReason}
                 />
             </div>
         </SceneSection>

@@ -90,7 +90,7 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
         ) : null
 
     return (
-        <div data-attr="item-event" className="font-light w-full">
+        <div data-attr="item-event" className="font-light w-full @container">
             <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
                 <div className="truncate">
                     <PropertyKeyInfo

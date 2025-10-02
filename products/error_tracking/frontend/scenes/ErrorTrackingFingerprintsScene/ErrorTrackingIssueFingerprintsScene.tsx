@@ -3,13 +3,16 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonSelect, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { JSONViewer } from 'lib/components/JSONViewer'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { errorTrackingIssueFingerprintsSceneLogic } from './errorTrackingIssueFingerprintsSceneLogic'
 
-export type ErrorTrackingIssueFingerprint = { fingerprint: string; count: number; types: string[]; messages: string[] }
+export type ErrorTrackingFingerprintSamples = {
+    fingerprint: string
+    count: number
+    samples: { type: string; value: string }[]
+}
 
 export interface ErrorTrackingIssueFingerprintsSceneProps {
     id: string
@@ -22,14 +25,18 @@ export const scene: SceneExport<ErrorTrackingIssueFingerprintsSceneProps> = {
 }
 
 export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
-    const { selectedFingerprints, fingerprints, fingerprintsLoading } = useValues(
+    const { issue, issueFingerprints, selectedFingerprints, fingerprintSamples, isLoading } = useValues(
         errorTrackingIssueFingerprintsSceneLogic
     )
-    const { loadIssue, setSelectedFingerprints, split } = useActions(errorTrackingIssueFingerprintsSceneLogic)
+    const { loadFingerprintSamples, setSelectedFingerprints, split } = useActions(
+        errorTrackingIssueFingerprintsSceneLogic
+    )
 
     useEffect(() => {
-        loadIssue()
-    }, [loadIssue])
+        if (issue && issueFingerprints) {
+            loadFingerprintSamples(issue, issueFingerprints)
+        }
+    }, [issue, issueFingerprints, loadFingerprintSamples])
 
     const columns = [
         {
@@ -45,22 +52,23 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                         setSelectedFingerprints(newSelectedFingerprints)
                     }}
                     disabledReason={
-                        fingerprints.length === 1
+                        fingerprintSamples.length === 1
                             ? 'You cannot split an issue that only has one fingerprint'
                             : undefined
                     }
                 />
             ),
+            width: '30px',
             title: (
                 <LemonCheckbox
-                    checked={fingerprints.length > 0 && selectedFingerprints.length === fingerprints.length}
+                    checked={fingerprintSamples.length > 0 && selectedFingerprints.length === fingerprintSamples.length}
                     disabledReason={
-                        fingerprints.length === 1
+                        fingerprintSamples.length === 1
                             ? 'You cannot split an issue that only has one fingerprint'
                             : undefined
                     }
                     onChange={(checked) => {
-                        const newSelectedFingerprints = checked ? fingerprints.map((f) => f.fingerprint) : []
+                        const newSelectedFingerprints = checked ? fingerprintSamples.map((f) => f.fingerprint) : []
                         setSelectedFingerprints(newSelectedFingerprints)
                     }}
                 />
@@ -69,26 +77,31 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
         {
             title: 'Example type',
             key: 'type',
-            dataIndex: 'types',
-            render: (types: string[]) =>
-                types.length > 0 ? types[0] : <span className="text-muted italic">No exception types</span>,
+            dataIndex: 'samples',
+            width: '200px',
+            render: (samples: { type: string; value: string }[]) =>
+                samples.length > 0 ? samples[0].type : <span className="text-muted italic">No exception types</span>,
         },
         {
             title: 'Example message',
             key: 'message',
-            dataIndex: 'messages',
-            render: (messages: string[]) =>
-                messages.length > 0 ? messages[0] : <span className="text-muted italic">No exception messages</span>,
+            dataIndex: 'samples',
+            render: (messages: { type: string; value: string }[]) =>
+                messages.length > 0 ? (
+                    messages[0].value
+                ) : (
+                    <span className="text-muted italic">No exception messages</span>
+                ),
         },
         { title: 'Count', dataIndex: 'count' },
-    ] as LemonTableColumns<ErrorTrackingIssueFingerprint>
+    ] as LemonTableColumns<ErrorTrackingFingerprintSamples>
 
     const disabledReason =
-        selectedFingerprints.length === fingerprints.length
+        selectedFingerprints.length === fingerprintSamples.length
             ? 'You must leave at least one fingerprint associated with the issue'
             : selectedFingerprints.length === 0
               ? 'Select at least one fingerprint'
-              : fingerprints.length === 1
+              : fingerprintSamples.length === 1
                 ? 'You cannot split an issue that only has one fingerprint'
                 : undefined
 
@@ -122,14 +135,27 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                         disabledReason={disabledReason}
                     />
                 )}
-
-                <LemonTable
+                <LemonTable<ErrorTrackingFingerprintSamples>
                     className="w-full"
-                    loading={fingerprintsLoading}
-                    dataSource={fingerprints}
+                    loading={isLoading}
+                    dataSource={fingerprintSamples}
                     columns={columns}
                     expandable={{
-                        expandedRowRender: (record) => <JSONViewer src={record} />,
+                        noIndent: true,
+                        rowExpandable: (record) => record.samples.length > 1,
+                        expandedRowRender: (record) => (
+                            <LemonTable
+                                className="w-full"
+                                loading={false}
+                                embedded={true}
+                                showHeader={true}
+                                dataSource={record.samples}
+                                columns={[
+                                    { title: 'Type', width: '200px', dataIndex: 'type' },
+                                    { title: 'Message', dataIndex: 'value' },
+                                ]}
+                            />
+                        ),
                     }}
                 />
             </div>

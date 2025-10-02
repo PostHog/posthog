@@ -3,6 +3,7 @@ import './FeatureFlag.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { Fragment } from 'react'
 
 import { IconCopy, IconFlag, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
@@ -40,13 +41,7 @@ import {
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
         return (
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                to={urls.cohort(property.value)}
-                sideIcon={<IconOpenInNew />}
-                targetBlank
-            >
+            <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
                 {property.cohort_name || `ID ${property.value}`}
             </LemonButton>
         )
@@ -362,7 +357,7 @@ export function FeatureFlagReleaseConditions({
                                                       <IconErrorOutline className="text-xl" /> {message.value}
                                                   </div>
                                               ) : (
-                                                  <></>
+                                                  <Fragment key={index} />
                                               )
                                           })
                                         : null
@@ -577,17 +572,6 @@ export function FeatureFlagReleaseConditions({
                             Specify {aggregationTargetName} for flag release. Condition sets are evaluated top to bottom
                             - the first matching set is used. A condition matches when all property filters pass AND the
                             target falls within the rollout percentage.
-                        </div>
-                        <div className="text-secondary">
-                            {aggregationTargetName === 'users' && (
-                                <>
-                                    {' '}
-                                    Cohort-based targeting{' '}
-                                    <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-cohort-as-a-feature-flag-target">
-                                        doesn't support dynamic behavioral cohorts.
-                                    </Link>{' '}
-                                </>
-                            )}
                         </div>
                     </>
                 )

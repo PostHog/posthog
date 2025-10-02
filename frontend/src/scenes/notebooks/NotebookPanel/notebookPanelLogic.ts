@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { HTMLProps } from 'react'
 
 import { EditorFocusPosition } from 'lib/components/RichContentEditor/types'
@@ -145,4 +145,11 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             window.removeEventListener('drag', cache.dragListener)
         },
     })),
+
+    beforeUnmount(({ cache }) => {
+        // Clean up any active drag listener if component unmounts during drag
+        if (cache.dragListener) {
+            window.removeEventListener('drag', cache.dragListener)
+        }
+    }),
 ])

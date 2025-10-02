@@ -1,3 +1,4 @@
+import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
@@ -10,6 +11,7 @@ import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
+import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
@@ -32,6 +34,7 @@ import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
 import { isTestEnv } from './utils/env-utils'
+import { initializeHeapDump } from './utils/heap-dump'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
@@ -80,6 +83,20 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
+
+        // Initialize heap dump functionality for all services
+        if (this.config.HEAP_DUMP_ENABLED) {
+            let heapDumpS3Client: S3Client | undefined
+            if (this.config.HEAP_DUMP_S3_BUCKET && this.config.HEAP_DUMP_S3_REGION) {
+                const s3Config: S3ClientConfig = {
+                    region: this.config.HEAP_DUMP_S3_REGION,
+                }
+
+                heapDumpS3Client = new S3Client(s3Config)
+            }
+
+            initializeHeapDump(this.config, heapDumpS3Client)
+        }
 
         let _initPluginsPromise: Promise<void> | undefined
 
@@ -212,6 +229,14 @@ export class PluginServer {
                     const worker = new CdpCyclotronWorkerHogFlow(hub)
                     await worker.start()
                     return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronWorkerDelay) {
+                serviceLoaders.push(async () => {
+                    const delayConsumer = new CdpCyclotronDelayConsumer(hub)
+                    await delayConsumer.start()
+                    return delayConsumer.service
                 })
             }
 

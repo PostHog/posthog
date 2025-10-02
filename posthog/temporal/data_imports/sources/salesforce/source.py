@@ -44,6 +44,7 @@ class SalesforceSource(BaseSource[SalesforceSourceConfig], OAuthMixin):
             name=SchemaExternalDataSourceType.SALESFORCE,
             caption="Select an existing Salesforce account to link to PostHog or create a new connection",
             iconPath="/static/services/salesforce.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/salesforce",
             fields=cast(
                 list[FieldType],
                 [

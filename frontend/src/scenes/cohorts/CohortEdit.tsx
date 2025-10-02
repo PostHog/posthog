@@ -2,11 +2,10 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconCopy, IconTrash } from '@posthog/icons'
+import { IconCopy, IconMinusSmall, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -24,16 +23,25 @@ import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { QueryContext } from '~/queries/types'
+import { PersonType } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
+import { RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
 
 const RESOURCE_TYPE = 'cohort'
@@ -41,13 +49,73 @@ const RESOURCE_TYPE = 'cohort'
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
 
+    const renderRemovePersonFromCohortButton = ({ record }: { record: unknown }): JSX.Element => {
+        if (!Array.isArray(record)) {
+            console.error('Expected record to be an array for person.$delete column')
+            return <></>
+        }
+        const personRecord = record[0] as PersonType
+
+        return <RemovePersonFromCohortButton person={personRecord} cohortId={id as number} />
+    }
+
     const logic = cohortEditLogic(logicProps)
-    const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue } = useActions(logic)
+    const {
+        deleteCohort,
+        setOuterGroupsType,
+        setQuery,
+        duplicateCohort,
+        setCohortValue,
+        addPersonToCreateStaticCohort,
+        removePersonFromCreateStaticCohort,
+        setCreationPersonQuery,
+    } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
     const { showAddPersonToCohortModal } = useActions(modalLogic)
-    const { cohort, cohortLoading, cohortMissing, query } = useValues(logic)
+    const {
+        cohort,
+        cohortLoading,
+        cohortMissing,
+        query,
+        creationPersonQuery,
+        personsToCreateStaticCohort,
+        canRemovePersonFromCohort,
+    } = useValues(logic)
+
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
+    const warningLogic = cohortCountWarningLogic({ cohort, query, dataNodeLogicKey })
+    const { shouldShowCountWarning } = useValues(warningLogic)
+
+    const createStaticCohortContext: QueryContext = {
+        columns: {
+            id: {
+                renderTitle: () => null,
+                render: (props) => {
+                    const id = props.value as string
+                    const isAdded = personsToCreateStaticCohort[id] != null
+                    return (
+                        <LemonButton
+                            type="secondary"
+                            status={isAdded ? 'danger' : 'default'}
+                            size="small"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                if (isAdded) {
+                                    removePersonFromCreateStaticCohort(id)
+                                } else {
+                                    addPersonToCreateStaticCohort(id)
+                                }
+                            }}
+                        >
+                            {isAdded ? <IconMinusSmall /> : <IconPlusSmall />}
+                        </LemonButton>
+                    )
+                },
+            },
+        },
+        showOpenEditorButton: false,
+    }
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -56,42 +124,15 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     return (
         <div className="cohort">
             <AddPersonToCohortModal id={id} />
-            <PageHeader
-                buttons={
-                    <div className="flex items-center gap-2">
-                        {isNewCohort ? (
-                            <LemonButton
-                                data-attr="cancel-cohort"
-                                type="secondary"
-                                onClick={() => {
-                                    router.actions.push(urls.cohorts())
-                                }}
-                                disabled={cohortLoading}
-                            >
-                                Cancel
-                            </LemonButton>
-                        ) : null}
-                        <LemonButton
-                            type="primary"
-                            data-attr="save-cohort"
-                            htmlType="submit"
-                            loading={cohortLoading || cohort.is_calculating}
-                            form="cohort"
-                        >
-                            Save
-                        </LemonButton>
-                    </div>
-                }
-            />
 
             <ScenePanel>
-                <ScenePanelMetaInfo>
+                <ScenePanelInfoSection>
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
-                </ScenePanelMetaInfo>
+                </ScenePanelInfoSection>
 
                 <ScenePanelDivider />
 
-                <ScenePanelActions>
+                <ScenePanelActionsSection>
                     <SceneAddToNotebookDropdownMenu
                         dataAttrKey={RESOURCE_TYPE}
                         disabledReasons={{
@@ -122,21 +163,25 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     >
                         <IconCopy /> Duplicate as static cohort
                     </ButtonPrimitive>
-
-                    <ScenePanelDivider />
-
-                    <ButtonPrimitive
-                        onClick={() => {
-                            deleteCohort()
-                        }}
-                        variant="danger"
-                        menuItem
-                        data-attr={`${RESOURCE_TYPE}-delete`}
-                    >
-                        <IconTrash />
-                        Delete
-                    </ButtonPrimitive>
-                </ScenePanelActions>
+                </ScenePanelActionsSection>
+                {!isNewCohort && (
+                    <>
+                        <ScenePanelDivider />
+                        <ScenePanelActionsSection>
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    deleteCohort()
+                                }}
+                                variant="danger"
+                                menuItem
+                                data-attr={`${RESOURCE_TYPE}-delete`}
+                            >
+                                <IconTrash />
+                                Delete
+                            </ButtonPrimitive>
+                        </ScenePanelActionsSection>
+                    </>
+                )}
             </ScenePanel>
 
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
@@ -158,6 +203,33 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             }}
                             canEdit
                             forceEdit={isNewCohort}
+                            actions={
+                                <>
+                                    {isNewCohort ? (
+                                        <LemonButton
+                                            data-attr="cancel-cohort"
+                                            type="secondary"
+                                            onClick={() => {
+                                                router.actions.push(urls.cohorts())
+                                            }}
+                                            size="small"
+                                            disabled={cohortLoading}
+                                        >
+                                            Cancel
+                                        </LemonButton>
+                                    ) : null}
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="save-cohort"
+                                        htmlType="submit"
+                                        loading={cohortLoading || cohort.is_calculating}
+                                        form="cohort"
+                                        size="small"
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </>
+                            }
                         />
                     </LemonField>
 
@@ -228,8 +300,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     isNewCohort
                                         ? `Upload a CSV file to add users to your cohort. For single-column files, include
                                         one distinct ID per row (all rows will be processed as data). For multi-column
-                                        files, include a header row with a 'distinct_id' column containing the user
-                                        identifiers.`
+                                        files, include a header row with a 'person_id', 'distinct_id', or 'email' column
+                                        containing the user identifiers.`
                                         : undefined
                                 }
                                 className={cn('ph-ignore-input')}
@@ -240,8 +312,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         <span className="max-w-prose">
                                             Upload a CSV file to add users to your cohort. For single-column files,
                                             include one distinct ID per row (all rows will be processed as data). For
-                                            multi-column files, include a header row with a 'distinct_id' column
-                                            containing the user identifiers.
+                                            multi-column files, include a header row with a 'person_id', 'distinct_id',
+                                            or 'email' column containing the user identifiers.
                                         </span>
                                     </div>
                                 )}
@@ -295,6 +367,22 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     )}
                                 </LemonField>
                             </SceneSection>
+                            {isNewCohort && (
+                                <>
+                                    <LemonDivider label="OR" />
+                                    <div>
+                                        <h3 className="font-semibold my-0 mb-1 max-w-prose">Add users manually</h3>
+                                        <span className="max-w-prose">
+                                            Select the users that you would like to add to the new cohort.
+                                        </span>
+                                    </div>
+                                    <Query
+                                        query={creationPersonQuery}
+                                        setQuery={setCreationPersonQuery}
+                                        context={createStaticCohortContext}
+                                    />
+                                </>
+                            )}
                             {!isNewCohort && (
                                 <>
                                     <LemonDivider label="OR" />
@@ -357,10 +445,13 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     <>
                                         Persons in this cohort
                                         <span className="text-secondary ml-2">
-                                            {!cohort.is_calculating &&
-                                                cohort.count !== undefined &&
-                                                `(${cohort.count})`}
+                                            {!cohort.is_calculating && cohort.count != undefined && `(${cohort.count})`}
                                         </span>
+                                        {shouldShowCountWarning && (
+                                            <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
+                                                <IconWarning className="text-warning ml-2" />
+                                            </Tooltip>
+                                        )}
                                     </>
                                 }
                                 description="Persons who match the following criteria will be part of the cohort."
@@ -382,6 +473,13 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 refresh: 'force_blocking',
                                                 fileNameForExport: cohort.name,
                                                 dataNodeLogicKey: dataNodeLogicKey,
+                                                columns: canRemovePersonFromCohort
+                                                    ? {
+                                                          'person.$delete': {
+                                                              render: renderRemovePersonFromCohortButton,
+                                                          },
+                                                      }
+                                                    : undefined,
                                             }}
                                         />
                                     )}

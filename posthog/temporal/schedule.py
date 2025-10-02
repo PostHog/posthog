@@ -129,7 +129,7 @@ async def create_salesforce_enrichment_schedule(client: Client):
             "salesforce-enrichment-async",
             SalesforceEnrichmentInputs(chunk_size=DEFAULT_CHUNK_SIZE),
             id="salesforce-enrichment-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=BILLING_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
             calendars=[

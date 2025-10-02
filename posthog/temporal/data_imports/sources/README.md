@@ -16,14 +16,19 @@ Adding a new source should be pretty simple. We've refactored the sources so tha
     **This step is REQUIRED** - without it, `@SourceRegistry.register` won't work and your source won't be discoverable.
 
 9. **Re-run config generation** after implementing source logic:
+
     ```bash
     pnpm generate:source-configs
     ```
+
     This updates `generated_configs.py` with your actual implemented source class.
+
 10. **Build schemas** to update types:
+
     ```bash
     pnpm schema:build
     ```
+
     This ensures your source appears in frontend dropdowns and forms.
 
 ### Source file template
@@ -52,8 +57,9 @@ class TemplateSource(BaseSource[Config]): # Replace this after config generation
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SOURCE_TYPE, # Replace this
-            label="Template", # Replace this
-            caption="",
+            label="Template", # Only needed if the readable name is complex
+            caption=None, # Only needed if you wanna inline docs
+            docsUrl=None, # Link to the docs in the website, full path including https://
             fields=cast(list[FieldType], []), # Add source fields here
         )
     def validate_credentials(self, config: Config, team_id: int) -> tuple[bool, str | None]: # Replace `Config` with your config class
@@ -205,7 +211,8 @@ If your source uses OAuth (SourceFieldOauthConfig):
     ```
 
 3. **Redirect URI**: Configure in external service:
-    ```
+
+    ```text
     https://localhost:8010/integrations/your-kind/callback
     ```
 
