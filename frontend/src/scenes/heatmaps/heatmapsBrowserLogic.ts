@@ -57,7 +57,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
             heatmapDataLogic({ context: 'in-app' }),
-            ['heatmapEmpty'],
+            ['heatmapEmpty', 'hrefMatchType'],
         ],
         actions: [heatmapDataLogic({ context: 'in-app' }), ['loadHeatmap', 'setHref', 'setHrefMatchType']],
     })),
@@ -280,22 +280,41 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             (s) => [s.topUrlsLoading, s.topUrls],
             (topUrlsLoading, topUrls) => !topUrlsLoading && (!topUrls || topUrls.length === 0),
         ],
+
+        currentUrlMatchType: [
+            (s) => [s.browserUrl, s.browserSearchTerm],
+            (browserUrl: string | null, browserSearchTerm: string) => {
+                // Use the current input value (either confirmed URL or what's being typed)
+                const currentValue = browserUrl || browserSearchTerm
+                if (!currentValue) {
+                    return 'exact'
+                }
+                return currentValue.includes('*') ? 'pattern' : 'exact'
+            },
+        ],
     }),
 
     listeners(({ actions, cache, props, values }) => ({
         setReplayIframeData: ({ replayIframeData }) => {
             if (replayIframeData && replayIframeData.url) {
                 actions.setHref(replayIframeData.url)
-                // TODO we need to be able to handle regex values
-                actions.setHrefMatchType('exact')
+                // Auto-detect match type for replay data URLs too
+                const hasWildcards = replayIframeData.url.includes('*')
+                actions.setHrefMatchType(hasWildcards ? 'pattern' : 'exact')
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
         },
 
-        setBrowserSearch: async (_, breakpoint) => {
+        setBrowserSearch: async ({ searchTerm }, breakpoint) => {
             await breakpoint(200)
             actions.loadBrowserSearchResults()
+
+            // Also update match type based on search term if it has wildcards
+            if (searchTerm && searchTerm.includes('*')) {
+                actions.setHrefMatchType('pattern')
+                actions.setHref(searchTerm)
+            }
         },
 
         sendToolbarMessage: ({ type, payload }) => {
@@ -311,7 +330,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         onIframeLoad: () => {
             // it should be impossible to load an iframe without a browserUrl
             // right?!
-            actions.setHref(values.browserUrl ?? '')
+            const url = values.browserUrl ?? ''
+            actions.setHref(url)
+
+            // Ensure match type is set correctly when iframe loads
+            const hasWildcards = url.includes('*')
+            actions.setHrefMatchType(hasWildcards ? 'pattern' : 'exact')
+
             actions.loadHeatmap()
             posthog.capture('in-app heatmap iframe loaded', {
                 inapp_heatmap_page_url_visited: values.browserUrl,
@@ -331,8 +356,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             await breakpoint(150)
             if (url?.trim().length) {
                 actions.setHref(url)
-                // TODO we need to be able to handle regex values
-                actions.setHrefMatchType('exact')
+                // Auto-detect match type for replay URLs too
+                const hasWildcards = url.includes('*')
+                actions.setHrefMatchType(hasWildcards ? 'pattern' : 'exact')
             }
         },
 
@@ -340,6 +366,24 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             actions.maybeLoadTopUrls()
             if (url?.trim().length) {
                 actions.startTrackingLoading()
+
+                // Normalize URL - ensure trailing slash for consistency
+                let normalizedUrl = url.trim()
+                try {
+                    const urlObj = new URL(normalizedUrl)
+                    // If it's just the domain with no path, add trailing slash
+                    if (urlObj.pathname === '') {
+                        normalizedUrl = `${urlObj.origin}/`
+                    }
+                } catch {
+                    // If URL parsing fails, use as-is
+                }
+
+                actions.setHref(normalizedUrl)
+
+                // Auto-detect match type based on wildcards
+                const hasWildcards = normalizedUrl.includes('*')
+                actions.setHrefMatchType(hasWildcards ? 'pattern' : 'exact')
             }
         },
 

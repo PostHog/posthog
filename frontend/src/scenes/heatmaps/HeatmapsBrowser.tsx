@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonInputSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -75,43 +75,115 @@ function ExportButton({
     )
 }
 
+function isValidUrl(value: string): boolean {
+    try {
+        const url = new URL(value)
+        // Must have a protocol and a host, and host must have at least one dot or be localhost
+        return url.protocol.length > 0 && (url.hostname.includes('.') || url.hostname === 'localhost')
+    } catch {
+        return false
+    }
+}
+
 function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTMLIFrameElement | null> }): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrlSearchOptions, browserUrl, isBrowserUrlValid, replayIframeData, hasValidReplayIframeData } =
-        useValues(logic)
+    const {
+        browserUrlSearchOptions,
+        browserUrl,
+        isBrowserUrlValid,
+        replayIframeData,
+        hasValidReplayIframeData,
+        currentUrlMatchType,
+        browserSearchTerm,
+    } = useValues(logic)
     const { setBrowserSearch, setBrowserUrl, setReplayIframeData, setReplayIframeDataURL } = useActions(logic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
     return (
         <div className="flex-none md:flex justify-between items-center gap-2 w-full">
-            <div className="flex-1 min-w-0">
-                {hasValidReplayIframeData ? (
-                    <LemonInput
-                        value={replayIframeData?.url}
-                        onChange={(s) => setReplayIframeDataURL(s)}
-                        className="truncate"
-                        size="small"
-                    />
-                ) : (
-                    <LemonInputSelect
-                        mode="single"
-                        size="small"
-                        allowCustomValues
-                        placeholder={`e.g. ${placeholderUrl}`}
-                        onInputChange={(e) => setBrowserSearch(e)}
-                        value={browserUrl ? [browserUrl] : undefined}
-                        onChange={(v) => setBrowserUrl(v[0] ?? null)}
-                        options={
-                            browserUrlSearchOptions?.map((x) => ({
-                                label: x,
-                                key: x,
-                            })) ?? []
+            <div className="flex gap-2 flex-1 min-w-0">
+                <div className="flex-1">
+                    {hasValidReplayIframeData ? (
+                        <LemonInput
+                            value={replayIframeData?.url}
+                            onChange={(s) => setReplayIframeDataURL(s)}
+                            className="truncate"
+                            size="small"
+                        />
+                    ) : (
+                        <div className="relative">
+                            <LemonInput
+                                size="small"
+                                placeholder={`e.g. ${placeholderUrl}`}
+                                value={browserUrl || browserSearchTerm || ''}
+                                onChange={(value) => {
+                                    setBrowserSearch(value)
+                                    // Only set browserUrl if the value looks like a complete URL or is empty
+                                    if (!value) {
+                                        setBrowserUrl(null)
+                                    } else if (isValidUrl(value)) {
+                                        setBrowserUrl(value)
+                                    } else {
+                                        // Clear browserUrl if we're typing something that's not a valid URL yet
+                                        setBrowserUrl(null)
+                                    }
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && browserSearchTerm) {
+                                        setBrowserUrl(browserSearchTerm)
+                                    }
+                                }}
+                                className={`truncate ${!isBrowserUrlValid ? 'border-red-500' : ''}`}
+                            />
+                            {/* Show suggestions when there are options and no confirmed URL */}
+                            {browserUrlSearchOptions && browserUrlSearchOptions.length > 0 && !browserUrl && (
+                                <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-bg-light border border-border rounded shadow-lg max-h-48 overflow-y-auto">
+                                    {browserUrlSearchOptions.slice(0, 5).map((url) => (
+                                        <button
+                                            key={url}
+                                            className="w-full text-left px-3 py-2 hover:bg-bg-3000 text-sm truncate"
+                                            onClick={() => {
+                                                setBrowserUrl(url)
+                                                setBrowserSearch('')
+                                            }}
+                                        >
+                                            {url}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Small match type indicator */}
+                {(browserUrl || browserSearchTerm) && (
+                    <Tooltip
+                        title={
+                            currentUrlMatchType === 'pattern' ? (
+                                <>
+                                    <strong>Pattern matching</strong> - Uses wildcard character <code>*</code> to match
+                                    multiple URLs. For example, <code>https://example.com/*</code> will match{' '}
+                                    <code>https://example.com/page</code> and <code>https://example.com/page/1</code>.
+                                </>
+                            ) : (
+                                <>
+                                    <strong>Exact matching</strong> - Matches only the specific URL entered. Add{' '}
+                                    <code>*</code> to your URL to switch to pattern matching.
+                                </>
+                            )
                         }
-                        className={`truncate ${!isBrowserUrlValid ? 'border-red-500' : ''}`}
-                        popoverClassName="truncate"
-                    />
+                    >
+                        <LemonTag
+                            type={currentUrlMatchType === 'pattern' ? 'warning' : 'default'}
+                            size="small"
+                            className="shrink-0"
+                        >
+                            {currentUrlMatchType === 'pattern' ? 'Pattern' : 'Exact'}
+                        </LemonTag>
+                    </Tooltip>
                 )}
             </div>
             {hasValidReplayIframeData ? (
