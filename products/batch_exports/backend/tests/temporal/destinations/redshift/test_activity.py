@@ -110,6 +110,7 @@ async def _run_activity(
         exclude_events=exclude_events,
         properties_data_type=properties_data_type,
         sort_key=sort_key,
+        expected_fields=expected_fields,
     )
 
     return result
@@ -445,6 +446,16 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
     model = BatchExportModel(name="persons", schema=None)
     properties_data_type = "varchar"
     table_name = f"test_insert_activity_migration_table__{ateam.pk}"
+    expected_fields = [
+        "team_id",
+        "distinct_id",
+        "person_id",
+        "properties",
+        "person_version",
+        "person_distinct_id_version",
+        "created_at",
+        "is_deleted",
+    ]
 
     await _run_activity(
         activity_environment,
@@ -459,6 +470,7 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
         properties_data_type=properties_data_type,
         sort_key="person_id",
         use_internal_stage=use_internal_stage,
+        expected_fields=expected_fields,
     )
 
     # Drop the created_at column from the Redshift table
@@ -494,17 +506,7 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
         )
 
     # This time we don't expect there to be a created_at column
-    EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
-        "team_id",
-        "distinct_id",
-        "person_id",
-        "properties",
-        "person_version",
-        "person_distinct_id_version",
-        "created_at",
-        "is_deleted",
-    ]
-    expected_fields = [f for f in EXPECTED_PERSONS_BATCH_EXPORT_FIELDS if f != "created_at"]
+    expected_fields.pop(expected_fields.index("created_at"))
 
     await _run_activity(
         activity_environment,
