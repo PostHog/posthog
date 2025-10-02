@@ -10,7 +10,7 @@ export function chainToElements(chain: string, options: { throwOnError?: boolean
     // Below splits the tag/classes from attributes
     // Needs a regex because classes can have : too
     const splitClassAttributes = /(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g
-    const parseAttributesRegex = /((.*?)="(.*?[^\\])")/gm
+    const parseAttributesRegex = /((.*?)="((?:\\"|[^"])*)")/gm
 
     chain = chain.replace(/\n/g, '')
 
