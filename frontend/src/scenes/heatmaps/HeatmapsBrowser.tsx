@@ -131,7 +131,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                     }
                                 }}
                                 onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && browserSearchTerm) {
+                                    if (e.key === 'Enter' && browserSearchTerm && isValidUrl(browserSearchTerm)) {
                                         setBrowserUrl(browserSearchTerm)
                                     }
                                 }}
