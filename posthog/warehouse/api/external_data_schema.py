@@ -302,6 +302,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.delete_table()
 
         instance.sync_type_config.update({"reset_pipeline": True})
+        instance.save()
 
         return Response(status=status.HTTP_200_OK)
 
