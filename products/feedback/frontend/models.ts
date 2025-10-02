@@ -16,7 +16,14 @@ export interface FeedbackItemTopic {
 }
 
 export interface FeedbackItemAssignment {
-    user: number | null
+    user: {
+        id: number
+        uuid: string
+        distinct_id: string
+        first_name: string
+        last_name: string
+        email: string
+    } | null
     role: number | null
 }
 

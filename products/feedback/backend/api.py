@@ -7,7 +7,9 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.models import User
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
@@ -46,6 +48,8 @@ class FeedbackItemTopicSerializer(serializers.ModelSerializer):
 
 
 class FeedbackItemAssignmentSerializer(serializers.ModelSerializer):
+    user = UserBasicSerializer(read_only=True)
+
     class Meta:
         model = FeedbackItemAssignment
         fields = ["user", "role"]
@@ -60,6 +64,9 @@ class FeedbackItemSerializer(serializers.ModelSerializer):
     status_id = serializers.PrimaryKeyRelatedField(
         queryset=FeedbackItemStatus.objects.all(), source="status", write_only=True, required=False, allow_null=True
     )
+    assigned_user_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), write_only=True, required=False, allow_null=True
+    )
 
     class Meta:
         model = FeedbackItem
@@ -71,10 +78,22 @@ class FeedbackItemSerializer(serializers.ModelSerializer):
             "status",
             "status_id",
             "assignment",
+            "assigned_user_id",
             "attachments",
             "created_at",
         ]
         read_only_fields = ["id", "content", "created_at"]
+
+    def update(self, instance, validated_data):
+        assigned_user = validated_data.pop("assigned_user_id", None)
+        if "assigned_user_id" in self.initial_data:
+            if assigned_user is None:
+                FeedbackItemAssignment.objects.filter(feedback_item=instance).delete()
+            else:
+                FeedbackItemAssignment.objects.update_or_create(
+                    feedback_item=instance, defaults={"user": assigned_user, "role": None}
+                )
+        return super().update(instance, validated_data)
 
 
 class FeedbackItemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
