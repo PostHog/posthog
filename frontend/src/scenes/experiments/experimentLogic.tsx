@@ -344,6 +344,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeSecondaryMetricModal',
                 'openPrimarySharedMetricModal',
                 'openSecondarySharedMetricModal',
+                'openStopExperimentModal',
                 'closeStopExperimentModal',
                 'closeShipVariantModal',
                 'openReleaseConditionsModal',
@@ -1055,8 +1056,9 @@ export const experimentLogic = kea<experimentLogicType>([
             if (payload.shouldStopExperiment && !values.isExperimentStopped) {
                 actions.endExperiment()
             }
-            actions.loadExperiment()
             actions.reportExperimentVariantShipped(values.experiment)
+
+            actions.openStopExperimentModal()
         },
         shipVariantFailure: ({ error }) => {
             lemonToast.error(error)

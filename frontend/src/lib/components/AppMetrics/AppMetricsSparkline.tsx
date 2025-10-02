@@ -16,7 +16,7 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
     const { ref: inViewRef, inView } = useInView()
 
     useEffect(() => {
-        if (inStorybookTestRunner() || (inView && !appMetricsTrends && !appMetricsTrendsLoading)) {
+        if (inStorybookTestRunner() || (inView && !appMetricsTrendsLoading)) {
             loadAppMetricsTrends()
         }
     }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps
