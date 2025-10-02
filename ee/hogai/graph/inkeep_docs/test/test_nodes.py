@@ -34,6 +34,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             )
             next_state = node.run(state, {})
             self.assertIsInstance(next_state, PartialAssistantState)
+            assert next_state is not None
             messages = cast(list, next_state.messages)
             self.assertEqual(len(messages), 2)
 
@@ -62,6 +63,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             )
             next_state = node.run(state, {})
             self.assertIsInstance(next_state, PartialAssistantState)
+            assert next_state is not None
             messages = cast(list, next_state.messages)
             self.assertEqual(len(messages), 2)
             second_message = cast(AssistantMessage, messages[1])
@@ -121,6 +123,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
                 root_tool_call_id=test_tool_call_id,
             )
             next_state = node.run(state, {})
+            assert next_state is not None
 
             # Check that the tool call message uses the input tool_call_id
             messages = cast(list, next_state.messages)
@@ -142,6 +145,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
                 root_tool_call_id="test-id",
             )
             next_state = node.run(state, {})
+            assert next_state is not None
             messages = cast(list, next_state.messages)
 
             # Check that both messages have IDs and they're different

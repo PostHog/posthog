@@ -9,7 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.types import StreamWriter
 
-from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage, MaxBillingContext, ReasoningMessage
+from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage, ReasoningMessage
 
 from posthog.models import Team
 from posthog.models.user import User
@@ -109,15 +109,6 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
                 if tool_call.id == tool_call_id:
                     return tool_call
         raise ValueError(f"Tool call {tool_call_id} not found in state")
-
-    def _get_billing_context(self, config: RunnableConfig) -> MaxBillingContext | None:
-        """
-        Extracts the billing context from the runnable config.
-        """
-        billing_context = (config.get("configurable") or {}).get("billing_context")
-        if not billing_context:
-            return None
-        return MaxBillingContext.model_validate(billing_context)
 
     def _message_to_langgraph_update(
         self, message: AssistantMessageUnion, node_name: MaxNodeName
