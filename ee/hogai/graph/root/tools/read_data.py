@@ -37,12 +37,6 @@ The user does not have admin access to view detailed billing information. They w
 Suggest the user to contact the admins.
 """.strip()
 
-INVALID_KIND_PROMPT = """
-<system_reminder>
-Invalid kind. You must use "datawarehouse_schema" or "billing_info".
-</system_reminder>
-""".strip()
-
 ReadDataKind = Literal["datawarehouse_schema"]
 ReadDataAdminAccessKind = Literal["datawarehouse_schema", "billing_info"]
 
