@@ -1509,10 +1509,6 @@ Here is the taxonomy for event properties:
             "label": "Exception is synthetic",
             "description": "Whether this was detected as a synthetic exception.",
         },
-        "$exception_stack_trace_raw": {
-            "label": "Exception raw stack trace",
-            "description": "The exceptions stack trace, as a string.",
-        },
         "$exception_handled": {
             "label": "Exception was handled",
             "description": "Whether this was a handled or unhandled exception.",
