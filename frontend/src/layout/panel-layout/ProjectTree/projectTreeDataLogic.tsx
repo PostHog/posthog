@@ -737,6 +737,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             (s) => [s.getStaticTreeItems],
             (getStaticTreeItems) => getStaticTreeItems('', false).find((item) => item.id === 'new://')?.children ?? [],
         ],
+        shortcutNonFolderPaths: [
+            (s) => [s.shortcutData],
+            (shortcutData) =>
+                new Set(shortcutData.filter((shortcut) => shortcut.type !== 'folder').map((shortcut) => shortcut.path)),
+        ],
     }),
     listeners(({ actions, values }) => ({
         loadFolder: async ({ folder }) => {

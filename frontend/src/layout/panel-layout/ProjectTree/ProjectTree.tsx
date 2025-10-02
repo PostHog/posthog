@@ -57,7 +57,7 @@ import { BrowserLikeMenuItems } from './menus/BrowserLikeMenuItems'
 import { ProductAnalyticsMenuItems } from './menus/ProductAnalyticsMenuItems'
 import { SessionReplayMenuItems } from './menus/SessionReplayMenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
-import { calculateMovePath } from './utils'
+import { calculateMovePath, joinPath, splitPath } from './utils'
 
 export interface ProjectTreeProps {
     logicKey?: string // key override?
@@ -80,7 +80,7 @@ export function ProjectTree({
     showRecents,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { viableItems } = useValues(projectTreeDataLogic)
+    const { viableItems, shortcutNonFolderPaths } = useValues(projectTreeDataLogic)
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
@@ -261,6 +261,9 @@ export function ProjectTree({
                 </>
             ) : null
 
+        const isItemAFolder = item.record?.type === 'folder'
+        const itemShortcutPath = joinPath([splitPath(item.record?.path).pop() ?? 'Unnamed'])
+        const isItemAlreadyInShortcut = !isItemAFolder && shortcutNonFolderPaths.has(itemShortcutPath)
         return (
             <>
                 {productMenu}
@@ -352,6 +355,12 @@ export function ProjectTree({
                                 <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
                             </MenuItem>
                         ) : null
+                    ) : isItemAlreadyInShortcut ? (
+                        <MenuItem asChild disabled={true} data-attr="tree-item-menu-add-to-shortcuts-disabutton">
+                            <ButtonPrimitive menuItem disabled={true}>
+                                Already in shortcuts panel
+                            </ButtonPrimitive>
+                        </MenuItem>
                     ) : (
                         <MenuItem
                             asChild
