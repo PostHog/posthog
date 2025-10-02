@@ -1,6 +1,9 @@
 mod exception;
 mod frame;
 
+use std::{fmt::Display, str::FromStr};
+
+use anyhow::anyhow;
 pub use exception::*;
 pub use frame::*;
 
@@ -19,21 +22,56 @@ pub struct ContextLine {
     pub line: String,
 }
 
+#[derive(Clone)]
+pub struct EmbeddingModelList(pub Vec<EmbeddingModel>);
+
+impl FromStr for EmbeddingModelList {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.split(',')
+            .map(|s| s.parse())
+            .collect::<anyhow::Result<Vec<_>>>()
+            .map(EmbeddingModelList)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EmbeddingModel {
+    #[serde(rename = "text-embedding-3-small")]
+    OpenAITextEmbeddingSmall,
+    #[serde(rename = "text-embedding-3-large")]
+    OpenAITextEmbeddingLarge,
+}
+
+impl FromStr for EmbeddingModel {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim() {
+            "text-embedding-3-small" => Ok(EmbeddingModel::OpenAITextEmbeddingSmall),
+            "text-embedding-3-large" => Ok(EmbeddingModel::OpenAITextEmbeddingLarge),
+            _ => Err(anyhow!("Invalid embedding model")),
+        }
+    }
+}
+
+impl Display for EmbeddingModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EmbeddingModel::OpenAITextEmbeddingSmall => write!(f, "text-embedding-3-small"),
+            EmbeddingModel::OpenAITextEmbeddingLarge => write!(f, "text-embedding-3-large"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewFingerprintEvent {
     pub team_id: i32,
     pub fingerprint: String,
+    pub models: Vec<EmbeddingModel>,
     pub exception_list: Vec<ExceptionData>,
-}
-
-impl NewFingerprintEvent {
-    pub fn new(team_id: i32, fingerprint: String, exception_list: Vec<ExceptionData>) -> Self {
-        Self {
-            team_id,
-            fingerprint,
-            exception_list,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
