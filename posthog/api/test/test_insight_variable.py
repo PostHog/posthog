@@ -43,7 +43,7 @@ class TestInsightVariable(APIBaseTest):
         assert not InsightVariable.objects.filter(id=variable.id).exists()
 
     def test_insight_variable_limit(self):
-        # default list call should return 101 variables
+        # default list call should return 500 variables
         response = self.client.get(f"/api/environments/{self.team.pk}/insight_variables/")
         assert response.status_code == 200
 
