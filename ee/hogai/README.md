@@ -137,8 +137,19 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
 
 ### Adding a new query type
 
-1. **Update the query executor** (`@ee/hogai/graph/query_executor/`):
-    - Add your new query type to the `SupportedQueryTypes` union in `query_executor.py:33`:
+1. **Update the schema to include the new query types**
+    - Update `AnyAssistantSupportedQuery` in [`schema-assistant-messages.ts`](frontend/src/queries/schema/schema-assistant-messages.ts)
+
+        ```typescript
+        AnyAssistantSupportedQuery =
+            | TrendsQuery
+            | FunnelsQuery
+            | RetentionQuery
+            | HogQLQuery
+            | YourNewQuery           // Add your query type
+        ```
+
+    - Add your new query type to the `SupportedQueryTypes` union in [`query_executor.py`](ee/hogai/graph/query_executor/query_executor.py):
 
         ```python
         SupportedQueryTypes = (
@@ -154,7 +165,8 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
         )
         ```
 
-    - Add a new formatter class in `query_executor/format.py` that implements query result formatting for AI consumption (see below, point 3)
+2. **Update the query executor and formatters** (`@ee/hogai/graph/query_executor/`):
+    - Add a new formatter class in `query_executor/format/` that implements query result formatting for AI consumption. Make sure it's imported and exported from `query_executor/format/__init__.py`. See below (Step 3) for more information.
     - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
 
         ```python
@@ -170,7 +182,7 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
             return YOUR_NEW_EXAMPLE_PROMPT
         ```
 
-2. **Update the root node** (`@ee/hogai/graph/root/`):
+3. **Update the root node** (`@ee/hogai/graph/root/`):
     - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
 
         ```python
@@ -183,9 +195,9 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
         }
         ```
 
-3. **Create the formatter class**:
+4. **Create the formatter class**:
 
-    Create a new formatter in `format.py` following the pattern of existing formatters:
+    Create a new formatter in `format/your_formatter.py` following the pattern of existing formatters:
 
     ```python
     class YourNewResultsFormatter:
@@ -201,9 +213,9 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
             pass
     ```
 
-4. **Add tests**:
+5. **Add tests**:
     - Add test cases in `test/test_query_executor.py` for your new query type
-    - Add test cases in `test/test_format.py` for your new formatter
+    - Add test cases in `test/format/test_format.py` for your new formatter
     - Ensure tests cover both successful execution and error handling
 
 ### Taxonomy Agent
