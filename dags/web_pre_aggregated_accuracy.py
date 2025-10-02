@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 
 import dagster
-import structlog
-from dagster import AssetExecutionContext, Field, MetadataValue, WeeklyPartitionsDefinition, asset
+import pydantic
+from dagster import AssetExecutionContext, MetadataValue, WeeklyPartitionsDefinition, asset
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tags_context
@@ -10,20 +10,15 @@ from posthog.clickhouse.query_tagging import tags_context
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS, WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS
 
-logger = structlog.get_logger(__name__)
 
-WEB_PRE_AGGREGATED_ACCURACY_CONFIG_SCHEMA = {
-    "team_id": Field(
-        int,
-        default_value=TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS,
+class AccuracyConfig(dagster.Config):
+    team_id: int = pydantic.Field(
+        default=TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS,
         description="Team ID to analyze data quality for",
-    ),
-}
+    )
 
 
 def build_accuracy_comparison_query(team_id: int, start_date: str, end_date: str) -> str:
-    team_filter = f"team_id = {team_id}"
-
     return f"""
 WITH
     -- Method 1: Regular event count from events table - unique users (session-based like web analytics)
@@ -44,13 +39,13 @@ WITH
                     raw_sessions.session_id_v7 AS session_id_v7
                 FROM raw_sessions
                 WHERE
-                    {team_filter.replace("team_id", "raw_sessions.team_id")}
+                    raw_sessions.team_id = {team_id}
                     AND greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime('{start_date} 00:00:00'))
                     AND lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toDateTime('{end_date} 23:59:59'))
                 GROUP BY raw_sessions.session_id_v7
             ) AS events__session ON equals(toUInt128(accurateCastOrNull(events.$session_id, 'UUID')), events__session.session_id_v7)
             WHERE
-                {team_filter.replace("team_id", "events.team_id")}
+                team_id = {team_id}
                 AND timestamp >= toDateTime('{start_date} 00:00:00')
                 AND timestamp <= toDateTime('{end_date} 23:59:59')
                 AND event IN ('$pageview', '$screen')
@@ -70,7 +65,7 @@ WITH
             uniqMerge(persons_uniq_state) as unique_user_count
         FROM web_pre_aggregated_bounces
         WHERE
-            {team_filter}
+            team_id = {team_id}
             AND period_bucket >= toDateTime('{start_date} 00:00:00')
             AND period_bucket <= toDateTime('{end_date} 23:59:59')
         GROUP BY period_bucket_date
@@ -115,12 +110,11 @@ ORDER BY period_bucket_date DESC
 @asset(
     name="web_pre_aggregated_accuracy",
     description="Accuracy comparison of unique user counts between regular events and V2 pre-aggregated tables",
-    config_schema=WEB_PRE_AGGREGATED_ACCURACY_CONFIG_SCHEMA,
-    partitions_def=WeeklyPartitionsDefinition(start_date="2024-01-01"),
+    partitions_def=WeeklyPartitionsDefinition(start_date="2024-01-01", end_offset=1),
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
-def web_pre_aggregated_accuracy(context: AssetExecutionContext) -> list[dict]:
-    team_id = int(TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS)
+def web_pre_aggregated_accuracy(context: AssetExecutionContext, config: AccuracyConfig) -> list[dict]:
+    team_id = config.team_id
 
     partition_date = datetime.strptime(context.partition_key, "%Y-%m-%d").date()
     end_date = partition_date
@@ -134,6 +128,8 @@ def web_pre_aggregated_accuracy(context: AssetExecutionContext) -> list[dict]:
     query = build_accuracy_comparison_query(team_id, start_date_str, end_date_str)
 
     try:
+        context.log.info(query)
+
         with tags_context(kind="dagster", dagster=dagster_tags(context)):
             context.log.info("Executing accuracy comparison query")
             result = sync_execute(query, settings=WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS)
