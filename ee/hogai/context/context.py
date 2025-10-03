@@ -12,6 +12,7 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
+    MaxBillingContext,
     MaxInsightContext,
     MaxUIContext,
     RetentionQuery,
@@ -22,12 +23,13 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
-from ee.hogai.utils.helpers import find_start_message, find_start_message_idx
+from ee.hogai.utils.helpers import find_start_message, insert_messages_before_start
 from ee.hogai.utils.types.base import AnyAssistantSupportedQuery, AssistantMessageUnion, BaseStateWithMessages
 
 from .prompts import (
@@ -52,6 +54,13 @@ SUPPORTED_QUERY_MODEL_BY_KIND: dict[str, type[AnyAssistantSupportedQuery]] = {
 
 class AssistantContextManager(AssistantContextMixin):
     """Manager that provides context formatting capabilities."""
+
+    def __init__(self, team: Team, user: User, config: RunnableConfig | None = None):
+        self._team = team
+        self._user = user
+        self._config = config or {}
+        self._group_names_cache: list[str] | None = None
+        self._group_names_lock = asyncio.Lock()
 
     async def aget_state_messages_with_context(self, state: BaseStateWithMessages) -> Sequence[AssistantMessageUnion]:
         if context_prompts := await self._get_context_prompts(state):
@@ -85,10 +94,42 @@ class AssistantContextManager(AssistantContextMixin):
 
         return contextual_tools
 
-    def __init__(self, team: Team, user: User, config: RunnableConfig):
-        self._team = team
-        self._user = user
-        self._config = config
+    def get_tool_context(self, tool_name: str) -> dict[str, Any]:
+        """
+        Extracts the context for a given tool from the runnable config.
+        """
+        return (self._config.get("configurable") or {}).get("contextual_tools", {}).get(tool_name, {})
+
+    def get_billing_context(self) -> MaxBillingContext | None:
+        """
+        Extracts the billing context from the runnable config.
+        """
+        billing_context = (self._config.get("configurable") or {}).get("billing_context")
+        if not billing_context:
+            return None
+        return MaxBillingContext.model_validate(billing_context)
+
+    def get_groups(self):
+        """
+        Returns the ORM chain of the team's groups.
+        """
+        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
+
+    async def get_group_names(self) -> list[str]:
+        """
+        Returns the names of the team's groups.
+        Thread-safe caching to avoid duplicate concurrent queries.
+        """
+        if self._group_names_cache is not None:
+            return self._group_names_cache
+
+        async with self._group_names_lock:
+            # Double-check after acquiring lock
+            if self._group_names_cache is not None:
+                return self._group_names_cache
+
+            self._group_names_cache = [group async for group in self.get_groups().values_list("group_type", flat=True)]
+            return self._group_names_cache
 
     async def _format_ui_context(self, ui_context: MaxUIContext | None) -> str | None:
         """
@@ -346,7 +387,7 @@ class AssistantContextManager(AssistantContextMixin):
 
         contextual_tools_prompt = [
             f"<{tool_name}>\n"
-            f"{get_assistant_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
+            f"{get_assistant_tool_class(tool_name).format_system_prompt_injection(tool_context)}\n"  # type: ignore
             f"</{tool_name}>"
             for tool_name, tool_context in self.get_contextual_tools().items()
             if get_assistant_tool_class(tool_name) is not None
@@ -368,5 +409,4 @@ class AssistantContextManager(AssistantContextMixin):
             ContextMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts
         ]
         # Insert context messages right before the start message
-        start_idx = find_start_message_idx(state.messages, state.start_id)
-        return [*state.messages[:start_idx], *context_messages, *state.messages[start_idx:]]
+        return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)

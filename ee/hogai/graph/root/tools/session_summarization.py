@@ -10,7 +10,7 @@ from ee.hogai.utils.types.base import AssistantState, ToolResult
 logger = structlog.get_logger(__name__)
 
 
-class SessionSummarizationArgs(BaseModel):
+class SessionSummarizationToolArgs(BaseModel):
     session_summarization_query: str = Field(
         description="""
         - The user's complete query for session recordings summarization.
@@ -60,18 +60,44 @@ class SessionSummarizationArgs(BaseModel):
 
 
 class SessionSummarizationTool(MaxTool):
-    name = AssistantTool.SESSION_SUMMARIZATION.value
+    name = AssistantTool.SESSION_SUMMARIZATION
     description = """
-    - Summarize session recordings to find patterns and issues by summarizing sessions' events.
-    - When to use the tool:
-      * When the user asks to summarize session recordings
-        - "summarize" synonyms: "watch", "analyze", "review", and similar
-        - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
-    - When NOT to use the tool:
-      * When the user asks to find, search for, or look up session recordings, but doesn't ask to summarize them
-      * When users asks to update, change, or adjust session recordings filters
+    Use this tool to summarize session recordings by analysing the events within those sessions to find patterns and issues.
+    It will return a textual summary of the captured session recordings.
+
+    # When to use the tool:
+    When the user asks to summarize session recordings:
+    - "summarize" synonyms: "watch", "analyze", "review", and similar
+    - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
+
+    # When NOT to use the tool:
+    - When the user asks to find, search for, or look up session recordings, but doesn't ask to summarize them
+    - When users asks to update, change, or adjust session recordings filters
+
+    # Synonyms
+    - "summarize": "watch", "analyze", "review", and similar
+    - "session recordings": "sessions", "recordings", "replays", "user sessions", and similar
+
+    # Managing context
+    If the conversation history contains context about the current filters or session recordings, follow these steps:
+    - Convert the user query into a `session_summarization_query`
+    - The query should be used to understand the user's intent
+    - Decide if the query is relevant to the current filters and set `should_use_current_filters` accordingly
+    - Generate the `summary_title` based on the user's query and the current filters
+
+    Otherwise:
+    - Convert the user query into a `session_summarization_query`
+    - The query should be used to search for relevant sessions and then summarize them
+    - Assume the `should_use_current_filters` should be always `false`
+    - Generate the `summary_title` based on the user's query
+
+    # Additional guidelines
+    - CRITICAL: Always pass the user's complete, unmodified query to the `session_summarization_query` parameter
+    - DO NOT truncate, summarize, or extract keywords from the user's query
+    - The query is used to find relevant sessions - context helps find better matches
+    - Use explicit tool definition to make a decision
     """
-    args_schema = SessionSummarizationArgs
+    args_schema = SessionSummarizationToolArgs
 
     async def _arun_impl(
         self, session_summarization_query: str, should_use_current_filters: bool, summary_title: str

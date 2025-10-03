@@ -1,25 +1,26 @@
-import os
 import json
 import pkgutil
 import importlib
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Coroutine, Sequence
-from pathlib import Path
-from typing import Any, final
+from typing import Any, Self, final
 
 import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, create_model
 
-from posthog.schema import AssistantTool, ToolExecutionStatus
+from posthog.schema import AssistantTool, AssistantToolCallMessage, ToolExecutionStatus
 
 from posthog.models import Team, User
 
 import products
 
+from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.utils.types.base import BaseState, ToolArtifact, ToolResult
+from ee.hogai.utils.types import ToolArtifact, ToolResult
+from ee.hogai.utils.types.composed import AssistantMaxGraphState
 
 ASSISTANT_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
 
@@ -37,20 +38,11 @@ def _import_assistant_tools() -> None:
         except ModuleNotFoundError:
             pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
 
-    # Import tool.py files from ee/hogai/graph subdirectories
-    graph_path = Path("ee/hogai/graph")
-    if graph_path.exists():
-        for tool_path in graph_path.rglob("tool.py"):
-            # Skip test directories
-            if "test" in tool_path.parts or "__pycache__" in tool_path.parts:
-                continue
-
-            # Convert path to module name
-            module_path = str(tool_path.with_suffix("")).replace(os.sep, ".")
-            try:
-                importlib.import_module(module_path)
-            except (ModuleNotFoundError, ImportError):
-                pass  # Skip if module can't be imported
+    # Import all MaxTools from ee/hogai/graph/root/tools
+    try:
+        importlib.import_module("ee.hogai.graph.root.tools")
+    except (ModuleNotFoundError, ImportError):
+        pass  # Skip if module can't be imported
 
 
 def get_assistant_tool_class(tool_name: str) -> type["MaxTool"] | None:
@@ -72,10 +64,9 @@ class WithToolCallExplanation(BaseModel):
     DO NOT use punctuation."""
 
 
-class MaxTool(AssistantContextMixin, ABC):
+class MaxToolMixin(ABC):
     """
-    Base class for all AI assistant tools.
-    Read the README.md for more information on how to create a new AI assistant tool.
+    Base mixin to create MaxTools or MaxToolMixins.
     """
 
     name: str
@@ -97,23 +88,56 @@ class MaxTool(AssistantContextMixin, ABC):
     """The schema of the tool's arguments.
     If the tool does not take any arguments, set this to None.
     """
-
-    _context: dict[str, Any]
+    _team: Team
+    _user: User
     _config: RunnableConfig
-    _state: BaseState | None
+    _state: AssistantMaxGraphState | None
+    _context_manager: AssistantContextManager
     _tool_call_id: str
     _tool_call_name: str
     _tool_call_description: str
     _tool_update_callback: ToolUpdateCallback | None
 
-    def run(self, tool_call_id: str, parameters: dict[str, Any], config: RunnableConfig) -> ToolResult:
-        self._init_run(tool_call_id, config)
-        self._init_parameters(parameters)
+    async def _failed_execution(self, reason: str | None = None, metadata: dict[str, Any] | None = None) -> ToolResult:
+        raise NotImplementedError
+
+    async def _successful_execution(
+        self, content: str = "", artifacts: Sequence[ToolArtifact] | None = None, metadata: dict[str, Any] | None = None
+    ) -> ToolResult:
+        raise NotImplementedError
+
+    async def _update_tool_call_status(self, content: str | None = None, substeps: list[str] | None = None) -> None:
+        raise NotImplementedError
+
+
+class MaxTool(AssistantContextMixin, MaxToolMixin, ABC):
+    @classmethod
+    async def create_tool_class(
+        cls,
+        *,
+        team: Team,
+        user: User,
+        state: AssistantMaxGraphState,
+        config: RunnableConfig,
+        context_manager: AssistantContextManager,
+    ) -> Self:
+        """
+        Factory that creates a tool class.
+
+        Override this factory to dynamically modify the tool name, description, args schema, etc.
+        """
+        return cls(team=team, user=user, state=state, config=config, context_manager=context_manager)
+
+    def run(
+        self, tool_call_id: str, parameters: dict[str, Any], tool_update_callback: ToolUpdateCallback | None = None
+    ) -> ToolResult:
+        self._init_run(tool_call_id, parameters, tool_update_callback)
         return async_to_sync(self._arun_impl)(**parameters)
 
-    async def arun(self, tool_call_id: str, parameters: dict[str, Any], config: RunnableConfig) -> ToolResult:
-        self._init_run(tool_call_id, config)
-        self._init_parameters(parameters)
+    async def arun(
+        self, tool_call_id: str, parameters: dict[str, Any], tool_update_callback: ToolUpdateCallback | None = None
+    ) -> ToolResult:
+        self._init_run(tool_call_id, parameters, tool_update_callback)
         return await self._arun_impl(**parameters)
 
     def format_context_prompt(self, context: dict[str, Any]) -> str:
@@ -122,7 +146,8 @@ class MaxTool(AssistantContextMixin, ABC):
         }
         return self.system_prompt_template.format(**formatted_context)
 
-    def get_tool_function_description(self) -> type[BaseModel]:
+    @property
+    def tool_function_description(self) -> type[BaseModel]:
         """
         Get the tool function Pydantic model, adding the name and description fields to the args_schema.
 
@@ -158,24 +183,35 @@ class MaxTool(AssistantContextMixin, ABC):
 
     @property
     def context(self) -> dict:
-        if not hasattr(self, "_context"):
-            raise AttributeError("Tool has not been run yet")
-        return self._context
+        return self._context_manager.get_tool_context(self.name)
 
     def __init__(
         self,
         *,
         team: Team,
         user: User,
-        state: BaseState | None = None,
-        tool_update_callback: ToolUpdateCallback | None = None,
+        state: AssistantMaxGraphState,
+        config: RunnableConfig,
+        context_manager: AssistantContextManager,
+        name: str | None = None,
+        description: str | None = None,
+        args_schema: type[BaseModel] | None = None,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        if name is not None:
+            self.name = name
+        if description is not None:
+            self.description = description
+        if args_schema is not None:
+            self.args_schema = args_schema
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
         self._team = team
         self._user = user
         self._state = state
-        self._tool_update_callback = tool_update_callback
+        self._config = config if config else RunnableConfig(configurable={})
+        self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -193,35 +229,23 @@ class MaxTool(AssistantContextMixin, ABC):
         if cls.args_schema and getattr(cls.args_schema, "model_fields", {}).get("tool_call_explanation", None):
             raise ValueError("`tool_call_explanation` is a reserved field name")
 
-    def _init_run(self, tool_call_id: str, config: RunnableConfig):
-        configurable = config["configurable"]  # type: ignore
+    def _init_run(
+        self, tool_call_id: str, parameters: dict[str, Any], tool_update_callback: ToolUpdateCallback | None = None
+    ) -> None:
         self._tool_call_id = tool_call_id
-        self._context = configurable.get("contextual_tools", {}).get(self.name, {})
-        self._team = configurable["team"]
-        self._user = configurable["user"]
-        self._config = {
-            "recursion_limit": 48,
-            "callbacks": config.get("callbacks", []),
-            "configurable": {
-                "thread_id": configurable.get("thread_id"),
-                "trace_id": configurable.get("trace_id"),
-                "distinct_id": configurable.get("distinct_id"),
-                "team": self._team,
-                "user": self._user,
-            },
-        }
-
-    def _init_parameters(self, parameters: dict[str, Any]) -> None:
         parameters.pop("tool_call_explanation", None)
+        self._tool_update_callback = tool_update_callback
 
-    def format_system_prompt_injection(self, context: dict[str, Any]) -> str:
+    @classmethod
+    def format_system_prompt_injection(cls, context: dict[str, Any]) -> str:
         formatted_context = {
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
-        return self.system_prompt_template.format(**formatted_context)
+        return cls.system_prompt_template.format(**formatted_context)
 
-    async def _failed_execution(self, reason: str | None = None, metadata: dict[str, Any] | None = None) -> ToolResult:
-        await self._update_tool_call_status(None)
+    async def _failed_execution(self, *args: Any, **kwargs: Any) -> ToolResult:
+        reason: str | None = args[0] if len(args) > 0 else kwargs.get("reason")
+        metadata: dict[str, Any] | None = args[1] if len(args) > 1 else kwargs.get("metadata")
         return ToolResult(
             id=self._tool_call_id,
             content=reason or "The tool failed to execute",
@@ -232,10 +256,10 @@ class MaxTool(AssistantContextMixin, ABC):
             send_result_to_frontend=self.send_result_to_frontend,
         )
 
-    async def _successful_execution(
-        self, content: str, artifacts: Sequence[ToolArtifact] | None = None, metadata: dict[str, Any] | None = None
-    ) -> ToolResult:
-        await self._update_tool_call_status(None)
+    async def _successful_execution(self, *args: Any, **kwargs: Any) -> ToolResult:
+        content: str = args[0] if len(args) > 0 else kwargs.get("content", "")
+        artifacts: Sequence[ToolArtifact] | None = args[1] if len(args) > 1 else kwargs.get("artifacts")
+        metadata: dict[str, Any] | None = args[2] if len(args) > 2 else kwargs.get("metadata")
         return ToolResult(
             id=self._tool_call_id,
             content=content,
@@ -246,7 +270,21 @@ class MaxTool(AssistantContextMixin, ABC):
             send_result_to_frontend=self.send_result_to_frontend,
         )
 
-    async def _update_tool_call_status(self, content: str | None, substeps: list[str] | None = None) -> None:
-        logger.info(f"Updating tool call status: {self._tool_call_id}, {content}, {substeps}")
+    async def _update_tool_call_status(self, *args: Any, **kwargs: Any) -> None:
+        content: str | None = args[0] if len(args) > 0 else kwargs.get("content")
+        substeps: list[str] | None = args[1] if len(args) > 1 else kwargs.get("substeps")
         if self._tool_update_callback:
             await self._tool_update_callback(self._tool_call_id, content, substeps)
+
+    async def _run_legacy_node(self, node_class: type[BaseAssistantNode]) -> ToolResult:
+        """
+        Run a legacy node-based tool that returns an AssistantToolCallMessage.
+        """
+        node = node_class(team=self._team, user=self._user)
+        result = await node.arun(self._state, self._config)
+        if not result or not result.messages:
+            return await self._failed_execution()
+        last_message = result.messages[-1]
+        if not isinstance(last_message, AssistantToolCallMessage):
+            return await self._failed_execution()
+        return await self._successful_execution(last_message.content, [])

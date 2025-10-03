@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 from collections.abc import AsyncIterator, Callable, Coroutine
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
 import structlog
 from langchain_core.runnables import RunnableConfig
@@ -11,17 +11,15 @@ from posthog.schema import AssistantToolCall, ReasoningState, ToolExecution, Too
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
+from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool.base import get_assistant_tool_class
-from ee.hogai.utils.types.base import AssistantMessageUnion, BaseState, ToolResult
+from ee.hogai.utils.types.base import AssistantMessageUnion, ToolResult
+from ee.hogai.utils.types.composed import AssistantMaxGraphState
 
 logger = structlog.get_logger(__name__)
 
-# Type variables for generic state types
-StateT = TypeVar("StateT", bound=BaseState)
-PartialStateT = TypeVar("PartialStateT", bound=BaseState)
-
-ToolExecutionInputTuple = tuple[ToolExecution, type[MaxTool]]
+ToolExecutionInputTuple = tuple[ToolExecution, MaxTool]
 
 
 class ParallelToolExecution:
@@ -51,9 +49,10 @@ class ParallelToolExecution:
     _tool_execution_message_id: str
     _tool_update_callback: Callable[[str, str | None, list[str] | None], Coroutine[Any, Any, None]]
     _write_message: Callable[[AssistantMessageUnion], Coroutine[Any, Any, None]]
+    _context_manager: AssistantContextManager | None = None
 
     async def arun(
-        self, tool_calls: list[AssistantToolCall], state: BaseState, config: RunnableConfig
+        self, tool_calls: list[AssistantToolCall], state: AssistantMaxGraphState, config: RunnableConfig
     ) -> tuple[list[ToolResult], ToolExecutionMessage]:
         """
         Main entry point for tool execution. Must be implemented by subclasses.
@@ -77,8 +76,13 @@ class ParallelToolExecution:
         # Generate a unique ID for this execution session
         self._tool_execution_message_id = str(uuid.uuid4())
 
+    def _get_context_manager(self, config: RunnableConfig) -> AssistantContextManager:
+        if self._context_manager is None:
+            self._context_manager = AssistantContextManager(self._team, self._user, config)
+        return self._context_manager
+
     async def _arun(
-        self, tool_calls: list[AssistantToolCall], state: BaseState, config: RunnableConfig
+        self, tool_calls: list[AssistantToolCall], state: AssistantMaxGraphState, config: RunnableConfig
     ) -> tuple[list[ToolResult], ToolExecutionMessage]:
         """
         Core execution logic that orchestrates parallel tool execution.
@@ -100,7 +104,7 @@ class ParallelToolExecution:
             raise ValueError("No tool calls provided")
 
         # Set up the appropriate callback mechanism
-        tool_execution_tuples = self._tool_call_tuples_to_tool_execution_tuples(tool_calls)
+        tool_execution_tuples = await self._tool_call_tuples_to_tool_execution_tuples(tool_calls, state, config)
         tool_executions = [tool_execution for tool_execution, _ in tool_execution_tuples]
         self._set_tool_update_callback(tool_executions)
 
@@ -114,11 +118,9 @@ class ParallelToolExecution:
         async for tool_id, tool_result in self._aexecute_tools(tool_execution_tuples, state, config):
             tool_results.append(tool_result)
             # Update the status of the completed tool execution item
-            logger.info(f"Tool execution completed: {tool_id}")
             for item in tool_executions:
                 if item.id != tool_id:
                     continue
-                logger.info(f"Updating tool execution status: {tool_id} to {tool_result.status}")
                 item.status = tool_result.status
                 # Send status update after each tool execution item completes
                 tool_execution_message = await self._asend_tool_execution_message(tool_executions)
@@ -126,18 +128,37 @@ class ParallelToolExecution:
 
         return tool_results, tool_execution_message
 
-    def _tool_call_tuples_to_tool_execution_tuples(
-        self, tool_calls: list[AssistantToolCall]
+    async def _tool_call_tuples_to_tool_execution_tuples(
+        self, tool_calls: list[AssistantToolCall], state: AssistantMaxGraphState, config: RunnableConfig
     ) -> list[ToolExecutionInputTuple]:
+        tool_classes = []
+        for tool_call in tool_calls:
+            tool_class = get_assistant_tool_class(tool_call.name)
+            if tool_class is None:
+                # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
+                continue
+            tool_classes.append(tool_class)
+        tool_classes_map = {
+            ToolClass.name: ToolClass
+            for ToolClass in await asyncio.gather(
+                *[
+                    tool.create_tool_class(
+                        team=self._team,
+                        user=self._user,
+                        state=state,
+                        config=config,
+                        context_manager=self._get_context_manager(config),
+                    )
+                    for tool in tool_classes
+                ]
+            )
+        }
         tool_execution_tuples = []
         for tool_call in tool_calls:
-            ToolClass = get_assistant_tool_class(tool_call.name)
-            if not ToolClass:
-                raise ValueError(f"Unknown tool called: {tool_call.name}")
-            tool_class_instance = ToolClass(team=self._team, user=self._user)
+            ToolClass = tool_classes_map[tool_call.name]
             args: dict[str, Any] = (
-                (tool_class_instance.get_tool_function_description().model_validate(tool_call.args)).model_dump()
-                if tool_class_instance.args_schema
+                (ToolClass.tool_function_description.model_validate(tool_call.args)).model_dump()
+                if ToolClass.args_schema
                 else {}
             )
             tool_call_id = cast(str, tool_call.id)
@@ -161,7 +182,6 @@ class ParallelToolExecution:
         """
 
         async def callback(id: str, content: str | None, substeps: list[str] | None = None):
-            logger.info(f"Tool execution callback: {id}, {content}, {substeps}")
             # Find the tool execution item and update its progress
             for tool_execution in items:
                 if tool_execution.id == id:
@@ -176,7 +196,7 @@ class ParallelToolExecution:
     async def _aexecute_tools(
         self,
         input_tuples: list[ToolExecutionInputTuple],
-        state: BaseState,
+        state: AssistantMaxGraphState,
         config: RunnableConfig,
     ) -> AsyncIterator[tuple[str, ToolResult]]:
         """
@@ -210,13 +230,9 @@ class ParallelToolExecution:
                 async def execute_tool(
                     tool_execution_class=tool_execution_class, input=tool_execution
                 ) -> ToolResult | None:
-                    ToolClass = tool_execution_class(
-                        team=self._team,
-                        user=self._user,
-                        state=state,
-                        tool_update_callback=self._tool_execution_update_callback,
+                    return await tool_execution_class.arun(
+                        input.id, input.args, tool_update_callback=self._tool_execution_update_callback
                     )
-                    return await ToolClass.arun(input.id, input.args, config)
 
                 # Create and start asyncio task immediately - they run concurrently
                 async_task = asyncio.create_task(execute_tool())
@@ -275,10 +291,8 @@ class ParallelToolExecution:
         Args:
             tool_executions: List of tool execution items with their current status and progress
         """
-        logger.info(f"Sending tool execution message: {items}")
         is_in_progress = any(item.status == ToolExecutionStatus.IN_PROGRESS for item in items)
         tool_execution_message = self._get_tool_execution_message(items)
-        logger.info(f"Is in progress: {is_in_progress}")
         if not is_in_progress:
             tool_execution_message.id = self._tool_execution_message_id
         await self._write_message(tool_execution_message)

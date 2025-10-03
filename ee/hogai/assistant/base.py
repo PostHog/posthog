@@ -234,8 +234,6 @@ class BaseAssistant(ABC):
                             ):
                                 continue
 
-                            logger.info(f"Streaming message: {message}")
-
                             yield AssistantEventType.MESSAGE, cast(AssistantMessageOrStatusUnion, message)
 
                 # Check if the assistant has requested help.
@@ -361,7 +359,6 @@ class BaseAssistant(ABC):
 
     async def _process_update(self, update: Any) -> list[BaseModel] | None:
         update = extract_stream_update(update)
-        logger.info(f"Processing update: {update}")
         if is_state_update(update):
             _, new_state = update
             self._state = validate_state_update(new_state, self._state_type)

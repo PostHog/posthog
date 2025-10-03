@@ -19,20 +19,18 @@ from posthog.schema import (
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchState,
-    DeepResearchTask,
-    DeepResearchTodo,
     PartialDeepResearchState,
     _SharedDeepResearchState,
 )
-from ee.hogai.utils.types.base import InsightArtifact, ToolResult
+from ee.hogai.utils.types.base import InsightArtifact, TodoItem, ToolResult
 
 """
 Test suite for type system consistency across multi-node deep research workflow.
 """
 
 
-class TestDeepResearchTodo(BaseTest):
-    """Test DeepResearchTodo class validation and initialization."""
+class TestTodoItem(BaseTest):
+    """Test TodoItem class validation and initialization."""
 
     @parameterized.expand(
         [
@@ -43,7 +41,7 @@ class TestDeepResearchTodo(BaseTest):
     )
     def test_valid_todo_creation(self, status, priority):
         """Should create valid todo with all required fields."""
-        todo = DeepResearchTodo(id=1, description="Test task", status=status, priority=priority)
+        todo = TodoItem(id=1, description="Test task", status=status, priority=priority)
 
         self.assertEqual(todo.id, 1)
         self.assertEqual(todo.description, "Test task")
@@ -53,13 +51,13 @@ class TestDeepResearchTodo(BaseTest):
     def test_todo_with_all_valid_statuses(self):
         """Should accept all valid PlanningStepStatus values."""
         for status in ["pending", "in_progress", "completed"]:
-            todo = DeepResearchTodo(id=1, description="Test", status=status, priority="medium")
+            todo = TodoItem(id=1, description="Test", status=status, priority="medium")
             self.assertEqual(todo.status, status)
 
     def test_todo_with_all_valid_priorities(self):
         """Should accept all valid priority values."""
         for priority in ["low", "medium", "high"]:
-            todo = DeepResearchTodo(id=1, description="Test", status="pending", priority=priority)
+            todo = TodoItem(id=1, description="Test", status="pending", priority=priority)
             self.assertEqual(todo.priority, priority)
 
     @parameterized.expand(
@@ -72,11 +70,11 @@ class TestDeepResearchTodo(BaseTest):
     def test_invalid_todo_fields(self, status, priority):
         """Should raise ValidationError for invalid status or priority."""
         with self.assertRaises(ValidationError):
-            DeepResearchTodo(id=1, description="Test", status=status, priority=priority)
+            TodoItem(id=1, description="Test", status=status, priority=priority)
 
     def test_todo_serialization(self):
         """Should serialize and deserialize correctly."""
-        original = DeepResearchTodo(
+        original = TodoItem(
             id=42,
             description="Complex task with special chars: !@#$%",
             status=PlanningStepStatus.IN_PROGRESS,
@@ -84,7 +82,7 @@ class TestDeepResearchTodo(BaseTest):
         )
 
         serialized = original.model_dump()
-        deserialized = DeepResearchTodo.model_validate(serialized)
+        deserialized = TodoItem.model_validate(serialized)
 
         self.assertEqual(original.id, deserialized.id)
         self.assertEqual(original.description, deserialized.description)
@@ -232,18 +230,8 @@ class TestDeepResearchStates(BaseTest):
     def test_state_with_all_fields_populated(self):
         """Should create state with all fields populated."""
         todos = [
-            DeepResearchTodo(id=1, description="Task 1", status="pending", priority="high"),
-            DeepResearchTodo(id=2, description="Task 2", status="completed", priority="medium"),
-        ]
-
-        tasks = [
-            DeepResearchTask(
-                id="task-1",
-                description="Execute analysis",
-                prompt="Analyze the data and generate insights",
-                status="pending",
-                task_type="create_insight",
-            )
+            TodoItem(id=1, description="Task 1", status="pending", priority="high"),
+            TodoItem(id=2, description="Task 2", status="completed", priority="medium"),
         ]
 
         task_results = [
@@ -259,7 +247,6 @@ class TestDeepResearchStates(BaseTest):
         )
         state = DeepResearchState(
             todos=todos,
-            tasks=tasks,
             tool_results=task_results,
             intermediate_results=intermediate_results,
             messages=messages,
@@ -270,8 +257,7 @@ class TestDeepResearchStates(BaseTest):
             graph_status="resumed",
         )
 
-        self.assertEqual(len(cast(list[DeepResearchTodo], state.todos)), 2)
-        self.assertEqual(len(cast(list[DeepResearchTask], state.tasks)), 1)
+        self.assertEqual(len(cast(list[TodoItem], state.todos)), 2)
         self.assertEqual(len(state.tool_results), 1)
         self.assertEqual(len(state.intermediate_results), 1)
         self.assertEqual(len(state.messages), 2)
@@ -313,7 +299,7 @@ class TestDeepResearchStates(BaseTest):
             notebook_id="nb-123", notebook_type=DeepResearchType.PLANNING, title="Test Notebook"
         )
         original_state = DeepResearchState(
-            todos=[DeepResearchTodo(id=1, description="Test todo", status="pending", priority="high")],
+            todos=[TodoItem(id=1, description="Test todo", status="pending", priority="high")],
             tool_results=[ToolResult(id="task-1", description="Test result", content="Success", status="completed")],
             intermediate_results=[
                 DeepResearchIntermediateResult(content="Test content", artifact_ids=["art-1", "art-2"])
@@ -326,7 +312,7 @@ class TestDeepResearchStates(BaseTest):
         serialized = original_state.model_dump()
         deserialized = DeepResearchState.model_validate(serialized)
 
-        todos = cast(list[DeepResearchTodo], deserialized.todos)
+        todos = cast(list[TodoItem], deserialized.todos)
         self.assertEqual(len(todos), 1)
         self.assertEqual(todos[0].description, "Test todo")
         self.assertEqual(len(deserialized.tool_results), 1)

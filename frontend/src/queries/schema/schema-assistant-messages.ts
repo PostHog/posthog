@@ -243,11 +243,13 @@ export type AssistantTool =
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'search_docs'
     | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
-    | 'get_billing_info'
+    | 'read_taxonomy'
+    | 'search'
+    | 'read_data'
+    | 'todo_write'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

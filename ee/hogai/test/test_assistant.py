@@ -65,7 +65,6 @@ from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.tool import search_documentation
 from ee.hogai.utils.state import GraphMessageUpdateTuple, GraphValueUpdateTuple, LangGraphState
 from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import (
@@ -1326,9 +1325,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         root_model_mock.return_value = FakeChatOpenAI(
             responses=[
-                messages.AIMessage(
-                    content="", tool_calls=[{"name": search_documentation.__name__, "id": "1", "args": {}}]
-                )
+                messages.AIMessage(content="", tool_calls=[{"name": "search_documentation", "id": "1", "args": {}}])
             ]
         )
         inkeep_docs_model_mock.return_value = FakeChatOpenAI(

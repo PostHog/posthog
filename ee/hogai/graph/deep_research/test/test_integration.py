@@ -30,14 +30,8 @@ from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlan
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
-from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
-from ee.hogai.graph.deep_research.types import (
-    DeepResearchIntermediateResult,
-    DeepResearchState,
-    DeepResearchTask,
-    DeepResearchTodo,
-)
-from ee.hogai.utils.types.base import ToolResult
+from ee.hogai.graph.deep_research.types import DeepResearchIntermediateResult, DeepResearchState
+from ee.hogai.utils.types.base import TodoItem, ToolResult
 from ee.models.assistant import Conversation
 
 
@@ -59,8 +53,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
     def _create_mock_state(
         self,
         messages: list[Any] | None = None,
-        todos: list[DeepResearchTodo] | None = None,
-        tasks: list[DeepResearchTask] | None = None,
+        todos: list[TodoItem] | None = None,
         task_results: list[ToolResult] | None = None,
         intermediate_results: list[DeepResearchIntermediateResult] | None = None,
         current_run_notebooks: list[DeepResearchNotebook] | None = None,
@@ -68,7 +61,6 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         return DeepResearchState(
             messages=messages or [],
             todos=todos,
-            tasks=tasks,
             tool_results=task_results or [],
             intermediate_results=intermediate_results or [],
             conversation_notebooks=[],
@@ -120,7 +112,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
     ):
         """Test state serialization"""
         todos = [
-            DeepResearchTodo(id=i, description=f"Task {i}", status=PlanningStepStatus.PENDING, priority="medium")
+            TodoItem(id=i, description=f"Task {i}", status=PlanningStepStatus.PENDING, priority="medium")
             for i in range(1, num_todos + 1)
         ]
 
@@ -140,7 +132,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         serialized = state.model_dump()
         deserialized = DeepResearchState.model_validate(serialized)
 
-        self.assertEqual(len(cast(list[DeepResearchTodo], deserialized.todos)), num_todos)
+        self.assertEqual(len(cast(list[TodoItem], deserialized.todos)), num_todos)
         self.assertEqual(len(deserialized.tool_results), num_results)
         self.assertEqual(cast(HumanMessage, deserialized.messages[0]).content, query)
 
@@ -252,7 +244,6 @@ class TestDeepResearchE2E(APIBaseTest):
             (DeepResearchPlannerNode, "planner"),
             (DeepResearchPlannerToolsNode, "planner_tools"),
             (DeepResearchReportNode, "report"),
-            (DeepResearchTaskExecutorNode, "task_executor"),
         ]
 
         for node_class, node_name in nodes_to_test:
@@ -266,7 +257,7 @@ class TestDeepResearchE2E(APIBaseTest):
         # Test state validation and serialization
         test_state = DeepResearchState(
             messages=[HumanMessage(content="Test message")],
-            todos=[DeepResearchTodo(id=1, description="Test todo", status=PlanningStepStatus.PENDING, priority="high")],
+            todos=[TodoItem(id=1, description="Test todo", status=PlanningStepStatus.PENDING, priority="high")],
             tool_results=[
                 ToolResult(
                     id="task_1", description="Test task", content="Test result", status=ToolExecutionStatus.COMPLETED
@@ -279,8 +270,8 @@ class TestDeepResearchE2E(APIBaseTest):
         deserialized = DeepResearchState.model_validate(serialized)
 
         self.assertEqual(len(deserialized.messages), 1)
-        todos = cast(list[DeepResearchTodo], deserialized.todos)
-        self.assertEqual(len(cast(list[DeepResearchTodo], deserialized.todos)), 1)
+        todos = cast(list[TodoItem], deserialized.todos)
+        self.assertEqual(len(cast(list[TodoItem], deserialized.todos)), 1)
         self.assertEqual(len(deserialized.tool_results), 1)
         self.assertEqual(todos[0].description, "Test todo")
         self.assertEqual(deserialized.tool_results[0].content, "Test result")

@@ -173,6 +173,13 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
 
+    // Find all planning messages and identify the last one
+    const planningMessageIndices = messages
+        .map((msg, idx) => (isPlanningMessage(msg) ? idx : -1))
+        .filter((idx) => idx !== -1)
+    const lastPlanningMessageIndex =
+        planningMessageIndices.length > 0 ? planningMessageIndices[planningMessageIndices.length - 1] : -1
+
     return (
         <MessageGroupContainer groupType={groupType}>
             <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
@@ -268,7 +275,13 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                     } else if (isNotebookUpdateMessage(message)) {
                         return <NotebookUpdateAnswer key={key} message={message} />
                     } else if (isPlanningMessage(message)) {
-                        return <PlanningAnswer key={key} message={message} />
+                        return (
+                            <PlanningAnswer
+                                key={key}
+                                message={message}
+                                isLastPlanningMessage={messageIndex === lastPlanningMessageIndex}
+                            />
+                        )
                     } else if (isToolExecutionMessage(message)) {
                         return <ToolExecutionAnswer key={key} message={message} />
                     }
@@ -307,12 +320,13 @@ interface MessageTemplateProps {
     action?: React.ReactNode
     className?: string
     boxClassName?: string
+    wrapperClassName?: string
     children?: React.ReactNode
     header?: React.ReactNode
 }
 
 const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, action, header },
+    { type, children, className, boxClassName, wrapperClassName, action, header },
     ref
 ) {
     return (
@@ -324,7 +338,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
             )}
             ref={ref}
         >
-            <div className="max-w-full">
+            <div className={twMerge('max-w-full', wrapperClassName)}>
                 {header}
                 {children && (
                     <div
@@ -520,32 +534,56 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
 
 interface PlanningAnswerProps {
     message: PlanningMessage
+    isLastPlanningMessage?: boolean
 }
 
-function PlanningAnswer({ message }: PlanningAnswerProps): JSX.Element {
+function PlanningAnswer({ message, isLastPlanningMessage = true }: PlanningAnswerProps): JSX.Element {
+    const [isExpanded, setIsExpanded] = useState(isLastPlanningMessage)
+
+    const completedCount = message.steps.filter((step) => step.status === PlanningStepStatus.Completed).length
+    const totalCount = message.steps.length
+
     return (
-        <MessageTemplate type="ai">
+        <MessageTemplate type="ai" wrapperClassName="w-full">
             <div className="space-y-2">
-                <h4 className="m-0 text-xs font-semibold">TO-DOs</h4>
-                <div className="space-y-1.5 mt-1">
-                    {message.steps.map((step, index) => (
-                        <LemonCheckbox
-                            key={index}
-                            size="xsmall"
-                            defaultChecked={step.status === PlanningStepStatus.Completed}
-                            disabled={true}
-                            label={
-                                step.description +
-                                (step.status === PlanningStepStatus.InProgress ? ' (in progress)' : '')
-                            }
-                            labelClassName={clsx(
-                                'cursor-default! text-xs',
-                                step.status === PlanningStepStatus.Completed && 'text-muted line-through',
-                                step.status === PlanningStepStatus.InProgress && 'font-semibold'
-                            )}
-                        />
-                    ))}
+                <div className="flex items-center justify-between w-full">
+                    <h4 className="m-0 text-xs font-semibold">TO-DOs</h4>
+                    {!isLastPlanningMessage && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted">
+                                {completedCount}/{totalCount}
+                            </span>
+                            <LemonButton
+                                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                                onClick={() => setIsExpanded(!isExpanded)}
+                                size="xsmall"
+                                type="tertiary"
+                                tooltip={isExpanded ? 'Collapse' : 'Expand'}
+                            />
+                        </div>
+                    )}
                 </div>
+                {isExpanded && (
+                    <div className="space-y-1.5 mt-1">
+                        {message.steps.map((step, index) => (
+                            <LemonCheckbox
+                                key={index}
+                                size="xsmall"
+                                defaultChecked={step.status === PlanningStepStatus.Completed}
+                                disabled={true}
+                                label={
+                                    step.description +
+                                    (step.status === PlanningStepStatus.InProgress ? ' (in progress)' : '')
+                                }
+                                labelClassName={clsx(
+                                    'cursor-default! text-xs',
+                                    step.status === PlanningStepStatus.Completed && 'text-muted line-through',
+                                    step.status === PlanningStepStatus.InProgress && 'font-semibold'
+                                )}
+                            />
+                        ))}
+                    </div>
+                )}
             </div>
         </MessageTemplate>
     )
@@ -576,7 +614,6 @@ function ReasoningComponent({
                     'transition-all duration-500',
                     isPending && 'text-muted',
                     !isInProgress && !isPending && !isFailed && 'text-default',
-                    isCompleted && 'text-muted-alt line-through',
                     isFailed && 'text-danger'
                 )}
             >
@@ -663,55 +700,45 @@ interface ToolExecutionAnswerProps {
 }
 
 function ToolExecutionAnswer({ message }: ToolExecutionAnswerProps): JSX.Element {
-    const completedCount = message.tool_executions.filter((t) => t.status === ToolExecutionStatus.Completed).length
-    const totalCount = message.tool_executions.length
-
+    const hasCompletedOrFailed = message.tool_executions.some(
+        (t) => t.status === ToolExecutionStatus.Completed || t.status === ToolExecutionStatus.Failed
+    )
     return (
         <MessageTemplate type="ai">
-            {totalCount > 1 ? (
-                <div className="flex items-center justify-between w-full">
-                    <h4 className="m-0 text-xs font-semibold">Tasks</h4>
-                    <span className="text-xs text-muted">
-                        {completedCount}/{totalCount}
-                    </span>
-                </div>
-            ) : null}
-            <div className="flex flex-col gap-2">
-                <div className="flex flex-col gap-2">
-                    {message.tool_executions.map((toolExecution, index) => {
-                        const allSteps = [
-                            ...(toolExecution.progress?.content !== undefined ? [toolExecution.progress.content] : []),
-                            ...(toolExecution.progress?.substeps ?? []),
-                        ]
-                        const isCompleted = toolExecution.status === ToolExecutionStatus.Completed
-                        const isFailed = toolExecution.status === ToolExecutionStatus.Failed
-                        return (
-                            <div
-                                key={index}
-                                className={clsx(
-                                    'flex items-center gap-2 rounded transition-all duration-500 py-1',
-                                    isCompleted && 'opacity-50'
-                                )}
-                            >
-                                {(message.tool_executions.length > 1 || isCompleted || isFailed) && (
-                                    <div className="flex-shrink-0 flex items-center justify-center size-7">
-                                        {isCompleted && <IconCheck className="text-success size-3.5" />}
-                                        {isFailed && <IconX className="text-danger size-3.5" />}
-                                    </div>
-                                )}
-
-                                <div className="flex-1 min-w-0">
-                                    <ReasoningComponent
-                                        id={toolExecution.id}
-                                        content={toolExecution.description}
-                                        substeps={allSteps}
-                                        state={toolExecution.status}
-                                    />
+            <div className="flex flex-col gap-1">
+                {message.tool_executions.map((toolExecution, index) => {
+                    const allSteps = [
+                        ...(toolExecution.progress?.content !== undefined ? [toolExecution.progress.content] : []),
+                        ...(toolExecution.progress?.substeps ?? []),
+                    ]
+                    const isCompleted = toolExecution.status === ToolExecutionStatus.Completed
+                    const isFailed = toolExecution.status === ToolExecutionStatus.Failed
+                    return (
+                        <div
+                            key={index}
+                            className={clsx(
+                                'flex items-center gap-2 rounded transition-all duration-500 py-1',
+                                isCompleted && 'opacity-50'
+                            )}
+                        >
+                            {hasCompletedOrFailed && (
+                                <div className="flex-shrink-0 flex items-center justify-center size-7">
+                                    {isCompleted && <IconCheck className="text-success size-3.5" />}
+                                    {isFailed && <IconX className="text-danger size-3.5" />}
                                 </div>
+                            )}
+
+                            <div className="flex-1 min-w-0">
+                                <ReasoningComponent
+                                    id={toolExecution.id}
+                                    content={toolExecution.description}
+                                    substeps={allSteps}
+                                    state={toolExecution.status}
+                                />
                             </div>
-                        )
-                    })}
-                </div>
+                        </div>
+                    )
+                })}
             </div>
         </MessageTemplate>
     )
@@ -866,7 +893,6 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                       }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"
-                                      targetBlank
                                       tooltip={message.short_id ? 'Open insight' : 'Open as new insight'}
                                   />
                               )}
@@ -1138,7 +1164,6 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         type="tertiary"
                         size="xsmall"
                         tooltip="View trace in LLM analytics"
-                        targetBlank
                     />
                 )}
             </div>

@@ -26,6 +26,7 @@ from posthog.schema import (
     MultiVisualizationMessage,
     NotebookUpdateMessage,
     PlanningMessage,
+    PlanningStepStatus,
     ReasoningMessage,
     RetentionQuery,
     ToolExecutionMessage,
@@ -400,3 +401,10 @@ class WithCommentary(BaseModel):
     commentary: str = Field(
         description="A commentary on what you are doing, using the first person: 'I am doing this because...'"
     )
+
+
+class TodoItem(BaseModel):
+    id: int
+    description: str
+    status: PlanningStepStatus
+    priority: Literal["low", "medium", "high"]

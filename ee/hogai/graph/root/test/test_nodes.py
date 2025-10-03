@@ -166,7 +166,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     async def test_node_reconstructs_conversation(self, mock_model):
         node = RootNode(self.team, self.user)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
-        result = await node._construct_and_update_messages_window(state_1, {})
+        result = node._construct_messages(
+            state_1.messages, state_1.root_conversation_start_id, state_1.root_tool_calls_count
+        )
         self.assertEqual(
             result[0],
             [
@@ -184,7 +186,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 HumanMessage(content="Generate trends"),
             ]
         )
-        result2 = await node._construct_and_update_messages_window(state_2, {})
+        result2 = node._construct_messages(
+            state_2.messages, state_2.root_conversation_start_id, state_2.root_tool_calls_count
+        )
         self.assertEqual(
             result2[0],
             [
@@ -217,7 +221,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 HumanMessage(content="Answer"),
             ]
         )
-        result = await node._construct_and_update_messages_window(state, {})
+        result = node._construct_messages(state.messages, state.root_conversation_start_id, state.root_tool_calls_count)
         self.assertEqual(
             result[0],
             [
@@ -266,7 +270,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantToolCallMessage(content="Answer for xyz1", tool_call_id="xyz1"),
             ]
         )
-        messages, _ = await node._construct_and_update_messages_window(state, {})
+        messages = node._construct_messages(
+            state.messages, state.root_conversation_start_id, state.root_tool_calls_count
+        )
 
         # Verify we get exactly 3 messages
         self.assertEqual(len(messages), 3)
@@ -329,11 +335,12 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(message.tool_calls, [])
 
             # Verify the hard limit message was added to the conversation
-            messages, _ = await node._construct_and_update_messages_window(state, {})
+            messages = node._construct_messages(
+                state.messages, state.root_conversation_start_id, state.root_tool_calls_count
+            )
             self.assertIn("iterations", messages[-1].content)
 
-    def test_node_gets_contextual_tool(self):
-        """Test that contextual tools are properly added when configured"""
+    async def test_node_gets_contextual_tool(self):
         with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
@@ -370,9 +377,13 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                         context_tools, {"search_session_recordings": {"current_filters": {"duration": ">"}}}
                     )
 
+                    tools = await node._get_tools(
+                        AssistantState(messages=[HumanMessage(content="show me long recordings")]), config
+                    )
+
                     node._get_model(
                         AssistantState(messages=[HumanMessage(content="show me long recordings")]),
-                        config,
+                        tools,
                     )
 
                     # Verify get_assistant_tool_class was called
@@ -492,13 +503,13 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # (membership_level, has_billing_context, should_add_billing_tool, expected_prompt)
-            [OrganizationMembership.Level.ADMIN, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
-            [OrganizationMembership.Level.ADMIN, False, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
-            [OrganizationMembership.Level.OWNER, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
-            [OrganizationMembership.Level.OWNER, False, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
-            [OrganizationMembership.Level.MEMBER, True, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
-            [OrganizationMembership.Level.MEMBER, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
+            # (membership_level, has_billing_context, should_add_billing_tool, has_access, expected_prompt)
+            [OrganizationMembership.Level.ADMIN, True, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.ADMIN, False, False, True, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
+            [OrganizationMembership.Level.OWNER, True, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.OWNER, False, False, True, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
+            [OrganizationMembership.Level.MEMBER, True, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
+            [OrganizationMembership.Level.MEMBER, False, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
         ]
     )
     async def test_has_billing_access(
@@ -518,7 +529,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         else:
             config = RunnableConfig(configurable={})
 
-        self.assertEqual(await node._get_billing_info(config), (should_add_billing_tool, expected_prompt))
+        self.assertEqual(await node._get_billing_prompt(config), (should_add_billing_tool, expected_prompt))
 
     def test_is_first_turn_true(self):
         """Test _is_first_turn returns True when last message is the start message"""

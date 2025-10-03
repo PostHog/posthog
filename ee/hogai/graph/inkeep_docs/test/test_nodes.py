@@ -34,6 +34,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             )
             next_state = node.run(state, {})
             self.assertIsInstance(next_state, PartialAssistantState)
+            assert next_state is not None
             messages = cast(list, next_state.messages)
             self.assertEqual(len(messages), 2)
 
@@ -62,6 +63,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             )
             next_state = node.run(state, {})
             self.assertIsInstance(next_state, PartialAssistantState)
+            assert next_state is not None
             messages = cast(list, next_state.messages)
             self.assertEqual(len(messages), 2)
             second_message = cast(AssistantMessage, messages[1])
@@ -77,7 +79,9 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
                 AssistantMessage(content="Let me check the docs..."),
             ]
         )
-        messages = node._construct_messages(state)
+        messages = node._construct_messages(
+            state.messages, state.root_conversation_start_id, state.root_tool_calls_count
+        )
 
         # Should not include "Let me check the docs...", because Inkeep would fail with the last message being an AI one
         self.assertEqual(len(messages), 4)
@@ -119,6 +123,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
                 root_tool_call_id=test_tool_call_id,
             )
             next_state = node.run(state, {})
+            assert next_state is not None
 
             # Check that the tool call message uses the input tool_call_id
             messages = cast(list, next_state.messages)
@@ -140,6 +145,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
                 root_tool_call_id="test-id",
             )
             next_state = node.run(state, {})
+            assert next_state is not None
             messages = cast(list, next_state.messages)
 
             # Check that both messages have IDs and they're different
@@ -156,7 +162,9 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             messages=[HumanMessage(content=str(i)) for i in range(31)],
             root_tool_call_id="test-id",
         )
-        next_state = node._construct_messages(state)
+        next_state = node._construct_messages(
+            state.messages, state.root_conversation_start_id, state.root_tool_calls_count
+        )
         self.assertEqual(len(next_state), 29)
         self.assertEqual(next_state[0].type, "system")
         self.assertEqual(next_state[1].content, "3")

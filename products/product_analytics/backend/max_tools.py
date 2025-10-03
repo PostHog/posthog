@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool
 
-from ee.hogai.graph.query_planner.tool import CreateInsightTool
+from ee.hogai.graph.root.tools import CreateInsightTool
 from ee.hogai.utils.types.base import InsightArtifact, ToolResult
 
 logger = structlog.get_logger(__name__)

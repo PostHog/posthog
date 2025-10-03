@@ -44,10 +44,9 @@ from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchNodeName,
     DeepResearchState,
-    DeepResearchTodo,
     PartialDeepResearchState,
 )
-from ee.hogai.graph.query_planner.tool import CreateInsightTool
+from ee.hogai.graph.root.tools import CreateInsightTool
 from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.tool import ParallelToolExecution
 from ee.hogai.utils.helpers import extract_content_from_ai_message
@@ -57,6 +56,7 @@ from ee.hogai.utils.types.base import (
     BaseState,
     BaseStateWithMessages,
     InsightArtifact,
+    TodoItem,
     ToolArtifact,
     ToolResult,
 )
@@ -70,7 +70,7 @@ class todo_write(WithCommentary):
     Create a new TO-DO list. Returns the most recent TO-DO list after the write.
     """
 
-    todos: list[DeepResearchTodo] = Field(description="A step-by-step list of TO-DOs for answering the user's question")
+    todos: list[TodoItem] = Field(description="A step-by-step list of TO-DOs for answering the user's question")
 
 
 class todo_read(WithCommentary):
@@ -350,7 +350,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
     async def _handle_todo_write(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
         """Create or update the TODOs list for research tasks."""
         # Parse and validate todos
-        todos = [DeepResearchTodo.model_validate(todo) for todo in tool_call.args["todos"]]
+        todos = [TodoItem.model_validate(todo) for todo in tool_call.args["todos"]]
 
         if not todos:
             return PartialDeepResearchState(

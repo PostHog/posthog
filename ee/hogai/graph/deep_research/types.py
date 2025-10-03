@@ -1,27 +1,16 @@
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Optional
 
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from posthog.schema import DeepResearchNotebook, PlanningStepStatus
+from posthog.schema import DeepResearchNotebook
 
 from ee.hogai.utils.types import AssistantMessageUnion, add_and_merge_messages
-from ee.hogai.utils.types.base import BaseStateWithMessages, BaseStateWithToolResults, append, replace
+from ee.hogai.utils.types.base import BaseStateWithMessages, BaseStateWithToolResults, TodoItem, append, replace
 
 NotebookInfo = DeepResearchNotebook
-
-
-class DeepResearchTodo(BaseModel):
-    """
-    A TO-DO item in the research plan.
-    """
-
-    id: int
-    description: str
-    status: PlanningStepStatus
-    priority: Literal["low", "medium", "high"]
 
 
 class DeepResearchIntermediateResult(BaseModel):
@@ -34,7 +23,7 @@ class DeepResearchIntermediateResult(BaseModel):
 
 
 class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithToolResults):
-    todos: Annotated[Optional[list[DeepResearchTodo]], replace] = Field(default=None)
+    todos: Annotated[Optional[list[TodoItem]], replace] = Field(default=None)
     """
     The current TO-DO list.
     """
