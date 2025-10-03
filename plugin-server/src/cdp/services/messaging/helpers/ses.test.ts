@@ -1,4 +1,5 @@
 import { SesWebhookHandler } from './ses'
+import { generateEmailTrackingCode } from './tracking-code'
 
 describe('SesWebhookHandler', () => {
     let handler: SesWebhookHandler
@@ -11,7 +12,7 @@ describe('SesWebhookHandler', () => {
         source: 'sender@example.com',
         messageId: 'msg-123',
         destination: ['to@example.com'],
-        tags: { ph_id: ['ph_fn_id=abc123&ph_inv_id=inv456'] },
+        tags: { ph_id: [generateEmailTrackingCode({ functionId: 'abc123', id: 'inv456' })] },
     }
 
     it('parses a raw Open event', async () => {
