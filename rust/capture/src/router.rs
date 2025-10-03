@@ -14,7 +14,7 @@ use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::test_endpoint;
-use crate::{sinks, time::TimeSource, v0_endpoint};
+use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
 use common_redis::Client;
 use limiters::token_dropper::TokenDropper;
 
@@ -252,11 +252,25 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
 
+    let ai_router = Router::new()
+        .route(
+            "/ai",
+            post(ai_endpoint::ai_handler)
+                .options(ai_endpoint::options),
+        )
+        .route(
+            "/ai/",
+            post(ai_endpoint::ai_handler)
+                .options(ai_endpoint::options),
+        )
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
+
     let mut router = match capture_mode {
         CaptureMode::Events => Router::new()
             .merge(batch_router)
             .merge(event_router)
-            .merge(test_router),
+            .merge(test_router)
+            .merge(ai_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 

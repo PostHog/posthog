@@ -36,6 +36,8 @@ services:
                         path /batch*
                         path /capture
                         path /capture*
+                        path /ai
+                        path /ai/*
                     }
 
                     @flags {
