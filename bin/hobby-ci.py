@@ -12,7 +12,7 @@ import urllib3
 import requests
 import digitalocean
 
-DOMAIN = "posthog.cc"
+DOMAIN = os.getenv("HOBBY_DOMAIN", "posthog.cc")
 
 
 class HobbyTester:
@@ -23,7 +23,6 @@ class HobbyTester:
         region="sfo3",
         image="ubuntu-22-04-x64",
         size="s-8vcpu-16gb",
-        release_tag="latest-release",
         branch=None,
         hostname=None,
         domain=DOMAIN,
@@ -36,12 +35,11 @@ class HobbyTester:
             token = os.getenv("DIGITALOCEAN_TOKEN")
         self.token = token
         self.branch = branch
-        self.release_tag = release_tag
-
-        random_bit = "".join(random.choice(string.ascii_lowercase) for i in range(4))
 
         if not name:
-            name = f"do-ci-hobby-deploy-{self.release_tag}-{random_bit}"
+            random_bit = "".join(random.choice(string.ascii_lowercase) for i in range(4))
+            branch_part = self.branch[:7] if self.branch is not None else "none"
+            name = f"do-ci-hobby-deploy-{branch_part}-{random_bit}"
         self.name = name
 
         if not hostname:
@@ -77,9 +75,6 @@ class HobbyTester:
             f'if [ "{self.branch}" != "main" ] && [ "{self.branch}" != "master" ] && [ -n "{self.branch}" ]; then \n'
             f'    echo "Using commit hash for feature branch deployment" \n'
             f"    ./posthog/bin/deploy-hobby $CURRENT_COMMIT {self.hostname} 1 \n"
-            f"else \n"
-            f'     echo "Installing PostHog version: {self.release_tag}" \n'
-            f"    ./posthog/bin/deploy-hobby {self.release_tag} {self.hostname} 1 \n"
             f"fi \n"
         )
 
