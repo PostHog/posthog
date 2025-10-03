@@ -12,7 +12,7 @@ import {
     EmojiCommentOnRecordingButton,
 } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 import {
-    ModesThatCanHavePlayerControllerButtons,
+    ModesWithInteractions,
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -139,7 +139,7 @@ export function PlayerController(): JSX.Element {
         <div
             className={cn(
                 'flex flex-col select-none',
-                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-750 ease-in-out' : '',
+                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-25 ease-in-out' : '',
                 hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 bg-surface-primary pointer-events-auto'
                     : hoverModeIsEnabled
@@ -156,7 +156,7 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                 </div>
                 <div className="flex justify-end items-center">
-                    {!isCinemaMode && ModesThatCanHavePlayerControllerButtons.includes(playerMode) && (
+                    {!isCinemaMode && ModesWithInteractions.includes(playerMode) && (
                         <>
                             <CommentOnRecordingButton />
                             <EmojiCommentOnRecordingButton />
@@ -164,7 +164,7 @@ export function PlayerController(): JSX.Element {
                             <ClipRecording />
                         </>
                     )}
-                    {playlistLogic && ModesThatCanHavePlayerControllerButtons.includes(playerMode) ? (
+                    {playlistLogic && ModesWithInteractions.includes(playerMode) ? (
                         <PlayerUpNext playlistLogic={playlistLogic} />
                     ) : undefined}
                     {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
