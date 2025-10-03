@@ -48,7 +48,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
-        setSampleGlobals: (globals: string | null) => ({ globals }),
+        setSampleGlobals: (globals?: string | null) => ({ globals }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
         cancelSampleGlobalsLoading: true,
         receiveExampleGlobals: (globals: object | null) => ({ globals }),
