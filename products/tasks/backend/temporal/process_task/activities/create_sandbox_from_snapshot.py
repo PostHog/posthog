@@ -27,7 +27,7 @@ async def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) ->
         name=get_sandbox_name_for_task(input.task_id),
         template=SandboxEnvironmentTemplate.DEFAULT_BASE,
         environment_variables={},
-        snapshot_id=snapshot.external_id,
+        snapshot_id=str(snapshot.id),
         metadata={"task_id": input.task_id},
     )
 

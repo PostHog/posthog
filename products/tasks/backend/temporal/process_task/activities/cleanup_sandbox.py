@@ -15,7 +15,6 @@ class CleanupSandboxInput:
 
 @activity.defn
 async def cleanup_sandbox(input: CleanupSandboxInput) -> None:
-    """Cleanup sandbox. Safe to call even if sandbox doesn't exist."""
     try:
         sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
         await sandbox.destroy()

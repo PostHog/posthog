@@ -14,6 +14,7 @@ from .activities.check_snapshot_exists_for_repository import (
     CheckSnapshotExistsForRepositoryInput,
     check_snapshot_exists_for_repository,
 )
+from .activities.cleanup_personal_api_key import cleanup_personal_api_key
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.clone_repository import CloneRepositoryInput, clone_repository
 from .activities.create_sandbox_from_snapshot import CreateSandboxFromSnapshotInput, create_sandbox_from_snapshot
@@ -22,6 +23,11 @@ from .activities.execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOut
 from .activities.get_sandbox_for_setup import GetSandboxForSetupInput, get_sandbox_for_setup
 from .activities.get_task_details import TaskDetails, get_task_details
 from .activities.inject_github_token import InjectGitHubTokenInput, inject_github_token
+from .activities.inject_personal_api_key import (
+    InjectPersonalAPIKeyInput,
+    InjectPersonalAPIKeyOutput,
+    inject_personal_api_key,
+)
 from .activities.setup_repository import SetupRepositoryInput, setup_repository
 
 logger = get_logger(__name__)
@@ -45,6 +51,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, task_id: str) -> ProcessTaskOutput:
         sandbox_id = None
+        personal_api_key_id = None
 
         try:
             task_details = await self._get_task_details(task_id)
@@ -59,6 +66,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             sandbox_id = await self._create_sandbox_from_snapshot(snapshot_id, task_id)
 
             await self._inject_github_token(sandbox_id, task_details.github_integration_id)
+
+            api_key_output = await self._inject_personal_api_key(sandbox_id, task_id)
+            personal_api_key_id = api_key_output.personal_api_key_id
 
             result = await self._execute_task_in_sandbox(sandbox_id, task_id, task_details.repository)
 
@@ -79,6 +89,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         finally:
+            if personal_api_key_id:
+                await self._cleanup_personal_api_key(personal_api_key_id)
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
                 sandbox_id = None
@@ -226,6 +238,29 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _inject_personal_api_key(self, sandbox_id: str, task_id: str) -> InjectPersonalAPIKeyOutput:
+        inject_key_input = InjectPersonalAPIKeyInput(
+            sandbox_id=sandbox_id,
+            task_id=task_id,
+        )
+        return await workflow.execute_activity(
+            inject_personal_api_key,
+            inject_key_input,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _cleanup_personal_api_key(self, personal_api_key_id: str) -> None:
+        try:
+            await workflow.execute_activity(
+                cleanup_personal_api_key,
+                personal_api_key_id,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to cleanup personal API key {personal_api_key_id}: {e}")
 
     async def _execute_task_in_sandbox(self, sandbox_id: str, task_id: str, repository: str) -> ExecuteTaskOutput:
         execute_input = ExecuteTaskInput(

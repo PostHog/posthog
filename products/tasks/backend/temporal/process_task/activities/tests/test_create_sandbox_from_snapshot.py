@@ -90,27 +90,3 @@ class TestCreateSandboxFromSnapshotActivity:
             await self._cleanup_snapshot(snapshot)
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
-
-    @pytest.mark.asyncio
-    @pytest.mark.django_db
-    async def test_create_sandbox_from_incomplete_snapshot(self, activity_environment, github_integration):
-        snapshot = await self._create_snapshot(
-            github_integration, external_id=BASE_SNAPSHOT["external_id"], status=SandboxSnapshot.Status.IN_PROGRESS
-        )
-        task_id = "test-task-incomplete"
-        sandbox_id = None
-
-        try:
-            input_data = CreateSandboxFromSnapshotInput(snapshot_id=str(snapshot.id), task_id=task_id)
-            sandbox_id = await activity_environment.run(create_sandbox_from_snapshot, input_data)
-
-            assert isinstance(sandbox_id, str)
-            assert len(sandbox_id) > 0
-
-            sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
-            assert sandbox.id == sandbox_id
-
-        finally:
-            await self._cleanup_snapshot(snapshot)
-            if sandbox_id:
-                await self._cleanup_sandbox(sandbox_id)

@@ -143,15 +143,11 @@ class SandboxEnvironment:
         try:
             devbox = await client.devboxes.retrieve(sandbox_id)
 
-            if not devbox.blueprint_id:
-                raise RuntimeError(f"Unknown template for sandbox {sandbox_id}")
+            template = SandboxEnvironmentTemplate.DEFAULT_BASE
 
-            blueprint = await client.blueprints.retrieve(devbox.blueprint_id)
-
-            template = BLUEPRINT_NAME_TO_TEMPLATE[blueprint.name]
-
-            if not template:
-                raise RuntimeError(f"Unknown template for sandbox {sandbox_id}")
+            if devbox.blueprint_id:
+                blueprint = await client.blueprints.retrieve(devbox.blueprint_id)
+                template = BLUEPRINT_NAME_TO_TEMPLATE.get(blueprint.name, SandboxEnvironmentTemplate.DEFAULT_BASE)
 
             config = SandboxEnvironmentConfig(name=devbox.name or f"sandbox-{sandbox_id}", template=template)
 

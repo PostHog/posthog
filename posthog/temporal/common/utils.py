@@ -12,7 +12,7 @@ T = TypeVar("T")
 
 
 def asyncify(fn: Callable[P, T]) -> Callable[P, T]:
-    """Decorator to convert a sync function into an async Temporal activity.
+    """Decorator to convert a sync function using sync_to_async - this preserves type hints for Temporal's serialization while allowing sync Django ORM code.
 
     This preserves type hints for Temporal's serialization while allowing
     sync Django ORM code.
