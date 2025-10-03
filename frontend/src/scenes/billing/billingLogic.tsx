@@ -23,6 +23,7 @@ import {
     BillingPeriod,
     BillingPlan,
     BillingPlanType,
+    BillingProductV2AddonType,
     BillingProductV2Type,
     BillingType,
     ProductKey,
@@ -64,6 +65,13 @@ export interface BillingError {
     status: 'info' | 'warning' | 'error'
     message: string
     action: LemonButtonPropsBase
+}
+
+export type SwitchSubscriptionPlanPayload = {
+    from_product_key: string
+    from_plan_key: string
+    to_product_key: string
+    to_plan_key: string
 }
 
 const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
@@ -374,6 +382,30 @@ export const billingLogic = kea<billingLogicType>([
                         return values.billing
                     }
                 },
+                switchSubscriptionPlan: async (data: SwitchSubscriptionPlanPayload, breakpoint) => {
+                    try {
+                        await api.create('api/billing/subscription/switch-plan', data)
+
+                        const productDisplayName = data.to_product_key[0].toUpperCase() + data.to_product_key.slice(1)
+                        lemonToast.success(`You're now on ${productDisplayName}`)
+
+                        // Reload billing, user, and organization to get the updated available features
+                        actions.loadBilling()
+                        await breakpoint(2000)
+                        actions.loadUser()
+                        actions.loadCurrentOrganization()
+
+                        return values.billing as BillingType
+                    } catch (error: any) {
+                        console.error(error)
+                        lemonToast.error(
+                            (error && error.detail) ||
+                                'There was an error switching your plan. Please try again or contact support.'
+                        )
+                        // Keep the current billing state on failure
+                        return values.billing as BillingType
+                    }
+                },
             },
         ],
         billingError: [
@@ -498,6 +530,24 @@ export const billingLogic = kea<billingLogicType>([
                 return !!billing?.products
                     ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
                     ?.addons.find((addon) => addon.plans.find((plan) => plan.current_plan))
+            },
+        ],
+        platformAddons: [
+            (s) => [s.billing],
+            (billing: BillingType): BillingProductV2AddonType[] => {
+                const platformProduct = billing?.products?.find(
+                    (product: BillingProductV2Type) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+                return platformProduct?.addons ?? []
+            },
+        ],
+        currentPlatformAddon: [
+            (s) => [s.billing],
+            (billing: BillingType): BillingProductV2AddonType | null => {
+                const platformProduct = billing?.products?.find(
+                    (product: BillingProductV2Type) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+                return platformProduct?.addons?.find((addon: BillingProductV2AddonType) => !!addon.subscribed) || null
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
