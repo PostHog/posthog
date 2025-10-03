@@ -27,12 +27,10 @@ import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
-import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ExternalReferences } from '../../components/ExternalReferences'
 import { StatusIndicator } from '../../components/Indicators'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
-import { Metadata } from '../../components/IssueMetadata'
 import { IssueTasks } from '../../components/IssueTasks'
 import { RuntimeIcon } from '../../components/RuntimeIcon'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
@@ -52,7 +50,6 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
     const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(
         errorTrackingIssueSceneLogic(logicProps)
     )
-    const { selectEvent } = useActions(errorTrackingIssueSceneLogic(logicProps))
     const tagRenderer = useErrorTagRenderer()
 
     return (
@@ -65,13 +62,6 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
                     eventLoading={initialEventLoading}
                     label={tagRenderer(selectedEvent)}
                 />
-                <Metadata>
-                    <EventsTable
-                        issueId={issueId}
-                        selectedEvent={selectedEvent}
-                        onEventSelect={(selectedEvent) => (selectedEvent ? selectEvent(selectedEvent) : null)}
-                    />
-                </Metadata>
             </div>
         </div>
     )
