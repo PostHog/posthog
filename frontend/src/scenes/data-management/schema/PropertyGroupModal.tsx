@@ -23,9 +23,14 @@ function isValidPropertyName(name: string): boolean {
     return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name.trim())
 }
 
-export function PropertyGroupModal(): JSX.Element {
-    const { propertyGroupModalOpen, editingPropertyGroup } = useValues(schemaManagementLogic)
-    const { setPropertyGroupModalOpen, createPropertyGroup, updatePropertyGroup } = useActions(schemaManagementLogic)
+interface PropertyGroupModalProps {
+    logicKey?: string
+}
+
+export function PropertyGroupModal({ logicKey }: PropertyGroupModalProps = {}): JSX.Element {
+    const logic = schemaManagementLogic({ key: logicKey || 'default' })
+    const { propertyGroupModalOpen, editingPropertyGroup } = useValues(logic)
+    const { setPropertyGroupModalOpen, createPropertyGroup, updatePropertyGroup } = useActions(logic)
 
     const [groupName, setGroupName] = useState('')
     const [groupDescription, setGroupDescription] = useState('')

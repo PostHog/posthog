@@ -35,7 +35,7 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
 export function EventDefinitionSchema({ definition }: { definition: EventDefinition }): JSX.Element {
     const logic = eventDefinitionSchemaLogic({ eventDefinitionId: definition.id })
     const { eventSchemas, allPropertyGroups, eventSchemasLoading } = useValues(logic)
-    const { addPropertyGroup, removePropertyGroup } = useActions(logic)
+    const { addPropertyGroup, removePropertyGroup, loadAllPropertyGroups } = useActions(logic)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
     const selectedPropertyGroupIds = new Set(eventSchemas.map((schema: EventSchema) => schema.property_group.id))
@@ -63,6 +63,10 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                     onSelect={(propertyGroupId) => addPropertyGroup(propertyGroupId)}
                     availablePropertyGroups={allPropertyGroups}
                     selectedPropertyGroupIds={selectedPropertyGroupIds}
+                    onPropertyGroupCreated={() => {
+                        // Reload property groups when a new one is created
+                        loadAllPropertyGroups()
+                    }}
                 />
 
                 {eventSchemas.length > 0 ? (

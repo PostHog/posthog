@@ -32,7 +32,6 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
             __default: [] as EventSchema[],
             loadEventSchemas: async () => {
                 const response = await api.eventSchemas.list(props.eventDefinitionId)
-
                 return response.results || []
             },
         },
@@ -40,7 +39,6 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
             __default: [] as SchemaPropertyGroup[],
             loadAllPropertyGroups: async () => {
                 const response = await api.schemaPropertyGroups.list()
-
                 return response.results || []
             },
         },
@@ -63,17 +61,15 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
     listeners(({ actions, props }) => ({
         addPropertyGroup: async ({ propertyGroupId }) => {
             try {
-                const result = await api.eventSchemas.create({
+                await api.eventSchemas.create({
                     event_definition: props.eventDefinitionId,
                     property_group_id: propertyGroupId,
                 })
-
                 // Reload to get the updated list from server
                 await actions.loadEventSchemas()
                 lemonToast.success('Property group added to event schema')
             } catch (error: any) {
                 const errorMessage = error.detail || error.message || 'Unknown error'
-                console.error('Error adding property group:', error)
                 lemonToast.error(`Failed to add property group: ${errorMessage}`)
             }
         },
