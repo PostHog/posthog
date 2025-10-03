@@ -221,17 +221,6 @@ class WorkflowStage(models.Model):
         return None
 
 
-class TaskCounter(models.Model):
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, related_name="task_counter")
-    next_number = models.IntegerField(
-        default=0,  # Arrays start at zero :)
-        help_text="Next task number to assign",
-    )
-
-    class Meta:
-        db_table = "posthog_task_counter"
-
-
 class Task(models.Model):
     class OriginProduct(models.TextChoices):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
@@ -406,11 +395,8 @@ class Task(models.Model):
         return current_stage.next_stage
 
     def _assign_task_number(self) -> None:
-        with transaction.atomic():
-            counter, _ = TaskCounter.objects.select_for_update().get_or_create(team_id=self.team.pk)
-            self.task_number = counter.next_number
-            counter.next_number += 1
-            counter.save()
+        max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
+        self.task_number = (max_task_number or -1) + 1
 
 
 class TaskProgress(models.Model):
