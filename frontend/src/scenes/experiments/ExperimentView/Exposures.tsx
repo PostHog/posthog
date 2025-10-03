@@ -192,7 +192,7 @@ export function Exposures(): JSX.Element {
     const headerContent = {
         style: { backgroundColor: 'var(--color-bg-table)' },
         children: (
-            <div className="flex items-center gap-3 text-xs font-semibold text-text-secondary">
+            <div className="flex items-center gap-3 metric-cell">
                 <span>Exposures</span>
 
                 {!isExperimentDraft && (
@@ -220,12 +220,10 @@ export function Exposures(): JSX.Element {
                                         <div className="flex items-center gap-4">
                                             {variants.map(({ variant, percentage }) => (
                                                 <div key={variant} className="flex items-center gap-2">
-                                                    <div className="text-xs">
+                                                    <div className="metric-cell">
                                                         <VariantTag experimentId={experimentId} variantKey={variant} />
                                                     </div>
-                                                    <span className="text-xs font-medium">
-                                                        {percentage.toFixed(1)}%
-                                                    </span>
+                                                    <span className="metric-cell">{percentage.toFixed(1)}%</span>
                                                 </div>
                                             ))}
                                         </div>
