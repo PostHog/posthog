@@ -340,7 +340,7 @@ impl KafkaSink {
     }
 
     pub async fn write(&self, team_id: i32, rows: Vec<KafkaLogRow>) -> Result<(), anyhow::Error> {
-        let schema = Schema::parse_str(AVRO_SCHEMA).unwrap();
+        let schema = Schema::parse_str(AVRO_SCHEMA)?;
         let mut writer = Writer::with_codec(
             &schema,
             Vec::new(),
@@ -348,7 +348,7 @@ impl KafkaSink {
         );
 
         for row in rows {
-            writer.append_ser(row).unwrap();
+            writer.append_ser(row)?;
         }
 
         let payload: Vec<u8> = writer.into_inner()?;
