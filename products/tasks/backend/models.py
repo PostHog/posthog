@@ -396,7 +396,7 @@ class Task(models.Model):
 
     def _assign_task_number(self) -> None:
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
-        self.task_number = (max_task_number or -1) + 1
+        self.task_number = (max_task_number if max_task_number is not None else -1) + 1
 
 
 class TaskProgress(models.Model):

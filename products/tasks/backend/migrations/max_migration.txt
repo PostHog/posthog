@@ -1,1 +1,1 @@
-0008_task_task_number_alter_task_unique_together_and_more
+0008_task_task_number
