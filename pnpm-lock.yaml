@@ -10,6 +10,9 @@ overrides:
   '@posthog/icons': 0.30.0
 
 patchedDependencies:
+  chartjs-plugin-crosshair@2.0.0:
+    hash: u3simama5c7yme23j4krapto6u
+    path: patches/chartjs-plugin-crosshair@2.0.0.patch
   dayjs@1.11.11:
     hash: lbfir4woetqmvzqg7l4q5mjtfq
     path: patches/dayjs@1.11.11.patch
@@ -655,8 +658,8 @@ importers:
         specifier: 2.2.1
         version: 2.2.1(chart.js@4.4.3)
       chartjs-plugin-crosshair:
-        specifier: ^1.2.0
-        version: 1.2.0(chart.js@4.4.3)
+        specifier: 2.0.0
+        version: 2.0.0(patch_hash=u3simama5c7yme23j4krapto6u)(chart.js@4.4.3)
       chartjs-plugin-datalabels:
         specifier: ^2.2.0
         version: 2.2.0(chart.js@4.4.3)
@@ -9919,10 +9922,10 @@ packages:
     peerDependencies:
       chart.js: '>=3.7.0'
 
-  chartjs-plugin-crosshair@1.2.0:
-    resolution: {integrity: sha512-yohsbME+wT1ODBdErBzWnC6xUDcn2tLeWmGjGDTykjpiT7+FMgibffajxqaCVmdzselxNPirpt76vx33EewSSQ==}
+  chartjs-plugin-crosshair@2.0.0:
+    resolution: {integrity: sha512-Vs6strRvYpzL92v40r/rAWhh+7au8VnfyC/m2ZHXcXeLEWeFjDgMvXjWdX+eARhbgHQo+uGIKyq9fmkS79GIyQ==}
     peerDependencies:
-      chart.js: ^3.4.0
+      chart.js: ^4.0.1
 
   chartjs-plugin-datalabels@2.2.0:
     resolution: {integrity: sha512-14ZU30lH7n89oq+A4bWaJPnAG8a7ZTk7dKf48YAzMvJjQtjrgg5Dpk9f+LbjCF6bpx3RAGTeL13IXpKQYyRvlw==}
@@ -28890,7 +28893,7 @@ snapshots:
     dependencies:
       chart.js: 4.4.3
 
-  chartjs-plugin-crosshair@1.2.0(chart.js@4.4.3):
+  chartjs-plugin-crosshair@2.0.0(patch_hash=u3simama5c7yme23j4krapto6u)(chart.js@4.4.3):
     dependencies:
       chart.js: 4.4.3
 
