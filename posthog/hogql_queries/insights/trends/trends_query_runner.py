@@ -161,8 +161,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         for s in query.series:
             if isinstance(s, SessionsNode):
-                if s.math and s.math != "total":
-                    raise ValidationError(f"SessionsNode only supports math='total', got '{s.math}'")
+                allowed_math = ["total", "dau"]
+                if s.math and s.math not in allowed_math:
+                    raise ValidationError(f"SessionsNode only supports math in {allowed_math}, got '{s.math}'")
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")

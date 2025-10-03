@@ -163,7 +163,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 alias="e",
                 sample=(
                     ast.SampleExpr(sample_value=self._sample_value())
-                    if not isinstance(self.series, DataWarehouseNode)
+                    if not isinstance(self.series, (DataWarehouseNode, SessionsNode))
                     else None
                 ),
             ),

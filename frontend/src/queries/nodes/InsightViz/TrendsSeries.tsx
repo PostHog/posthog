@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -13,7 +14,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
-import { ChartDisplayType, FilterType } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
@@ -44,11 +45,7 @@ export function TrendsSeries(): JSX.Element | null {
         TaxonomicFilterGroupType.DataWarehousePersonProperties,
     ]
 
-    if (!isInsightQueryNode(querySource)) {
-        return null
-    }
-
-    const filters = queryNodeToFilter(querySource)
+    const filters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const mathAvailability = isLifecycle
         ? MathAvailability.None
         : isStickiness
@@ -56,6 +53,22 @@ export function TrendsSeries(): JSX.Element | null {
           : display === ChartDisplayType.CalendarHeatmap
             ? MathAvailability.CalendarHeatmapOnly
             : MathAvailability.All
+
+    // Restrict math options when Sessions filter is selected
+    const allowedMathTypes = useMemo(() => {
+        const hasSessionsFilter = filters?.new_entity?.some((f: any) => f.type === 'sessions')
+        if (hasSessionsFilter) {
+            return [
+                BaseMathType.TotalCount, // 'total'
+                BaseMathType.UniqueUsers, // 'dau'
+            ]
+        }
+        return undefined // Allow all for non-sessions
+    }, [filters?.new_entity])
+
+    if (!filters) {
+        return null
+    }
 
     return (
         <>
@@ -91,6 +104,7 @@ export function TrendsSeries(): JSX.Element | null {
                         : alphabet.length
                 }
                 mathAvailability={mathAvailability}
+                allowedMathTypes={allowedMathTypes}
                 propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
                 actionsTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.Events,

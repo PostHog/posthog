@@ -46,6 +46,10 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def select_aggregation(self) -> ast.Expr:
         if isinstance(self.series, SessionsNode):
+            if self.series.math == "dau":
+                # Count distinct users via distinct_id (sessions table doesn't have person_id join)
+                return parse_expr("count(DISTINCT distinct_id)")
+            # Default: total count of sessions
             return parse_expr("count()")
         elif self.series.math == "hogql" and self.series.math_hogql is not None:
             return parse_expr(self.series.math_hogql)
