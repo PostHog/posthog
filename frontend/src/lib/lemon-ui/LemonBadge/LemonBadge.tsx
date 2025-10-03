@@ -1,7 +1,7 @@
 import './LemonBadge.scss'
 
 import clsx from 'clsx'
-import { forwardRef } from 'react'
+import { forwardRef, useRef } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { compactNumber, humanFriendlyNumber } from 'lib/utils'
@@ -47,10 +47,25 @@ const LemonBadgeComponent: React.FunctionComponent<LemonBadgeProps & React.RefAt
         },
         ref
     ): JSX.Element {
+        const nodeRef = useRef<HTMLSpanElement>(null)
         return (
-            <CSSTransition in={visible} timeout={150} classNames="LemonBadge-" mountOnEnter unmountOnExit>
+            <CSSTransition
+                in={visible}
+                timeout={150}
+                classNames="LemonBadge-"
+                mountOnEnter
+                unmountOnExit
+                nodeRef={nodeRef}
+            >
                 <span
-                    ref={ref}
+                    ref={(el) => {
+                        nodeRef.current = el
+                        if (typeof ref === 'function') {
+                            ref(el)
+                        } else if (ref) {
+                            ref.current = el
+                        }
+                    }}
                     className={clsx(
                         'LemonBadge',
                         !content && 'LemonBadge--dot',
