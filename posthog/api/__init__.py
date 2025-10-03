@@ -211,11 +211,17 @@ project_features_router = projects_router.register(
 
 projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 
+# Agents endpoints
 projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agents", ["team_id"])
+# Root alias for agents to match external clients
+router.register(r"agents", tasks.AgentDefinitionViewSet, "agents")
 
+# Workflows endpoints
 project_workflows_router = projects_router.register(
     r"workflows", tasks.TaskWorkflowViewSet, "project_workflows", ["team_id"]
 )
+# Alias to support clients expecting `task_workflows`
+projects_router.register(r"task_workflows", tasks.TaskWorkflowViewSet, "project_task_workflows", ["team_id"])
 
 project_workflows_router.register(
     r"stages", tasks.WorkflowStageViewSet, "project_workflow_stages", ["team_id", "workflow_id"]

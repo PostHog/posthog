@@ -66,11 +66,48 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "bulk_reorder",
             "progress",
             "progress_stream",
+            "progress_task",
         ]
     }
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team=self.team).order_by("position")
+        qs = queryset.filter(team=self.team).order_by("position")
+
+        params = self.request.query_params if hasattr(self, "request") else {}
+
+        # Filter by origin product
+        origin_product = params.get("origin_product")
+        if origin_product:
+            qs = qs.filter(origin_product=origin_product)
+
+        # Filter by workflow id
+        workflow_id = params.get("workflow")
+        if workflow_id:
+            qs = qs.filter(workflow_id=workflow_id)
+
+        # Filter by current stage id
+        stage_id = params.get("current_stage")
+        if stage_id:
+            qs = qs.filter(current_stage_id=stage_id)
+
+        # Filter by repository or organization inside repository_config JSON
+        organization = params.get("organization")
+        repository = params.get("repository")
+
+        if repository:
+            if "/" in repository:
+                org_part, repo_part = repository.split("/", 1)
+                qs = qs.filter(
+                    repository_config__organization=org_part,
+                    repository_config__repository=repo_part,
+                )
+            else:
+                qs = qs.filter(repository_config__repository=repository)
+
+        if organization:
+            qs = qs.filter(repository_config__organization=organization)
+
+        return qs
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
@@ -436,6 +473,72 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "server_time": timezone.now().isoformat(),
         }
         return Response(TaskProgressStreamResponseSerializer(response_data).data)
+
+    @extend_schema(
+        summary="Progress task to next stage",
+        description=(
+            "Advance a task to the next workflow stage, or to a specified stage. "
+            "If 'next_stage_id' is provided, the task will move to that stage. "
+            "Otherwise, the task will be moved to the next stage in its workflow."
+        ),
+        parameters=[],
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="Task progressed to next stage"),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer, description="No next stage available or invalid stage"
+            ),
+            404: OpenApiResponse(description="Task not found"),
+        },
+    )
+    @action(detail=True, methods=["post"], required_scopes=["task:write"])
+    def progress_task(self, request, pk=None, **kwargs):
+        task = cast(Task, self.get_object())
+
+        provided_stage_id = request.data.get("next_stage_id")
+        auto = bool(request.data.get("auto", False))
+
+        new_stage = None
+        if provided_stage_id:
+            try:
+                candidate = WorkflowStage.objects.get(id=provided_stage_id)
+            except WorkflowStage.DoesNotExist:
+                return Response(
+                    ErrorResponseSerializer({"error": "Invalid next_stage_id"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Ensure stage is usable and not archived
+            if candidate.is_archived:
+                return Response(
+                    ErrorResponseSerializer({"error": "Stage is archived"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            new_stage = candidate
+        else:
+            # Determine next stage automatically
+            new_stage = task.get_next_stage()
+
+        if not new_stage:
+            return Response(
+                ErrorResponseSerializer({"error": "No next stage available for this task"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        previous_status = task.current_stage.key if task.current_stage else "backlog"
+
+        task.current_stage = new_stage
+        # Keep workflow aligned with stage if needed
+        task.workflow = new_stage.workflow
+        task.save(update_fields=["current_stage", "workflow", "updated_at"])
+
+        new_status = task.current_stage.key if task.current_stage else "backlog"
+
+        # Trigger background processing for the new stage
+        if previous_status != new_status or auto:
+            self._trigger_workflow(task)
+
+        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
 
 @extend_schema(tags=["workflows"])
