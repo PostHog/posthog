@@ -26,18 +26,22 @@ class SESProvider:
         self.verify_email_domain(domain, team_id)
 
         # Create a tenant for the domain if not exists
+        tenant_name = f"team-{team_id}"
         try:
-            tenant_name = f"team-{team_id}"
             self.client.create_tenant(TenantName=tenant_name, Tags=[{"Key": "team_id", "Value": str(team_id)}])
         except ClientError as e:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
                 raise
 
         # Associate the new domain identity with the tenant
-        self.client.create_tenant_resource_association(
-            TenantName=tenant_name,
-            ResourceArn=f"arn:aws:ses:{settings.SES_REGION}:{settings.SES_ACCOUNT_ID}:identity/{domain}",
-        )
+        try:
+            self.client.create_tenant_resource_association(
+                TenantName=tenant_name,
+                ResourceArn=f"arn:aws:ses:{settings.SES_REGION}:{self.client.get_caller_identity()['Account']}:identity/{domain}",
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "AlreadyExistsException":
+                raise
 
     def verify_email_domain(self, domain: str, team_id: int):
         # Validate the domain contains valid characters for a domain name
