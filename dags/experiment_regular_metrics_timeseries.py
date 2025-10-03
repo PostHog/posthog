@@ -8,7 +8,7 @@ This module defines:
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any, Union
 from zoneinfo import ZoneInfo
 
@@ -26,13 +26,17 @@ from posthog.schema import (
 
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.models import Organization
 from posthog.models.experiment import Experiment, ExperimentMetricResult
 
 from dags.common import JobOwners
 
 # =============================================================================
-# Dynamic Partitions Setup
+# Configuration
 # =============================================================================
+
+# Default hour (UTC) for experiment recalculation when organization has no specific time set
+DEFAULT_EXPERIMENT_RECALCULATION_HOUR = 2  # 02:00 UTC
 
 # Create dynamic partitions definition for regular metric combinations
 EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME = "experiment_regular_metrics"
@@ -350,29 +354,109 @@ def experiment_regular_metrics_timeseries_discovery_sensor(context: dagster.Sens
         return dagster.SkipReason(f"Failed to discover regular metric experiments: {e}")
 
 
+# =============================================================================
+# Organization Filtering
+# =============================================================================
+
+
+def _get_organizations_for_current_hour(current_hour: int) -> set[int]:
+    """Get organization IDs that should run at this hour"""
+    target_time = time(current_hour, 0, 0)
+
+    # Build time filter
+    if current_hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
+        time_filter = Q(experiment_recalculation_time=target_time) | Q(experiment_recalculation_time__isnull=True)
+    else:
+        time_filter = Q(experiment_recalculation_time=target_time)
+
+    # Get organizations that have active timeseries experiments AND match the time filter
+    target_org_ids = set(
+        Organization.objects.filter(
+            team__experiment__deleted=False,
+            team__experiment__stats_config__timeseries=True,
+            team__experiment__start_date__isnull=False,
+            team__experiment__end_date__isnull=True,
+        )
+        .filter(time_filter)
+        .distinct()
+        .values_list("id", flat=True)
+    )
+
+    return target_org_ids
+
+
+def _extract_experiment_id_from_partition_key(partition_key: str) -> int:
+    """
+    Extract experiment ID from partition key.
+    Format: experiment_{id}_metric_{uuid}_{fingerprint}
+    """
+    parts = partition_key.split("_")
+    if len(parts) >= 2 and parts[0] == "experiment":
+        return int(parts[1])
+    raise ValueError(f"Invalid partition key format: {partition_key}")
+
+
 @dagster.schedule(
     job=experiment_regular_metrics_timeseries_job,
-    cron_schedule="0 2 * * *",  # Daily at 02:00 UTC
+    cron_schedule="0 * * * *",  # Every hour at minute 0
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
 )
 def experiment_regular_metrics_timeseries_refresh_schedule(context: dagster.ScheduleEvaluationContext):
     """
-    This schedule runs daily and reprocesses all known experiment-regular metric combinations.
+    This schedule runs hourly and reprocesses experiment-regular metric combinations
+    for organizations scheduled at the current hour.
     """
     try:
-        existing_partitions = list(context.instance.get_dynamic_partitions(EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME))
+        current_hour = context.scheduled_execution_time.hour
 
-        if not existing_partitions:
+        target_org_ids = _get_organizations_for_current_hour(current_hour)
+
+        if not target_org_ids:
+            return dagster.SkipReason(f"No organizations scheduled for {current_hour}:00 UTC")
+
+        target_experiment_ids = set(
+            Experiment.objects.filter(
+                deleted=False,
+                stats_config__timeseries=True,
+                start_date__isnull=False,
+                end_date__isnull=True,
+                team__organization_id__in=target_org_ids,
+            ).values_list("id", flat=True)
+        )
+
+        if not target_experiment_ids:
+            return dagster.SkipReason(f"No experiments found for organizations scheduled at {current_hour}:00 UTC")
+
+        all_partitions = list(context.instance.get_dynamic_partitions(EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME))
+
+        if not all_partitions:
             return dagster.SkipReason("No experiment regular metrics partitions exist")
 
-        context.log.info(f"Scheduling full refresh for {len(existing_partitions)} regular metrics partitions")
+        # Filter to only partitions for target experiments
+        partitions_to_run = []
+        for partition_key in all_partitions:
+            try:
+                experiment_id = _extract_experiment_id_from_partition_key(partition_key)
+                if experiment_id in target_experiment_ids:
+                    partitions_to_run.append(partition_key)
+            except ValueError:
+                context.log.warning(f"Skipping partition with invalid key format: {partition_key}")
+                continue
+
+        if not partitions_to_run:
+            return dagster.SkipReason(f"No metrics to process for organizations at {current_hour}:00 UTC")
+
+        context.log.info(
+            f"Scheduling refresh for {len(partitions_to_run)} partitions from {len(target_org_ids)} organizations at {current_hour}:00 UTC"
+        )
+
         return [
             dagster.RunRequest(
-                run_key=f"regular_metrics_refresh_{partition_key}_{context.scheduled_execution_time.strftime('%Y%m%d')}",
+                run_key=f"scheduled_{partition_key}_{context.scheduled_execution_time.strftime('%Y%m%d_%H')}",
                 partition_key=partition_key,
             )
-            for partition_key in existing_partitions
+            for partition_key in partitions_to_run
         ]
 
     except Exception as e:

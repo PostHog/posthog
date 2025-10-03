@@ -163,6 +163,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
         choices=PluginsAccessLevel.choices,
     )
     for_internal_metrics = models.BooleanField(default=False)
+    is_hipaa = models.BooleanField(default=False, null=True, blank=True)
+
+    # Experiments
     default_experiment_stats_method = models.CharField(
         max_length=20,
         choices=DefaultExperimentStatsMethod.choices,
@@ -171,7 +174,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         null=True,
         blank=True,
     )
-    is_hipaa = models.BooleanField(default=False, null=True, blank=True)
+    experiment_recalculation_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
+    )
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)

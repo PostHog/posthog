@@ -457,6 +457,7 @@ export interface OrganizationType extends OrganizationBasicType {
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod
+    experiment_recalculation_time?: string | null
     default_role_id?: string | null
 }
 

@@ -130,6 +130,7 @@ class OrganizationSerializer(
             "member_count",
             "is_ai_data_processing_approved",
             "default_experiment_stats_method",
+            "experiment_recalculation_time",
             "default_role_id",
         ]
         read_only_fields = [
