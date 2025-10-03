@@ -234,18 +234,14 @@ const SimilarIssues = (): JSX.Element => {
                         return (
                             <div
                                 key={relatedIssue.id}
-                                className="flex items-center justify-between p-2 border rounded bg-surface-primary"
+                                className="flex items-center justify-between px-2 py-1 border rounded bg-surface-primary"
                             >
                                 <div
-                                    className="flex flex-col gap-1 min-w-0 group flex-grow cursor-pointer"
+                                    className="flex flex-col gap-0.5 min-w-0 group flex-grow cursor-pointer"
                                     onClick={() => setSelectedIssue(relatedIssue)}
                                 >
-                                    <div className="font-medium text-sm truncate group-hover:text-accent">
-                                        <RuntimeIcon
-                                            runtime={relatedRuntime}
-                                            fontSize="0.7rem"
-                                            className="shrink-0 mr-2"
-                                        />
+                                    <div className="font-medium flex items-center gap-2 text-sm truncate group-hover:text-accent">
+                                        <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" className="shrink-0" />
                                         {relatedIssue.title}
                                     </div>
                                     {relatedIssue.description && (
