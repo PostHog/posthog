@@ -1,7 +1,7 @@
 import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -381,4 +381,11 @@ export const campaignLogic = kea<campaignLogicType>([
     afterMount(({ actions }) => {
         actions.loadCampaign()
     }),
+    beforeUnload(({ values, cache }) => ({
+        enabled: () => !cache.disabledBeforeUnload && values.campaignChanged,
+        message: 'Your campaign has unsaved changes. Are you sure?',
+        onConfirm: () => {
+            cache.disabledBeforeUnload = true
+        },
+    })),
 ])
