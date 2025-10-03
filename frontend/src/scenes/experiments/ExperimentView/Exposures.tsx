@@ -22,7 +22,9 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
         return 'Default ($feature_flag_called)'
     }
 
-    return `Custom (${exposureConfig.event})`
+    const displayName =
+        'event' in exposureConfig ? exposureConfig.event : exposureConfig.name || `Action ${exposureConfig.id}`
+    return `Custom (${displayName})`
 }
 
 export function Exposures(): JSX.Element {

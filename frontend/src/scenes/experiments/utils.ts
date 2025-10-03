@@ -7,7 +7,6 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import {
     AnyEntityNode,
     EventsNode,
-    ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentFunnelMetricStep,
     ExperimentFunnelsQuery,
@@ -39,7 +38,6 @@ import {
 } from '~/types'
 
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
-import { createFilterForSource } from './metricQueryUtils'
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -154,14 +152,28 @@ export function getViewRecordingFilters(
     const filters: UniversalFiltersGroupValue[] = []
     /**
      * We need to check the exposure criteria as the first on the filter chain.
-     * exposure criteria can only be events, not actions
      */
     const exposureCriteria = experiment.exposure_criteria?.exposure_config
-    if (exposureCriteria && exposureCriteria.event !== '$feature_flag_called') {
+    if (exposureCriteria && 'event' in exposureCriteria && exposureCriteria.event !== '$feature_flag_called') {
         filters.push({
             id: exposureCriteria.event,
             name: exposureCriteria.event,
             type: 'events',
+            properties: [
+                ...(exposureCriteria.properties || []),
+                {
+                    key: `$feature/${experiment.feature_flag_key}`,
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+    } else if (exposureCriteria && 'id' in exposureCriteria) {
+        filters.push({
+            id: exposureCriteria.id,
+            name: exposureCriteria.name || `Action ${exposureCriteria.id}`,
+            type: 'actions',
             properties: [
                 ...(exposureCriteria.properties || []),
                 {
@@ -550,24 +562,30 @@ export function filterToExposureConfig(entity: Record<string, any> | undefined):
         return undefined
     }
 
-    if (entity.kind === NodeKind.EventsNode) {
-        if (entity.type === 'events') {
-            return {
-                kind: NodeKind.ExperimentEventExposureConfig,
-                event: entity.id,
-                properties: entity.properties,
-            }
+    // Check type first since ActionFilter may set kind incorrectly
+    if (entity.type === 'actions') {
+        return {
+            kind: NodeKind.ActionsNode,
+            id: entity.id,
+            name: entity.name,
+            properties: entity.properties,
+        }
+    }
+
+    if (entity.type === 'events' || entity.kind === NodeKind.EventsNode) {
+        return {
+            kind: NodeKind.ExperimentEventExposureConfig,
+            event: entity.id,
+            properties: entity.properties,
         }
     }
 
     if (entity.kind === NodeKind.ActionsNode) {
-        if (entity.type === 'actions') {
-            return {
-                kind: NodeKind.ActionsNode,
-                id: entity.id,
-                name: entity.name,
-                properties: entity.properties,
-            }
+        return {
+            kind: NodeKind.ActionsNode,
+            id: entity.id,
+            name: entity.name,
+            properties: entity.properties,
         }
     }
 

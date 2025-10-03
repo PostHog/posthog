@@ -20,7 +20,11 @@ import { getMetricTag } from './utils'
 
 // Helper function to get the exposure event from experiment
 const getExposureEvent = (experiment: Experiment): string => {
-    return experiment.exposure_criteria?.exposure_config?.event || '$feature_flag_called'
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (!exposureConfig) {
+        return '$feature_flag_called'
+    }
+    return 'event' in exposureConfig ? exposureConfig.event : '$feature_flag_called'
 }
 
 // AddBreakdownButton component for event property breakdowns

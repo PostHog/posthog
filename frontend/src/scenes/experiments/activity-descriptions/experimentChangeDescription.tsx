@@ -147,10 +147,13 @@ export const getExperimentChangeDescription = (
                         }
 
                         if (afterConfig) {
+                            const displayName =
+                                'event' in afterConfig
+                                    ? afterConfig.event
+                                    : afterConfig.name || `Action ${afterConfig.id}`
                             return (
                                 <span>
-                                    set the exposure configuration to{' '}
-                                    <LemonTag color="purple">{afterConfig.event}</LemonTag>
+                                    set the exposure configuration to <LemonTag color="purple">{displayName}</LemonTag>
                                 </span>
                             )
                         }
