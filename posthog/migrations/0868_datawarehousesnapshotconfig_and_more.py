@@ -6,8 +6,11 @@ from django.db import migrations, models
 
 import posthog.models.utils
 
+# NOTE: Modified to ensure constraints and indexes are added in a non-blocking way
+
 
 class Migration(migrations.Migration):
+    atomic = False  # Added to support concurrent index creation
     dependencies = [
         ("posthog", "0867_add_updated_at_to_feature_flags"),
     ]
@@ -61,16 +64,41 @@ class Migration(migrations.Migration):
             name="snapshot_enabled",
             field=models.BooleanField(default=False),
         ),
-        migrations.AddField(
-            model_name="datawarehousesavedquery",
-            name="snapshot_table",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name="snapshot_table",
-                to="posthog.datawarehousetable",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="datawarehousesavedquery",
+                    name="snapshot_table",
+                    field=models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="snapshot_table",
+                        to="posthog.datawarehousetable",
+                    ),
+                ),
+            ],
+            database_operations=[
+                # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_datawarehousesavedquery" ADD COLUMN "snapshot_table_id" uuid NULL CONSTRAINT "posthog_datawarehou_snapshot_table_id_fk_posthog_d" REFERENCES "posthog_datawarehousetable"("id") DEFERRABLE INITIALLY DEFERRED;  -- existing-table-constraint-ignore
+                    SET CONSTRAINTS "posthog_datawarehou_snapshot_table_id_fk_posthog_d" IMMEDIATE;  -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_datawarehousesavedquery" DROP COLUMN IF EXISTS "snapshot_table_id";
+                    """,
+                ),
+                # We add CONCURRENTLY to the create command
+                migrations.RunSQL(
+                    """
+                    CREATE INDEX CONCURRENTLY "posthog_datawarehousesavedquery_snapshot_table_id" ON "posthog_datawarehousesavedquery" ("snapshot_table_id");
+                    """,
+                    reverse_sql="""
+                        DROP INDEX IF EXISTS "posthog_datawarehousesavedquery_snapshot_table_id";
+                    """,
+                ),
+            ],
         ),
         migrations.AddField(
             model_name="datawarehousesavedquery",
