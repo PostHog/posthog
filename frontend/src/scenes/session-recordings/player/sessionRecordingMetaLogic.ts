@@ -31,7 +31,13 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
         return {
             actions: [
                 snapshotLogic,
-                ['loadSnapshots', 'loadSnapshotSources', 'loadNextSnapshotSource', 'setSnapshots'],
+                [
+                    'loadSnapshots',
+                    'loadSnapshotSources',
+                    'loadNextSnapshotSource',
+                    'loadSnapshotsForSourceSuccess',
+                    'setSnapshots',
+                ],
             ],
             values: [
                 teamLogic,

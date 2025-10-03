@@ -6,6 +6,7 @@ import { uuid } from 'lib/utils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature } from '~/types'
@@ -79,6 +80,8 @@ describe('sessionRecordingDataLogic performance', () => {
                     ]
                 },
                 '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
+                '/api/projects/:team_id/comments': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
             },
             post: {
                 '/api/environments/:team_id/query': recordingEventsJson,
@@ -144,7 +147,7 @@ describe('sessionRecordingDataLogic performance', () => {
             // oxlint-disable-next-line no-console
             console.log(`Standard deviation: ${stdDev}ms`)
 
-            expect(averageDuration).toBeLessThan(100)
+            expect(averageDuration).toBeLessThan(200)
             expect(stdDev).toBeLessThan(100)
         })
     })

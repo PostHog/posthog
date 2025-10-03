@@ -52,19 +52,26 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 [
                     'loadRecordingMeta',
                     'loadRecordingMetaSuccess',
+                    'loadRecordingMetaFailure',
                     'maybeLoadRecordingMeta',
                     'persistRecording',
                     'maybePersistRecording',
                     'setTrackedWindow',
                     'loadSnapshots',
                     'loadSnapshotSources',
+                    'loadSnapshotsForSourceSuccess',
                     'setSnapshots',
                     'loadRecordingFromFile',
                 ],
                 eventsLogic,
                 ['loadEvents', 'loadFullEventData', 'loadEventsSuccess'],
                 commentsLogic,
-                ['loadRecordingComments', 'loadRecordingNotebookComments'],
+                [
+                    'loadRecordingComments',
+                    'loadRecordingNotebookComments',
+                    'loadRecordingCommentsSuccess',
+                    'loadRecordingNotebookCommentsSuccess',
+                ],
             ],
             values: [
                 metaLogic,
@@ -123,6 +130,22 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
 
         loadNextSnapshotSource: () => {
+            actions.reportUsageIfFullyLoaded()
+        },
+
+        loadEventsSuccess: () => {
+            actions.reportUsageIfFullyLoaded()
+        },
+
+        loadSnapshotsForSourceSuccess: () => {
+            actions.reportUsageIfFullyLoaded()
+        },
+
+        loadRecordingCommentsSuccess: () => {
+            actions.reportUsageIfFullyLoaded()
+        },
+
+        loadRecordingNotebookCommentsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
         },
 
@@ -331,6 +354,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 s.snapshots,
                 s.sessionPlayerMetaDataLoading,
                 s.snapshotsLoading,
+                s.sessionEventsDataLoading,
                 s.sessionCommentsLoading,
                 s.sessionNotebookCommentsLoading,
             ],
@@ -338,6 +362,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 snapshots,
                 sessionPlayerMetaDataLoading,
                 snapshotsLoading,
+                sessionEventsDataLoading,
                 sessionCommentsLoading,
                 sessionNotebookCommentsLoading
             ): boolean => {
@@ -345,6 +370,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     !!snapshots?.length &&
                     !sessionPlayerMetaDataLoading &&
                     !snapshotsLoading &&
+                    !sessionEventsDataLoading &&
                     !sessionCommentsLoading &&
                     !sessionNotebookCommentsLoading
                 )

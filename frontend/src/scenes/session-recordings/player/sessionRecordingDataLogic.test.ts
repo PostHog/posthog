@@ -12,7 +12,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
+import { MockSignature } from '~/mocks/utils'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
@@ -38,6 +40,25 @@ const BLOB_SOURCE: SessionRecordingSnapshotSource = {
     blob_key: '0',
 }
 
+const getMocks: Record<string, MockSignature> | undefined = {
+    '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
+        // with no sources, returns sources...
+        if (req.url.searchParams.get('source') === 'blob_v2') {
+            return res(ctx.text(snapshotsAsJSONLines()))
+        }
+
+        return [
+            200,
+            {
+                sources: [BLOB_SOURCE],
+            },
+        ]
+    },
+    '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
+    '/api/projects/:team_id/comments': EMPTY_PAGINATED_RESPONSE,
+    '/api/projects/:team/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
+}
+
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
     let snapshotLogic: ReturnType<typeof snapshotDataLogic.build>
@@ -45,22 +66,7 @@ describe('sessionRecordingDataLogic', () => {
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
-            get: {
-                '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
-                    // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
-                    }
-
-                    return [
-                        200,
-                        {
-                            sources: [BLOB_SOURCE],
-                        },
-                    ]
-                },
-                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
-            },
+            get: getMocks,
             post: {
                 '/api/environments/:team_id/query': recordingEventsJson,
             },
@@ -94,7 +100,6 @@ describe('sessionRecordingDataLogic', () => {
                 end: null,
                 segments: [],
                 sessionEventsData: null,
-                filters: {},
                 sessionEventsDataLoading: false,
             })
         })
@@ -130,6 +135,7 @@ describe('sessionRecordingDataLogic', () => {
             logic.unmount()
             useMocks({
                 get: {
+                    ...getMocks,
                     '/api/environments/:team_id/session_recordings/:id': () => [500, { status: 0 }],
                 },
             })
@@ -162,6 +168,7 @@ describe('sessionRecordingDataLogic', () => {
             logic.unmount()
             useMocks({
                 get: {
+                    ...getMocks,
                     '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                 },
             })
@@ -204,19 +211,24 @@ describe('sessionRecordingDataLogic', () => {
         })
 
         it('load events after metadata with 5 minute buffer', async () => {
-            api.create
-                .mockImplementationOnce(async () => {
-                    return recordingEventsJson
-                })
-                .mockImplementationOnce(async () => {
-                    // Once is the server events
-                    return {
-                        results: [],
-                    }
-                })
+            let callCount = 0
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query': () => {
+                        callCount++
+                        if (callCount === 1) {
+                            return recordingEventsJson
+                        }
+                        // Second call is the server events
+                        return {
+                            results: [],
+                        }
+                    },
+                },
+            })
 
             await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
+                logic.actions.loadEvents()
             }).toDispatchActions(['loadEvents', 'loadEventsSuccess'])
 
             expect(api.create).toHaveBeenCalledTimes(2)
@@ -248,6 +260,8 @@ describe('sessionRecordingDataLogic', () => {
                     snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess,
                     'loadEvents',
                     'loadEventsSuccess',
+                    'loadRecordingCommentsSuccess',
+                    'loadRecordingNotebookCommentsSuccess',
                 ])
                 .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
         })

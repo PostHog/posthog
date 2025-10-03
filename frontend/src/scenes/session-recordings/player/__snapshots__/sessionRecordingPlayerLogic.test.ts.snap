@@ -1,5 +1,39 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`sessionRecordingPlayerLogic loading session core loads metadata and snapshots by default 1`] = `
+{
+  "bufferedToTime": 0,
+  "durationMs": 11868,
+  "end": "2023-05-01T14:46:32.745Z",
+  "fullyLoaded": false,
+  "person": {
+    "created_at": "2023-05-01T14:46:20.838000Z",
+    "distinct_ids": [
+      "187d7c7619b1fc0-05f7306e935865-1d525634-384000-187d7c7619c2867",
+    ],
+    "id": "11",
+    "name": "187d7c7619b1fc0-05f7306e935865-1d525634-384000-187d7c7619c2867",
+    "properties": {
+      "$initial_os": "Mac OS X",
+    },
+    "uuid": "0187d7c7-61b7-0000-d6a1-59b207080ac0",
+  },
+  "segments": [
+    {
+      "durationMs": 11868,
+      "endTimestamp": 1682952392745,
+      "isActive": false,
+      "kind": "buffer",
+      "startTimestamp": 1682952380877,
+    },
+  ],
+  "sessionRecordingId": "2",
+  "sessionRetentionPeriodDays": null,
+  "snapshotsByWindowId": {},
+  "start": "2023-05-01T14:46:20.877Z",
+}
+`;
+
 exports[`sessionRecordingPlayerLogic loading session core loads metadata and snapshots if autoplay 1`] = `
 {
   "bufferedToTime": 0,

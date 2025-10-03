@@ -41,9 +41,8 @@ describe('sessionRecordingPlayerLogic', () => {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     }
                     // with no source requested should return sources
-                    return [
-                        200,
-                        {
+                    return res(
+                        ctx.json({
                             sources: [
                                 {
                                     source: 'blob',
@@ -52,8 +51,8 @@ describe('sessionRecordingPlayerLogic', () => {
                                     blob_key: '1691755416097-1691755492268',
                                 },
                             ],
-                        },
-                    ]
+                        })
+                    )
                 },
                 '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
             },
@@ -84,7 +83,7 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('loading session core', () => {
-        it('loads metadata only by default', async () => {
+        it('loads metadata and snapshots by default', async () => {
             silenceKeaLoadersErrors()
 
             await expectLogic(logic).toDispatchActionsInAnyOrder([
@@ -94,8 +93,8 @@ describe('sessionRecordingPlayerLogic', () => {
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
 
-            await expectLogic(logic).toNotHaveDispatchedActions([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
+            await expectLogic(logic).toDispatchActions([
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
                 snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
             ])
         })
@@ -110,17 +109,9 @@ describe('sessionRecordingPlayerLogic', () => {
             await expectLogic(logic).toDispatchActions([
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
                 logic.actionTypes.setPlay,
-            ])
-
-            expect(logic.values.sessionPlayerData).toMatchSnapshot()
-
-            await expectLogic(logic).toDispatchActions([
-                // once to gather sources
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
-                // once to load source from that
-                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSource,
-                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSourceSuccess,
             ])
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()

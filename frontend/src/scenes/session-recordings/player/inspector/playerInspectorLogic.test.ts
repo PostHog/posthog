@@ -83,6 +83,9 @@ describe('playerInspectorLogic', () => {
                     ],
                 },
             },
+            patch: {
+                '/api/environments/:team_id/session_recordings/:id': { success: true },
+            },
         })
         initKeaTests()
         featureFlagLogic.mount()
