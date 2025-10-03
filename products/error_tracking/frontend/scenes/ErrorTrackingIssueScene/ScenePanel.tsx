@@ -309,10 +309,10 @@ const RelatedIssues = (): JSX.Element => {
                         return (
                             <div
                                 key={relatedIssue.id}
-                                className="flex items-center justify-between p-2 border rounded hover:bg-gray-50"
+                                className="flex items-center justify-between p-2 border rounded bg-surface-primary"
                             >
                                 <div
-                                    className="flex-1 min-w-0 cursor-pointer"
+                                    className="flex flex-col gap-1 min-w-0 cursor-pointer"
                                     onClick={() => setSelectedIssue(relatedIssue)}
                                 >
                                     <div className="flex items-center gap-2">
@@ -324,17 +324,18 @@ const RelatedIssues = (): JSX.Element => {
                                         </div>
                                     </div>
                                     {relatedIssue.description && (
-                                        <div className="text-xs text-gray-600 truncate">{relatedIssue.description}</div>
+                                        <div className="text-xs text-secondary truncate">
+                                            {relatedIssue.description}
+                                        </div>
                                     )}
                                 </div>
                                 <ButtonPrimitive
-                                    size="xs"
-                                    variant="outline"
+                                    size="xxs"
                                     onClick={(e) => {
                                         e.preventDefault()
                                         handleMerge(relatedIssue.id)
                                     }}
-                                    className="ml-2 shrink-0"
+                                    className="shrink-0 px-2 py-3"
                                 >
                                     Merge
                                 </ButtonPrimitive>
