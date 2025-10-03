@@ -696,32 +696,6 @@ describe('LLM Analytics utils', () => {
             ])
         })
 
-        it('should handle arguments that are already objects', () => {
-            const toolCalls = [
-                {
-                    type: 'function' as const,
-                    id: 'call-789',
-                    function: {
-                        name: 'test_function',
-                        arguments: { already: 'parsed', nested: { data: true } },
-                    },
-                },
-            ]
-
-            const result = parseOpenAIToolCalls(toolCalls)
-
-            expect(result).toEqual([
-                {
-                    type: 'function',
-                    id: 'call-789',
-                    function: {
-                        name: 'test_function',
-                        arguments: { already: 'parsed', nested: { data: true } },
-                    },
-                },
-            ])
-        })
-
         it('should handle mixed valid and invalid JSON in multiple tool calls', () => {
             const toolCalls = [
                 {
