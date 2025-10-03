@@ -101,6 +101,7 @@ class BaseAssistant(ABC):
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
         callback_handler: Optional[BaseCallbackHandler] = None,
+        deep_research_template: Optional[dict[str, Any]] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -138,6 +139,7 @@ class BaseAssistant(ABC):
         self._mode = mode
         self._initial_state = initial_state
         self._commentary_chunk = None
+        self._deep_research_template = deep_research_template
 
     @property
     @abstractmethod

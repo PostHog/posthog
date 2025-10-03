@@ -41,6 +41,7 @@ class DeepResearchAssistant(BaseAssistant):
         trace_id: Optional[str | UUID] = None,
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[DeepResearchState | PartialDeepResearchState] = None,
+        deep_research_template: Optional[dict[str, Any]] = None,
     ):
         super().__init__(
             team,
@@ -57,6 +58,7 @@ class DeepResearchAssistant(BaseAssistant):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
+            deep_research_template=deep_research_template,
         )
 
     @property
@@ -110,15 +112,35 @@ class DeepResearchAssistant(BaseAssistant):
         return False
 
     def get_initial_state(self) -> DeepResearchState:
-        if self._latest_message:
-            return DeepResearchState(
-                messages=[self._latest_message],
-                start_id=self._latest_message.id,
-                graph_status=None,
-                notebook_short_id=None,
-            )
-        else:
-            return DeepResearchState(messages=[])
+        # Inject a default human message when a template is selected without user input,
+        # and stream it immediately by setting _latest_message.
+        message_for_state = self._latest_message
+        if not self._latest_message and self._deep_research_template:
+            from uuid import uuid4
+
+            title = None
+            if isinstance(self._deep_research_template, dict):
+                title = self._deep_research_template.get("notebook_title")
+
+            content = f"Load template: {title}" if title else "Load template"
+            message_for_state = HumanMessage(content=content, id=str(uuid4()))
+            self._latest_message = message_for_state
+
+        base_state = DeepResearchState(
+            messages=[message_for_state] if message_for_state else [],
+            start_id=message_for_state.id if message_for_state else None,
+            graph_status=None,
+            notebook_short_id=None,
+        )
+
+        if self._deep_research_template:
+            if isinstance(self._deep_research_template, dict):
+                notebook_short_id = self._deep_research_template.get("notebook_short_id")
+                if notebook_short_id:
+                    base_state.template_notebook_short_id = notebook_short_id
+                    base_state.skip_onboarding = True
+
+        return base_state
 
     def get_resumed_state(self) -> PartialDeepResearchState:
         if not self._latest_message:

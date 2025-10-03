@@ -1969,6 +1969,11 @@ class NodeKind(StrEnum):
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
 
 
+class Event(StrEnum):
+    LOADED = "loaded"
+    UPDATED = "updated"
+
+
 class PageURL(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4235,6 +4240,7 @@ class NotebookUpdateMessage(BaseModel):
     content: ProsemirrorJSONContent
     conversation_notebooks: Optional[list[DeepResearchNotebook]] = None
     current_run_notebooks: Optional[list[DeepResearchNotebook]] = None
+    event: Optional[Event] = None
     id: Optional[str] = None
     notebook_id: str
     notebook_type: Literal["deep_research"] = "deep_research"
