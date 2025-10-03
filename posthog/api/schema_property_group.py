@@ -1,8 +1,12 @@
+import re
+
 from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import SchemaPropertyGroup, SchemaPropertyGroupProperty
+
+PROPERTY_NAME_REGEX = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 class SchemaPropertyGroupPropertySerializer(serializers.ModelSerializer):
@@ -19,6 +23,18 @@ class SchemaPropertyGroupPropertySerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_name(self, value: str) -> str:
+        if not value or not value.strip():
+            raise serializers.ValidationError("Property name is required")
+
+        cleaned_value = value.strip()
+        if not PROPERTY_NAME_REGEX.match(cleaned_value):
+            raise serializers.ValidationError(
+                "Property name must start with a letter or underscore and contain only letters, numbers, and underscores"
+            )
+
+        return cleaned_value
 
 
 class SchemaPropertyGroupSerializer(serializers.ModelSerializer):

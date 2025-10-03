@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
@@ -15,6 +15,13 @@ const PROPERTY_TYPE_OPTIONS = [
     { value: 'DateTime', label: 'DateTime' },
     { value: 'Duration', label: 'Duration' },
 ]
+
+function isValidPropertyName(name: string): boolean {
+    if (!name || !name.trim()) {
+        return false
+    }
+    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name.trim())
+}
 
 export function PropertyGroupModal(): JSX.Element {
     const { propertyGroupModalOpen, editingPropertyGroup } = useValues(schemaManagementLogic)
@@ -36,7 +43,7 @@ export function PropertyGroupModal(): JSX.Element {
         const data = {
             name: groupName,
             description: groupDescription,
-            properties,
+            properties: properties.map((p) => ({ ...p, name: p.name.trim() })),
         }
 
         if (editingPropertyGroup) {
@@ -46,6 +53,9 @@ export function PropertyGroupModal(): JSX.Element {
         }
         handleClose()
     }
+
+    const hasInvalidPropertyNames = properties.some((prop) => !isValidPropertyName(prop.name))
+    const canSave = groupName.trim() && !hasInvalidPropertyNames
 
     const handleClose = (): void => {
         setPropertyGroupModalOpen(false)
@@ -85,6 +95,7 @@ export function PropertyGroupModal(): JSX.Element {
                     value={property.name}
                     onChange={(value) => updateProperty(index, { name: value })}
                     placeholder="Property name"
+                    status={property.name && !isValidPropertyName(property.name) ? 'danger' : undefined}
                     fullWidth
                 />
             ),
@@ -106,14 +117,17 @@ export function PropertyGroupModal(): JSX.Element {
             title: 'Required',
             key: 'is_required',
             width: 100,
+            align: 'center',
             render: (_, property, index) => (
-                <LemonButton
-                    type={property.is_required ? 'primary' : 'secondary'}
-                    size="small"
+                <div
+                    className="flex justify-center items-center cursor-pointer h-full py-2 -my-2"
                     onClick={() => updateProperty(index, { is_required: !property.is_required })}
                 >
-                    {property.is_required ? 'Yes' : 'No'}
-                </LemonButton>
+                    <LemonCheckbox
+                        checked={property.is_required}
+                        onChange={(checked) => updateProperty(index, { is_required: checked })}
+                    />
+                </div>
             ),
         },
         {
@@ -131,7 +145,7 @@ export function PropertyGroupModal(): JSX.Element {
         {
             key: 'actions',
             width: 50,
-            render: (_, property, index) => (
+            render: (_, _property, index) => (
                 <LemonButton icon={<IconTrash />} size="small" onClick={() => removeProperty(index)} />
             ),
         },
@@ -148,7 +162,7 @@ export function PropertyGroupModal(): JSX.Element {
                     <LemonButton type="secondary" onClick={handleClose}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={handleSave} disabled={!groupName.trim()}>
+                    <LemonButton type="primary" onClick={handleSave} disabled={!canSave}>
                         {editingPropertyGroup ? 'Update' : 'Create'}
                     </LemonButton>
                 </>
