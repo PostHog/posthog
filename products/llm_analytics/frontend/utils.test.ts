@@ -1,7 +1,7 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
-import { formatLLMEventTitle, looksLikeXml, normalizeMessage, normalizeMessages } from './utils'
+import { formatLLMEventTitle, looksLikeXml, normalizeMessage, normalizeMessages, parseOpenAIToolCalls } from './utils'
 
 describe('LLM Analytics utils', () => {
     it('normalizeOutputMessage: parses OpenAI message', () => {
@@ -639,6 +639,129 @@ describe('LLM Analytics utils', () => {
                 expect(result[0].role).toBe('user')
                 expect(result[0].content).toBe('Hello')
             })
+        })
+    })
+
+    describe('parseOpenAIToolCalls', () => {
+        it('should parse valid JSON arguments in tool calls', () => {
+            const toolCalls = [
+                {
+                    type: 'function' as const,
+                    id: 'call-123',
+                    function: {
+                        name: 'test_function',
+                        arguments: '{"key": "value", "number": 42}',
+                    },
+                },
+            ]
+
+            const result = parseOpenAIToolCalls(toolCalls)
+
+            expect(result).toEqual([
+                {
+                    type: 'function',
+                    id: 'call-123',
+                    function: {
+                        name: 'test_function',
+                        arguments: { key: 'value', number: 42 },
+                    },
+                },
+            ])
+        })
+
+        it('should handle malformed JSON arguments gracefully', () => {
+            const toolCalls = [
+                {
+                    type: 'function' as const,
+                    id: 'call-456',
+                    function: {
+                        name: 'test_function',
+                        arguments: 'invalid json {not valid}',
+                    },
+                },
+            ]
+
+            const result = parseOpenAIToolCalls(toolCalls)
+
+            // Should keep the original string if parsing fails
+            expect(result).toEqual([
+                {
+                    type: 'function',
+                    id: 'call-456',
+                    function: {
+                        name: 'test_function',
+                        arguments: 'invalid json {not valid}',
+                    },
+                },
+            ])
+        })
+
+        it('should handle arguments that are already objects', () => {
+            const toolCalls = [
+                {
+                    type: 'function' as const,
+                    id: 'call-789',
+                    function: {
+                        name: 'test_function',
+                        arguments: { already: 'parsed', nested: { data: true } },
+                    },
+                },
+            ]
+
+            const result = parseOpenAIToolCalls(toolCalls)
+
+            expect(result).toEqual([
+                {
+                    type: 'function',
+                    id: 'call-789',
+                    function: {
+                        name: 'test_function',
+                        arguments: { already: 'parsed', nested: { data: true } },
+                    },
+                },
+            ])
+        })
+
+        it('should handle mixed valid and invalid JSON in multiple tool calls', () => {
+            const toolCalls = [
+                {
+                    type: 'function' as const,
+                    id: 'call-1',
+                    function: {
+                        name: 'func1',
+                        arguments: '{"valid": "json"}',
+                    },
+                },
+                {
+                    type: 'function' as const,
+                    id: 'call-2',
+                    function: {
+                        name: 'func2',
+                        arguments: 'not valid json',
+                    },
+                },
+            ]
+
+            const result = parseOpenAIToolCalls(toolCalls)
+
+            expect(result).toEqual([
+                {
+                    type: 'function',
+                    id: 'call-1',
+                    function: {
+                        name: 'func1',
+                        arguments: { valid: 'json' },
+                    },
+                },
+                {
+                    type: 'function',
+                    id: 'call-2',
+                    function: {
+                        name: 'func2',
+                        arguments: 'not valid json',
+                    },
+                },
+            ])
         })
     })
 })
