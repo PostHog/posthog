@@ -330,14 +330,15 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return similar_embeddings
 
     def _get_embedding_configuration(self) -> tuple[float, str, int]:
-        """Get embedding configuration from remote config or return defaults."""
+        """Get embedding configuration from feature flag or return defaults."""
         min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
         model_name = DEFAULT_EMBEDDING_MODEL_NAME
         embedding_version = DEFAULT_EMBEDDING_VERSION
 
-        # Try to get configuration from remote config, fall back to defaults if not available
+        # Try to get configuration from feature flag, fall back to defaults if not available
         try:
-            config_json = posthoganalytics.get_remote_config_payload("error-tracking-embedding-configuration")
+            team_id = str(self.team.id)
+            config_json = posthoganalytics.get_feature_flag_payload("error-tracking-embedding-configuration", team_id)
             if config_json:
                 config_payload = json.loads(config_json)
 
@@ -364,15 +365,54 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         return min_distance_threshold, model_name, embedding_version
 
-    def _serialize_issues_to_related_issues(self, issues):
+    def _get_issues_library_data(self, fingerprints: list[str]) -> dict[str, str]:
+        """Get library information for fingerprints from ClickHouse events."""
+        query = """
+            SELECT mat_$exception_fingerprint, MIN(mat_$lib)
+              FROM events
+             WHERE team_id = %(team_id)s
+               AND event = '$exception'
+               AND mat_$exception_fingerprint IN %(fingerprints)s
+               AND mat_$lib != ''
+             GROUP BY mat_$exception_fingerprint
+        """
+
+        results = sync_execute(
+            query,
+            {
+                "team_id": self.team.pk,
+                "fingerprints": fingerprints,
+            },
+        )
+
+        if not results or len(results) == 0:
+            return {}
+        # Return dict mapping fingerprint to library
+        return dict(results)
+
+    def _build_issue_to_library_mapping(
+        self, issue_id_to_fingerprint: dict[str, str], fingerprint_to_library: dict[str, str]
+    ) -> dict[str, str]:
+        """Build mapping from issue_id to library using existing data."""
+        if not fingerprint_to_library or len(fingerprint_to_library) == 0:
+            return {}
+
+        issue_to_library = {}
+        # Map each issue to library data using fingerprints
+        for issue_id, fingerprint in issue_id_to_fingerprint.items():
+            if fingerprint in fingerprint_to_library:
+                issue_to_library[issue_id] = fingerprint_to_library[fingerprint]
+        return issue_to_library
+
+    def _serialize_issues_to_related_issues(self, issues, library_data: dict[str, str]):
         """Serialize ErrorTrackingIssue objects to related issues format."""
+
         return [
             {
                 "id": issue.id,
                 "title": issue.name,
                 "description": issue.description,
-                # TODO: library isn't part of the issue
-                # "library": issue.library,
+                **({} if str(issue.id) not in library_data else {"library": library_data[str(issue.id)]}),
             }
             for issue in issues
         ]
@@ -386,40 +426,40 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         embedding_version: int,
     ) -> list[str]:
         """Process all embeddings to find similar fingerprints and return top 10 most similar."""
-        all_similar_results = []
+        similar_fingerprints = []
 
         # Search for similarities across all embeddings from the current issue
         for _, embedding_row in enumerate(issue_embeddings):
-            embedding_vector = embedding_row[0]  # Get the embedding vector
+            embedding = embedding_row[0]  # Get the embedding vector
 
             # Search for similar embeddings using cosine similarity
             similar_embeddings = self._get_similar_embeddings(
-                embedding_vector, model_name, embedding_version, issue_fingerprints, min_distance_threshold
+                embedding, model_name, embedding_version, issue_fingerprints, min_distance_threshold
             )
 
             if not similar_embeddings or len(similar_embeddings) == 0:
                 continue
 
             # Collect both fingerprint and distance
-            for row in similar_embeddings:
-                fingerprint, distance = row[0], row[1]
-                all_similar_results.append((fingerprint, distance))
+            for similar_embedding_row in similar_embeddings:
+                fingerprint, distance = similar_embedding_row[0], similar_embedding_row[1]
+                similar_fingerprints.append((fingerprint, distance))
 
-        if not all_similar_results or len(all_similar_results) == 0:
+        if not similar_fingerprints or len(similar_fingerprints) == 0:
             return []
 
         # Remove duplicates by fingerprint, keeping the best (smallest) distance for each
         fingerprint_best_distance: dict[str, float] = {}
-        for fingerprint, distance in all_similar_results:
+        for fingerprint, distance in similar_fingerprints:
             if fingerprint not in fingerprint_best_distance or distance < fingerprint_best_distance[fingerprint]:
                 fingerprint_best_distance[fingerprint] = distance
 
-        if not fingerprint_best_distance:
+        if not fingerprint_best_distance or len(fingerprint_best_distance) == 0:
             return []
 
         # Sort by distance (ascending - smaller distance = more similar) and take top 10
-        sorted_results = sorted(fingerprint_best_distance.items(), key=lambda x: x[1])[:10]
-        all_similar_fingerprints = [fingerprint for fingerprint, _ in sorted_results]
+        sorted_fingerprint_best_distance = sorted(fingerprint_best_distance.items(), key=lambda x: x[1])[:10]
+        all_similar_fingerprints = [fingerprint for fingerprint, _ in sorted_fingerprint_best_distance]
 
         return all_similar_fingerprints
 
@@ -444,32 +484,40 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if not issue_embeddings or len(issue_embeddings) == 0:
             return Response([])
 
-        all_similar_fingerprints = self._process_embeddings_for_similarity(
+        similar_fingerprints = self._process_embeddings_for_similarity(
             issue_embeddings, issue_fingerprints, min_distance_threshold, model_name, embedding_version
         )
 
-        if not all_similar_fingerprints or len(all_similar_fingerprints) == 0:
+        if not similar_fingerprints or len(similar_fingerprints) == 0:
             return Response([])
 
         # Get issue IDs that have these fingerprints
-        fingerprints_to_issue_ids = (
-            ErrorTrackingIssueFingerprintV2.objects.filter(
-                team_id=self.team.pk, fingerprint__in=all_similar_fingerprints
-            )
-            .values_list("issue_id", flat=True)
-            .distinct()
-        )
+        fingerprint_issue_pairs = ErrorTrackingIssueFingerprintV2.objects.filter(
+            team_id=self.team.pk, fingerprint__in=similar_fingerprints
+        ).values_list("issue_id", "fingerprint")
 
-        if not fingerprints_to_issue_ids or len(fingerprints_to_issue_ids) == 0:
+        if not fingerprint_issue_pairs or len(fingerprint_issue_pairs) == 0:
+            return Response([])
+
+        # Create dict with issue_id as key and fingerprint as value
+        issue_id_to_fingerprint = {str(issue_id): fingerprint for issue_id, fingerprint in fingerprint_issue_pairs}
+
+        if not issue_id_to_fingerprint or len(issue_id_to_fingerprint) == 0:
             return Response([])
 
         # Get the actual issues from PostgreSQL
-        issues = ErrorTrackingIssue.objects.filter(team=self.team, id__in=fingerprints_to_issue_ids)
+        issues = ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_id_to_fingerprint.keys())
 
         if not issues or len(issues) == 0:
             return Response([])
 
-        related_issues = self._serialize_issues_to_related_issues(issues)
+        # Get library data for the similar fingerprints
+        fingerprint_to_library = self._get_issues_library_data(similar_fingerprints)
+
+        # Build mapping from issue_id to library using existing data
+        issue_to_library = self._build_issue_to_library_mapping(issue_id_to_fingerprint, fingerprint_to_library)
+
+        related_issues = self._serialize_issues_to_related_issues(issues, issue_to_library)
         return Response(related_issues)
 
     @action(methods=["POST"], detail=True)
