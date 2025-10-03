@@ -368,7 +368,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def _get_issues_library_data(self, fingerprints: list[str]) -> dict[str, str]:
         """Get library information for fingerprints from ClickHouse events."""
         query = """
-            SELECT DISTINCT JSONExtractString(properties, '$exception_fingerprint') as fingerprint, JSONExtractString(properties, '$lib') as lib
+            SELECT DISTINCT mat_$exception_fingerprint as fingerprint, mat_$lib as lib
             FROM events
             WHERE team_id = %(team_id)s
             and event = '$exception'
