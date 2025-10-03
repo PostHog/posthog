@@ -65,7 +65,7 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service cymbal
 
-    embedding-worker:
+    et-embedding-worker:
         shell: |-
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service et-embedding-worker
