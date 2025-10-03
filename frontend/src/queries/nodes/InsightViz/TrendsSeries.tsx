@@ -14,7 +14,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
+import { BaseMathType, ChartDisplayType, CountPerActorMathType, FilterType } from '~/types'
 
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
@@ -31,21 +31,28 @@ export function TrendsSeries(): JSX.Element | null {
     // Disable groups for calendar heatmap
     const showGroupsOptions = display === ChartDisplayType.CalendarHeatmap ? false : showGroupsOptionsFromModel
 
-    const propertiesTaxonomicGroupTypes = [
-        TaxonomicFilterGroupType.EventProperties,
-        TaxonomicFilterGroupType.PersonProperties,
-        TaxonomicFilterGroupType.EventFeatureFlags,
-        TaxonomicFilterGroupType.EventMetadata,
-        ...groupsTaxonomicTypes,
-        TaxonomicFilterGroupType.Cohorts,
-        TaxonomicFilterGroupType.Elements,
-        TaxonomicFilterGroupType.SessionProperties,
-        TaxonomicFilterGroupType.HogQLExpression,
-        TaxonomicFilterGroupType.DataWarehouseProperties,
-        TaxonomicFilterGroupType.DataWarehousePersonProperties,
-    ]
-
     const filters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
+
+    // Restrict property filter types for SessionsNode
+    const propertiesTaxonomicGroupTypes = useMemo(() => {
+        const hasSessionsFilter = filters?.new_entity?.some((f: any) => f.type === 'sessions')
+        if (hasSessionsFilter) {
+            return [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.PersonProperties]
+        }
+        return [
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.EventFeatureFlags,
+            TaxonomicFilterGroupType.EventMetadata,
+            ...groupsTaxonomicTypes,
+            TaxonomicFilterGroupType.Cohorts,
+            TaxonomicFilterGroupType.Elements,
+            TaxonomicFilterGroupType.SessionProperties,
+            TaxonomicFilterGroupType.HogQLExpression,
+            TaxonomicFilterGroupType.DataWarehouseProperties,
+            TaxonomicFilterGroupType.DataWarehousePersonProperties,
+        ]
+    }, [filters?.new_entity, groupsTaxonomicTypes])
     const mathAvailability = isLifecycle
         ? MathAvailability.None
         : isStickiness
@@ -61,6 +68,7 @@ export function TrendsSeries(): JSX.Element | null {
             return [
                 BaseMathType.TotalCount, // 'total'
                 BaseMathType.UniqueUsers, // 'dau'
+                CountPerActorMathType.Average, // 'avg_count_per_actor'
             ]
         }
         return undefined // Allow all for non-sessions

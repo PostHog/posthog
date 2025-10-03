@@ -161,7 +161,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         for s in query.series:
             if isinstance(s, SessionsNode):
-                allowed_math = ["total", "dau"]
+                allowed_math = ["total", "dau", "avg_count_per_actor"]
                 if s.math and s.math not in allowed_math:
                     raise ValidationError(f"SessionsNode only supports math in {allowed_math}, got '{s.math}'")
 
