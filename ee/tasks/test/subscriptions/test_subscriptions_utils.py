@@ -7,7 +7,7 @@ from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, generate_assets
+from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, generate_assets, generate_assets_async
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
@@ -91,3 +91,121 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
 
         assert str(e.value) == "Timed out waiting for celery task to finish"
         running_export_task.revoke.assert_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct")
+async def test_async_generate_assets_basic(mock_export: MagicMock, team, user) -> None:
+    from asgiref.sync import sync_to_async
+
+    def export_success(asset: ExportedAsset) -> None:
+        asset.content = b"fake image data"
+        asset.save()
+
+    mock_export.side_effect = export_success
+
+    # Create test data
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="test dashboard", created_by=user)
+
+    for i in range(3):
+        insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"insight-{i}", name=f"Insight {i}")
+        await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=insight)
+
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    # Fetch with prefetched relationships
+    subscription = await sync_to_async(
+        lambda: type(subscription)
+        .objects.select_related("team", "dashboard", "insight", "created_by")
+        .get(id=subscription.id)
+    )()
+
+    insights, assets = await generate_assets_async(subscription)
+
+    assert len(insights) == 3
+    assert len(assets) == 3
+    assert mock_export.call_count == 3
+    assert all(asset.content for asset in assets)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@patch("ee.tasks.subscriptions.subscription_utils.asyncio.wait_for")
+@patch("posthog.tasks.exporter.export_asset_direct")
+async def test_async_generate_assets_timeout_continues_with_partial_results(
+    mock_export: MagicMock, mock_wait_for: MagicMock, team, user
+) -> None:
+    from asgiref.sync import sync_to_async
+
+    mock_export.return_value = None
+    # Mock wait_for to immediately raise TimeoutError
+    mock_wait_for.side_effect = TimeoutError()
+
+    # Create test data
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="test dashboard", created_by=user)
+
+    for i in range(3):
+        insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"insight-{i}", name=f"Insight {i}")
+        await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=insight)
+
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    # Fetch subscription with prefetched relationships
+    subscription = await sync_to_async(
+        lambda: type(subscription)
+        .objects.select_related("team", "dashboard", "insight", "created_by")
+        .get(id=subscription.id)
+    )()
+
+    insights, assets = await generate_assets_async(subscription)
+
+    # Should return insights even though exports timed out
+    assert len(insights) == 3
+    # Should return empty assets list since none have content (timeout before any completed)
+    assert len(assets) == 0
+    # Verify timeout was triggered
+    assert mock_wait_for.called
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@patch("posthog.tasks.exporter.export_asset_direct")
+async def test_async_generate_assets_partial_timeout_filters_incomplete_assets(
+    mock_export: MagicMock, team, user
+) -> None:
+    from asgiref.sync import sync_to_async
+
+    call_count = 0
+
+    def export_with_partial_success(asset: ExportedAsset) -> None:
+        nonlocal call_count
+        call_count += 1
+        # First 2 assets succeed, third fails
+        if call_count <= 2:
+            asset.content = b"fake image data"
+            asset.save()
+
+    mock_export.side_effect = export_with_partial_success
+
+    # Create test data
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="test dashboard", created_by=user)
+
+    for i in range(3):
+        insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"insight-{i}", name=f"Insight {i}")
+        await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=insight)
+
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    subscription = await sync_to_async(
+        lambda: type(subscription)
+        .objects.select_related("team", "dashboard", "insight", "created_by")
+        .get(id=subscription.id)
+    )()
+
+    insights, assets = await generate_assets_async(subscription)
+
+    assert len(insights) == 3
+    # Only 2 assets should be returned (the ones with content)
+    assert len(assets) == 2
+    assert all(asset.content for asset in assets)

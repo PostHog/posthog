@@ -152,19 +152,47 @@ async def generate_assets_async(
                 asset.exception = str(e)
                 await database_sync_to_async(asset.save, thread_sensitive=False)()
 
-        # Run all exports concurrently
+        # Reserve buffer time for email/Slack delivery after exports
+        buffer_seconds = 120  # 2 minutes
+        export_timeout_seconds = (settings.TEMPORAL_TASK_TIMEOUT_MINUTES * 60) - buffer_seconds
+
+        subscription_id = getattr(resource, "id", None)
+
         logger.info(
             "generate_assets_async.starting_exports",
             asset_count=len(assets),
-            subscription_id=getattr(resource, "id", None),
-            team_id=resource.team_id,
-        )
-        await asyncio.gather(*[export_single_asset(asset) for asset in assets])
-        logger.info(
-            "generate_assets_async.exports_complete",
-            asset_count=len(assets),
-            subscription_id=getattr(resource, "id", None),
+            subscription_id=subscription_id,
             team_id=resource.team_id,
         )
 
-        return insights, assets
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*[export_single_asset(asset) for asset in assets]), timeout=export_timeout_seconds
+            )
+            logger.info(
+                "generate_assets_async.exports_complete",
+                asset_count=len(assets),
+                subscription_id=subscription_id,
+                team_id=resource.team_id,
+            )
+        except TimeoutError:
+            logger.warning(
+                "generate_assets_async.exports_timeout",
+                asset_count=len(assets),
+                subscription_id=subscription_id,
+                team_id=resource.team_id,
+            )
+            # Continue with partial results - filter out assets without content
+
+        # Filter out assets that don't have content (failed or timed out exports)
+        assets_with_content = [asset for asset in assets if asset.content or asset.content_location]
+        if len(assets_with_content) < len(assets):
+            logger.warning(
+                "generate_assets_async.partial_results",
+                total_assets=len(assets),
+                successful_assets=len(assets_with_content),
+                subscription_id=subscription_id,
+                team_id=resource.team_id,
+            )
+
+        return insights, assets_with_content

@@ -168,9 +168,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             task = temporalio.workflow.execute_activity(
                 deliver_subscription_report_activity,
                 DeliverSubscriptionReportActivityInputs(subscription_id=sub_id),
-                start_to_close_timeout=dt.timedelta(
-                    minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5
-                ),
+                start_to_close_timeout=dt.timedelta(minutes=settings.TEMPORAL_TASK_TIMEOUT_MINUTES),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(minutes=5),
