@@ -37,9 +37,7 @@ def _block_for_asset(asset: ExportedAsset) -> dict:
 def get_slack_integration_for_team(team_id: int, target_integration_id: int | None = None) -> Integration | None:
     """Get Slack integration for a team. Returns None if not found."""
     if target_integration_id:
-        integration = Integration.objects.filter(team_id=team_id, kind="slack", id=target_integration_id).first()
-        if integration:
-            return integration
+        return Integration.objects.filter(team_id=team_id, kind="slack", id=target_integration_id).first()
     return Integration.objects.filter(team_id=team_id, kind="slack").first()
 
 
