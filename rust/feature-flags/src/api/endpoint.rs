@@ -374,7 +374,11 @@ pub async fn evaluation_reasons(
     let request_id = extract_request_id(&headers);
     let ip = extract_client_ip(&headers, direct_ip);
 
-    if query_params.distinct_id.as_ref().map_or(true, |id| id.is_empty()) {
+    if query_params
+        .distinct_id
+        .as_ref()
+        .map_or(true, |id| id.is_empty())
+    {
         return Err(FlagError::MissingDistinctId);
     }
 
@@ -387,8 +391,7 @@ pub async fn evaluation_reasons(
     });
 
     let body = bytes::Bytes::from(
-        serde_json::to_vec(&request_json)
-            .map_err(|e| FlagError::RequestParsingError(e))?
+        serde_json::to_vec(&request_json).map_err(|e| FlagError::RequestParsingError(e))?,
     );
 
     let context = RequestContext {

@@ -15,11 +15,15 @@ pub use types::*;
 use crate::{
     api::{
         errors::FlagError,
-        types::{EvaluationReasonResponse, EvaluationReasonsResponse, FlagEvaluationWithReason, FlagsResponse},
+        types::{
+            EvaluationReasonResponse, EvaluationReasonsResponse, FlagEvaluationWithReason,
+            FlagsResponse,
+        },
     },
     flags::flag_service::FlagService,
     metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
 };
+use common_database::PostgresReader;
 use std::collections::HashMap;
 use tracing::{info, instrument, warn};
 
@@ -91,42 +95,129 @@ fn record_metrics(
 pub async fn process_evaluation_reasons_request(
     context: RequestContext,
 ) -> Result<EvaluationReasonsResponse, FlagError> {
-    // Process the request as normal to get all flag evaluations
-    let flags_response = process_request(context).await?;
-    
-    // Convert FlagsResponse to EvaluationReasonsResponse
-    let mut evaluation_reasons = HashMap::new();
-    
-    for (key, flag_details) in flags_response.flags {
-        let evaluation_with_reason = FlagEvaluationWithReason {
-            value: flag_details.to_value(),
-            evaluation: EvaluationReasonResponse {
-                reason: flag_details.reason.code,  // Map "code" field to "reason" field
-                condition_index: flag_details.reason.condition_index,
-                description: flag_details.reason.description,
-            },
-        };
-        evaluation_reasons.insert(key, evaluation_with_reason);
-    }
-    
+    // Extract the database client before moving context
+    let pg_client = context.state.database_pools.non_persons_reader.clone();
+
+    // Process the request and get both the response and team info
+    let (flags_response, team_info) = process_request_with_team(context).await?;
+
+    // Convert active flags to evaluation reasons format
+    let active_evaluation_reasons: HashMap<String, FlagEvaluationWithReason> = flags_response
+        .flags
+        .into_iter()
+        .map(|(key, flag_details)| {
+            let evaluation_with_reason = FlagEvaluationWithReason {
+                value: flag_details.to_value(),
+                evaluation: EvaluationReasonResponse {
+                    reason: flag_details.reason.code, // The internal field is "code", but we serialize it as "reason" for Python compatibility
+                    condition_index: flag_details.reason.condition_index,
+                    description: flag_details.reason.description,
+                },
+            };
+            (key, evaluation_with_reason)
+        })
+        .collect();
+
+    // Fetch disabled flags and merge with active flags
+    // This matches the Python behavior in posthog/api/feature_flag.py lines 1518-1529
+    let evaluation_reasons = match team_info.project_id {
+        Some(project_id) => {
+            merge_with_disabled_flags(pg_client, project_id, active_evaluation_reasons).await
+        }
+        None => active_evaluation_reasons,
+    };
+
     Ok(EvaluationReasonsResponse(evaluation_reasons))
+}
+
+/// Fetches disabled flags and merges them with active flags
+/// This is a best-effort operation - if it fails, we log the error and return only active flags
+async fn merge_with_disabled_flags(
+    pg_client: PostgresReader,
+    project_id: i64,
+    active_evaluation_reasons: HashMap<String, FlagEvaluationWithReason>,
+) -> HashMap<String, FlagEvaluationWithReason> {
+    match crate::flags::flag_models::FeatureFlagList::fetch_disabled_flags_from_pg(
+        pg_client, project_id,
+    )
+    .await
+    {
+        Ok(disabled_flag_keys) => {
+            // Create disabled flag entries for keys not in active flags
+            let disabled_flags: HashMap<String, FlagEvaluationWithReason> = disabled_flag_keys
+                .into_iter()
+                .filter(|key| !active_evaluation_reasons.contains_key(key)) // Active flags take precedence
+                .map(|key| {
+                    let evaluation = FlagEvaluationWithReason {
+                        value: crate::api::types::FlagValue::Boolean(false),
+                        evaluation: EvaluationReasonResponse {
+                            reason: "disabled".to_string(),
+                            condition_index: None,
+                            description: None,
+                        },
+                    };
+                    (key, evaluation)
+                })
+                .collect();
+
+            // Merge active and disabled flags
+            // Active flags go first to ensure they take precedence if any key somehow appears in both
+            active_evaluation_reasons
+                .into_iter()
+                .chain(disabled_flags)
+                .collect()
+        }
+        Err(e) => {
+            // Log the error but don't fail the entire request
+            tracing::warn!(
+                "Failed to fetch disabled flags for project {}: {}",
+                project_id,
+                e
+            );
+            active_evaluation_reasons
+        }
+    }
+}
+
+/// Team information returned from process_request_with_team
+#[derive(Debug, Clone)]
+pub struct TeamInfo {
+    pub team_id: i32,
+    pub project_id: Option<i64>,
+}
+
+/// Process request and return both the response and team information
+/// This avoids duplicate authentication/team fetching when the evaluation_reasons endpoint needs team data
+pub async fn process_request_with_team(
+    context: RequestContext,
+) -> Result<(FlagsResponse, TeamInfo), FlagError> {
+    let start_time = std::time::Instant::now();
+    let (result, metrics_data, team_info) = process_request_inner_with_team(context).await;
+    let total_duration = start_time.elapsed();
+
+    record_metrics(&result, metrics_data, total_duration);
+
+    result.map(|response| (response, team_info))
 }
 
 async fn process_request_inner(
     context: RequestContext,
 ) -> (Result<FlagsResponse, FlagError>, MetricsData) {
-    let mut metrics_data = MetricsData {
-        team_id: None,
-        flags_disabled: None,
-    };
+    let (result, metrics_data, _) = process_request_inner_with_team(context).await;
+    (result, metrics_data)
+}
 
+async fn process_request_inner_with_team(
+    context: RequestContext,
+) -> (Result<FlagsResponse, FlagError>, MetricsData, TeamInfo) {
+    let flag_service = FlagService::new(
+        context.state.redis_reader.clone(),
+        context.state.redis_writer.clone(),
+        context.state.database_pools.non_persons_reader.clone(),
+    );
+
+    // Process the request and capture team info
     let result = async {
-        let flag_service = FlagService::new(
-            context.state.redis_reader.clone(),
-            context.state.redis_writer.clone(),
-            context.state.database_pools.non_persons_reader.clone(),
-        );
-
         let (original_distinct_id, verified_token, request) =
             authentication::parse_and_authenticate(&context, &flag_service).await?;
 
@@ -143,8 +234,10 @@ async fn process_request_inner(
             .get_team_from_cache_or_pg(&verified_token)
             .await?;
 
-        metrics_data.team_id = Some(team.id);
-        metrics_data.flags_disabled = Some(request.is_flags_disabled());
+        let team_info = TeamInfo {
+            team_id: team.id,
+            project_id: Some(team.project_id),
+        };
 
         tracing::debug!(
             "Team fetched: team_id={}, project_id={}",
@@ -233,11 +326,32 @@ async fn process_request_inner(
             "Request completed"
         );
 
-        Ok(response)
+        Ok((response, team_info, request.is_flags_disabled()))
     }
     .await;
 
-    (result, metrics_data)
+    // Extract metrics data and transform result
+    match result {
+        Ok((response, team_info, flags_disabled)) => {
+            let metrics_data = MetricsData {
+                team_id: Some(team_info.team_id),
+                flags_disabled: Some(flags_disabled),
+            };
+            (Ok(response), metrics_data, team_info)
+        }
+        Err(e) => {
+            // Default team info for error case
+            let team_info = TeamInfo {
+                team_id: 0,
+                project_id: None,
+            };
+            let metrics_data = MetricsData {
+                team_id: None,
+                flags_disabled: None,
+            };
+            (Err(e), metrics_data, team_info)
+        }
+    }
 }
 
 #[cfg(test)]

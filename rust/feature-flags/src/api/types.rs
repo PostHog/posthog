@@ -799,7 +799,7 @@ pub struct EvaluationReasonsQueryParams {
 /// Evaluation reason structure that matches Python's format (uses "reason" field)
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct EvaluationReasonResponse {
-    pub reason: String,  // Python uses "reason" not "code"
+    pub reason: String, // Python uses "reason" not "code"
     pub condition_index: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
