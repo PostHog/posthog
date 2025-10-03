@@ -642,6 +642,7 @@ impl Drop for CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checkpoint::worker::CheckpointWorker;
     use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
     use common_types::RawEvent;
     use std::{collections::HashMap, path::PathBuf, time::Duration};
@@ -1218,8 +1219,9 @@ mod tests {
         let scan_dirs_set: HashSet<&Path> =
             HashSet::from_iter(scan_dirs.iter().map(|p| p.as_path()));
 
-        // extract a set of only the timestamp directory names
+        // extract a set of only the timestamp directory names and
         // perform conversion process into SystemTime timestamps
+        // as checkpoint manager does in retention scans
         let expected_ts_dirs = scan_dirs_set
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
@@ -1232,7 +1234,7 @@ mod tests {
         // convert SystemTime timestamps back to directory names as CheckpointTarget does
         let got_ts_dirs = scan_ts_values
             .iter()
-            .map(|p| format!("{:020}", p.duration_since(UNIX_EPOCH).unwrap().as_micros()))
+            .map(|p| CheckpointWorker::format_checkpoint_timestamp(p).unwrap())
             .collect::<HashSet<_>>();
 
         // verify the converted and regenerated directory names are
