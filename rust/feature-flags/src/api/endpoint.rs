@@ -377,7 +377,7 @@ pub async fn evaluation_reasons(
     if query_params
         .distinct_id
         .as_ref()
-        .map_or(true, |id| id.is_empty())
+        .is_none_or(|id| id.is_empty())
     {
         return Err(FlagError::MissingDistinctId);
     }
@@ -391,7 +391,7 @@ pub async fn evaluation_reasons(
     });
 
     let body = bytes::Bytes::from(
-        serde_json::to_vec(&request_json).map_err(|e| FlagError::RequestParsingError(e))?,
+        serde_json::to_vec(&request_json).map_err(FlagError::RequestParsingError)?,
     );
 
     let context = RequestContext {
