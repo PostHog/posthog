@@ -232,7 +232,7 @@ export function EditSubscription({
                                     </>
                                 ) : (
                                     <>
-                                        <LemonField name="target_integration" label="Which Slack integration to use">
+                                        <LemonField name="target_integration_id" label="Which Slack integration to use">
                                             {({ value, onChange }) => (
                                                 <>
                                                     <IntegrationChoice
@@ -266,14 +266,14 @@ export function EditSubscription({
                                         >
                                             {({ value, onChange }) => (
                                                 <>
-                                                    {typeof subscription.target_integration === 'number' ? (
+                                                    {typeof subscription.target_integration_id === 'number' ? (
                                                         <SlackChannelPicker
                                                             value={value}
                                                             onChange={onChange}
                                                             // Fallback to the first integration as this was the previous behavior
                                                             integration={
                                                                 slackIntegrations.find(
-                                                                    (x) => x.id === subscription.target_integration
+                                                                    (x) => x.id === subscription.target_integration_id
                                                                 ) ?? slackIntegrations[0]
                                                             }
                                                         />

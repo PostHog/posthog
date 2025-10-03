@@ -74,7 +74,7 @@ class Subscription(models.Model):
     title = models.CharField(max_length=100, null=True, blank=True)
     target_type = models.CharField(max_length=10, choices=SubscriptionTarget.choices)
     target_value = models.TextField()
-    target_integration = models.IntegerField(null=True, blank=True)
+    target_integration_id = models.IntegerField(null=True, blank=True)
 
     # Subscription delivery (related to rrule)
     frequency = models.CharField(max_length=10, choices=SubscriptionFrequency.choices)

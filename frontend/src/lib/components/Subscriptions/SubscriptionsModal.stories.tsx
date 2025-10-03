@@ -57,7 +57,7 @@ const Template = (
                                   title: 'Daily Slack report',
                                   target_type: 'slack',
                                   target_value: 'C123|#general',
-                                  target_integration: 1,
+                                  target_integration_id: 1,
                                   frequency: 'weekly',
                                   interval: 1,
                               }),

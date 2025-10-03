@@ -37,7 +37,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "insight",
             "target_type",
             "target_value",
-            "target_integration",
+            "target_integration_id",
             "frequency",
             "interval",
             "byweekday",

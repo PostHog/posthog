@@ -169,7 +169,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
         created_by=user,
         target_type="slack",
         target_value="C12345|#test-channel",
-        target_integration=1,
+        target_integration_id=1,
     )
 
     await sync_to_async(create_subscription)(
@@ -178,7 +178,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
         created_by=user,
         target_type="slack",
         target_value="C12345|#test-channel",
-        target_integration=1,
+        target_integration_id=1,
     )
 
     # Mark source items deleted
@@ -294,7 +294,7 @@ async def test_deliver_subscription_report_slack(
         created_by=user,
         target_type="slack",
         target_value="C12345|#test-channel",
-        target_integration=1,
+        target_integration_id=1,
     )
 
     async def mock_generate_assets_async(subscription):

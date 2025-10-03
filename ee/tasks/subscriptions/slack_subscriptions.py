@@ -34,10 +34,10 @@ def _block_for_asset(asset: ExportedAsset) -> dict:
     return {"type": "image", "image_url": image_url, "alt_text": alt_text}
 
 
-def get_slack_integration_for_team(team_id: int, target_integration: int | None = None) -> Integration | None:
+def get_slack_integration_for_team(team_id: int, target_integration_id: int | None = None) -> Integration | None:
     """Get Slack integration for a team. Returns None if not found."""
-    if target_integration:
-        integration = Integration.objects.filter(team_id=team_id, kind="slack", id=target_integration).first()
+    if target_integration_id:
+        integration = Integration.objects.filter(team_id=team_id, kind="slack", id=target_integration_id).first()
         if integration:
             return integration
     return Integration.objects.filter(team_id=team_id, kind="slack").first()
@@ -50,7 +50,7 @@ def send_slack_subscription_report(
     is_new_subscription: bool = False,
 ) -> None:
     """Send Slack subscription report."""
-    integration = get_slack_integration_for_team(subscription.team_id, subscription.target_integration)
+    integration = get_slack_integration_for_team(subscription.team_id, subscription.target_integration_id)
 
     if not integration:
         # TODO: Write error to subscription...
