@@ -8,7 +8,7 @@ import { experimentLogic } from './experimentLogic'
 
 /**
  * although this works fine for now, if we keep adding more settings we need to refactor this to use the
- * <Settings /> component. That will require we createa a new section for experimets on the SettingsMap.
+ * <Settings /> component. That will require we create a new section for experiments on the SettingsMap.
  */
 export function ExperimentsSettings(): JSX.Element {
     const { featureFlags } = useValues(experimentLogic)
