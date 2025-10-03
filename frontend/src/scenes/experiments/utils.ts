@@ -8,6 +8,7 @@ import {
     AnyEntityNode,
     EventsNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureConfig,
     ExperimentFunnelMetricStep,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -38,6 +39,7 @@ import {
 } from '~/types'
 
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
+import { createFilterForSource } from './metricQueryUtils'
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -505,7 +507,7 @@ export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel |
 /**
  * Used when setting a custom exposure criteria
  */
-export function exposureConfigToFilter(exposure_config: ExperimentEventExposureConfig): FilterType {
+export function exposureConfigToFilter(exposure_config: ExperimentExposureConfig): FilterType {
     if (exposure_config.kind === NodeKind.ExperimentEventExposureConfig) {
         return {
             events: [
@@ -521,6 +523,21 @@ export function exposureConfigToFilter(exposure_config: ExperimentEventExposureC
             data_warehouse: [],
         }
     }
+    if (exposure_config.kind === NodeKind.ActionsNode) {
+        return {
+            events: [],
+            actions: [
+                {
+                    id: exposure_config.id,
+                    name: exposure_config.name || '',
+                    kind: NodeKind.ActionsNode,
+                    type: 'actions' as const,
+                    properties: exposure_config.properties,
+                },
+            ],
+            data_warehouse: [],
+        }
+    }
 
     return {}
 }
@@ -528,9 +545,7 @@ export function exposureConfigToFilter(exposure_config: ExperimentEventExposureC
 /**
  * Used when setting a custom exposure criteria
  */
-export function filterToExposureConfig(
-    entity: Record<string, any> | undefined
-): ExperimentEventExposureConfig | undefined {
+export function filterToExposureConfig(entity: Record<string, any> | undefined): ExperimentExposureConfig | undefined {
     if (!entity) {
         return undefined
     }
@@ -540,6 +555,17 @@ export function filterToExposureConfig(
             return {
                 kind: NodeKind.ExperimentEventExposureConfig,
                 event: entity.id,
+                properties: entity.properties,
+            }
+        }
+    }
+
+    if (entity.kind === NodeKind.ActionsNode) {
+        if (entity.type === 'actions') {
+            return {
+                kind: NodeKind.ActionsNode,
+                id: entity.id,
+                name: entity.name,
                 properties: entity.properties,
             }
         }

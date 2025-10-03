@@ -113,7 +113,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                         entitiesLimit={1}
                         mathAvailability={MathAvailability.None}
                         showNumericalPropsOnly={true}
-                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 </div>
