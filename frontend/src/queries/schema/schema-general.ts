@@ -3379,6 +3379,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     showColumnConfigurator?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /** Person who performed the event */
+    personId?: string
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {

@@ -11044,6 +11044,7 @@ class TracesQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    personId: Optional[str] = Field(default=None, description="Person who performed the event")
     properties: Optional[
         list[
             Union[
