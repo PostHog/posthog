@@ -225,7 +225,7 @@ async def test_finish_snapshot_job_activity_success(ateam, saved_query, auser):
         await finish_snapshot_job_activity(inputs)
 
     # Verify job status was updated
-    job = await sync_to_async(DataWarehouseSnapshotJob.objects.prefetch_related("table").get)(id=job.id)
+    job = await sync_to_async(DataWarehouseSnapshotJob.objects.prefetch_related("saved_query").get)(id=job.id)
     assert job.status == DataWarehouseSnapshotJob.Status.COMPLETED
     assert job.error is None
 
@@ -382,9 +382,9 @@ async def test_full_workflow_success(ateam, saved_query):
                             )
 
     # Verify workflow completed successfully
-    jobs_filtered: QuerySet = await sync_to_async(DataWarehouseSnapshotJob.objects.prefetch_related("table").filter)(
-        team=ateam, config=saved_query.datawarehousesnapshotconfig
-    )
+    jobs_filtered: QuerySet = await sync_to_async(
+        DataWarehouseSnapshotJob.objects.prefetch_related("saved_query").filter
+    )(team=ateam, config=saved_query.datawarehousesnapshotconfig)
     jobs: list[DataWarehouseSnapshotJob] = await sync_to_async(list)(jobs_filtered)
     assert len(jobs) == 1
     job = jobs[0]
@@ -460,9 +460,9 @@ async def test_workflow_failure_handling(ateam, saved_query):
                         )
 
     # Verify job was marked as failed
-    jobs_filtered: QuerySet = await sync_to_async(DataWarehouseSnapshotJob.objects.prefetch_related("table").filter)(
-        team=ateam, config=saved_query.datawarehousesnapshotconfig
-    )
+    jobs_filtered: QuerySet = await sync_to_async(
+        DataWarehouseSnapshotJob.objects.prefetch_related("saved_query").filter
+    )(team=ateam, config=saved_query.datawarehousesnapshotconfig)
     jobs: list[DataWarehouseSnapshotJob] = await sync_to_async(list)(jobs_filtered)
     assert len(jobs) == 1
     job = jobs[0]
@@ -827,9 +827,9 @@ async def test_backup_lifecycle_workflow_failure_and_restore(ateam, saved_query)
     assert backup_cleared, "Backup should have been cleared even after failure in finally block"
 
     # Verify job was marked as failed
-    jobs_filtered: QuerySet = await sync_to_async(DataWarehouseSnapshotJob.objects.prefetch_related("table").filter)(
-        team=ateam, config=saved_query.datawarehousesnapshotconfig
-    )
+    jobs_filtered: QuerySet = await sync_to_async(
+        DataWarehouseSnapshotJob.objects.prefetch_related("saved_query").filter
+    )(team=ateam, config=saved_query.datawarehousesnapshotconfig)
     jobs: list[DataWarehouseSnapshotJob] = await sync_to_async(list)(jobs_filtered)
     assert len(jobs) == 2
     job = jobs[1]
@@ -963,9 +963,9 @@ async def test_backup_lifecycle_multiple_workflow_runs(ateam, saved_query):
     assert backup_operations == expected_operations, f"Expected {expected_operations}, got {backup_operations}"
 
     # Verify both workflows completed successfully
-    jobs_filtered: QuerySet = await sync_to_async(DataWarehouseSnapshotJob.objects.prefetch_related("table").filter)(
-        team=ateam, config=saved_query.datawarehousesnapshotconfig
-    )
+    jobs_filtered: QuerySet = await sync_to_async(
+        DataWarehouseSnapshotJob.objects.prefetch_related("saved_query").filter
+    )(team=ateam, config=saved_query.datawarehousesnapshotconfig)
     jobs: list[DataWarehouseSnapshotJob] = await sync_to_async(list)(jobs_filtered)
     assert len(jobs) == 2
     for job in jobs:
