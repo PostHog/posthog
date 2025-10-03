@@ -1028,13 +1028,15 @@ def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    # We are excluding "isDisabled is not a function" errors because of a bug in our own SDK
+    # Can be eventually removed once these usage reports run
     results = sync_execute(
         """
         SELECT team_id, COUNT() as count
         FROM events
         WHERE
             event = '$exception' AND
-            not has(JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)'), 'e.persistence.isDisabled is not a function') AND
+            not arrayExists(x -> x != '' AND position(x, 'persistence.isDisabled is not a function') > 0, JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)')) AND
             timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
