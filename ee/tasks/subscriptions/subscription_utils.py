@@ -123,24 +123,48 @@ async def generate_assets_async(
         # Create async tasks for each asset export
         async def export_single_asset(asset: ExportedAsset) -> None:
             try:
-                logger.info("generate_assets_async.exporting_asset", asset_id=asset.id)
+                logger.info(
+                    "generate_assets_async.exporting_asset",
+                    asset_id=asset.id,
+                    insight_id=asset.insight_id,
+                    subscription_id=getattr(resource, "id", None),
+                    team_id=resource.team_id,
+                )
                 await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(asset)
-                logger.info("generate_assets_async.asset_exported", asset_id=asset.id)
+                logger.info(
+                    "generate_assets_async.asset_exported",
+                    asset_id=asset.id,
+                    insight_id=asset.insight_id,
+                    subscription_id=getattr(resource, "id", None),
+                    team_id=resource.team_id,
+                )
             except Exception as e:
                 logger.error(
                     "generate_assets_async.export_failed",
                     asset_id=asset.id,
+                    insight_id=asset.insight_id,
                     subscription_id=getattr(resource, "id", None),
                     error=str(e),
                     exc_info=True,
+                    team_id=resource.team_id,
                 )
                 # Save the exception but continue with other assets
                 asset.exception = str(e)
                 await database_sync_to_async(asset.save, thread_sensitive=False)()
 
         # Run all exports concurrently
-        logger.info("generate_assets_async.starting_exports", asset_count=len(assets))
+        logger.info(
+            "generate_assets_async.starting_exports",
+            asset_count=len(assets),
+            subscription_id=getattr(resource, "id", None),
+            team_id=resource.team_id,
+        )
         await asyncio.gather(*[export_single_asset(asset) for asset in assets])
-        logger.info("generate_assets_async.exports_complete", asset_count=len(assets))
+        logger.info(
+            "generate_assets_async.exports_complete",
+            asset_count=len(assets),
+            subscription_id=getattr(resource, "id", None),
+            team_id=resource.team_id,
+        )
 
         return insights, assets
