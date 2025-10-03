@@ -828,7 +828,7 @@ class _Printer(Visitor[str]):
             "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
             "raw_sessions_v3.session_timestamp",
         )
-        if any(s == left for s in hack_sessions_timestamp) or any(s == right for s in hack_sessions_timestamp):
+        if left in hack_sessions_timestamp or right in hack_sessions_timestamp:
             not_nullable = True
 
         # :HACK: Prevent ifNull() wrapping for $ai_trace_id to allow bloom filter index usage
