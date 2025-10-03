@@ -960,7 +960,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
 @freeze_time("2022-01-09T00:01:00Z")
 class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
-    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
 
@@ -981,7 +981,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
 
-    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_zero_duration(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False, include_zero_duration=True)
 
@@ -1003,7 +1003,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].zero_duration_recording_count_in_period == 1
 
-    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_mobile(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
 
@@ -1024,7 +1024,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 1
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
 
-    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_billable_mobile(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
 
@@ -1079,7 +1079,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
 
 
 class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
-    # @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    # @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     @pytest.mark.skip(reason="Skipping due to flakiness")
     def test_usage_report_hogql_queries(self) -> None:
         for _ in range(0, 100):
@@ -1121,7 +1121,7 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
             assert report.query_api_rows_read == 0
             assert report.event_explorer_api_rows_read == 0
 
-    # @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    # @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     @pytest.mark.skip(reason="Skipping due to flakiness")
     def test_usage_report_api_queries(self) -> None:
         for _ in range(0, 100):
