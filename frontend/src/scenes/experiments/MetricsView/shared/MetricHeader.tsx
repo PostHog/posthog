@@ -26,7 +26,7 @@ const getExposureEvent = (experiment: Experiment): string => {
         return '$feature_flag_called'
     }
     if (isEventExposureConfig(exposureConfig)) {
-        return exposureConfig.event !== '$feature_flag_called' ? exposureConfig.event : '$feature_flag_called'
+        return exposureConfig.event || '$feature_flag_called'
     }
     return '$feature_flag_called'
 }

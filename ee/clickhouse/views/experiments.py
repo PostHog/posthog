@@ -202,8 +202,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         if "exposure_config" in exposure_criteria:
             exposure_config = exposure_criteria["exposure_config"]
             try:
-                # Check if it's an ActionsNode or ExperimentEventExposureConfig
-                if exposure_config.get("kind") == "ActionsNode" or "id" in exposure_config:
+                if exposure_config.get("kind") == "ActionsNode":
                     ActionsNode.model_validate(exposure_config)
                 else:
                     ExperimentEventExposureConfig.model_validate(exposure_config)

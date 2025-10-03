@@ -5,7 +5,6 @@ import { uuid } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
-    ActionsNode,
     AnyEntityNode,
     EventsNode,
     ExperimentEventExposureConfig,
@@ -42,15 +41,11 @@ import {
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 export function isEventExposureConfig(config: ExperimentExposureConfig): config is ExperimentEventExposureConfig {
-    return 'event' in config
-}
-
-export function isActionExposureConfig(config: ExperimentExposureConfig): config is ActionsNode {
-    return 'id' in config && config.kind === NodeKind.ActionsNode
+    return config.kind === NodeKind.ExperimentEventExposureConfig || 'event' in config
 }
 
 export function getExposureConfigDisplayName(config: ExperimentExposureConfig): string {
-    return isEventExposureConfig(config) ? config.event : config.name || `Action ${config.id}`
+    return isEventExposureConfig(config) ? config.event || 'Unknown Event' : config.name || `Action ${config.id}`
 }
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
@@ -160,8 +155,8 @@ function createExposureFilter(
 ): UniversalFiltersGroupValue {
     const isEvent = isEventExposureConfig(exposureConfig)
     return {
-        id: isEvent ? exposureConfig.event : exposureConfig.id,
-        name: isEvent ? exposureConfig.event : exposureConfig.name || `Action ${exposureConfig.id}`,
+        id: isEvent ? exposureConfig.event || 'unknown' : exposureConfig.id,
+        name: isEvent ? exposureConfig.event || 'Unknown Event' : exposureConfig.name || `Action ${exposureConfig.id}`,
         type: isEvent ? 'events' : 'actions',
         properties: [
             ...(exposureConfig.properties || []),

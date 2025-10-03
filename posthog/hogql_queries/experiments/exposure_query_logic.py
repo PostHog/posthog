@@ -5,6 +5,7 @@ This module contains common functions for handling experiment exposures,
 including multiple variant handling and exposure filtering logic.
 """
 
+import logging
 from typing import Optional, Union
 
 from posthog.schema import (
@@ -22,6 +23,16 @@ from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+
+logger = logging.getLogger(__name__)
+
+
+def _is_actions_node_dict(config: dict) -> bool:
+    """
+    Helper to determine if a dict represents an ActionsNode.
+    Checks for the 'kind' field first as the primary indicator.
+    """
+    return config.get("kind") == "ActionsNode"
 
 
 def normalize_to_exposure_criteria(
@@ -54,8 +65,7 @@ def normalize_to_exposure_criteria(
         if criteria_copy.get("exposure_config"):
             exposure_config = criteria_copy["exposure_config"]
             if isinstance(exposure_config, dict):
-                # Check if it's an ActionsNode or ExperimentEventExposureConfig
-                if exposure_config.get("kind") == "ActionsNode" or "id" in exposure_config:
+                if _is_actions_node_dict(exposure_config):
                     criteria_copy["exposure_config"] = ActionsNode.model_validate(exposure_config)
                 else:
                     criteria_copy["exposure_config"] = ExperimentEventExposureConfig.model_validate(exposure_config)
@@ -223,11 +233,13 @@ def build_common_exposure_conditions(
     # Handle ActionsNode - use action filter instead of event name
     if isinstance(exposure_config, ActionsNode):
         try:
-            action = Action.objects.get(pk=int(exposure_config.id), team__project_id=team.project_id)
+            action = Action.objects.get(pk=int(exposure_config.id), team=team)
             action_filter = action_to_expr(action)
             exposure_conditions.append(action_filter)
         except Action.DoesNotExist:
-            # If action doesn't exist, return no events
+            logger.warning(
+                f"Action {exposure_config.id} not found for team {team.id}. Exposure query will return no results."
+            )
             exposure_conditions.append(ast.Constant(value=False))
     elif event is not None:
         # For event-based exposure, add event name filter
