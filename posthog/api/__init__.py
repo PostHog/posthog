@@ -74,6 +74,7 @@ from . import (
     proxy_record,
     query,
     scheduled_change,
+    schema_property_group,
     search,
     sharing,
     survey,
@@ -346,6 +347,12 @@ projects_router.register(
     r"property_definitions",
     property_definition_api.PropertyDefinitionViewSet,
     "project_property_definitions",
+    ["project_id"],
+)
+projects_router.register(
+    r"schema_property_groups",
+    schema_property_group.SchemaPropertyGroupViewSet,
+    "project_schema_property_groups",
     ["project_id"],
 )
 
