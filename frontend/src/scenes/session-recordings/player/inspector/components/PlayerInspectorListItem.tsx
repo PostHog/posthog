@@ -24,7 +24,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { ceilMsToClosestSecond } from 'lib/utils'
+import { ceilMsToClosestSecond, objectsEqual } from 'lib/utils'
 import { ItemTimeDisplay } from 'scenes/session-recordings/components/ItemTimeDisplay'
 import {
     ItemAnyComment,
@@ -360,77 +360,72 @@ const ListItemDetail = memo(
     }
 )
 
-export const PlayerInspectorListItem = memo(
-    function PlayerInspectorListItem({
-        item,
-        index,
-        onLayout,
-    }: {
-        item: InspectorListItem
-        index: number
-        onLayout: (layout: { width: number; height: number }) => void
-    }): JSX.Element {
-        const hoverRef = useRef<HTMLDivElement>(null)
+export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
+    item,
+    index,
+    onLayout,
+}: {
+    item: InspectorListItem
+    index: number
+    onLayout: (layout: { width: number; height: number }) => void
+}): JSX.Element {
+    const hoverRef = useRef<HTMLDivElement>(null)
 
-        const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
-        const { expandedItems } = useValues(playerInspectorLogic(logicProps))
+    const { expandedItems } = useValues(playerInspectorLogic(logicProps))
 
-        const isExpanded = expandedItems.includes(index)
+    const isExpanded = expandedItems.includes(index)
 
-        const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
-        const { ref, width, height } = useResizeObserver({})
+    const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
+    const { ref, width, height } = useResizeObserver({})
 
-        const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
+    const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
 
-        // Height changes should lay out immediately but width ones (browser resize can be much slower)
-        useEffect(
-            () => {
-                if (!width || !totalHeight) {
-                    return
-                }
-                onLayoutDebounced({ width, height: totalHeight })
-            },
-            // purposefully only triggering on width
-            // eslint-disable-next-line react-hooks/exhaustive-deps
-            [width]
-        )
+    // Height changes should lay out immediately but width ones (browser resize can be much slower)
+    useEffect(
+        () => {
+            if (!width || !totalHeight) {
+                return
+            }
+            onLayoutDebounced({ width, height: totalHeight })
+        },
+        // purposefully only triggering on width
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [width]
+    )
 
-        useEffect(
-            () => {
-                if (!width || !totalHeight) {
-                    return
-                }
-                onLayout({ width, height: totalHeight })
-            },
-            // purposefully only triggering on total height
-            // eslint-disable-next-line react-hooks/exhaustive-deps
-            [totalHeight]
-        )
+    useEffect(
+        () => {
+            if (!width || !totalHeight) {
+                return
+            }
+            onLayout({ width, height: totalHeight })
+        },
+        // purposefully only triggering on total height
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [totalHeight]
+    )
 
-        const isHovering = useIsHovering(hoverRef)
+    const isHovering = useIsHovering(hoverRef)
 
-        return (
-            <div
-                ref={ref}
-                className={clsx(
-                    'ml-1 flex flex-col items-center',
-                    isExpanded && 'border border-accent',
-                    isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                    isHovering && 'bg-surface-primary'
-                )}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    zIndex: isExpanded ? 1 : 0,
-                }}
-            >
-                <ListItemTitle item={item} index={index} hoverRef={hoverRef} />
+    return (
+        <div
+            ref={ref}
+            className={clsx(
+                'ml-1 flex flex-col items-center',
+                isExpanded && 'border border-accent',
+                isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
+                isHovering && 'bg-surface-primary'
+            )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                zIndex: isExpanded ? 1 : 0,
+            }}
+        >
+            <ListItemTitle item={item} index={index} hoverRef={hoverRef} />
 
-                {isExpanded ? <ListItemDetail item={item} index={index} /> : null}
-            </div>
-        )
-    },
-    (prevProps, nextProps) => {
-        return prevProps.item.key === nextProps.item.key
-    }
-)
+            {isExpanded ? <ListItemDetail item={item} index={index} /> : null}
+        </div>
+    )
+}, objectsEqual)

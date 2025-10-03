@@ -68,6 +68,17 @@ export function PlayerInspectorList(): JSX.Element {
         }
     }, [playbackIndicatorIndex]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const createLayoutHandler = useCallback(
+        (measure: () => void, index: number) => {
+            return ({ height }: { height: number }) => {
+                if (height !== cellMeasurerCache.getHeight(index, 0)) {
+                    measure()
+                }
+            }
+        },
+        [cellMeasurerCache]
+    )
+
     const renderRow: ListRowRenderer = useCallback(
         ({ index, key, parent, style }) => {
             return (
@@ -76,13 +87,10 @@ export function PlayerInspectorList(): JSX.Element {
                         // eslint-disable-next-line react/forbid-dom-props
                         <div ref={(r) => registerChild?.(r || undefined)} style={style}>
                             <PlayerInspectorListItem
+                                key={index}
                                 item={items[index]}
                                 index={index}
-                                onLayout={({ height }) => {
-                                    if (height !== cellMeasurerCache.getHeight(index, 0)) {
-                                        measure()
-                                    }
-                                }}
+                                onLayout={createLayoutHandler(measure, index)}
                             />
                         </div>
                     )}
