@@ -26,5 +26,5 @@ class EnforceMaxReplayRetentionWorkflow(PostHogWorkflow):
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),
             ),
-            heartbeat_timeout=timedelta(seconds=10),
+            heartbeat_timeout=timedelta(minutes=5),
         )

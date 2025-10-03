@@ -27,10 +27,10 @@ async def enforce_max_replay_retention(input: EnforceMaxReplayRetentionInput) ->
             .exclude(session_recording_retention_period="30d")
             .only("id", "name", "organization", "session_recording_retention_period")
         ):
-            organization = await database_sync_to_async(lambda team: team.organization)(team)
-            retention_feature = await database_sync_to_async(organization.get_available_feature)(
-                AvailableFeature.SESSION_REPLAY_DATA_RETENTION
-            )
+            organization = await database_sync_to_async(lambda team: team.organization, thread_sensitive=False)(team)
+            retention_feature = await database_sync_to_async(
+                organization.get_available_feature, thread_sensitive=False
+            )(AvailableFeature.SESSION_REPLAY_DATA_RETENTION)
             highest_retention_entitlement = parse_feature_to_entitlement(retention_feature)
 
             if not validate_retention_period(highest_retention_entitlement):
@@ -72,7 +72,7 @@ async def enforce_max_replay_retention(input: EnforceMaxReplayRetentionInput) ->
 
         if not input.dry_run:
             logger.info(f"Updating {len(teams_to_update)} teams...")
-            await database_sync_to_async(Team.objects.bulk_update)(
+            await database_sync_to_async(Team.objects.bulk_update, thread_sensitive=False)(
                 teams_to_update, ["session_recording_retention_period"], batch_size=input.batch_size
             )
         else:
