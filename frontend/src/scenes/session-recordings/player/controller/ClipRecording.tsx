@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
@@ -137,6 +137,20 @@ export function ClipRecording({ className }: { className?: string }): JSX.Elemen
 
     const { current } = calculateClipTimes(currentPlayerTime, sessionPlayerData.durationMs, 5)
 
+    const tooltipContent = useMemo(
+        () => (
+            <div className="flex items-center gap-2">
+                <span>
+                    Create clip around {current} <KeyboardShortcut x />
+                </span>
+                <LemonTag type="warning" size="small">
+                    BETA
+                </LemonTag>
+            </div>
+        ),
+        [current]
+    )
+
     return (
         <LemonButton
             size="xsmall"
@@ -146,16 +160,7 @@ export function ClipRecording({ className }: { className?: string }): JSX.Elemen
                 setPause()
                 setShowingClipParams(!showingClipParams)
             }}
-            tooltip={
-                <div className="flex items-center gap-2">
-                    <span>
-                        Create clip around {current} <KeyboardShortcut x />
-                    </span>
-                    <LemonTag type="warning" size="small">
-                        BETA
-                    </LemonTag>
-                </div>
-            }
+            tooltip={tooltipContent}
             icon={<IconRecordingClip className={cn('text-xl', className)} />}
             data-attr="replay-clip"
             tooltipPlacement="top"
