@@ -4384,7 +4384,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4495,7 +4495,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4570,7 +4570,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4645,7 +4645,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4720,7 +4720,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4804,7 +4804,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4924,7 +4924,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -5035,7 +5035,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5110,7 +5110,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5185,7 +5185,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5260,7 +5260,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5344,7 +5344,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
