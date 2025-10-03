@@ -57,6 +57,28 @@ export function PropertyGroupModal(): JSX.Element {
     const hasInvalidPropertyNames = properties.some((prop) => !isValidPropertyName(prop.name))
     const canSave = groupName.trim() && !hasInvalidPropertyNames
 
+    const getSaveButtonTooltip = (): JSX.Element | undefined => {
+        if (canSave) {
+            return undefined
+        }
+        const issues: string[] = []
+        if (!groupName.trim()) {
+            issues.push('Property group name is required')
+        }
+        if (hasInvalidPropertyNames) {
+            issues.push(
+                'Property names must start with a letter or underscore and contain only letters, numbers, and underscores'
+            )
+        }
+        return (
+            <>
+                {issues.map((issue, i) => (
+                    <div key={i}>{issue}</div>
+                ))}
+            </>
+        )
+    }
+
     const handleClose = (): void => {
         setPropertyGroupModalOpen(false)
         setGroupName('')
@@ -162,7 +184,12 @@ export function PropertyGroupModal(): JSX.Element {
                     <LemonButton type="secondary" onClick={handleClose}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={handleSave} disabled={!canSave}>
+                    <LemonButton
+                        type="primary"
+                        onClick={handleSave}
+                        disabled={!canSave}
+                        disabledReason={getSaveButtonTooltip()}
+                    >
                         {editingPropertyGroup ? 'Update' : 'Create'}
                     </LemonButton>
                 </>

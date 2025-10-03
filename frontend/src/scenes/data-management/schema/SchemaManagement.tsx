@@ -14,18 +14,18 @@ import { SchemaPropertyGroup, SchemaPropertyGroupProperty, schemaManagementLogic
 
 function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): JSX.Element {
     return (
-        <div className="flex items-center gap-4 py-2 px-4 border-l-2 border-border-light bg-bg-light">
+        <div className="flex items-center gap-4 py-3 px-4 border-b last:border-b-0 bg-white">
             <div className="flex-1">
-                <span className="font-mono">{property.name}</span>
+                <span className="font-semibold">{property.name}</span>
             </div>
             <div className="w-32">
-                <LemonTag type="default">{property.property_type}</LemonTag>
+                <LemonTag type="muted">{property.property_type}</LemonTag>
             </div>
             <div className="w-24">
                 {property.is_required ? (
                     <LemonTag type="danger">Required</LemonTag>
                 ) : (
-                    <LemonTag type="default">Optional</LemonTag>
+                    <LemonTag type="muted">Optional</LemonTag>
                 )}
             </div>
             <div className="flex-1 text-muted">{property.description || '—'}</div>
@@ -136,11 +136,11 @@ export function SchemaManagement(): JSX.Element {
                     loading={propertyGroupsLoading}
                     expandable={{
                         expandedRowRender: (propertyGroup) => (
-                            <div className="space-y-1">
+                            <div className="border rounded overflow-hidden mx-4 mb-2">
                                 {propertyGroup.properties && propertyGroup.properties.length > 0 ? (
                                     <>
-                                        <div className="flex gap-4 py-2 px-4 bg-bg-3000 font-semibold text-xs uppercase text-muted">
-                                            <div className="flex-1">Property Name</div>
+                                        <div className="flex gap-4 py-2 px-4 bg-accent-3000 border-b text-xs font-semibold uppercase tracking-wider">
+                                            <div className="flex-1">Property</div>
                                             <div className="w-32">Type</div>
                                             <div className="w-24">Required</div>
                                             <div className="flex-1">Description</div>
