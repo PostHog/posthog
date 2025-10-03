@@ -136,7 +136,7 @@ export function SchemaManagement(): JSX.Element {
                     loading={propertyGroupsLoading}
                     expandable={{
                         expandedRowRender: (propertyGroup) => (
-                            <div className="border rounded overflow-hidden mx-4 mb-2">
+                            <div className="border rounded overflow-hidden mx-4 mb-2 mt-2">
                                 {propertyGroup.properties && propertyGroup.properties.length > 0 ? (
                                     <>
                                         <div className="flex gap-4 py-2 px-4 bg-accent-3000 border-b text-xs font-semibold uppercase tracking-wider">
@@ -156,6 +156,7 @@ export function SchemaManagement(): JSX.Element {
                         ),
                         rowExpandable: () => true,
                         indentSize: 0,
+                        columnWidth: 0,
                     }}
                     emptyState="No property groups yet. Create one to get started!"
                 />
