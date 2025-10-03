@@ -368,13 +368,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def _get_issues_library_data(self, fingerprints: list[str]) -> dict[str, str]:
         """Get library information for fingerprints from ClickHouse events."""
         query = """
-            SELECT DISTINCT mat_$exception_fingerprint as fingerprint, mat_$lib as lib
-            FROM events
-            WHERE team_id = %(team_id)s
-            and event = '$exception'
-            AND fingerprint IN %(fingerprints)s
-            AND lib != ''
-            ORDER BY timestamp
+            SELECT mat_$exception_fingerprint, MIN(mat_$lib)
+              FROM events
+             WHERE team_id = %(team_id)s
+               AND event = '$exception'
+               AND mat_$exception_fingerprint IN %(fingerprints)s
+               AND mat_$lib != ''
+             GROUP BY mat_$exception_fingerprint
         """
 
         results = sync_execute(
