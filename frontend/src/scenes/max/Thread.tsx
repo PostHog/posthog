@@ -801,7 +801,6 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                       }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"
-                                      targetBlank
                                       tooltip={message.short_id ? 'Open insight' : 'Open as new insight'}
                                   />
                               )}
