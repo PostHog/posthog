@@ -31,7 +31,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
                 *
             from raw_sessions_v3_v
             where
-                session_id_v7 = toUUID(%(session_id)s)  AND
+                session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND
                 team_id = %(team_id)s
                 """,
             {
@@ -58,7 +58,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
                 team_id
             from raw_sessions_v3_v
             where
-                session_id_v7 = toUUID(%(session_id)s)  AND
+                session_id_v7 = toUInt128(toUUID(%(session_id)s))  AND
                 team_id = %(team_id)s
                 """,
             {
@@ -252,7 +252,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             max_timestamp,
             urls
         FROM raw_sessions_v3
-        WHERE session_id_v7 = toUUID(%(session_id)s) AND team_id = %(team_id)s
+        WHERE session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND team_id = %(team_id)s
         """,
             {
                 "session_id": session_id,
@@ -283,7 +283,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             max_timestamp,
             urls
         FROM raw_sessions_v3_mv
-        WHERE session_id_v7 = toUUID(%(session_id)s) AND team_id = %(team_id)s
+        WHERE session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND team_id = %(team_id)s
         """,
             {
                 "session_id": session_id,
