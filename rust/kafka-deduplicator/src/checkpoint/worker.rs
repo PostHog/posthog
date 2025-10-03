@@ -38,7 +38,6 @@ impl CheckpointMode {
 pub struct CheckpointTarget {
     // source material (topic, partition, attempt timestamp in microseconds)
     pub partition: Partition,
-    pub checkpoint_epoch_micros: u128,
 
     // local checkpoint path and observability tag
     pub local_path: PathBuf,
@@ -68,7 +67,6 @@ impl CheckpointTarget {
 
         Ok(Self {
             partition,
-            checkpoint_epoch_micros,
             local_path,
             local_path_tag,
             remote_path,
@@ -77,10 +75,12 @@ impl CheckpointTarget {
 
     // convert a SystemTime to a microsecond timestamp
     pub fn format_checkpoint_timestamp(st: SystemTime) -> Result<String> {
-        Ok(format!("{:020}", st
-            .duration_since(UNIX_EPOCH)
-            .context("failed to generate checkpoint timestamp")?
-            .as_micros()))
+        Ok(format!(
+            "{:020}",
+            st.duration_since(UNIX_EPOCH)
+                .context("failed to generate checkpoint timestamp")?
+                .as_micros()
+        ))
     }
 }
 
