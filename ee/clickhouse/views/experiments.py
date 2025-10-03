@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ExperimentEventExposureConfig
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
@@ -200,8 +200,13 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             raise ValidationError("filterTestAccounts must be a boolean")
 
         if "exposure_config" in exposure_criteria:
+            exposure_config = exposure_criteria["exposure_config"]
             try:
-                ExperimentEventExposureConfig.model_validate(exposure_criteria["exposure_config"])
+                # Check if it's an ActionsNode or ExperimentEventExposureConfig
+                if exposure_config.get("kind") == "ActionsNode" or "id" in exposure_config:
+                    ActionsNode.model_validate(exposure_config)
+                else:
+                    ExperimentEventExposureConfig.model_validate(exposure_config)
                 return exposure_criteria
             except Exception:
                 raise ValidationError("Invalid exposure criteria")

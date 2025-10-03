@@ -7,14 +7,20 @@ including multiple variant handling and exposure filtering logic.
 
 from typing import Optional, Union
 
-from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureCriteria, MultipleVariantHandling
+from posthog.schema import (
+    ActionsNode,
+    ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
+    MultipleVariantHandling,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 
 
@@ -48,7 +54,11 @@ def normalize_to_exposure_criteria(
         if criteria_copy.get("exposure_config"):
             exposure_config = criteria_copy["exposure_config"]
             if isinstance(exposure_config, dict):
-                criteria_copy["exposure_config"] = ExperimentEventExposureConfig.model_validate(exposure_config)
+                # Check if it's an ActionsNode or ExperimentEventExposureConfig
+                if exposure_config.get("kind") == "ActionsNode" or "id" in exposure_config:
+                    criteria_copy["exposure_config"] = ActionsNode.model_validate(exposure_config)
+                else:
+                    criteria_copy["exposure_config"] = ExperimentEventExposureConfig.model_validate(exposure_config)
 
         return ExperimentExposureCriteria.model_validate(criteria_copy)
 
@@ -123,7 +133,7 @@ def get_test_accounts_filter(
 
 def get_exposure_event_and_property(
     feature_flag_key: str, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
-) -> tuple[str, str]:
+) -> tuple[Optional[str], str]:
     """
     Determines which event and feature flag variant property to use for exposures.
 
@@ -133,13 +143,25 @@ def get_exposure_event_and_property(
 
     Returns:
         Tuple of (event_name, feature_flag_variant_property)
+        event_name can be None for ActionsNode (actions can match multiple events)
     """
     # Normalize to typed object
     criteria = normalize_to_exposure_criteria(exposure_criteria)
 
     exposure_config = criteria.exposure_config if criteria else None
 
-    if exposure_config and exposure_config.event and exposure_config.event != "$feature_flag_called":
+    # Handle ActionsNode
+    if isinstance(exposure_config, ActionsNode):
+        # For actions, we don't filter by event name (actions can match multiple events)
+        # The action filter will be applied in build_common_exposure_conditions
+        feature_flag_variant_property = f"$feature/{feature_flag_key}"
+        event = None
+    elif (
+        exposure_config
+        and hasattr(exposure_config, "event")
+        and exposure_config.event
+        and exposure_config.event != "$feature_flag_called"
+    ):
         # For custom exposure events, we extract the event name from the exposure config
         # and get the variant from the $feature/<key> property
         feature_flag_variant_property = f"$feature/{feature_flag_key}"
@@ -153,7 +175,7 @@ def get_exposure_event_and_property(
 
 
 def build_common_exposure_conditions(
-    event: str,
+    event: Optional[str],
     feature_flag_variant_property: str,
     variants: list[str],
     date_range_query: QueryDateRange,
@@ -165,7 +187,7 @@ def build_common_exposure_conditions(
     Builds common exposure conditions that are shared across exposure queries.
 
     Args:
-        event: The exposure event name
+        event: The exposure event name (None for ActionsNode)
         feature_flag_variant_property: Property containing the variant value
         variants: List of valid variant keys
         date_range_query: Date range for the query
@@ -188,11 +210,6 @@ def build_common_exposure_conditions(
             right=ast.Constant(value=date_range_query.date_to()),
         ),
         ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=event),
-        ),
-        ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["properties", feature_flag_variant_property]),
             right=ast.Constant(value=variants),
@@ -200,9 +217,29 @@ def build_common_exposure_conditions(
         *get_test_accounts_filter(team, criteria),
     ]
 
-    # Add custom exposure property filters if present
+    # Get exposure config for filtering
     exposure_config = criteria.exposure_config if criteria else None
 
+    # Handle ActionsNode - use action filter instead of event name
+    if isinstance(exposure_config, ActionsNode):
+        try:
+            action = Action.objects.get(pk=int(exposure_config.id), team__project_id=team.project_id)
+            action_filter = action_to_expr(action)
+            exposure_conditions.append(action_filter)
+        except Action.DoesNotExist:
+            # If action doesn't exist, return no events
+            exposure_conditions.append(ast.Constant(value=False))
+    elif event is not None:
+        # For event-based exposure, add event name filter
+        exposure_conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=event),
+            )
+        )
+
+    # Add custom exposure property filters if present (for ExperimentEventExposureConfig)
     if exposure_config and exposure_config.kind == "ExperimentEventExposureConfig" and exposure_config.properties:
         exposure_property_filters: list[ast.Expr] = []
 
