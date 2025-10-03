@@ -2,7 +2,7 @@ import './PlayerInspectorList.scss'
 
 import { range } from 'd3'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
@@ -68,6 +68,17 @@ export function PlayerInspectorList(): JSX.Element {
         }
     }, [playbackIndicatorIndex]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const createLayoutHandler = useCallback(
+        (measure: () => void, index: number) => {
+            return ({ height }: { height: number }) => {
+                if (height !== cellMeasurerCache.getHeight(index, 0)) {
+                    measure()
+                }
+            }
+        },
+        [cellMeasurerCache]
+    )
+
     const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
         return (
             <CellMeasurer cache={cellMeasurerCache} columnIndex={0} key={key} rowIndex={index} parent={parent}>
@@ -78,12 +89,7 @@ export function PlayerInspectorList(): JSX.Element {
                             key={index}
                             item={items[index]}
                             index={index}
-                            onLayout={({ height }) => {
-                                // Optimization to ensure that we only call measure if the dimensions have actually changed
-                                if (height !== cellMeasurerCache.getHeight(index, 0)) {
-                                    measure()
-                                }
-                            }}
+                            onLayout={createLayoutHandler(measure, index)}
                         />
                     </div>
                 )}

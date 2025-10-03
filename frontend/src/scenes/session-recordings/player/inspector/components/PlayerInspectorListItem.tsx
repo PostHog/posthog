@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FunctionComponent, isValidElement, useEffect, useRef } from 'react'
+import { FunctionComponent, isValidElement, memo, useEffect, useRef } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
@@ -24,7 +24,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { ceilMsToClosestSecond } from 'lib/utils'
+import { ceilMsToClosestSecond, objectsEqual } from 'lib/utils'
 import { ItemTimeDisplay } from 'scenes/session-recordings/components/ItemTimeDisplay'
 import {
     ItemAnyComment,
@@ -222,7 +222,7 @@ function RowItemDetail({
     )
 }
 
-export function PlayerInspectorListItem({
+export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
     item,
     index,
     onLayout,
@@ -389,4 +389,4 @@ export function PlayerInspectorListItem({
             ) : null}
         </div>
     )
-}
+}, objectsEqual)
