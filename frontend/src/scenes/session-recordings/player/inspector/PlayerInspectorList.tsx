@@ -116,7 +116,7 @@ export function PlayerInspectorList(): JSX.Element {
                                 height={height}
                                 width={width}
                                 deferredMeasurementCache={cellMeasurerCache}
-                                overscanRowCount={5}
+                                overscanRowCount={20}
                                 rowCount={items.length}
                                 rowHeight={cellMeasurerCache.rowHeight}
                                 rowRenderer={renderRow}
