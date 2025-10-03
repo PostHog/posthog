@@ -497,6 +497,7 @@ class RootNode(RootNodeUIContextMixin):
             create_and_query_insight,
             create_dashboard,
             get_contextual_tool_class,
+            search_codebase,
             search_documentation,
             search_insights,
             session_summarization,
@@ -513,6 +514,9 @@ class RootNode(RootNodeUIContextMixin):
         available_tools.append(create_dashboard)
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
+        # Add codebase search tool (available if configured)
+        if settings.RELACE_API_KEY:
+            available_tools.append(search_codebase)
         tool_names = self._get_contextual_tools(config).keys()
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         if not is_editing_insight:
@@ -682,6 +686,8 @@ class RootNodeTools(AssistantNode):
             content = "Coming up with an insight"
         elif tool_call.name == "search_documentation":
             content = "Checking PostHog docs"
+        elif tool_call.name == "search_codebase":
+            content = "Searching the codebase"
         elif tool_call.name == "retrieve_billing_information":
             content = "Checking your billing data"
         else:
@@ -723,6 +729,19 @@ class RootNodeTools(AssistantNode):
         elif tool_call.name in ["search_documentation", "retrieve_billing_information"]:
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
+                root_tool_calls_count=tool_call_count + 1,
+            )
+        elif tool_call.name == "search_codebase":
+            from ee.hogai.graph.root.max_tools import search_codebase_impl
+
+            result = search_codebase_impl(
+                codebase_query=tool_call.args["codebase_query"],
+                tool_call_id=tool_call.id,
+                team=self._team,
+                user=self._user,
+            )
+            return PartialAssistantState(
+                messages=[result],
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif tool_call.name == "search_insights":

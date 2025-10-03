@@ -147,6 +147,23 @@ class retrieve_billing_information(BaseModel):
     """
 
 
+class search_codebase(BaseModel):
+    """
+    Search the PostHog codebase to find implementation details, event names, property names, and other code-specific information.
+    Use this when you need to verify what something is actually called in the code, or understand how a feature is implemented.
+    For example, if analyzing Max AI usage, use this to find the actual event names used in the codebase.
+    """
+
+    codebase_query: str = Field(
+        description=(
+            "The query to search the PostHog codebase. "
+            "Use this to find how specific features are implemented, what events are actually called, "
+            "property names used in the code, or any other codebase-specific information. "
+            "For example: 'Find how we capture analytics of Max AI usage' or 'What event names are used for feature flags?'"
+        )
+    )
+
+
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantContextualTool, type["MaxTool"]] = {}
 
 
