@@ -34,7 +34,7 @@ class InsightVariableSerializer(serializers.ModelSerializer):
 
 
 class InsightVariablePagination(pagination.PageNumberPagination):
-    default_limit = 500
+    page_size = 500
 
 
 class InsightVariableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

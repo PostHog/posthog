@@ -24,6 +24,7 @@ DEFAULT_MAX_ASSET_COUNT = 6
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     "subscription_asset_generation_duration_seconds",
     "Time spent generating assets for a subscription",
+    labelnames=["execution_path"],
     buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
 )
 
@@ -32,7 +33,7 @@ def generate_assets(
     resource: Union[Subscription, SharingConfiguration],
     max_asset_count: int = DEFAULT_MAX_ASSET_COUNT,
 ) -> tuple[list[Insight], list[ExportedAsset]]:
-    with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
+    with SUBSCRIPTION_ASSET_GENERATION_TIMER.labels(execution_path="celery").time():
         if resource.dashboard:
             tiles = list(
                 resource.dashboard.tiles.select_related("insight")
@@ -85,7 +86,7 @@ async def generate_assets_async(
     This function requires "created_by", "insight", "dashboard", "team" be prefetched on the resource
     """
     logger.info("generate_assets_async.starting", resource_id=getattr(resource, "id", None))
-    with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
+    with SUBSCRIPTION_ASSET_GENERATION_TIMER.labels(execution_path="temporal").time():
         if resource.dashboard:
             # Fetch tiles asynchronously
             dashboard = resource.dashboard  # Capture reference for lambda

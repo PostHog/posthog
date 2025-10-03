@@ -26,7 +26,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
@@ -72,7 +72,7 @@ UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
 )
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on errors that are related to database operation.

@@ -41,16 +41,17 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(seconds=10),
         )
 
-        await workflow.execute_activity(
-            delete_recording_blocks,
-            DeleteRecordingBlocksInput(recording=recording_input, blocks=recording_blocks),
-            start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
-            ),
-            heartbeat_timeout=timedelta(seconds=10),
-        )
+        if len(recording_blocks) > 0:
+            await workflow.execute_activity(
+                delete_recording_blocks,
+                DeleteRecordingBlocksInput(recording=recording_input, blocks=recording_blocks),
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(minutes=1),
+                ),
+                heartbeat_timeout=timedelta(seconds=10),
+            )
 
 
 @workflow.defn(name="delete-recordings-with-person")

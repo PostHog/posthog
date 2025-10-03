@@ -139,7 +139,7 @@ export function PlayerController(): JSX.Element {
         <div
             className={cn(
                 'flex flex-col select-none',
-                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-750 ease-in-out' : '',
+                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-25 ease-in-out' : '',
                 hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 bg-surface-primary pointer-events-auto'
                     : hoverModeIsEnabled

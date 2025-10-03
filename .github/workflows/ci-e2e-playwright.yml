@@ -6,6 +6,7 @@
 name: E2E CI Playwright
 on:
     pull_request:
+    workflow_dispatch:
 
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -273,6 +274,7 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  fetch-depth: 50 # Need enough history for flap detection to find last human commit
 
             - name: Stop/Start stack with Docker Compose
               if: needs.changes.outputs.shouldRun == 'true'
@@ -543,27 +545,92 @@ jobs:
                   echo "Deleted: $DELETED"
                   echo "Total: $TOTAL"
 
-            - name: Catch and flag flapping screenshots
-              id: flappy-bird
+            - name: Detect flapping screenshots
+              id: flap-detector
               if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               shell: bash
               run: |
+                  set +e  # Don't exit on error, we'll handle errors explicitly
                   PATHS_FLAPPING=()
-                  last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1)
+
+                  # Find last human commit (not github-actions bot)
+                  last_human_commit=$(git log --pretty=format:"%H %an" | grep -v "github-actions" | head -1 | cut -d' ' -f1 || true)
                   echo "Last human commit identified: $last_human_commit"
+
+                  if [ -z "$last_human_commit" ]; then
+                      echo "No human commit found in history, cannot detect flapping"
+                      echo "This is expected for bot-only commits or shallow checkouts"
+                      echo "flapping=false" >> $GITHUB_OUTPUT
+                      echo "Paths flapping: none"
+                      exit 0
+                  fi
+
                   for screenshot_path in $(git diff --name-only HEAD playwright/__snapshots__); do
                       echo "Checking screenshot path: $screenshot_path"
-                      number_of_times_screenshot_has_changed_since_last_human_commit=$(git log --oneline ${last_human_commit}..HEAD -- $screenshot_path | wc -l | xargs)
-                      echo "Number of times $screenshot_path has changed since last human commit: $number_of_times_screenshot_has_changed_since_last_human_commit"
-                      if [ "$number_of_times_screenshot_has_changed_since_last_human_commit" -gt 0 ]; then
+                      bot_changes=$(git log --oneline ${last_human_commit}..HEAD --author="github-actions" -- $screenshot_path | wc -l | xargs)
+                      echo "Number of bot changes to $screenshot_path since last human commit: $bot_changes"
+
+                      if [ "$bot_changes" -ge 2 ]; then
                           PATHS_FLAPPING+=($screenshot_path)
                       fi
                   done
+
+                  if [ ${#PATHS_FLAPPING[@]} -gt 0 ]; then
+                      echo "flapping=true" >> $GITHUB_OUTPUT
+                      echo "paths=${PATHS_FLAPPING[*]}" >> $GITHUB_OUTPUT
+                  else
+                      echo "flapping=false" >> $GITHUB_OUTPUT
+                  fi
+
                   echo "Paths flapping: ${PATHS_FLAPPING[*]:-none}"
+
+            - name: Comment on PR about flapping screenshots
+              if: steps.flap-detector.outputs.flapping == 'true'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const flappingPaths = '${{ steps.flap-detector.outputs.paths }}'.split(' ');
+                      const pathList = flappingPaths.map(p => `- \`${p}\``).join('\n');
+                      const comment = `## ⚠️ Flapping Screenshots Detected
+
+                      The following screenshots have been updated multiple times by the bot, indicating test instability:
+
+                      ${pathList}
+
+                      **What this means:**
+                      - These screenshots are changing on each test run (timing issues, rendering differences, etc.)
+                      - This prevents reliable verification and blocks auto-merge
+                      - Human intervention is required
+
+                      **How to fix:**
+                      1. **Investigate flakiness**: Check test timing, wait for elements, stabilize animations
+                      2. **Fix the underlying issue**: Don't just update snapshots repeatedly
+                      3. **Verify locally**: Run tests multiple times to ensure stability
+                      4. **Push your fix**: This will reset the flap counter
+
+                      **If you need to proceed anyway:**
+                      - Fix the test flakiness first (recommended)
+                      - Or manually verify snapshots are acceptable and revert the bot commits, then push a fix
+
+                      The workflow has been failed to prevent merging unstable tests.`;
+
+                      github.rest.issues.createComment({
+                          issue_number: context.issue.number,
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          body: comment
+                      });
+
+            - name: Fail workflow if screenshots are flapping
+              if: steps.flap-detector.outputs.flapping == 'true'
+              run: |
+                  echo "::error::Screenshots are flapping - this indicates test instability"
+                  echo "Flapping paths: ${{ steps.flap-detector.outputs.paths }}"
+                  exit 1
 
             - name: Commit updated screenshots
               uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
-              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && steps.flap-detector.outputs.flapping != 'true'
               id: commit
               with:
                   add: 'playwright/'

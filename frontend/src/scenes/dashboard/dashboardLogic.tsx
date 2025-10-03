@@ -270,6 +270,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
+        reportInsightsViewed: (insights: QueryBasedInsightModel[]) => ({ insights }),
 
         /**
          * Dashboard result colors.
@@ -1711,12 +1712,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         tileStreamingComplete: sharedListeners.handleDashboardLoadComplete,
+        reportInsightsViewed: ({ insights }: { insights: QueryBasedInsightModel[] }) => {
+            const insightIds = insights
+                .map((insight: QueryBasedInsightModel) => insight?.id)
+                .filter((id): id is number => !!id)
+
+            if (insightIds.length > 0 && values.currentTeamId) {
+                void api.create(`api/environments/${values.currentTeamId}/insights/viewed`, {
+                    insight_ids: insightIds,
+                })
+            }
+        },
         reportDashboardViewed: async (_, breakpoint) => {
             // Caching `dashboard`, as the dashboard might have unmounted after the breakpoint,
             // and "values.dashboard" will then fail
-            const { dashboard, lastDashboardRefresh } = values
+            const { dashboard, lastDashboardRefresh, tiles } = values
             if (dashboard) {
                 eventUsageLogic.actions.reportDashboardViewed(dashboard, lastDashboardRefresh)
+
+                const insights = tiles.map((t) => t.insight).filter((i): i is QueryBasedInsightModel => !!i)
+                actions.reportInsightsViewed(insights)
+
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
                 if (
                     router.values.location.pathname === urls.dashboard(dashboard.id) ||

@@ -237,6 +237,9 @@ describe('seriesBreakdownLogic', () => {
             },
             chartSettings: {
                 goalLines: undefined,
+                seriesBreakdownColumn: undefined,
+                xAxis: undefined,
+                yAxis: [],
             },
         })
     })

@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -886,6 +887,12 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
+                    // Make experiment eligible for timeseries
+                    const statsConfig = {
+                        ...values.experiment?.stats_config,
+                        ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && { timeseries: true }),
+                    }
+
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
                         parameters:
@@ -904,6 +911,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 : values.experiment?.parameters,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
+                        stats_config: statsConfig,
                     })
 
                     if (response) {
