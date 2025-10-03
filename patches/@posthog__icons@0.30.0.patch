@@ -1,0 +1,26 @@
+diff --git a/dist/posthog-icons.cjs.js b/dist/posthog-icons.cjs.js
+index 6dd71131d544204fbc47ae214b78dfccfadaa261..27ab71fd7f5ddcd1cc1ec5b1f4fffd9c592fa820 100644
+--- a/dist/posthog-icons.cjs.js
++++ b/dist/posthog-icons.cjs.js
+@@ -280,7 +280,7 @@ function requireReactJsxRuntime_development() {
+           }
+         }
+       }
+-      var ReactCurrentDispatcher = ReactSharedInternals.ReactCurrentDispatcher;
++      var ReactCurrentDispatcher = ReactSharedInternals && ReactSharedInternals.ReactCurrentDispatcher ? ReactSharedInternals.ReactCurrentDispatcher : { current: null };
+       var prefix;
+       function describeBuiltInComponentFrame(name, source, ownerFn) {
+         {
+diff --git a/dist/posthog-icons.es.js b/dist/posthog-icons.es.js
+index e7dc4afbfa861992697dafdb8ee80f5b564fe146..3b2206b502755291b2280ed1bdf7cb67b83fd99f 100644
+--- a/dist/posthog-icons.es.js
++++ b/dist/posthog-icons.es.js
+@@ -278,7 +278,7 @@ function requireReactJsxRuntime_development() {
+           }
+         }
+       }
+-      var ReactCurrentDispatcher = ReactSharedInternals.ReactCurrentDispatcher;
++      var ReactCurrentDispatcher = ReactSharedInternals && ReactSharedInternals.ReactCurrentDispatcher ? ReactSharedInternals.ReactCurrentDispatcher : { current: null };
+       var prefix;
+       function describeBuiltInComponentFrame(name, source, ownerFn) {
+         {

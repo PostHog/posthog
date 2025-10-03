@@ -49,7 +49,7 @@ export function PlayerInspectorList(): JSX.Element {
             positionMarkerEl.id = 'PlayerInspectorListMarker'
             listElement?.appendChild(positionMarkerEl)
         }
-    }, [listRef.current])
+    }, [])
 
     useEffect(() => {
         if (listRef.current) {
@@ -97,7 +97,7 @@ export function PlayerInspectorList(): JSX.Element {
                 </CellMeasurer>
             )
         },
-        [items, cellMeasurerCache]
+        [items, cellMeasurerCache, createLayoutHandler]
     )
 
     return (

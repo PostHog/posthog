@@ -66,16 +66,19 @@
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.31.0",
             "react": "19.2.0",
             "react-dom": "19.2.0",
-            "turbo": "2.6.0"
+            "turbo": "2.5.8"
         },
         "peerDependencyRules": {
             "allowAny": [
                 "react",
                 "react-dom"
-            ]
+            ],
+            "@posthog/icons": "0.31.0",
+            "react": "19.2.0",
+            "react-dom": "19.2.0",
+            "turbo": "2.6.0"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
