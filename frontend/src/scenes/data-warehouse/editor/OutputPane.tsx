@@ -20,7 +20,7 @@ import {
     IconPlus,
     IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -49,9 +49,11 @@ import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/D
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
+import { type DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
+import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
 import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
@@ -95,6 +97,29 @@ const CLICKHOUSE_TYPES = [
     'Decimal',
     'FixedString',
 ]
+
+const copyMap = {
+    [ExporterFormat.CSV]: {
+        label: 'CSV',
+        copyFn: copyTableToCsv,
+    },
+    [ExporterFormat.JSON]: {
+        label: 'JSON',
+        copyFn: copyTableToJson,
+    },
+    [ExporterFormat.XLSX]: {
+        label: 'Excel',
+        copyFn: copyTableToExcel,
+    },
+}
+
+const createDataTableQuery = (): DataTableNode => ({
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: '',
+    },
+})
 
 const cleanClickhouseType = (type: string | undefined): string | undefined => {
     if (!type) {
@@ -563,6 +588,31 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                         >
                             {editingInsight ? 'View insight' : 'Create insight'}
                         </LemonButton>
+                    )}
+                    {activeTab === OutputTab.Results && (
+                        <LemonMenu
+                            items={Object.values(copyMap).map(({ label, copyFn }) => ({
+                                label,
+                                onClick: () => {
+                                    if (response?.columns && rows.length > 0) {
+                                        const columns = response.columns
+                                        const dataTableRows = rows.map((row) => ({
+                                            result: columns.map((col) => row[col]),
+                                        }))
+                                        const query = createDataTableQuery()
+                                        copyFn(dataTableRows, columns, query)
+                                    }
+                                },
+                            }))}
+                            placement="bottom-end"
+                        >
+                            <LemonButton
+                                id="sql-editor-copy-dropdown"
+                                disabledReason={!hasColumns ? 'No results to copy' : undefined}
+                                type="secondary"
+                                icon={<IconCopy />}
+                            />
+                        </LemonMenu>
                     )}
                     {activeTab === OutputTab.Results && exportContext && (
                         <Tooltip title="Export the table results" className={!hasColumns ? 'hidden' : ''}>
