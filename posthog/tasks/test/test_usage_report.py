@@ -73,6 +73,7 @@ from posthog.warehouse.models import (
 from posthog.warehouse.types import ExternalDataSourceType
 
 from ee.api.test.base import LicensedTestMixin
+from ee.clickhouse.materialized_columns.columns import materialize
 from ee.models.license import License
 
 logger = structlog.get_logger(__name__)
@@ -181,6 +182,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
         sync_execute("TRUNCATE TABLE events")
         sync_execute("TRUNCATE TABLE person")
         sync_execute("TRUNCATE TABLE person_distinct_id")
+
+        materialize("events", "$exception_values")
 
         self.expected_properties: dict = {}
 
@@ -960,6 +963,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
 @freeze_time("2022-01-09T00:01:00Z")
 class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    def setUp(self) -> None:
+        super().setUp()
+        materialize("events", "$exception_values")
+
     @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
@@ -1182,6 +1189,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+        materialize("events", "$exception_values")
 
     @snapshot_clickhouse_queries
     @patch("posthog.tasks.usage_report.get_ph_client")
@@ -1414,6 +1422,7 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -1549,6 +1558,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -1934,6 +1944,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2119,6 +2130,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self.org_1 = Organization.objects.create(name="Org 1")
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2172,6 +2184,7 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2209,6 +2222,15 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
                 timestamp=now() - relativedelta(hours=i),
                 team=self.org_2_team_3,
             )
+
+        # not captured because it was a bug in our own SDK
+        _create_event(
+            distinct_id="4",
+            event="$exception",
+            properties={"$exception_values": ["persistence.isDisabled is not a function"]},
+            timestamp=now() - relativedelta(hours=1),
+            team=self.org_1_team_1,
+        )
 
         # some out of range events
         _create_event(
@@ -2253,6 +2275,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
     def _setup_teams(self) -> None:
         self.org_1 = Organization.objects.create(name="Org 1")
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2394,6 +2417,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         )
         flush_persons_and_events()
         TEST_clear_instance_license_cache()
+        materialize("events", "$exception_values")
 
     def _usage_report_response(self) -> Any:
         # A roughly correct billing response
@@ -2560,6 +2584,10 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
 
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        materialize("events", "$exception_values")
+
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
@@ -2573,6 +2601,10 @@ class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTe
 
 
 class TestSendUsageNoLicense(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        materialize("events", "$exception_values")
+
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
@@ -2635,6 +2667,7 @@ class TestSendUsageNoLicense(APIBaseTest):
 class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
     def setUp(self) -> None:
         super().setUp()
+        materialize("events", "$exception_values")
 
         # Clear existing Django data
         Team.objects.all().delete()

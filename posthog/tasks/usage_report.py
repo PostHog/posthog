@@ -1028,8 +1028,6 @@ def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    values_expression, _ = get_property_string_expr("events", "$exception_values", "'$exception_values'", "properties")
-
     # We are excluding "persistence.isDisabled is not a function" errors because of a bug in our own SDK
     # Can be eventually removed once we're happy that the usage report for 3rd October 2025 does not need to be rerun
     results = sync_execute(
@@ -1038,11 +1036,11 @@ def get_teams_with_exceptions_captured_in_period(
         FROM events
         WHERE
             event = '$exception' AND
-            not arrayExists(x -> x != '' AND position(x, 'persistence.isDisabled is not a function') > 0, JSONExtract(coalesce(%(values_expression)s, '[]'), 'Array(String)')) AND
+            not arrayExists(x -> x != '' AND position(x, 'persistence.isDisabled is not a function') > 0, JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)')) AND
             timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
-        {"begin": begin, "end": end, "values_expression": values_expression},
+        {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
