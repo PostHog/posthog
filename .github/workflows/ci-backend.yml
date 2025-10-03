@@ -712,7 +712,7 @@ jobs:
                   POSTHOG_DB_USER: posthog
               shell: bash
               run: |
-                  pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
+                  pytest -n auto --dist worksteal posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                       --durations=1000 --durations-min=1.0 \
                       $PYTEST_ARGS
 
