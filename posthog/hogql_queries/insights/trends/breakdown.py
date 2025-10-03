@@ -280,6 +280,7 @@ class Breakdown:
                     breakdown_type=breakdown_type,
                     breakdown_field=breakdown_value,
                     group_type_index=group_type_index,
+                    is_sessions_node=isinstance(self.series, SessionsNode),
                 )
             )
 
@@ -377,6 +378,7 @@ class Breakdown:
             breakdown_type=breakdown_type,
             breakdown_field=str(value),
             group_type_index=group_type_index,
+            is_sessions_node=isinstance(self.series, SessionsNode),
         )
 
         if histogram_bin_count is not None:

@@ -739,11 +739,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 if data_warehouse_properties:
                     filters.append(property_to_expr(data_warehouse_properties, self.team))
             else:
-                filters.append(property_to_expr(self.query.properties, self.team))
+                property_scope = "session" if isinstance(self.series, SessionsNode) else "event"
+                filters.append(property_to_expr(self.query.properties, self.team, scope=property_scope))
 
         # Series Filters
         if series.properties is not None and series.properties != []:
-            filters.append(property_to_expr(series.properties, self.team))
+            property_scope = "session" if isinstance(self.series, SessionsNode) else "event"
+            filters.append(property_to_expr(series.properties, self.team, scope=property_scope))
 
         # Breakdown
         if not ignore_breakdowns and breakdown is not None:

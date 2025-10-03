@@ -25,6 +25,7 @@ def get_properties_chain(
     breakdown_type: BreakdownType | MultipleBreakdownType | None,
     breakdown_field: str,
     group_type_index: Optional[float | int],
+    is_sessions_node: bool = False,
 ) -> list[str | int]:
     if breakdown_type == "person":
         if breakdown_field.startswith("$virt_"):
@@ -34,6 +35,9 @@ def get_properties_chain(
             return ["person", "properties", breakdown_field]
 
     if breakdown_type == "session":
+        # When querying from sessions table directly (SessionsNode), don't need "session" prefix
+        if is_sessions_node:
+            return [breakdown_field]
         return ["session", breakdown_field]
 
     if breakdown_type == "group" and group_type_index is not None:
