@@ -275,7 +275,7 @@ AND properties.$lib != 'web'`
     })),
     subscriptions(({ actions }) => ({
         preloadableEvents: (pe: null | RecordingEventType[]) => {
-            if (pe.length) {
+            if (pe?.length) {
                 actions.loadFullEventData(pe)
             }
         },
