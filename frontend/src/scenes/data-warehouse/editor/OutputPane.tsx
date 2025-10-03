@@ -30,6 +30,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
@@ -595,12 +596,9 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 label,
                                 onClick: () => {
                                     if (response?.columns && rows.length > 0) {
-                                        const columns = response.columns
-                                        const dataTableRows = rows.map((row) => ({
-                                            result: columns.map((col) => row[col]),
-                                        }))
+                                        const dataTableRows = transformDataTableToDataTableRows(rows, response.columns)
                                         const query = createDataTableQuery()
-                                        copyFn(dataTableRows, columns, query)
+                                        copyFn(dataTableRows, response.columns, query)
                                     }
                                 },
                             }))}
@@ -608,7 +606,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                         >
                             <LemonButton
                                 id="sql-editor-copy-dropdown"
-                                disabledReason={!hasColumns ? 'No results to copy' : undefined}
+                                disabledReason={!response?.columns || !rows.length ? 'No results to copy' : undefined}
                                 type="secondary"
                                 icon={<IconCopy />}
                             />
