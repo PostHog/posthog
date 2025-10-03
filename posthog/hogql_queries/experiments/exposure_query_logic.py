@@ -184,6 +184,69 @@ def get_exposure_event_and_property(
     return event, feature_flag_variant_property
 
 
+def _get_event_name_from_config(exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]]) -> str:
+    """Extract event name from exposure config, defaulting to $feature_flag_called."""
+    if not exposure_config or not hasattr(exposure_config, "event"):
+        return "$feature_flag_called"
+
+    event = exposure_config.event
+    return event if event and event != "$feature_flag_called" else "$feature_flag_called"
+
+
+def _build_action_filter(action_id: int, team: Team) -> ast.Expr:
+    """Build filter expression for an action, returning False if action not found."""
+    try:
+        action = Action.objects.get(pk=action_id, team=team)
+        return action_to_expr(action)
+    except Action.DoesNotExist:
+        logger.warning(f"Action {action_id} not found for team {team.id}. Exposure query will return no results.")
+        return ast.Constant(value=False)
+
+
+def _build_event_filters(
+    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]],
+    team: Team,
+    feature_flag_key: Optional[str],
+) -> list[ast.Expr]:
+    """Build event/action filters based on exposure config."""
+    # Handle action-based exposure
+    if isinstance(exposure_config, ActionsNode):
+        return [_build_action_filter(int(exposure_config.id), team)]
+
+    # Handle event-based exposure
+    event = _get_event_name_from_config(exposure_config)
+    filters: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value=event),
+        )
+    ]
+
+    # Add feature flag key filter for $feature_flag_called events
+    if event == "$feature_flag_called" and feature_flag_key:
+        filters.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["properties", "$feature_flag"]),
+                right=ast.Constant(value=feature_flag_key),
+            )
+        )
+
+    return filters
+
+
+def _build_property_filters(
+    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]], team: Team
+) -> list[ast.Expr]:
+    """Build property filters from exposure config."""
+    if not exposure_config or exposure_config.kind != "ExperimentEventExposureConfig" or not exposure_config.properties:
+        return []
+
+    property_filters = [property_to_expr(prop, team) for prop in exposure_config.properties]
+    return [ast.And(exprs=property_filters)] if property_filters else []
+
+
 def build_common_exposure_conditions(
     feature_flag_variant_property: str,
     variants: list[str],
@@ -203,10 +266,11 @@ def build_common_exposure_conditions(
         exposure_criteria: Experiment exposure criteria configuration
         feature_flag_key: Feature flag key (required for $feature_flag_called events)
     """
-    # Normalize to typed object
     criteria = normalize_to_exposure_criteria(exposure_criteria)
+    exposure_config = criteria.exposure_config if criteria else None
 
-    exposure_conditions: list[ast.Expr] = [
+    return [
+        # Date range filters
         ast.CompareOperation(
             op=ast.CompareOperationOp.GtEq,
             left=ast.Field(chain=["timestamp"]),
@@ -217,71 +281,19 @@ def build_common_exposure_conditions(
             left=ast.Field(chain=["timestamp"]),
             right=ast.Constant(value=date_range_query.date_to()),
         ),
+        # Variant filter
         ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["properties", feature_flag_variant_property]),
             right=ast.Constant(value=variants),
         ),
+        # Test accounts filter
         *get_test_accounts_filter(team, criteria),
+        # Event/action filters
+        *_build_event_filters(exposure_config, team, feature_flag_key),
+        # Property filters
+        *_build_property_filters(exposure_config, team),
     ]
-
-    # Get exposure config for filtering
-    exposure_config = criteria.exposure_config if criteria else None
-
-    # Handle ActionsNode - use action filter instead of event name
-    if isinstance(exposure_config, ActionsNode):
-        try:
-            action = Action.objects.get(pk=int(exposure_config.id), team=team)
-            action_filter = action_to_expr(action)
-            exposure_conditions.append(action_filter)
-        except Action.DoesNotExist:
-            logger.warning(
-                f"Action {exposure_config.id} not found for team {team.id}. Exposure query will return no results."
-            )
-            exposure_conditions.append(ast.Constant(value=False))
-    else:
-        # For event-based exposure, determine the event name and add event filter
-        if (
-            exposure_config
-            and hasattr(exposure_config, "event")
-            and exposure_config.event
-            and exposure_config.event != "$feature_flag_called"
-        ):
-            # Custom exposure event
-            event = exposure_config.event
-        else:
-            # Default $feature_flag_called event
-            event = "$feature_flag_called"
-
-        exposure_conditions.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=event),
-            )
-        )
-
-        # For the $feature_flag_called events, add feature flag key filter
-        if event == "$feature_flag_called" and feature_flag_key:
-            exposure_conditions.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["properties", "$feature_flag"]),
-                    right=ast.Constant(value=feature_flag_key),
-                ),
-            )
-
-    # Add custom exposure property filters if present (for ExperimentEventExposureConfig)
-    if exposure_config and exposure_config.kind == "ExperimentEventExposureConfig" and exposure_config.properties:
-        exposure_property_filters: list[ast.Expr] = []
-
-        for property in exposure_config.properties:
-            exposure_property_filters.append(property_to_expr(property, team))
-
-        if exposure_property_filters:
-            exposure_conditions.append(ast.And(exprs=exposure_property_filters))
-
-    return exposure_conditions
 
 
 def get_entity_key(group_type_index: Optional[int]) -> str:
