@@ -131,12 +131,6 @@ class TestSessionWhereClauseExtractorV3(ClickhouseTestMixin, APIBaseTest):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE like('a', 'b')")))
         assert actual is None
 
-    def test_timestamp_unrelated_function(self):
-        actual = f(
-            self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE like(toString(min_timestamp), 'b')"))
-        )
-        assert actual is None
-
     def test_timestamp_unrelated_function_timestamp(self):
         actual = f(
             self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE like(toString(min_timestamp), 'b')"))
