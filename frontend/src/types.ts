@@ -2092,6 +2092,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
+    last_viewed_at?: string | null
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
@@ -3429,6 +3430,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     performed_rollback: boolean
     can_edit: boolean
     tags: string[]
+    evaluation_tags: string[]
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
@@ -3535,11 +3537,16 @@ export enum ScheduledChangeModels {
 export enum ScheduledChangeOperationType {
     UpdateStatus = 'update_status',
     AddReleaseCondition = 'add_release_condition',
+    UpdateVariants = 'update_variants',
 }
 
 export type ScheduledChangePayload =
     | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
     | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
+    | {
+          operation: ScheduledChangeOperationType.UpdateVariants
+          value: { variants: MultivariateFlagVariant[]; payloads?: Record<string, any> }
+      }
 
 export interface ScheduledChangeType {
     id: number

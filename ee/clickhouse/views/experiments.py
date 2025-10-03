@@ -117,6 +117,16 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if saved_metric.get("query", {}).get("funnels_query", {}).get("dateRange"):
                 saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
 
+            # Add fingerprint to saved metric returned from API
+            # so that frontend knows what timeseries records to query
+            if saved_metric.get("query"):
+                saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
+                    saved_metric["query"],
+                    instance.start_date,
+                    instance.stats_config,
+                    instance.exposure_criteria,
+                )
+
         return data
 
     def validate_saved_metrics_ids(self, value):
@@ -746,14 +756,6 @@ class EnterpriseExperimentsViewSet(
 
         if not fingerprint:
             raise ValidationError("fingerprint query parameter is required")
-
-        metrics = experiment.metrics or []
-        metrics_secondary = experiment.metrics_secondary or []
-        all_metrics = metrics + metrics_secondary
-
-        metric_exists = any(m.get("uuid") == metric_uuid for m in all_metrics)
-        if not metric_exists:
-            raise ValidationError(f"Metric with UUID {metric_uuid} not found in experiment")
 
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
