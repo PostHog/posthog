@@ -1032,7 +1032,10 @@ def get_teams_with_exceptions_captured_in_period(
         """
         SELECT team_id, COUNT() as count
         FROM events
-        WHERE event = '$exception' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE
+            event = '$exception' AND
+            not has(JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)'), 'e.persistence.isDisabled is not a function') AND
+            timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
