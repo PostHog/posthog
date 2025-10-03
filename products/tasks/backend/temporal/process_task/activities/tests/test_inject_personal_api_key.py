@@ -53,7 +53,7 @@ class TestInjectPersonalAPIKeyActivity:
 
             check_result = await sandbox.execute("bash -c 'source ~/.bashrc && echo $POSTHOG_PERSONAL_API_KEY'")
             assert check_result.exit_code == 0
-            assert len(check_result.stdout.strip()) > 0
+            assert check_result.stdout.includes("phx_"), f"stdout does not contain 'phx_'"
 
             await sync_to_async(api_key.delete)()
 
