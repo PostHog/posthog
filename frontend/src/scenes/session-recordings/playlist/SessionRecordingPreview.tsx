@@ -34,7 +34,6 @@ import {
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
     isActive?: boolean
-    onClick?: () => void
     /**
      * Whether to show a sessionRecordingPlaylistLogic selection checkbox on this preview.
      * @default false
