@@ -142,6 +142,12 @@ class OrganizationDomain(UUIDTModel):
     saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
     saml_x509_cert = models.TextField(blank=True, null=True)
 
+    # ---- SCIM attributes ----
+    scim_enabled = models.BooleanField(default=False)
+    scim_bearer_token = models.CharField(
+        max_length=255, blank=True, null=True, help_text="Hashed bearer token for SCIM authentication"
+    )
+
     class Meta:
         verbose_name = "domain"
 
@@ -159,6 +165,13 @@ class OrganizationDomain(UUIDTModel):
         Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places).
         """
         return bool(self.saml_entity_id) and bool(self.saml_acs_url) and bool(self.saml_x509_cert)
+
+    @property
+    def has_scim(self) -> bool:
+        """
+        Returns whether SCIM is configured and enabled for this domain.
+        """
+        return self.scim_enabled and bool(self.scim_bearer_token)
 
     def _complete_verification(self) -> tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None

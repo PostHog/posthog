@@ -32,6 +32,7 @@ from .api import (
     subscription,
 )
 from .api.rbac import role
+from .api.scim import views as scim_views
 
 
 def extend_api_router() -> None:
@@ -124,5 +125,25 @@ urlpatterns: list[Any] = [
     path("login/vercel/", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     path("login/vercel/continue", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
     opt_slash_path("mcp", csrf_exempt(mcp_view)),
+    # SCIM endpoints
+    path("scim/v2/<uuid:domain_id>/Users", scim_views.scim_users_view, name="scim_users"),
+    path("scim/v2/<uuid:domain_id>/Users/<uuid:user_id>", scim_views.scim_user_detail_view, name="scim_user_detail"),
+    path("scim/v2/<uuid:domain_id>/Groups", scim_views.scim_groups_view, name="scim_groups"),
+    path(
+        "scim/v2/<uuid:domain_id>/Groups/<uuid:group_id>",
+        scim_views.scim_group_detail_view,
+        name="scim_group_detail",
+    ),
+    path(
+        "scim/v2/<uuid:domain_id>/ServiceProviderConfig",
+        scim_views.scim_service_provider_config_view,
+        name="scim_service_provider_config",
+    ),
+    path(
+        "scim/v2/<uuid:domain_id>/ResourceTypes",
+        scim_views.scim_resource_types_view,
+        name="scim_resource_types",
+    ),
+    path("scim/v2/<uuid:domain_id>/Schemas", scim_views.scim_schemas_view, name="scim_schemas"),
     *admin_urlpatterns,
 ]
