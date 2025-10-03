@@ -153,20 +153,6 @@ function ClipRecording_({ current, className }: { current: string; className?: s
         [current]
     )
 
-    const tooltipContent = useMemo(
-        () => (
-            <div className="flex items-center gap-2">
-                <span>
-                    Create clip around {current} <KeyboardShortcut x />
-                </span>
-                <LemonTag type="warning" size="small">
-                    BETA
-                </LemonTag>
-            </div>
-        ),
-        [current]
-    )
-
     return (
         <LemonButton
             size="xsmall"
