@@ -72,10 +72,8 @@ class HobbyTester:
             'echo "Current commit: $CURRENT_COMMIT" \n'
             "cd .. \n"
             f"chmod +x posthog/bin/deploy-hobby \n"
-            f'if [ "{self.branch}" != "main" ] && [ "{self.branch}" != "master" ] && [ -n "{self.branch}" ]; then \n'
-            f'    echo "Using commit hash for feature branch deployment" \n'
-            f"    ./posthog/bin/deploy-hobby $CURRENT_COMMIT {self.hostname} 1 \n"
-            f"fi \n"
+            f'echo "Using commit hash for feature branch deployment" \n'
+            f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {self.hostname} 1 \n"
         )
 
     def block_until_droplet_is_started(self):
