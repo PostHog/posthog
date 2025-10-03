@@ -1,5 +1,6 @@
 import json
 import hashlib
+from datetime import datetime
 from typing import Any, Optional, Protocol, TypeVar
 
 from django.conf import settings
@@ -365,24 +366,40 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         return min_distance_threshold, model_name, embedding_version
 
-    def _get_issues_library_data(self, fingerprints: list[str]) -> dict[str, str]:
+    def _get_issues_library_data(
+        self, fingerprints: list[str], earliest_timestamp: datetime, latest_timestamp: datetime
+    ) -> dict[str, str]:
         """Get library information for fingerprints from ClickHouse events."""
-        query = """
+        params = {}
+        params["team_id"] = self.team.pk
+        params["fingerprints"] = fingerprints
+
+        timestamp_filter = ""
+        if earliest_timestamp and latest_timestamp:
+            timestamp_filter = "AND timestamp >= %(earliest_timestamp)s AND timestamp <= %(latest_timestamp)s"
+            params["earliest_timestamp"] = earliest_timestamp
+            params["latest_timestamp"] = latest_timestamp
+        elif earliest_timestamp:
+            timestamp_filter = "AND timestamp >= %(earliest_timestamp)s"
+            params["earliest_timestamp"] = earliest_timestamp
+        elif latest_timestamp:
+            timestamp_filter = "AND timestamp <= %(latest_timestamp)s"
+            params["latest_timestamp"] = latest_timestamp
+
+        query = f"""
             SELECT mat_$exception_fingerprint, MIN(mat_$lib)
               FROM events
              WHERE team_id = %(team_id)s
                AND event = '$exception'
                AND mat_$exception_fingerprint IN %(fingerprints)s
                AND mat_$lib != ''
+               {timestamp_filter}
              GROUP BY mat_$exception_fingerprint
         """
 
         results = sync_execute(
             query,
-            {
-                "team_id": self.team.pk,
-                "fingerprints": fingerprints,
-            },
+            params,
         )
 
         if not results or len(results) == 0:
@@ -511,8 +528,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if not issues or len(issues) == 0:
             return Response([])
 
-        # Get library data for the similar fingerprints
-        fingerprint_to_library = self._get_issues_library_data(similar_fingerprints)
+        # Calculate timestamp range from the issues to optimize the ClickHouse query
+        earliest_timestamp = min(issue.created_at for issue in issues)
+        latest_timestamp = max(issue.created_at for issue in issues)
+
+        # Get library data for the similar fingerprints with timestamp range filter for performance
+        fingerprint_to_library = self._get_issues_library_data(
+            similar_fingerprints, earliest_timestamp, latest_timestamp
+        )
 
         # Build mapping from issue_id to library using existing data
         issue_to_library = self._build_issue_to_library_mapping(issue_id_to_fingerprint, fingerprint_to_library)
