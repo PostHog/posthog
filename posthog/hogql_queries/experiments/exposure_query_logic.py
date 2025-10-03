@@ -185,7 +185,6 @@ def get_exposure_event_and_property(
 
 
 def build_common_exposure_conditions(
-    event: Optional[str],
     feature_flag_variant_property: str,
     variants: list[str],
     date_range_query: QueryDateRange,
@@ -197,7 +196,6 @@ def build_common_exposure_conditions(
     Builds common exposure conditions that are shared across exposure queries.
 
     Args:
-        event: The exposure event name (None for ActionsNode)
         feature_flag_variant_property: Property containing the variant value
         variants: List of valid variant keys
         date_range_query: Date range for the query
@@ -241,8 +239,20 @@ def build_common_exposure_conditions(
                 f"Action {exposure_config.id} not found for team {team.id}. Exposure query will return no results."
             )
             exposure_conditions.append(ast.Constant(value=False))
-    elif event is not None:
-        # For event-based exposure, add event name filter
+    else:
+        # For event-based exposure, determine the event name and add event filter
+        if (
+            exposure_config
+            and hasattr(exposure_config, "event")
+            and exposure_config.event
+            and exposure_config.event != "$feature_flag_called"
+        ):
+            # Custom exposure event
+            event = exposure_config.event
+        else:
+            # Default $feature_flag_called event
+            event = "$feature_flag_called"
+
         exposure_conditions.append(
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
@@ -250,6 +260,16 @@ def build_common_exposure_conditions(
                 right=ast.Constant(value=event),
             )
         )
+
+        # For the $feature_flag_called events, add feature flag key filter
+        if event == "$feature_flag_called" and feature_flag_key:
+            exposure_conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["properties", "$feature_flag"]),
+                    right=ast.Constant(value=feature_flag_key),
+                ),
+            )
 
     # Add custom exposure property filters if present (for ExperimentEventExposureConfig)
     if exposure_config and exposure_config.kind == "ExperimentEventExposureConfig" and exposure_config.properties:
@@ -260,16 +280,6 @@ def build_common_exposure_conditions(
 
         if exposure_property_filters:
             exposure_conditions.append(ast.And(exprs=exposure_property_filters))
-
-    # For the $feature_flag_called events, we need an additional filter to ensure the event is for the correct feature flag
-    if event == "$feature_flag_called" and feature_flag_key:
-        exposure_conditions.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["properties", "$feature_flag"]),
-                right=ast.Constant(value=feature_flag_key),
-            ),
-        )
 
     return exposure_conditions
 
