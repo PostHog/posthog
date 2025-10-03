@@ -203,7 +203,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4 group/colorful-product-icons colorful-product-icons-true">
-                            {filteredItemsGrid.map(({ category, types }) => (
+                            {filteredItemsGrid.map(({ category, types }, columnIndex) => (
                                 <div
                                     className={cn('mb-8', {
                                         'col-span-4': selectedCategory !== 'all',
@@ -238,6 +238,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                     key={index}
                                                     asChild
                                                     focusFirst={filteredItemsGrid.length > 0 && index === 0}
+                                                    row={index}
+                                                    column={columnIndex}
                                                 >
                                                     <Link
                                                         to={qt.href}

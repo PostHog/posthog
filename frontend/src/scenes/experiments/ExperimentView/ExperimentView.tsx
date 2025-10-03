@@ -8,6 +8,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
 import { ActivityScope } from '~/types'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
@@ -55,6 +56,7 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
+        usesNewQueryRunner,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -86,9 +88,11 @@ const MetricsTab = (): JSX.Element => {
 
     return (
         <>
-            <div className="w-full mb-4">
-                <Exposures />
-            </div>
+            {usesNewQueryRunner && (
+                <div className="w-full mb-4">
+                    <Exposures />
+                </div>
+            )}
 
             {/* Show overview if there's only a single primary metric */}
             {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
@@ -210,7 +214,7 @@ export function ExperimentView(): JSX.Element {
                 <LoadingState />
             ) : (
                 <>
-                    <Info />
+                    {usesNewQueryRunner ? <Info /> : <LegacyExperimentInfo />}
                     {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                     <LemonTabs
                         activeKey={activeTabKey}

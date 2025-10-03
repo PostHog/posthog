@@ -24,7 +24,6 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -105,8 +104,7 @@ export enum SessionRecordingPlayerMode {
     Video = 'video',
 }
 
-const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
-export const ModesThatCanHavePlayerControllerButtons = ModesThatCanBeMarkedViewed
+export const ModesWithInteractions = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
     playerKey: string
@@ -828,6 +826,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
+        currentPlayerTimeSeconds: [
+            (s) => [s.currentPlayerTime],
+            (currentPlayerTime) => Math.floor(currentPlayerTime / 1000),
+        ],
+
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         toRRWebPlayerTime: [
             (s) => [s.sessionPlayerData, s.currentSegment],
@@ -969,18 +972,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 },
             },
         ],
-        hoverFlagIsEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return featureFlags[FEATURE_FLAGS.REPLAY_HOVER_UI] === 'test'
-            },
-        ],
         hoverModeIsEnabled: [
-            (s) => [s.logicProps, s.isCommenting, s.hoverFlagIsEnabled, s.showingClipParams],
-            (logicProps, isCommenting, hoverFlagIsEnabled, showingClipParams): boolean => {
+            (s) => [s.logicProps, s.isCommenting, s.showingClipParams],
+            (logicProps, isCommenting, showingClipParams): boolean => {
                 return (
-                    hoverFlagIsEnabled &&
-                    logicProps.mode === SessionRecordingPlayerMode.Standard &&
+                    !!logicProps.mode &&
+                    ModesWithInteractions.includes(logicProps.mode) &&
                     !isCommenting &&
                     !showingClipParams
                 )
@@ -1335,7 +1332,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (
                 props.playerKey?.startsWith('file-') ||
                 values.wasMarkedViewed ||
-                (props.mode && !ModesThatCanBeMarkedViewed.includes(props.mode))
+                (props.mode && !ModesWithInteractions.includes(props.mode))
             ) {
                 return
             }
