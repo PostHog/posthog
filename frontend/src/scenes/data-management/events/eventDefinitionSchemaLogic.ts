@@ -4,8 +4,10 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { SchemaPropertyGroup } from '../schema/schemaManagementLogic'
+import type { SchemaPropertyGroup } from '../schema/schemaManagementLogic'
 import type { eventDefinitionSchemaLogicType } from './eventDefinitionSchemaLogicType'
+
+export type { SchemaPropertyGroup }
 
 export interface EventSchema {
     id: string
