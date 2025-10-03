@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
-import { LLMAnalyticsTraces } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
+import { BaseLLMAnalyticsTraces } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
+import { llmAnalyticsLogic } from 'products/llm_analytics/frontend/llmAnalyticsLogic'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
@@ -14,7 +15,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
         return null
     }
 
-    return <LLMAnalyticsTraces personId={personId} />
+    return <BaseLLMAnalyticsTraces logic={llmAnalyticsLogic({ personId })} />
 }
 
 type NotebookNodeLLMTraceAttributes = {
