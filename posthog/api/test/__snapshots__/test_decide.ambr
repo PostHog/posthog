@@ -862,6 +862,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
                                                           WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
@@ -1632,6 +1633,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
                                                           WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
@@ -2158,6 +2160,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
                                                           WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
@@ -2302,6 +2305,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
                                                           WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
@@ -3608,6 +3612,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          T5."id",
          T5."key",
          T5."name",
@@ -3629,6 +3634,7 @@
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
          T5."evaluation_runtime",
+         T5."last_called_at",
          T6."id",
          T6."key",
          T6."name",
@@ -3649,7 +3655,8 @@
          T6."has_enriched_analytics",
          T6."is_remote_configuration",
          T6."has_encrypted_payloads",
-         T6."evaluation_runtime"
+         T6."evaluation_runtime",
+         T6."last_called_at"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
@@ -4062,6 +4069,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          T5."id",
          T5."key",
          T5."name",
@@ -4083,6 +4091,7 @@
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
          T5."evaluation_runtime",
+         T5."last_called_at",
          T6."id",
          T6."key",
          T6."name",
@@ -4103,7 +4112,8 @@
          T6."has_enriched_analytics",
          T6."is_remote_configuration",
          T6."has_encrypted_payloads",
-         T6."evaluation_runtime"
+         T6."evaluation_runtime",
+         T6."last_called_at"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
@@ -4475,6 +4485,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          T5."id",
          T5."key",
          T5."name",
@@ -4496,6 +4507,7 @@
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
          T5."evaluation_runtime",
+         T5."last_called_at",
          T6."id",
          T6."key",
          T6."name",
@@ -4516,7 +4528,8 @@
          T6."has_enriched_analytics",
          T6."is_remote_configuration",
          T6."has_encrypted_payloads",
-         T6."evaluation_runtime"
+         T6."evaluation_runtime",
+         T6."last_called_at"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
@@ -4840,6 +4853,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          T5."id",
          T5."key",
          T5."name",
@@ -4861,6 +4875,7 @@
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
          T5."evaluation_runtime",
+         T5."last_called_at",
          T6."id",
          T6."key",
          T6."name",
@@ -4881,7 +4896,8 @@
          T6."has_enriched_analytics",
          T6."is_remote_configuration",
          T6."has_encrypted_payloads",
-         T6."evaluation_runtime"
+         T6."evaluation_runtime",
+         T6."last_called_at"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
@@ -5103,6 +5119,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
                                                           WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
@@ -5295,6 +5312,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          T5."id",
          T5."key",
          T5."name",
@@ -5316,6 +5334,7 @@
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
          T5."evaluation_runtime",
+         T5."last_called_at",
          T6."id",
          T6."key",
          T6."name",
@@ -5336,7 +5355,8 @@
          T6."has_enriched_analytics",
          T6."is_remote_configuration",
          T6."has_encrypted_payloads",
-         T6."evaluation_runtime"
+         T6."evaluation_runtime",
+         T6."last_called_at"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
@@ -5668,6 +5688,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          T5."id",
          T5."key",
          T5."name",
@@ -5689,6 +5710,7 @@
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
          T5."evaluation_runtime",
+         T5."last_called_at",
          T6."id",
          T6."key",
          T6."name",
@@ -5709,7 +5731,8 @@
          T6."has_enriched_analytics",
          T6."is_remote_configuration",
          T6."has_encrypted_payloads",
-         T6."evaluation_runtime"
+         T6."evaluation_runtime",
+         T6."last_called_at"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
@@ -7076,6 +7099,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
                                                           WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"
@@ -9023,6 +9047,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
          ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
                                                           WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
   FROM "posthog_featureflag"

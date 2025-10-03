@@ -23,6 +23,7 @@ from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.feature_flag_sync.workflow import SyncFeatureFlagLastCalledInputs
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
@@ -119,6 +120,30 @@ async def create_upgrade_queries_schedule(client: Client):
         await a_create_schedule(client, "upgrade-queries-schedule", upgrade_queries_schedule, trigger_immediately=False)
 
 
+async def create_feature_flag_sync_schedule(client: Client):
+    """Create or update the schedule for the feature flag last_called_at sync workflow.
+
+    This schedule runs every 30 minutes to sync feature flag usage timestamps
+    from ClickHouse to PostgreSQL for dead code detection.
+    """
+    feature_flag_sync_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "feature-flag-sync",
+            asdict(SyncFeatureFlagLastCalledInputs()),
+            id="feature-flag-sync-schedule",
+            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
+    )
+
+    if await a_schedule_exists(client, "feature-flag-sync-schedule"):
+        await a_update_schedule(client, "feature-flag-sync-schedule", feature_flag_sync_schedule)
+    else:
+        await a_create_schedule(
+            client, "feature-flag-sync-schedule", feature_flag_sync_schedule, trigger_immediately=True
+        )
+
+
 async def create_salesforce_enrichment_schedule(client: Client):
     """Create or update the schedule for the Salesforce enrichment workflow.
 
@@ -154,6 +179,7 @@ schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
+    create_feature_flag_sync_schedule,
 ]
 
 if settings.EE_AVAILABLE:
