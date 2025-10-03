@@ -39,7 +39,7 @@ def uuid_uint128_expr_to_timestamp_expr_v2(uuid_expr: ast.Expr) -> ast.Expr:
 
 def uuid_uint128_expr_to_timestamp_expr_v3(uuid_expr: ast.Expr) -> ast.Expr:
     return ast.Call(
-        name="fromUnixTimestampMilli",
+        name="fromUnixTimestamp64Milli",
         args=[
             ast.Call(
                 name="_toUInt64",

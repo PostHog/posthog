@@ -41,6 +41,9 @@ if TYPE_CHECKING:
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "session_id_v7": UUIDDatabaseField(name="session_id_v7", nullable=False),
+    "session_timestamp": DatabaseField(
+        name="session_timestamp", nullable=False
+    ),  # don't make this a DateTimeDatabaseField, as that causes us to wrap it in toTimeZone which breaks the index
     "distinct_id": DatabaseField(name="distinct_id", nullable=False),
     "person_id": DatabaseField(name="person_id", nullable=False),
     "min_timestamp": DateTimeDatabaseField(name="min_timestamp", nullable=False),
@@ -87,9 +90,9 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "session_id_v7": StringDatabaseField(name="session_id_v7"),
     "id": StringDatabaseField(name="id"),
-    "session_id": StringDatabaseField(name="id"),
     # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
     "session_id": StringDatabaseField(name="session_id"),
+    "session_timestamp": DateTimeDatabaseField(name="session_timestamp", nullable=False),
     "distinct_id": StringDatabaseField(name="distinct_id"),
     "person_id": UUIDDatabaseField(name="person_id"),
     # timestamp

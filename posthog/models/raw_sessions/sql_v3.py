@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
     -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
     session_id_v7 UInt128,
-    session_timestamp DateTime MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+    session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
 
     -- ClickHouse will pick the latest value of distinct_id for the session
     -- this is fine since even if the distinct_id changes during a session
