@@ -375,7 +375,6 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             AND fingerprint IN %(fingerprints)s
             AND lib != ''
             ORDER BY timestamp
-            LIMIT 1
         """
 
         results = sync_execute(
@@ -386,21 +385,23 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             },
         )
 
+        if not results or len(results) == 0:
+            return {}
         # Return dict mapping fingerprint to library
-        return results
+        return dict(results)
 
     def _build_issue_to_library_mapping(
-        self, issue_id_to_fingerprint: dict[str, str], library_data: dict[str, str]
+        self, issue_id_to_fingerprint: dict[str, str], fingerprint_to_library: dict[str, str]
     ) -> dict[str, str]:
         """Build mapping from issue_id to library using existing data."""
-        if not library_data or len(library_data) == 0:
+        if not fingerprint_to_library or len(fingerprint_to_library) == 0:
             return {}
 
         issue_to_library = {}
         # Map each issue to library data using fingerprints
         for issue_id, fingerprint in issue_id_to_fingerprint.items():
-            if fingerprint in library_data:
-                issue_to_library[issue_id] = library_data[fingerprint]
+            if fingerprint in fingerprint_to_library:
+                issue_to_library[issue_id] = fingerprint_to_library[fingerprint]
         return issue_to_library
 
     def _serialize_issues_to_related_issues(self, issues, library_data: dict[str, str]):
@@ -511,10 +512,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             return Response([])
 
         # Get library data for the similar fingerprints
-        library_data = self._get_issues_library_data(issue_fingerprints)
+        fingerprint_to_library = self._get_issues_library_data(issue_fingerprints)
 
         # Build mapping from issue_id to library using existing data
-        issue_to_library = self._build_issue_to_library_mapping(issue_id_to_fingerprint, library_data)
+        issue_to_library = self._build_issue_to_library_mapping(issue_id_to_fingerprint, fingerprint_to_library)
 
         related_issues = self._serialize_issues_to_related_issues(issues, issue_to_library)
         return Response(related_issues)
