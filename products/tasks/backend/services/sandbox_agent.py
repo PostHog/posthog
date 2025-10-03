@@ -1,5 +1,7 @@
 import logging
 
+from django.conf import settings
+
 from pydantic import BaseModel
 
 from products.tasks.backend.lib.constants import SETUP_REPOSITORY_PROMPT
@@ -78,11 +80,14 @@ class SandboxAgent:
         logger.info(f"Executing task {task_id} in {repo_path} in sandbox {self.sandbox.id}")
         return await self.sandbox.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
 
+    # TODO: Replace these once our coding agent is ready
     def _get_task_command(self, task_id: str) -> str:
-        return f"npx @posthog/code-agent --task-id {task_id}"
+        # return f"npx @posthog/code-agent@latest --yes --task-id {task_id}"
+        return f"export ANTHROPIC_API_KEY={settings.ANTHROPIC_API_KEY} && claude --dangerously-skip-permissions -p 'replace the readme with an ice cream cone'"
 
     def _get_setup_command(self, repo_path: str) -> str:
-        return f"npx @posthog/code-agent --prompt '{SETUP_REPOSITORY_PROMPT.format(repository=repo_path)}'"
+        # return f"npx @posthog/code-agent@latest --yes --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}'"
+        return f"export ANTHROPIC_API_KEY={settings.ANTHROPIC_API_KEY} && claude --dangerously-skip-permissions -p '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}'"
 
     async def destroy(self) -> None:
         await self.sandbox.destroy()

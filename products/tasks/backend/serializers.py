@@ -81,6 +81,9 @@ class TaskSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
 
+        if "request" in self.context and hasattr(self.context["request"], "user"):
+            validated_data["created_by"] = self.context["request"].user
+
         # Set default GitHub integration if not provided
         if not validated_data.get("github_integration"):
             default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()

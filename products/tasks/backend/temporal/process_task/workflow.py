@@ -72,6 +72,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             result = await self._execute_task_in_sandbox(sandbox_id, task_id, task_details.repository)
 
+            logger.info(f"Task {task_id} executed successfully in sandbox {sandbox_id}")
+            logger.info(f"stdout: {result.stdout}")
+            logger.info(f"stderr: {result.stderr}")
+            logger.info(f"exit_code: {result.exit_code}")
+            logger.info(f"error: {result.error}")
+
             return ProcessTaskOutput(
                 success=True,
                 task_result=result,
@@ -93,7 +99,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._cleanup_personal_api_key(personal_api_key_id)
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
-                sandbox_id = None
 
     async def _get_task_details(self, task_id: str) -> TaskDetails:
         logger.info(f"Getting task details for task {task_id}")
