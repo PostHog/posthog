@@ -17,6 +17,7 @@ from products.tasks.backend.services.sandbox_environment import SandboxEnvironme
 from products.tasks.backend.temporal.process_task.activities.check_snapshot_exists_for_repository import (
     check_snapshot_exists_for_repository,
 )
+from products.tasks.backend.temporal.process_task.activities.cleanup_personal_api_key import cleanup_personal_api_key
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import cleanup_sandbox
 from products.tasks.backend.temporal.process_task.activities.clone_repository import clone_repository
 from products.tasks.backend.temporal.process_task.activities.create_sandbox_from_snapshot import (
@@ -26,6 +27,8 @@ from products.tasks.backend.temporal.process_task.activities.create_snapshot imp
 from products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox import execute_task_in_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_setup import get_sandbox_for_setup
 from products.tasks.backend.temporal.process_task.activities.get_task_details import get_task_details
+from products.tasks.backend.temporal.process_task.activities.inject_github_token import inject_github_token
+from products.tasks.backend.temporal.process_task.activities.inject_personal_api_key import inject_personal_api_key
 from products.tasks.backend.temporal.process_task.activities.setup_repository import setup_repository
 from products.tasks.backend.temporal.process_task.activities.tests.constants import POSTHOG_JS_SNAPSHOT
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskOutput, ProcessTaskWorkflow
@@ -73,8 +76,11 @@ class TestProcessTaskWorkflow:
                         setup_repository,
                         create_snapshot,
                         create_sandbox_from_snapshot,
+                        inject_github_token,
+                        inject_personal_api_key,
                         execute_task_in_sandbox,
                         cleanup_sandbox,
+                        cleanup_personal_api_key,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ),
@@ -117,7 +123,7 @@ class TestProcessTaskWorkflow:
             )
             assert len(snapshots) == 1
             assert snapshots[0].id == snapshot.id
-            assert "PostHog/posthog-js" in snapshots[0].repos
+            assert "posthog/posthog-js" in snapshots[0].repos
 
         finally:
             await sync_to_async(snapshot.delete)()

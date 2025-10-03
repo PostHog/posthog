@@ -268,7 +268,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             task_id=task_id,
             repository=repository,
         )
-        await workflow.execute_activity(
+        return await workflow.execute_activity(
             execute_task_in_sandbox,
             execute_input,
             start_to_close_timeout=timedelta(minutes=30),

@@ -107,7 +107,7 @@ async def github_integration(ateam):
     integration = await sync_to_async(Integration.objects.create)(
         team=ateam,
         kind="github",
-        config={"access_token": "fake_token"},
+        sensitive_config={"access_token": "fake_token"},
     )
 
     yield integration

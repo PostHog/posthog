@@ -11,14 +11,13 @@ class TestSnapshot(TypedDict):
     repos: list[str]
 
 
-# Available test snapshots
 SNAPSHOTS = [
-    TestSnapshot(external_id="snp_31DQ1OhCtOXiMaR4UAYXx", repos=[]),
-    TestSnapshot(external_id="snp_31DQ2BxMGkbMnXeedSf4H", repos=["PostHog/posthog-js"]),
-    TestSnapshot(external_id="snp_31DQ6FMEcNQLJqlGWYabH", repos=["PostHog/posthog-js", "PostHog/posthog"]),
+    TestSnapshot(external_id="snp_31DY4EmLlBZFy1aHV2IN2", repos=[]),
+    TestSnapshot(external_id="snp_31DY5L7W4ismYpImz22wN", repos=["posthog/posthog-js"]),
+    TestSnapshot(external_id="snp_31DY9PDHgbhD3NDgA6DGe", repos=["posthog/posthog-js", "posthog/posthog"]),
 ]
 
-# Quick access to specific snapshots
+
 BASE_SNAPSHOT = SNAPSHOTS[0]
 POSTHOG_JS_SNAPSHOT = SNAPSHOTS[1]
 MULTI_REPO_SNAPSHOT = SNAPSHOTS[2]

@@ -1,3 +1,4 @@
+import json
 import asyncio
 from dataclasses import dataclass
 
@@ -34,10 +35,10 @@ async def create_snapshot(input: CreateSnapshotInput) -> str:
 
     snapshot_external_id = await sandbox.initiate_snapshot(
         {
-            "integration_id": input.github_integration_id,
-            "team_id": input.team_id,
-            "repositories": new_repos,
-            "base_snapshot_id": base_snapshot.id if base_snapshot else None,
+            "integration_id": str(input.github_integration_id),
+            "team_id": str(input.team_id),
+            "repositories": json.dumps(new_repos),
+            "base_snapshot_id": str(base_snapshot.id) if base_snapshot else "",
         }
     )
 
