@@ -773,7 +773,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             request_fields = set(request.data.keys())
             non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
             if not non_team_config_fields:
-                return ["team:read"]
+                return ["project:read"]
 
         # Fall back to the default behavior
         return None
@@ -933,7 +933,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["PATCH"],
         detail=True,
-        required_scopes=["team:read"],
+        required_scopes=["project:read"],
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
@@ -957,7 +957,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["PATCH"],
         detail=True,
-        required_scopes=["team:read"],
+        required_scopes=["project:read"],
     )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
@@ -999,7 +999,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
-    @action(methods=["GET"], detail=True, required_scopes=["team:read"], url_path="event_ingestion_restrictions")
+    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="event_ingestion_restrictions")
     def event_ingestion_restrictions(self, request, **kwargs):
         team = self.get_object()
         restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
