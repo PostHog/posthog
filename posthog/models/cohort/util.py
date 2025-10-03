@@ -557,50 +557,33 @@ def get_all_cohort_dependencies(
     return cohorts
 
 
-def get_all_cohort_dependents(
-    cohort: Cohort,
-    using_database: str = "default",
-    seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
-) -> list[Cohort]:
+def get_all_cohort_dependents(cohort: Cohort, using_database: str = "default") -> list[Cohort]:
     """
     Get all cohorts that reference the given cohort, traversing the full dependent chain.
     For example: if A depends on B, and B depends on C, this returns [A, B] for cohort C.
     This is the reverse traversal of get_dependency_cohorts.
     """
-    if seen_cohorts_cache is None:
-        seen_cohorts_cache = {}
-
-    cohorts = []
-    seen_cohort_ids = {cohort.id}
-    queue = [cohort.id]
+    cohorts: list[int] = []
+    seen_cohort_ids: set[int] = {cohort.id}
+    queue: list[int] = [cohort.id]
 
     while queue:
         cohort_id = queue.pop()
 
-        try:
-            if cohort_id in seen_cohorts_cache:
-                current_cohort = seen_cohorts_cache[cohort_id]
-                if not current_cohort:
-                    continue
-            else:
-                current_cohort = Cohort.objects.db_manager(using_database).get(
-                    pk=cohort_id, team__project_id=cohort.team.project_id, deleted=False
-                )
-                seen_cohorts_cache[cohort_id] = current_cohort
+        for related_id in get_cohort_dependents(cohort_id):
+            if related_id not in seen_cohort_ids:
+                queue.append(related_id)
+                seen_cohort_ids.add(related_id)
 
-            for related_id in get_cohort_dependents(current_cohort):
-                if related_id not in seen_cohort_ids:
-                    queue.append(related_id)
-                    seen_cohort_ids.add(related_id)
+        if cohort_id != cohort.id:
+            cohorts.append(cohort_id)
 
-            if cohort_id != cohort.id:
-                cohorts.append(current_cohort)
-
-        except Cohort.DoesNotExist:
-            seen_cohorts_cache[cohort_id] = ""
-            continue
-
-    return cohorts
+    try:
+        dependent_cohorts = Cohort.objects.db_manager(using_database).filter(id__in=cohorts, deleted=False).all()
+        return list(dependent_cohorts)
+    except Exception as e:
+        logger.exception("Failed to fetch cohorts", error=str(e))
+    return []
 
 
 def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[int, CohortOrEmpty]) -> list[int]:
