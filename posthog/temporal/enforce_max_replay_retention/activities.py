@@ -49,7 +49,7 @@ async def enforce_max_replay_retention(input: EnforceMaxReplayRetentionInput) ->
 
             if not validate_retention_period(current_retention):
                 logger.warning(
-                    f"Session Recording retention period is misconfigured team",
+                    f"Session Recording retention period is misconfigured for team",
                     team_id=team.id,
                     team_name=team.name,
                     organization_id=organization.id,

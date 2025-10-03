@@ -152,6 +152,10 @@ async def create_salesforce_enrichment_schedule(client: Client):
 
 
 async def create_enforce_max_replay_retention_schedule(client: Client):
+    """Create or update the schedule for the enforce max replay retention workflow.
+
+    This schedule runs daily at 1 AM UTC.
+    """
     enforce_max_replay_retention_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "enforce-max-replay-retention",
