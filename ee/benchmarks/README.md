@@ -45,7 +45,7 @@ CLICKHOUSE_HOST=X CLICKHOUSE_USER=X CLICKHOUSE_PASSWORD=X CLICKHOUSE_DATABASE=po
 
 You'll probably want to be running one test, with quick iteration. Running e.g.:
 
-```
+```bash
 asv run --config ee/benchmarks/asv.conf.json --bench track_lifecycle --quick
 ```
 

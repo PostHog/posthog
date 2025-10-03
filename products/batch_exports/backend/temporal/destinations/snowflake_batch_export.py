@@ -33,7 +33,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
@@ -73,7 +73,7 @@ from products.batch_exports.backend.temporal.utils import (
 )
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class NamedBytesIO(io.BytesIO):
@@ -1282,8 +1282,9 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
         requires_merge, merge_key, update_key = _get_snowflake_merge_config(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        attempt = activity.info().attempt
         stage_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
             if requires_merge
             else inputs.table_name
         )
