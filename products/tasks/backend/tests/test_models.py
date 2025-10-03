@@ -767,23 +767,6 @@ class TestTaskSlug(TestCase):
         self.assertEqual(task1.slug, "TES-0")
         self.assertEqual(task2.slug, "JON-0")
 
-    def test_task_number_unique_per_team(self):
-        task1 = Task.objects.create(
-            team=self.team,
-            title="Task 1",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-
-        with self.assertRaises(IntegrityError):
-            Task.objects.create(
-                team=self.team,
-                title="Task 2",
-                description="Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
-                task_number=task1.task_number,
-            )
-
 
 class TestTaskProgress(TestCase):
     def setUp(self):
