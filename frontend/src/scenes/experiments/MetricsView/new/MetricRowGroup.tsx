@@ -334,7 +334,7 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <div className="metric-cell">
+                    <div className="metric-cell font-medium">
                         <div>{formatMetricValue(baselineResult, metric)}</div>
                         {ratioMetricLabel(baselineResult, metric)}
                     </div>
@@ -445,7 +445,7 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <div className="metric-cell">
+                            <div className="metric-cell font-medium">
                                 <div className="">{formatMetricValue(variant, metric)}</div>
                                 {ratioMetricLabel(variant, metric)}
                             </div>
@@ -458,14 +458,14 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <div className="flex items-center gap-1 font-medium">
+                            <div className="flex items-center gap-1">
                                 <span
                                     className={`${
                                         significant
                                             ? winning
                                                 ? 'metric-cell text-success font-bold'
                                                 : 'metric-cell text-danger font-bold'
-                                            : 'metric-cell'
+                                            : 'metric-cell font-medium'
                                     }`}
                                 >
                                     {deltaText}
