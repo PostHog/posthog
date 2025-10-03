@@ -28,7 +28,8 @@ const getExposureEvent = (experiment: Experiment): string => {
     if (isEventExposureConfig(exposureConfig)) {
         return exposureConfig.event || '$feature_flag_called'
     }
-    return '$feature_flag_called'
+    // For action-based exposure, use the action's event name if available
+    return exposureConfig.action?.name || '$feature_flag_called'
 }
 
 // AddBreakdownButton component for event property breakdowns
