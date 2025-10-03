@@ -1,18 +1,11 @@
-import './SchemaManagement.scss'
+import { useState } from 'react'
 
-import { useActions, useValues } from 'kea'
-
-import { IconApps, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { IconCheck } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonModal, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-
-import { PropertyGroupModal } from './PropertyGroupModal'
-import { SchemaPropertyGroup, SchemaPropertyGroupProperty, schemaManagementLogic } from './schemaManagementLogic'
+import { SchemaPropertyGroup, SchemaPropertyGroupProperty } from './schemaManagementLogic'
 
 function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): JSX.Element {
     return (
@@ -35,10 +28,28 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
     )
 }
 
-export function SchemaManagement(): JSX.Element {
-    const { filteredPropertyGroups, propertyGroupsLoading, searchTerm } = useValues(schemaManagementLogic)
-    const { setSearchTerm, setPropertyGroupModalOpen, setEditingPropertyGroup, deletePropertyGroup } =
-        useActions(schemaManagementLogic)
+interface SelectPropertyGroupModalProps {
+    isOpen: boolean
+    onClose: () => void
+    onSelect: (propertyGroupId: string) => void
+    availablePropertyGroups: SchemaPropertyGroup[]
+    selectedPropertyGroupIds?: Set<string>
+}
+
+export function SelectPropertyGroupModal({
+    isOpen,
+    onClose,
+    onSelect,
+    availablePropertyGroups,
+    selectedPropertyGroupIds = new Set(),
+}: SelectPropertyGroupModalProps): JSX.Element {
+    const [searchTerm, setSearchTerm] = useState('')
+
+    const filteredPropertyGroups = availablePropertyGroups.filter(
+        (group) =>
+            !selectedPropertyGroupIds.has(group.id) &&
+            (searchTerm === '' || group.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    )
 
     const columns: LemonTableColumns<SchemaPropertyGroup> = [
         {
@@ -72,70 +83,35 @@ export function SchemaManagement(): JSX.Element {
             key: 'actions',
             width: 100,
             render: (_, propertyGroup) => (
-                <div className="flex gap-1">
-                    <LemonButton
-                        icon={<IconPencil />}
-                        size="small"
-                        onClick={() => {
-                            setEditingPropertyGroup(propertyGroup)
-                            setPropertyGroupModalOpen(true)
-                        }}
-                    />
-                    <LemonButton
-                        icon={<IconTrash />}
-                        size="small"
-                        status="danger"
-                        onClick={() => {
-                            if (
-                                confirm(
-                                    `Are you sure you want to delete "${propertyGroup.name}"? This action cannot be undone.`
-                                )
-                            ) {
-                                deletePropertyGroup(propertyGroup.id)
-                            }
-                        }}
-                    />
-                </div>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    icon={<IconCheck />}
+                    onClick={() => {
+                        onSelect(propertyGroup.id)
+                        onClose()
+                    }}
+                >
+                    Select
+                </LemonButton>
             ),
         },
     ]
 
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Schema Management"
-                description="Define reusable property groups to establish schemas for your events."
-                resourceType={{
-                    type: 'schema',
-                    forceIcon: <IconApps />,
-                }}
-            />
-            <SceneDivider />
+        <LemonModal isOpen={isOpen} onClose={onClose} title="Select Property Group" width={900}>
             <div className="space-y-4">
-                <div className="flex items-center justify-between gap-2">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search property groups..."
-                        className="max-w-60"
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                    />
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        onClick={() => {
-                            setEditingPropertyGroup(null)
-                            setPropertyGroupModalOpen(true)
-                        }}
-                    >
-                        New Property Group
-                    </LemonButton>
-                </div>
+                <LemonInput
+                    type="search"
+                    placeholder="Search property groups..."
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    autoFocus
+                />
 
                 <LemonTable
                     columns={columns}
                     dataSource={filteredPropertyGroups}
-                    loading={propertyGroupsLoading}
                     expandable={{
                         expandedRowRender: (propertyGroup) => (
                             <div className="border rounded overflow-hidden mx-4 mb-2 mt-2">
@@ -158,11 +134,13 @@ export function SchemaManagement(): JSX.Element {
                         ),
                         rowExpandable: () => true,
                     }}
-                    emptyState="No property groups yet. Create one to get started!"
+                    emptyState={
+                        searchTerm
+                            ? 'No property groups match your search'
+                            : 'No property groups available. Create one in Schema Management first.'
+                    }
                 />
             </div>
-
-            <PropertyGroupModal />
-        </SceneContent>
+        </LemonModal>
     )
 }

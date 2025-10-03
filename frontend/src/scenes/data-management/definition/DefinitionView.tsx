@@ -19,6 +19,7 @@ import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
+import { EventDefinitionSchema } from 'scenes/data-management/events/EventDefinitionSchema'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -353,6 +354,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
 
             {isEvent && definition.id !== 'new' && (
                 <>
+                    <EventDefinitionSchema definition={definition} />
+                    <SceneDivider />
                     <EventDefinitionProperties definition={definition} />
                     <SceneDivider />
                     <EventDefinitionInsights definition={definition} />

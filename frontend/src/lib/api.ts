@@ -648,6 +648,22 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('sessions').addPathComponent('property_definitions')
     }
 
+    public schemaPropertyGroups(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('schema_property_groups')
+    }
+
+    public schemaPropertyGroupsDetail(id: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.schemaPropertyGroups(projectId).addPathComponent(id)
+    }
+
+    public eventSchemas(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('event_schemas')
+    }
+
+    public eventSchemasDetail(id: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.eventSchemas(projectId).addPathComponent(id)
+    }
+
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
@@ -2225,6 +2241,39 @@ const api = {
                 .sessionPropertyDefinitions(teamId)
                 .withQueryString(toParams({ search, ...(properties ? { properties: properties.join(',') } : {}) }))
                 .get()
+        },
+    },
+
+    schemaPropertyGroups: {
+        async list(projectId?: ProjectType['id']): Promise<{ results: any[] }> {
+            return new ApiRequest().schemaPropertyGroups(projectId).get()
+        },
+        async get(id: string, projectId?: ProjectType['id']): Promise<any> {
+            return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).get()
+        },
+        async create(data: any, projectId?: ProjectType['id']): Promise<any> {
+            return new ApiRequest().schemaPropertyGroups(projectId).create({ data })
+        },
+        async update(id: string, data: any, projectId?: ProjectType['id']): Promise<any> {
+            return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).update({ data })
+        },
+        async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
+            return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).delete()
+        },
+    },
+
+    eventSchemas: {
+        async list(eventDefinitionId: string, projectId?: ProjectType['id']): Promise<{ results: any[] }> {
+            return new ApiRequest()
+                .eventSchemas(projectId)
+                .withQueryString(toParams({ event_definition: eventDefinitionId }))
+                .get()
+        },
+        async create(data: any, projectId?: ProjectType['id']): Promise<any> {
+            return new ApiRequest().eventSchemas(projectId).create({ data })
+        },
+        async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
+            return new ApiRequest().eventSchemasDetail(id, projectId).delete()
         },
     },
 
