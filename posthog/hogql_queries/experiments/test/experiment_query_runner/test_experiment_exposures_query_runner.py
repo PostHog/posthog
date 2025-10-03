@@ -1150,8 +1150,8 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_series = next((s for s in response.timeseries if s.variant == "control"), None)
         test_series = next((s for s in response.timeseries if s.variant == "test"), None)
 
-        self.assertIsNotNone(control_series)
-        self.assertIsNotNone(test_series)
+        assert control_series is not None
+        assert test_series is not None
 
         # All control exposures on 2024-01-02
         self.assertEqual(control_series.exposure_counts[-1], 2)
