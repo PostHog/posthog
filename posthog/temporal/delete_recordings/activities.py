@@ -66,11 +66,11 @@ async def load_recording_blocks(input: RecordingInput) -> list[RecordingBlock]:
             "ttl_days": 365,
         }
 
+        ch_query_id = str(uuid4())
+        logger.info(f"Querying ClickHouse with query_id: {ch_query_id}")
         raw_response: bytes = b""
         async with get_client() as client:
-            async with client.aget_query(
-                query=query, query_parameters=parameters, query_id=str(uuid4())
-            ) as ch_response:
+            async with client.aget_query(query=query, query_parameters=parameters, query_id=ch_query_id) as ch_response:
                 raw_response = await ch_response.content.read()
 
         block_listing: RecordingBlockListing | None = SessionReplayEvents.build_recording_block_listing(
