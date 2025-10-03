@@ -1,20 +1,36 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 
-import { IconCheck, IconRefresh, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconCheck, IconWarning, IconX } from '@posthog/icons'
+import { LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
-import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationRun } from '../types'
+import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
 
-export function EvaluationRunsTable(): JSX.Element {
-    const { evaluationRuns, runsLoading } = useValues(llmEvaluationLogic)
-    const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
+export interface GenerationEvaluationRun {
+    id: string
+    evaluation_id: string
+    evaluation_name: string
+    timestamp: string
+    result: boolean
+    reasoning: string
+    status: 'completed' | 'failed' | 'running'
+}
 
-    const columns: LemonTableColumns<EvaluationRun> = [
+export function GenerationEvalRunsTable({ generationEventId }: { generationEventId: string }): JSX.Element {
+    return (
+        <BindLogic logic={generationEvaluationRunsLogic} props={{ generationEventId }}>
+            <GenerationEvalRunsTableContent />
+        </BindLogic>
+    )
+}
+
+function GenerationEvalRunsTableContent(): JSX.Element {
+    const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(generationEvaluationRunsLogic)
+
+    const columns: LemonTableColumns<GenerationEvaluationRun> = [
         {
             title: 'Timestamp',
             key: 'timestamp',
@@ -22,17 +38,12 @@ export function EvaluationRunsTable(): JSX.Element {
             sorter: (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         },
         {
-            title: 'Generation ID',
-            key: 'generation_id',
+            title: 'Evaluation',
+            key: 'evaluation',
             render: (_, run) => (
-                <div className="font-mono text-sm">
-                    <Link
-                        to={urls.llmAnalyticsTrace(run.trace_id, { event: run.generation_id })}
-                        className="text-primary"
-                    >
-                        {run.generation_id.slice(0, 12)}...
-                    </Link>
-                </div>
+                <Link to={urls.llmAnalyticsEvaluation(run.evaluation_id)} className="text-primary font-medium">
+                    {run.evaluation_name}
+                </Link>
             ),
         },
         {
@@ -79,48 +90,23 @@ export function EvaluationRunsTable(): JSX.Element {
                 </div>
             ),
         },
-        {
-            title: 'Status',
-            key: 'status',
-            render: (_, run) => {
-                const statusMap = {
-                    completed: { type: 'success' as const, text: 'Completed' },
-                    failed: { type: 'danger' as const, text: 'Failed' },
-                    running: { type: 'primary' as const, text: 'Running' },
-                }
-                const status = statusMap[run.status]
-                return <LemonTag type={status.type}>{status.text}</LemonTag>
-            },
-        },
     ]
 
     return (
-        <div className="space-y-4">
-            <div className="flex justify-end">
-                <LemonButton
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    onClick={refreshEvaluationRuns}
-                    loading={runsLoading}
-                    size="small"
-                >
-                    Refresh
-                </LemonButton>
-            </div>
-
+        <div>
             <LemonTable
                 columns={columns}
-                dataSource={evaluationRuns}
-                loading={runsLoading}
+                dataSource={generationEvaluationRuns}
+                loading={generationEvaluationRunsLoading}
                 rowKey="id"
                 pagination={{
                     pageSize: 20,
                 }}
                 emptyState={
                     <div className="text-center py-8">
-                        <div className="text-muted mb-2">No evaluation runs yet</div>
+                        <div className="text-muted mb-2">No evaluations run yet</div>
                         <div className="text-sm text-muted">
-                            Runs will appear here once this evaluation starts executing based on your triggers.
+                            Click "Run Evaluation" above to run an evaluation on this generation.
                         </div>
                     </div>
                 }

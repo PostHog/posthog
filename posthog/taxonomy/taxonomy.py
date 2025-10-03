@@ -221,6 +221,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI generation (LLM)",
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
         },
+        "$ai_evaluation": {
+            "label": "AI evaluation (LLM)",
+            "description": "An automated evaluation of an AI event. Contains the verdict, target event, and evaluation metadata.",
+        },
         "$ai_metric": {
             "label": "AI metric (LLM)",
             "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
@@ -1887,6 +1891,46 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Request URL (LLM)",
             "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"],
+        },
+        "$ai_evaluation_id": {
+            "label": "AI Evaluation ID (LLM)",
+            "description": "The unique identifier of the evaluation configuration used to judge the AI event.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_evaluation_name": {
+            "label": "AI Evaluation Name (LLM)",
+            "description": "The name of the evaluation configuration used.",
+            "examples": ["Factual accuracy check", "Response relevance"],
+        },
+        "$ai_evaluation_model": {
+            "label": "AI Evaluation Model (LLM)",
+            "description": "The LLM model used as the judge for the evaluation.",
+            "examples": ["gpt-4", "claude-3-opus"],
+        },
+        "$ai_evaluation_start_time": {
+            "label": "AI Evaluation Start Time (LLM)",
+            "description": "The timestamp when the evaluation started executing.",
+            "examples": ["2025-01-15T10:30:00Z"],
+        },
+        "$ai_evaluation_result": {
+            "label": "AI Evaluation Result (LLM)",
+            "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
+            "examples": [True, False],
+        },
+        "$ai_evaluation_reasoning": {
+            "label": "AI Evaluation Reasoning (LLM)",
+            "description": "The LLM's explanation for why the evaluation passed or failed.",
+            "examples": ["The response accurately addresses the query", "The output contains factual inaccuracies"],
+        },
+        "$ai_target_event_id": {
+            "label": "AI Target Event ID (LLM)",
+            "description": "The unique identifier of the event being evaluated.",
+            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_target_event_type": {
+            "label": "AI Target Event Type (LLM)",
+            "description": "The type of event being evaluated (e.g., $ai_generation).",
+            "examples": ["$ai_generation", "$ai_span"],
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
