@@ -37,7 +37,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         blank=True,
         related_name="modified_notebooks",
     )
-    tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, null=True, default=list)
+    tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, null=True, default=None)
 
     class Meta:
         unique_together = ("team", "short_id")
