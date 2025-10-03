@@ -37,7 +37,7 @@ class TestGetTaskDetailsActivity:
         assert result.task_id == str(test_task.id)
         assert result.team_id == test_task.team_id
         assert result.github_integration_id == test_task.github_integration_id
-        assert result.repository == "test-repo"
+        assert result.repository == "PostHog/posthog-js"
 
     @pytest.mark.asyncio
     @pytest.mark.django_db
@@ -70,7 +70,7 @@ class TestGetTaskDetailsActivity:
             assert result.task_id == str(task.id)
             assert result.team_id == task.team_id
             assert result.github_integration_id == github_integration.id
-            assert result.repository == "posthog"
+            assert result.repository == "posthog/posthog-js"
         finally:
             await self._cleanup_task(task)
 

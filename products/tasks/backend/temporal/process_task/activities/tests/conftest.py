@@ -5,8 +5,9 @@ import pytest
 from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.integration import Integration
+from posthog.models.user import User
 from posthog.temporal.common.logger import configure_logger
 
 from products.tasks.backend.models import Task, TaskWorkflow, WorkflowStage
@@ -115,13 +116,30 @@ async def github_integration(ateam):
 
 
 @pytest.fixture
-async def test_task(ateam, task_workflow, github_integration):
+async def auser(ateam):
+    user = await sync_to_async(User.objects.create)(
+        email=f"test-{random.randint(1, 99999)}@example.com",
+        password="testpassword123",
+    )
+
+    await sync_to_async(OrganizationMembership.objects.create)(
+        user=user,
+        organization_id=ateam.organization_id,
+    )
+
+    yield user
+    await sync_to_async(user.delete)()
+
+
+@pytest.fixture
+async def test_task(ateam, auser, task_workflow, github_integration):
     """Create a test task."""
     workflow, stages = task_workflow
     backlog_stage = stages[0]
 
     task = await sync_to_async(Task.objects.create)(
         team=ateam,
+        created_by=auser,
         title="Test Task for Temporal Activities",
         description="This is a test task for testing temporal activities",
         origin_product=Task.OriginProduct.USER_CREATED,

@@ -13,6 +13,7 @@ from products.tasks.backend.services.sandbox_environment import (
 )
 from products.tasks.backend.temporal.process_task.activities.inject_personal_api_key import (
     InjectPersonalAPIKeyInput,
+    InjectPersonalAPIKeyOutput,
     inject_personal_api_key,
 )
 
@@ -31,16 +32,12 @@ class TestInjectPersonalAPIKeyActivity:
         try:
             sandbox = await SandboxEnvironment.create(config)
 
-            await sync_to_async(user.save)()
-            test_task.created_by = user
-            await sync_to_async(test_task.save)()
-
             input_data = InjectPersonalAPIKeyInput(
                 sandbox_id=sandbox.id,
                 task_id=str(test_task.id),
             )
 
-            result = await activity_environment.run(inject_personal_api_key, input_data)
+            result: InjectPersonalAPIKeyOutput = await activity_environment.run(inject_personal_api_key, input_data)
 
             assert result.personal_api_key_id is not None
 
@@ -92,11 +89,7 @@ class TestInjectPersonalAPIKeyActivity:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_inject_personal_api_key_sandbox_not_found(self, activity_environment, test_task, user):
-        await sync_to_async(user.save)()
-        test_task.created_by = user
-        await sync_to_async(test_task.save)()
-
+    async def test_inject_personal_api_key_sandbox_not_found(self, activity_environment, test_task):
         input_data = InjectPersonalAPIKeyInput(
             sandbox_id="non-existent-sandbox-id",
             task_id=str(test_task.id),
