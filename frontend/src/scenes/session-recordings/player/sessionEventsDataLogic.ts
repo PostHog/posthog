@@ -258,6 +258,7 @@ AND properties.$lib != 'web'`
                 )
                 return viewportEvents
             },
+            { resultEqualityCheck: objectsEqual },
         ],
         viewportForTimestamp: [
             (s) => [s.eventViewportsItems],
