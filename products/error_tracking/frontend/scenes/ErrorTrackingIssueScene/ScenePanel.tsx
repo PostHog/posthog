@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonModal, Link, Spinner } from '@posthog/lemon-ui'
@@ -209,7 +209,7 @@ const IssueExternalReference = (): JSX.Element => {
 const SimilarIssues = (): JSX.Element => {
     const { issue, similarIssues, similarIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadSimilarIssues } = useActions(errorTrackingIssueSceneLogic)
-    const { mergeIssues } = useActions(issueActionsLogic)
+    const { mergeIssues } = useAsyncActions(issueActionsLogic)
     const [selectedIssue, setSelectedIssue] = useState<RelatedIssue | null>(null)
 
     useEffect(() => {
@@ -237,16 +237,16 @@ const SimilarIssues = (): JSX.Element => {
                                 className="flex items-center justify-between p-2 border rounded bg-surface-primary"
                             >
                                 <div
-                                    className="flex flex-col gap-1 min-w-0 cursor-pointer"
+                                    className="flex flex-col gap-1 min-w-0 group flex-grow cursor-pointer"
                                     onClick={() => setSelectedIssue(relatedIssue)}
                                 >
-                                    <div className="flex items-center gap-2">
-                                        <span className="shrink-0 text-gray-600">
-                                            <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" />
-                                        </span>
-                                        <div className="font-medium text-sm truncate text-link hover:underline">
-                                            {relatedIssue.title}
-                                        </div>
+                                    <div className="font-medium text-sm truncate group-hover:text-accent">
+                                        <RuntimeIcon
+                                            runtime={relatedRuntime}
+                                            fontSize="0.7rem"
+                                            className="shrink-0 mr-2"
+                                        />
+                                        {relatedIssue.title}
                                     </div>
                                     {relatedIssue.description && (
                                         <div className="text-xs text-secondary truncate">
@@ -260,7 +260,7 @@ const SimilarIssues = (): JSX.Element => {
                                         e.preventDefault()
                                         handleMerge(relatedIssue.id)
                                     }}
-                                    className="shrink-0 px-2 py-3"
+                                    className="shrink-0 px-2 py-3 h-full"
                                 >
                                     Merge
                                 </ButtonPrimitive>
@@ -287,12 +287,6 @@ const SimilarIssues = (): JSX.Element => {
 
 const IssueFingerprints = (): JSX.Element => {
     const { issue, issueFingerprints, issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
-    const { loadIssueFingerprints } = useActions(errorTrackingIssueSceneLogic)
-
-    useEffect(() => {
-        loadIssueFingerprints()
-    }, [loadIssueFingerprints])
-
     return (
         <ScenePanelLabel title="Fingerprints">
             <Link to={issue ? urls.errorTrackingIssueFingerprints(issue.id) : undefined}>

@@ -34,7 +34,8 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueId, issueLoading, selectedEvent, initialEventLoading, eventsQuery, eventsQueryKey } =
+        useValues(errorTrackingIssueSceneLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
@@ -83,7 +84,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     </ErrorFilters.Root>
                     <Metadata>
                         <EventsTable
-                            issueId={issueId}
+                            query={eventsQuery}
+                            queryKey={eventsQueryKey}
                             selectedEvent={selectedEvent}
                             onEventSelect={(selectedEvent) => (selectedEvent ? selectEvent(selectedEvent) : null)}
                         />
