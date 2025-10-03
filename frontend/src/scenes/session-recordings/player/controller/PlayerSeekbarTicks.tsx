@@ -76,7 +76,7 @@ function PlayerSeekbarTick({
         >
             <Tooltip
                 placement="top-start"
-                delayMs={50}
+                delayMs={10}
                 onOpen={() => {
                     posthog.capture('player seekbar tick tooltip shown', {
                         item_type: item.type,

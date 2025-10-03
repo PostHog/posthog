@@ -3537,11 +3537,16 @@ export enum ScheduledChangeModels {
 export enum ScheduledChangeOperationType {
     UpdateStatus = 'update_status',
     AddReleaseCondition = 'add_release_condition',
+    UpdateVariants = 'update_variants',
 }
 
 export type ScheduledChangePayload =
     | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
     | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
+    | {
+          operation: ScheduledChangeOperationType.UpdateVariants
+          value: { variants: MultivariateFlagVariant[]; payloads?: Record<string, any> }
+      }
 
 export interface ScheduledChangeType {
     id: number
