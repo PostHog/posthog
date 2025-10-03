@@ -5,8 +5,10 @@ import { uuid } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
+    ActionsNode,
     AnyEntityNode,
     EventsNode,
+    ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentFunnelMetricStep,
     ExperimentFunnelsQuery,
@@ -38,6 +40,18 @@ import {
 } from '~/types'
 
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
+
+export function isEventExposureConfig(config: ExperimentExposureConfig): config is ExperimentEventExposureConfig {
+    return 'event' in config
+}
+
+export function isActionExposureConfig(config: ExperimentExposureConfig): config is ActionsNode {
+    return 'id' in config && config.kind === NodeKind.ActionsNode
+}
+
+export function getExposureConfigDisplayName(config: ExperimentExposureConfig): string {
+    return isEventExposureConfig(config) ? config.event : config.name || `Action ${config.id}`
+}
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -138,6 +152,29 @@ function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): Univers
 
     return null
 }
+
+function createExposureFilter(
+    exposureConfig: ExperimentExposureConfig,
+    featureFlagKey: string,
+    variantKey: string
+): UniversalFiltersGroupValue {
+    const isEvent = isEventExposureConfig(exposureConfig)
+    return {
+        id: isEvent ? exposureConfig.event : exposureConfig.id,
+        name: isEvent ? exposureConfig.event : exposureConfig.name || `Action ${exposureConfig.id}`,
+        type: isEvent ? 'events' : 'actions',
+        properties: [
+            ...(exposureConfig.properties || []),
+            {
+                key: `$feature/${featureFlagKey}`,
+                type: PropertyFilterType.Event,
+                value: [variantKey],
+                operator: PropertyOperator.Exact,
+            },
+        ],
+    }
+}
+
 /**
  * Gets the Filters to ExperimentMetrics, Can't quite use `exposureConfigToFilter` or
  * `metricToFilter` because the format is not quite the same, but we can use `seriesToFilter`
@@ -154,36 +191,11 @@ export function getViewRecordingFilters(
      * We need to check the exposure criteria as the first on the filter chain.
      */
     const exposureCriteria = experiment.exposure_criteria?.exposure_config
-    if (exposureCriteria && 'event' in exposureCriteria && exposureCriteria.event !== '$feature_flag_called') {
-        filters.push({
-            id: exposureCriteria.event,
-            name: exposureCriteria.event,
-            type: 'events',
-            properties: [
-                ...(exposureCriteria.properties || []),
-                {
-                    key: `$feature/${experiment.feature_flag_key}`,
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        })
-    } else if (exposureCriteria && 'id' in exposureCriteria) {
-        filters.push({
-            id: exposureCriteria.id,
-            name: exposureCriteria.name || `Action ${exposureCriteria.id}`,
-            type: 'actions',
-            properties: [
-                ...(exposureCriteria.properties || []),
-                {
-                    key: `$feature/${experiment.feature_flag_key}`,
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        })
+    if (
+        exposureCriteria &&
+        !(isEventExposureConfig(exposureCriteria) && exposureCriteria.event === '$feature_flag_called')
+    ) {
+        filters.push(createExposureFilter(exposureCriteria, experiment.feature_flag_key, variantKey))
     } else {
         filters.push({
             id: '$feature_flag_called',
@@ -576,15 +588,6 @@ export function filterToExposureConfig(entity: Record<string, any> | undefined):
         return {
             kind: NodeKind.ExperimentEventExposureConfig,
             event: entity.id,
-            properties: entity.properties,
-        }
-    }
-
-    if (entity.kind === NodeKind.ActionsNode) {
-        return {
-            kind: NodeKind.ActionsNode,
-            id: entity.id,
-            name: entity.name,
             properties: entity.properties,
         }
     }

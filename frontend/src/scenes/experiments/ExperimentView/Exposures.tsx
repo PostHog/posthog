@@ -14,6 +14,7 @@ import { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
 import { useChartColors } from '../MetricsView/shared/colors'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
 
 function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
@@ -22,8 +23,7 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
         return 'Default ($feature_flag_called)'
     }
 
-    const displayName =
-        'event' in exposureConfig ? exposureConfig.event : exposureConfig.name || `Action ${exposureConfig.id}`
+    const displayName = getExposureConfigDisplayName(exposureConfig)
     return `Custom (${displayName})`
 }
 

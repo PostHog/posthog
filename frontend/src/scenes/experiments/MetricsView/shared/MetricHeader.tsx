@@ -9,6 +9,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
+import { isEventExposureConfig } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import type { EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
@@ -24,7 +25,10 @@ const getExposureEvent = (experiment: Experiment): string => {
     if (!exposureConfig) {
         return '$feature_flag_called'
     }
-    return 'event' in exposureConfig ? exposureConfig.event : '$feature_flag_called'
+    if (isEventExposureConfig(exposureConfig)) {
+        return exposureConfig.event !== '$feature_flag_called' ? exposureConfig.event : '$feature_flag_called'
+    }
+    return '$feature_flag_called'
 }
 
 // AddBreakdownButton component for event property breakdowns

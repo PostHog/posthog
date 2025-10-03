@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
+import { getExposureConfigDisplayName } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import type { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
@@ -147,10 +148,7 @@ export const getExperimentChangeDescription = (
                         }
 
                         if (afterConfig) {
-                            const displayName =
-                                'event' in afterConfig
-                                    ? afterConfig.event
-                                    : afterConfig.name || `Action ${afterConfig.id}`
+                            const displayName = getExposureConfigDisplayName(afterConfig)
                             return (
                                 <span>
                                     set the exposure configuration to <LemonTag color="purple">{displayName}</LemonTag>
