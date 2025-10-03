@@ -324,7 +324,7 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <div className="metric-cell font-semibold">{baselineResult.key}</div>
+                    <div className="metric-cell">{baselineResult.key}</div>
                 </td>
 
                 {/* Value */}
@@ -334,7 +334,7 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <div className="metric-cell font-medium">
+                    <div className="metric-cell">
                         <div>{formatMetricValue(baselineResult, metric)}</div>
                         {ratioMetricLabel(baselineResult, metric)}
                     </div>
@@ -435,7 +435,7 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <div className="metric-cell font-semibold whitespace-nowrap">{variant.key}</div>
+                            <div className="metric-cell whitespace-nowrap">{variant.key}</div>
                         </td>
 
                         {/* Value */}
@@ -445,8 +445,8 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <div className="metric-cell font-medium">
-                                <div className="">{formatMetricValue(variant, metric)}</div>
+                            <div className="metric-cell">
+                                <div>{formatMetricValue(variant, metric)}</div>
                                 {ratioMetricLabel(variant, metric)}
                             </div>
                         </td>
@@ -465,7 +465,7 @@ export function MetricRowGroup({
                                             ? winning
                                                 ? 'metric-cell text-success font-bold'
                                                 : 'metric-cell text-danger font-bold'
-                                            : 'metric-cell font-medium'
+                                            : 'metric-cell'
                                     }`}
                                 >
                                     {deltaText}
