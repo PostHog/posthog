@@ -472,7 +472,7 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
-            tool_class = ToolClass(team=self._team, user=self._user, state=state)
+            tool_class = ToolClass(team=self._team, user=self._user, state=state, config=config)
             try:
                 result = await tool_class.ainvoke(tool_call.model_dump(), config)
             except Exception as e:

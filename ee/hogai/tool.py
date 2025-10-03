@@ -16,7 +16,9 @@ import products
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.utils.dispatch import internal_dispatch
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.actions import AssistantAction
 
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantContextualTool, type["MaxTool"]] = {}
 
@@ -59,7 +61,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
     show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
-    _context: dict[str, Any]
     _config: RunnableConfig
     _state: AssistantState
     _context_manager: AssistantContextManager
@@ -131,9 +132,10 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
     @property
     def context(self) -> dict:
-        if not hasattr(self, "_context"):
-            raise AttributeError("Tool has not been run yet")
-        return self._context
+        return self._context_manager.get_contextual_tools().get(self.get_name(), {})
+
+    def dispatch(self, event: AssistantAction):
+        internal_dispatch(self.writer, self._config)(event)
 
     def format_system_prompt_injection(self, context: dict[str, Any]) -> str:
         formatted_context = {

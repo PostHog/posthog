@@ -1,11 +1,14 @@
 import datetime
 from abc import ABC
+from collections.abc import Callable
 from typing import Any, Optional, get_args, get_origin
 from uuid import UUID
 
 from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
+from langgraph.types import StreamWriter
 
 from posthog.schema import ReasoningMessage
 
@@ -21,6 +24,21 @@ from ee.models import Conversation, CoreMemory
 class AssistantContextMixin(ABC):
     _team: Team
     _user: User
+    _writer: StreamWriter | None = None
+
+    @property
+    def writer(self) -> StreamWriter | Callable[[Any], None]:
+        if self._writer:
+            return self._writer
+        try:
+            self._writer = get_stream_writer()
+        except RuntimeError:
+            # Not in a LangGraph context (e.g., during testing)
+            def noop(*args, **kwargs):
+                pass
+
+            return noop
+        return self._writer
 
     async def _aget_core_memory(self) -> CoreMemory | None:
         try:
