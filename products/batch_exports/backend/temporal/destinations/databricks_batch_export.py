@@ -944,8 +944,11 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         requires_merge, merge_key, update_key = _get_databricks_merge_config(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        # include attempt in the stage table name to avoid collisions if multiple attempts are running at the same time
+        # (ideally this should never happen but it has in the past)
+        attempt = activity.info().attempt
         stage_table_name: str | None = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}" if requires_merge else None
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}" if requires_merge else None
         )
         volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
         volume_path = f"/Volumes/{inputs.catalog}/{inputs.schema}/{volume_name}"
