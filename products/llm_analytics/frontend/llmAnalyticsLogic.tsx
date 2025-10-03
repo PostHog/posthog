@@ -52,6 +52,7 @@ export interface QueryTile {
 
 export interface LLMAnalyticsLogicProps {
     personId?: string
+    tabId?: string
 }
 
 /**
