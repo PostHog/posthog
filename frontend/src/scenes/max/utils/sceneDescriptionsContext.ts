@@ -1,7 +1,7 @@
 import { routes, sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { ASSISTANT_NAVIGATE_URLS, AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
+import { ASSISTANT_NAVIGATE_URLS, AssistantNavigateUrl } from '~/queries/schema/schema-assistant-messages'
 
 import { TOOL_DEFINITIONS } from '../max-constants'
 
@@ -11,7 +11,7 @@ import { TOOL_DEFINITIONS } from '../max-constants'
 export function buildSceneDescriptionsContext(): string {
     const pageEntries: string[] = []
     for (const urlKey of Object.keys(urls)) {
-        if (!ASSISTANT_NAVIGATE_URLS.has(urlKey as AssistantNavigateUrls)) {
+        if (!ASSISTANT_NAVIGATE_URLS.has(urlKey as AssistantNavigateUrl)) {
             continue
         }
         let baseUrl: string

@@ -248,7 +248,7 @@ export type AssistantContextualTool =
 // Your only output should be a list of those string keys in TypeScript enum syntax.
 // Once done, verify whether indeed each item of the output satisfies the criteria.
 // "
-export enum AssistantNavigateUrls {
+export enum AssistantNavigateUrl {
     Actions = 'actions',
     Activity = 'activity',
     Alerts = 'alerts',
@@ -286,4 +286,4 @@ export enum AssistantNavigateUrls {
     Persons = 'persons',
 }
 
-export const ASSISTANT_NAVIGATE_URLS = new Set(Object.values(AssistantNavigateUrls))
+export const ASSISTANT_NAVIGATE_URLS = new Set(Object.values(AssistantNavigateUrl))

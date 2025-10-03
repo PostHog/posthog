@@ -1,4 +1,4 @@
-import { ASSISTANT_NAVIGATE_URLS } from '../../../queries/schema/schema-assistant-messages'
+import { ASSISTANT_NAVIGATE_URLS, AssistantNavigateUrl } from '../../../queries/schema/schema-assistant-messages'
 import { buildSceneDescriptionsContext } from './sceneDescriptionsContext'
 
 describe('buildSceneDescriptionsContext', () => {
@@ -144,7 +144,7 @@ describe('buildSceneDescriptionsContext', () => {
             expect(match).toBeTruthy()
             if (match) {
                 const urlKey = match[1]
-                expect(ASSISTANT_NAVIGATE_URLS.has(urlKey)).toBe(true)
+                expect(ASSISTANT_NAVIGATE_URLS.has(urlKey as AssistantNavigateUrl)).toBe(true)
             }
         }
     })
@@ -164,7 +164,7 @@ describe('buildSceneDescriptionsContext', () => {
 
         // Verify every URL key in output is in ASSISTANT_NAVIGATE_URLS
         for (const urlKey of outputUrlKeys) {
-            expect(ASSISTANT_NAVIGATE_URLS.has(urlKey)).toBe(true)
+            expect(ASSISTANT_NAVIGATE_URLS.has(urlKey as AssistantNavigateUrl)).toBe(true)
         }
 
         // Verify we have at least some keys
