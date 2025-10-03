@@ -229,8 +229,14 @@ class HobbyTester:
 def main():
     command = sys.argv[1]
     if command == "create":
-        print("Creating droplet on Digitalocean for testing Hobby Deployment")
-        ht = HobbyTester()
+        if len(sys.argv) < 3:
+            print("Please provide the branch name to test")
+            exit(1)
+        branch = sys.argv[2]
+        print(f"Creating droplet on Digitalocean for testing Hobby Deployment, on branch {branch}")
+        ht = HobbyTester(
+            branch=branch,
+        )
         ht.ensure_droplet(ssh_enabled=True)
         print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):")
         print(f"https://{ht.hostname}")
@@ -244,19 +250,14 @@ def main():
         HobbyTester.destroy_environment(droplet_id=droplet_id, record_id=domain_record_id)
 
     if command == "test":
-        if len(sys.argv) < 3:
-            print("Please provide the branch name to test")
-            exit(1)
-        branch = sys.argv[2]
         name = os.environ.get("HOBBY_NAME")
         record_id = os.environ.get("HOBBY_DNS_RECORD_ID")
         droplet_id = os.environ.get("HOBBY_DROPLET_ID")
-        print(f"Testing the deployment for {name} on branch {branch}")
+        print("Waiting for deployment to become healthy")
         print(f"Record ID: {record_id}")
         print(f"Droplet ID: {droplet_id}")
 
         ht = HobbyTester(
-            branch=branch,
             name=name,
             record_id=record_id,
             droplet_id=droplet_id,
