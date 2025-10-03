@@ -6,7 +6,7 @@ import pytest
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import MAX_TIKTOK_DAYS_TO_QUERY
-from posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads import get_tiktok_resource
+from posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads import get_tiktok_resource, tiktok_ads_source
 from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
     flatten_tiktok_report_record,
     flatten_tiktok_reports,
@@ -136,13 +136,16 @@ class TestGetResource:
 
     def test_get_tiktok_resource_report_endpoint_incremental(self):
         """Test resource configuration for report endpoint with incremental sync."""
-        last_value = datetime.now() - timedelta(days=5)
-        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True, last_value)
+        last_value_str = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
+        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True, last_value_str)
 
         assert resource["name"] == "campaign_report"
         assert resource["table_name"] == "campaign_report"
         assert resource["primary_key"] == ["campaign_id", "stat_time_day"]
-        assert resource["write_disposition"]["disposition"] == "merge"
+        assert isinstance(resource["write_disposition"], dict)
+        write_disposition = resource["write_disposition"]
+        assert write_disposition["disposition"] == "merge"
+        assert write_disposition["strategy"] == "upsert"
 
         assert "start_date" in resource["endpoint"]["params"]
         assert "end_date" in resource["endpoint"]["params"]
@@ -162,8 +165,8 @@ class TestGetResource:
 
     def test_get_tiktok_resource_with_date_chunking(self):
         """Test resource configuration with date chunking for large ranges."""
-        old_date = datetime.now() - timedelta(days=60)
-        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True, old_date)
+        old_date_str = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
+        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True, old_date_str)
 
         # Verify that start_date and end_date are set to the first chunk
         assert "start_date" in resource["endpoint"]["params"]
@@ -185,3 +188,85 @@ class TestTikTokAdsSource:
         self.team_id = 123
         self.job_id = str(uuid4())
         self.access_token = "test_access_token"
+
+    @parameterized.expand(
+        [
+            ("campaigns", False, None),
+            ("adgroups", False, None),
+            ("ads", False, None),
+        ]
+    )
+    def test_tiktok_ads_source_entity_endpoints(self, endpoint, should_use_incremental, last_value):
+        """Test source function for entity endpoints (non-report)."""
+        result = tiktok_ads_source(
+            advertiser_id=self.advertiser_id,
+            endpoint=endpoint,
+            team_id=self.team_id,
+            job_id=self.job_id,
+            access_token=self.access_token,
+            db_incremental_field_last_value=last_value,
+            should_use_incremental_field=should_use_incremental,
+        )
+
+        assert result.name == endpoint
+        assert result.items is not None
+        assert result.partition_count == 1
+
+    @parameterized.expand(
+        [
+            ("campaign_report", False, None),
+            ("adgroup_report", False, None),
+            ("ad_report", False, None),
+        ]
+    )
+    def test_tiktok_ads_source_report_endpoints_full_refresh(self, endpoint, should_use_incremental, last_value):
+        """Test source function for report endpoints with full refresh."""
+        result = tiktok_ads_source(
+            advertiser_id=self.advertiser_id,
+            endpoint=endpoint,
+            team_id=self.team_id,
+            job_id=self.job_id,
+            access_token=self.access_token,
+            db_incremental_field_last_value=last_value,
+            should_use_incremental_field=should_use_incremental,
+        )
+
+        assert result.name == endpoint
+        assert result.items is not None
+        assert result.partition_count == 1
+
+    @parameterized.expand(
+        [
+            ("campaign_report", True, datetime.now() - timedelta(days=5)),
+            ("adgroup_report", True, "2025-09-01"),
+            ("ad_report", True, datetime.now() - timedelta(days=10)),
+        ]
+    )
+    def test_tiktok_ads_source_report_endpoints_incremental(self, endpoint, should_use_incremental, last_value):
+        """Test source function for report endpoints with incremental sync."""
+        result = tiktok_ads_source(
+            advertiser_id=self.advertiser_id,
+            endpoint=endpoint,
+            team_id=self.team_id,
+            job_id=self.job_id,
+            access_token=self.access_token,
+            db_incremental_field_last_value=last_value,
+            should_use_incremental_field=should_use_incremental,
+        )
+
+        assert result.name == endpoint
+        assert result.items is not None
+        assert result.partition_count == 1
+
+    def test_tiktok_ads_source_invalid_endpoint(self):
+        """Test source function with invalid endpoint."""
+        with pytest.raises(KeyError):
+            tiktok_ads_source(
+                advertiser_id=self.advertiser_id,
+                endpoint="invalid_endpoint",
+                team_id=self.team_id,
+                job_id=self.job_id,
+                access_token=self.access_token,
+                db_incremental_field_last_value=None,
+                should_use_incremental_field=False,
+            )

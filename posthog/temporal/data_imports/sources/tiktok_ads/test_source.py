@@ -46,11 +46,11 @@ class TestTikTokAdsSource:
 
         advertiser_field = config.fields[0]
         assert advertiser_field.name == "advertiser_id"
-        assert advertiser_field.required is True
+        assert hasattr(advertiser_field, "required") and advertiser_field.required is True
 
         integration_field = config.fields[1]
         assert integration_field.name == "tiktok_integration_id"
-        assert integration_field.kind == "tiktok-ads"
+        assert hasattr(integration_field, "kind") and integration_field.kind == "tiktok-ads"
 
     @parameterized.expand(
         [

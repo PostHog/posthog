@@ -54,6 +54,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'LinkedIn Ads'
         case 'reddit-ads':
             return 'Reddit Ads'
+        case 'tiktok-ads':
+            return 'TikTok Ads'
         case 'email':
             return 'email'
         case 'github':

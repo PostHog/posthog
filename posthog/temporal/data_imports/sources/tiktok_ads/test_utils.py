@@ -1,8 +1,10 @@
 """Tests for TikTok Ads utility functions."""
 
 from datetime import date, datetime, timedelta
+from typing import Any, cast
 
 import pytest
+from unittest.mock import Mock
 
 from parameterized import parameterized
 
@@ -76,22 +78,22 @@ class TestFlattenFunctions:
 
     def test_flatten_tiktok_report_record_empty_nested_objects(self):
         """Test flattening record with empty dimensions and metrics."""
-        record_with_empty_nested = {"dimensions": {}, "metrics": {}}
+        record_with_empty_nested: dict[str, dict] = {"dimensions": {}, "metrics": {}}
 
         result = flatten_tiktok_report_record(record_with_empty_nested)
         assert result == {}
 
     def test_flatten_tiktok_report_record_non_dict_input(self):
         """Test flattening with non-dictionary input."""
-        non_dict_inputs = ["string_input", 123, ["list", "input"], None]
+        non_dict_inputs: list[object] = ["string_input", 123, ["list", "input"], None]
 
         for input_value in non_dict_inputs:
-            result = flatten_tiktok_report_record(input_value)
+            result = flatten_tiktok_report_record(cast(dict[str, Any], input_value))
             assert result == input_value
 
     def test_flatten_tiktok_reports_batch_processing(self):
         """Test batch flattening of multiple TikTok reports."""
-        reports = [
+        reports: list[dict[str, Any]] = [
             {
                 "dimensions": {"campaign_id": "123", "stat_time_day": "2025-09-27"},
                 "metrics": {"clicks": "100", "impressions": "1000"},
@@ -216,6 +218,12 @@ class TestTikTokAdsPaginator:
         """Set up test fixtures."""
         self.paginator = TikTokAdsPaginator()
 
+    def _create_mock_response(self, response_data: dict[Any, Any]) -> Mock:
+        """Create a mock Response object with the given JSON data."""
+        mock_response = Mock()
+        mock_response.json.return_value = {"code": 0, **response_data}
+        return mock_response
+
     def test_paginator_initialization(self):
         """Test paginator initial state."""
         assert self.paginator.current_page == 1
@@ -224,71 +232,75 @@ class TestTikTokAdsPaginator:
         assert self.paginator.total_number == 0
         assert self.paginator.page_size == 0
 
-    def test_update_from_response_first_page_with_more(self):
+    def test_update_state_first_page_with_more(self):
         """Test paginator update from first page response with more pages."""
         response_data = {"data": {"page_info": {"page": 1, "page_size": 100, "total_page": 3, "total_number": 250}}}
+        mock_response = self._create_mock_response(response_data)
 
-        has_next = self.paginator.update_from_response(response_data)
+        self.paginator.update_state(mock_response)
 
-        assert has_next is True
         assert self.paginator.has_next_page is True
         assert self.paginator.current_page == 2
         assert self.paginator.total_pages == 3
         assert self.paginator.total_number == 250
         assert self.paginator.page_size == 100
 
-    def test_update_from_response_last_page(self):
+    def test_update_state_last_page(self):
         """Test paginator update from last page response."""
         response_data = {"data": {"page_info": {"page": 3, "page_size": 100, "total_page": 3, "total_number": 250}}}
+        mock_response = self._create_mock_response(response_data)
 
-        has_next = self.paginator.update_from_response(response_data)
+        self.paginator.update_state(mock_response)
 
-        assert has_next is False
         assert self.paginator.has_next_page is False
         assert self.paginator.current_page == 1
         assert self.paginator.total_pages == 3
 
-    def test_update_from_response_single_page(self):
+    def test_update_state_single_page(self):
         """Test paginator update from single page response."""
         response_data = {"data": {"page_info": {"page": 1, "page_size": 50, "total_page": 1, "total_number": 50}}}
+        mock_response = self._create_mock_response(response_data)
 
-        has_next = self.paginator.update_from_response(response_data)
+        self.paginator.update_state(mock_response)
 
-        assert has_next is False
         assert self.paginator.has_next_page is False
         assert self.paginator.current_page == 1
 
-    def test_update_from_response_missing_page_info(self):
+    def test_update_state_missing_page_info(self):
         """Test paginator update with missing page_info."""
-        response_data = {"data": {}}
+        response_data: dict[str, dict] = {"data": {}}
+        mock_response = self._create_mock_response(response_data)
 
-        has_next = self.paginator.update_from_response(response_data)
+        self.paginator.update_state(mock_response)
 
-        assert has_next is False
         assert self.paginator.has_next_page is False
 
-    def test_update_from_response_missing_data(self):
+    def test_update_state_missing_data(self):
         """Test paginator update with missing data key."""
-        response_data = {}
+        response_data: dict[str, Any] = {}
+        mock_response = self._create_mock_response(response_data)
 
-        has_next = self.paginator.update_from_response(response_data)
+        self.paginator.update_state(mock_response)
 
-        assert has_next is False
         assert self.paginator.has_next_page is False
 
-    def test_update_from_response_exception_handling(self):
+    def test_update_state_exception_handling(self):
         """Test paginator handles malformed response gracefully."""
         malformed_responses = [
-            None,
-            "string_response",
             {"data": "not_a_dict"},
             {"data": {"page_info": "not_a_dict"}},
         ]
 
-        for response in malformed_responses:
-            has_next = self.paginator.update_from_response(response)
-            assert has_next is False
+        for response_data in malformed_responses:
+            mock_response = self._create_mock_response(cast(dict[Any, Any], response_data))
+            self.paginator.update_state(mock_response)
             assert self.paginator.has_next_page is False
+
+        # Test with response that raises exception on json()
+        mock_response = Mock()
+        mock_response.json.side_effect = Exception("JSON decode error")
+        self.paginator.update_state(mock_response)
+        assert self.paginator.has_next_page is False
 
 
 class TestHelperFunctions:

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
@@ -34,8 +34,15 @@ def get_tiktok_resource(
     resource = config.resource.copy()
 
     # Update endpoint params with template variables
-    endpoint = resource["endpoint"].copy()
-    params = endpoint.get("params", {}).copy()
+    endpoint_data = resource.get("endpoint")
+    if not isinstance(endpoint_data, dict):
+        raise ValueError(f"Invalid endpoint configuration for {endpoint_name}")
+    endpoint = endpoint_data.copy()
+    params_data = endpoint.get("params")
+    if params_data is None:
+        params = {}
+    else:
+        params = params_data.copy()
 
     # Replace template variables in params
     params = {
@@ -102,14 +109,19 @@ def tiktok_ads_source(
             "primary_key": "id" if not is_report else None,
             "write_disposition": "replace",
         },
-        "resources": resources,
+        "resources": cast(list, resources),
     }
 
     # Add paginator to each resource individually to avoid shared state
-    for resource in config["resources"]:
-        if "endpoint" not in resource:
-            resource["endpoint"] = {}
-        resource["endpoint"]["paginator"] = TikTokAdsPaginator()
+    resources_list = config["resources"]
+    if isinstance(resources_list, list):
+        for resource_item in resources_list:
+            if isinstance(resource_item, dict):
+                if "endpoint" not in resource_item:
+                    resource_item["endpoint"] = {}
+                resource_endpoint = resource_item.get("endpoint")
+                if isinstance(resource_endpoint, dict):
+                    resource_endpoint["paginator"] = TikTokAdsPaginator()
 
     dlt_resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
 
@@ -125,7 +137,7 @@ def tiktok_ads_source(
 
         items = combined_resource()
     else:
-        assert len(dlt_resources) == 1
+        assert len(dlt_resources) == 1, "Expected 1 resource, got {}".format(len(dlt_resources))
         resource = dlt_resources[0]
 
         if is_report:
@@ -134,8 +146,11 @@ def tiktok_ads_source(
                 for item in resource:
                     if isinstance(item, list):
                         yield from flatten_tiktok_reports(item)
-                    else:
+                    elif isinstance(item, dict):
                         yield flatten_tiktok_report_record(item)
+                    else:
+                        # Handle other types by converting to dict if possible
+                        yield item
 
             items = flattened_resource()
         else:

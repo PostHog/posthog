@@ -1,3 +1,4 @@
+import copy
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -6,6 +7,7 @@ from dateutil import parser
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.auth import AuthConfigBase
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import PreparedRequest
 
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
     MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
@@ -152,21 +154,28 @@ def is_report_endpoint(endpoint_name: str) -> bool:
         return False
 
     endpoint_config = TIKTOK_ADS_CONFIG[endpoint_name]
-    return endpoint_config.resource["endpoint"].get("incremental", {}).get("cursor_path") == "stat_time_day"
+    endpoint = endpoint_config.resource.get("endpoint")
+    if isinstance(endpoint, dict):
+        incremental = endpoint.get("incremental")
+        if isinstance(incremental, dict):
+            return incremental.get("cursor_path") == "stat_time_day"
+    return False
 
 
 class TikTokAdsAuth(AuthConfigBase):
-    """TikTok Ads API authentication handler for dlt REST client"""
+    """
+    TikTok Ads API authentication handler for dlt REST client.
+
+    TikTok requires a custom 'Access-Token' header instead of the standard
+    'Authorization: Bearer' pattern, so we can't use dlt's built-in BearerTokenAuth.
+    """
 
     def __init__(self, access_token: str):
         super().__init__()
         self.access_token = access_token
 
-    def __call__(self, request: Request) -> Request:
+    def __call__(self, request: PreparedRequest) -> PreparedRequest:
         """Add TikTok Ads authentication headers to the request."""
-        if request.headers is None:
-            request.headers = {}
-
         request.headers["Access-Token"] = self.access_token
         request.headers["Content-Type"] = "application/json"
 
@@ -189,8 +198,6 @@ def create_date_chunked_resources(
 
     for i, (chunk_start, chunk_end) in enumerate(date_chunks):
         # Create a deep copy of the base resource config
-        import copy
-
         resource_config = copy.deepcopy(base_resource_config)
 
         # Update the resource name to be unique for each chunk

@@ -12,6 +12,8 @@ TIKTOK_SLEEP_SECONDS = (
 )
 MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS = 365
 
+TIKTOK_REPORT_METRICS = '["cpm", "ctr", "spend", "clicks", "conversion", "impressions", "conversion_rate", "cost_per_conversion", "real_time_conversion", "real_time_conversion_rate", "real_time_cost_per_conversion", "currency"]'
+
 
 @dataclass
 class EndpointConfig:
@@ -111,7 +113,7 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
                     "report_type": "BASIC",
                     "data_level": "AUCTION_CAMPAIGN",
                     "dimensions": '["campaign_id", "stat_time_day"]',
-                    "metrics": '["cpm", "ctr", "spend", "clicks", "conversion", "impressions", "conversion_rate", "cost_per_conversion", "real_time_conversion", "real_time_conversion_rate", "real_time_cost_per_conversion", "currency"]',
+                    "metrics": TIKTOK_REPORT_METRICS,
                     "page_size": 1000,
                     "start_date": "{start_date}",
                     "end_date": "{end_date}",
@@ -153,7 +155,7 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
                     "report_type": "BASIC",
                     "data_level": "AUCTION_ADGROUP",
                     "dimensions": '["adgroup_id", "stat_time_day"]',
-                    "metrics": '["cpm", "ctr", "spend", "clicks", "conversion", "impressions", "conversion_rate", "cost_per_conversion", "real_time_conversion", "real_time_conversion_rate", "real_time_cost_per_conversion", "currency"]',
+                    "metrics": TIKTOK_REPORT_METRICS,
                     "page_size": 1000,
                     "start_date": "{start_date}",
                     "end_date": "{end_date}",
@@ -195,7 +197,7 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
                     "report_type": "BASIC",
                     "data_level": "AUCTION_AD",
                     "dimensions": '["ad_id", "stat_time_day"]',
-                    "metrics": '["cpm", "ctr", "spend", "clicks", "conversion", "impressions", "conversion_rate", "cost_per_conversion", "real_time_conversion", "real_time_conversion_rate", "real_time_cost_per_conversion", "currency"]',
+                    "metrics": TIKTOK_REPORT_METRICS,
                     "page_size": 1000,
                     "start_date": "{start_date}",
                     "end_date": "{end_date}",
