@@ -4,12 +4,7 @@ from pydantic import BaseModel
 
 from products.tasks.backend.lib.constants import SETUP_REPOSITORY_PROMPT
 
-from .sandbox_environment import (
-    ExecutionResult,
-    SandboxEnvironment,
-    SandboxEnvironmentConfig,
-    SandboxEnvironmentTemplate,
-)
+from .sandbox_environment import ExecutionResult, SandboxEnvironment
 
 logger = logging.getLogger(__name__)
 
@@ -34,24 +29,6 @@ class SandboxAgent:
 
     def __init__(self, sandbox: SandboxEnvironment):
         self.sandbox = sandbox
-
-    @classmethod
-    async def create(cls, config: SandboxAgentCreateConfig) -> "SandboxAgent":
-        """Create a new SandboxAgent with a fresh sandbox environment."""
-        environment_variables = {
-            "REPOSITORY_URL": config.repository_url,
-            "POSTHOG_CLI_TOKEN": config.posthog_personal_api_key,
-            "POSTHOG_CLI_ENV_ID": config.posthog_project_id,
-        }
-
-        sandbox_config = SandboxEnvironmentConfig(
-            name=config.name,
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
-            environment_variables=environment_variables,
-        )
-
-        sandbox = await SandboxEnvironment.create(sandbox_config)
-        return cls(sandbox)
 
     async def clone_repository(self, repository: str, github_token: str) -> ExecutionResult:
         if not self.sandbox.is_running:
