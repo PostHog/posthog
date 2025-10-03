@@ -279,7 +279,6 @@ class Task(models.Model):
         db_table = "posthog_task"
         managed = True
         ordering = ["position"]
-        unique_together = [("team", "task_number")]
 
     def __str__(self):
         if self.current_stage:

@@ -15,8 +15,4 @@ class Migration(migrations.Migration):
             name="task_number",
             field=models.IntegerField(blank=True, null=True),
         ),
-        migrations.AlterUniqueTogether(
-            name="task",
-            unique_together={("team", "task_number")},
-        ),
     ]
