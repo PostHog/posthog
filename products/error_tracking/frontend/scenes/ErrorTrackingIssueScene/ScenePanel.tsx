@@ -32,7 +32,6 @@ import { ExceptionCard } from '../../components/ExceptionCard'
 import { ExternalReferences } from '../../components/ExternalReferences'
 import { StatusIndicator } from '../../components/Indicators'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
-import { ErrorFilters } from '../../components/IssueFilters'
 import { Metadata } from '../../components/IssueMetadata'
 import { IssueTasks } from '../../components/IssueTasks'
 import { RuntimeIcon } from '../../components/RuntimeIcon'
@@ -57,8 +56,8 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
-            <div className="space-y-2 col-span-3">
+        <div className="ErrorTrackingIssue">
+            <div className="space-y-2">
                 <ExceptionCard
                     issue={issue ?? undefined}
                     issueLoading={issueLoading}
@@ -66,13 +65,6 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
                     eventLoading={initialEventLoading}
                     label={tagRenderer(selectedEvent)}
                 />
-                <ErrorFilters.Root>
-                    <div className="flex gap-2 justify-between">
-                        <ErrorFilters.DateRange />
-                        <ErrorFilters.InternalAccounts />
-                    </div>
-                    <ErrorFilters.FilterGroup />
-                </ErrorFilters.Root>
                 <Metadata>
                     <EventsTable
                         issueId={issueId}
@@ -81,66 +73,8 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
                     />
                 </Metadata>
             </div>
-            <div className="col-span-1">
-                <IssueModalPanel issueId={issueId} />
-            </div>
         </div>
     )
-}
-
-const IssueModalPanel = ({ issueId }: { issueId: string }): JSX.Element | null => {
-    const logicProps: ErrorTrackingIssueSceneLogicProps = { id: issueId }
-    const { issue } = useValues(errorTrackingIssueSceneLogic(logicProps))
-    const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(
-        errorTrackingIssueSceneLogic(logicProps)
-    )
-    const hasTasks = useFeatureFlag('TASKS')
-    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-
-    return issue ? (
-        <div className="flex flex-col gap-2">
-            <ScenePanelCommonActions>
-                <SceneCommonButtons
-                    comment
-                    share={{
-                        onClick: () => {
-                            void copyToClipboard(
-                                window.location.origin + urls.errorTrackingIssue(issue.id),
-                                'issue link'
-                            )
-                        },
-                    }}
-                    dataAttrKey={RESOURCE_TYPE}
-                />
-            </ScenePanelCommonActions>
-
-            <ScenePanelDivider />
-
-            <SceneTextInput
-                name="name"
-                defaultValue={issue.name ?? ''}
-                onSave={updateName}
-                dataAttrKey={RESOURCE_TYPE}
-            />
-            <SceneTextarea
-                name="description"
-                defaultValue={issue.description ?? ''}
-                onSave={updateDescription}
-                dataAttrKey={RESOURCE_TYPE}
-            />
-
-            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-            <IssueAssigneeSelect
-                assignee={issue.assignee}
-                onChange={updateAssignee}
-                disabled={issue.status != 'active'}
-            />
-            <IssueExternalReference />
-            {hasIssueSplitting && <IssueFingerprints />}
-            {hasTasks && <IssueTasks />}
-            <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-        </div>
-    ) : null
 }
 
 export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {

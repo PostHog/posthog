@@ -493,7 +493,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         # Get issue IDs that have these fingerprints
         fingerprint_issue_pairs = ErrorTrackingIssueFingerprintV2.objects.filter(
-            team_id=self.team.pk, fingerprint__in=issue_fingerprints
+            team_id=self.team.pk, fingerprint__in=similar_fingerprints
         ).values_list("issue_id", "fingerprint")
 
         if not fingerprint_issue_pairs or len(fingerprint_issue_pairs) == 0:
@@ -512,7 +512,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             return Response([])
 
         # Get library data for the similar fingerprints
-        fingerprint_to_library = self._get_issues_library_data(issue_fingerprints)
+        fingerprint_to_library = self._get_issues_library_data(similar_fingerprints)
 
         # Build mapping from issue_id to library using existing data
         issue_to_library = self._build_issue_to_library_mapping(issue_id_to_fingerprint, fingerprint_to_library)

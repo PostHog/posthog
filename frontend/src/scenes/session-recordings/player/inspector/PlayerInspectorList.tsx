@@ -79,23 +79,26 @@ export function PlayerInspectorList(): JSX.Element {
         [cellMeasurerCache]
     )
 
-    const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
-        return (
-            <CellMeasurer cache={cellMeasurerCache} columnIndex={0} key={key} rowIndex={index} parent={parent}>
-                {({ measure, registerChild }) => (
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div ref={(r) => registerChild?.(r || undefined)} style={style}>
-                        <PlayerInspectorListItem
-                            key={index}
-                            item={items[index]}
-                            index={index}
-                            onLayout={createLayoutHandler(measure, index)}
-                        />
-                    </div>
-                )}
-            </CellMeasurer>
-        )
-    }
+    const renderRow: ListRowRenderer = useCallback(
+        ({ index, key, parent, style }) => {
+            return (
+                <CellMeasurer cache={cellMeasurerCache} columnIndex={0} key={key} rowIndex={index} parent={parent}>
+                    {({ measure, registerChild }) => (
+                        // eslint-disable-next-line react/forbid-dom-props
+                        <div ref={(r) => registerChild?.(r || undefined)} style={style}>
+                            <PlayerInspectorListItem
+                                key={index}
+                                item={items[index]}
+                                index={index}
+                                onLayout={createLayoutHandler(measure, index)}
+                            />
+                        </div>
+                    )}
+                </CellMeasurer>
+            )
+        },
+        [items, cellMeasurerCache]
+    )
 
     return (
         <div className="flex flex-col bg-primary flex-1 overflow-hidden relative">
