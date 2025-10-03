@@ -98,18 +98,21 @@ async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
         logger = LOGGER.bind()
         logger.info("Deleting recording blocks")
         async with session_recording_v2_object_storage.async_client() as storage:
-            block_deleted_counter = get_block_deleted_counter()
-            block_deleted_error_counter = get_block_deleted_error_counter()
+            block_deleted_counter = 0
+            block_deleted_error_counter = 0
 
             for block in input.blocks:
                 try:
                     await storage.delete_block(block.url)
-                    block_deleted_counter.add(1)
+                    block_deleted_counter += 1
                 except session_recording_v2_object_storage.BlockDeleteError:
                     logger.warning(f"Failed to delete block at {block.url}, skipping...")
-                    block_deleted_error_counter.add(1)
+                    block_deleted_error_counter += 1
 
-        logger.info(f"Successfully deleted {len(input.blocks)} blocks")
+        get_block_deleted_counter().add(block_deleted_counter)
+        get_block_deleted_error_counter().add(block_deleted_error_counter)
+        logger.info(f"Successfully deleted {block_deleted_counter} blocks")
+        logger.info(f"Skipped {block_deleted_error_counter} blocks")
 
 
 def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
