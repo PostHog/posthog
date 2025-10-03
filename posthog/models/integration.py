@@ -70,6 +70,7 @@ class Integration(models.Model):
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         REDDIT_ADS = "reddit-ads"
+        TIKTOK_ADS = "tiktok-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
@@ -159,6 +160,7 @@ class OauthIntegration:
         "snapchat",
         "linkedin-ads",
         "reddit-ads",
+        "tiktok-ads",
         "meta-ads",
         "intercom",
         "linear",
@@ -370,6 +372,19 @@ class OauthIntegration:
                 name_path="reddit_user_id",  # Same as ID for Reddit
                 additional_authorize_params={"duration": "permanent"},
             )
+        elif kind == "tiktok-ads":
+            if not settings.TIKTOK_ADS_CLIENT_ID or not settings.TIKTOK_ADS_CLIENT_SECRET:
+                raise NotImplementedError("TikTok Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://business-api.tiktok.com/portal/auth",
+                token_url="https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
+                client_id=settings.TIKTOK_ADS_CLIENT_ID,
+                client_secret=settings.TIKTOK_ADS_CLIENT_SECRET,
+                scope="",
+                id_path="data.advertiser_ids",
+                name_path="data.advertiser_ids",
+            )
         elif kind == "clickup":
             if not settings.CLICKUP_APP_CLIENT_ID or not settings.CLICKUP_APP_CLIENT_SECRET:
                 raise NotImplementedError("ClickUp app not configured")
@@ -397,14 +412,22 @@ class OauthIntegration:
     def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
-        query_params = {
-            "client_id": oauth_config.client_id,
-            "scope": oauth_config.scope,
-            "redirect_uri": cls.redirect_uri(kind),
-            "response_type": "code",
-            "state": urlencode({"next": next, "token": token}),
-            **(oauth_config.additional_authorize_params or {}),
-        }
+        if kind == "tiktok-ads":
+            # TikTok uses different parameter names
+            query_params = {
+                "app_id": oauth_config.client_id,
+                "redirect_uri": cls.redirect_uri(kind),
+                "state": urlencode({"next": next, "token": token}),
+            }
+        else:
+            query_params = {
+                "client_id": oauth_config.client_id,
+                "scope": oauth_config.scope,
+                "redirect_uri": cls.redirect_uri(kind),
+                "response_type": "code",
+                "state": urlencode({"next": next, "token": token}),
+                **(oauth_config.additional_authorize_params or {}),
+            }
 
         return f"{oauth_config.authorize_url}?{urlencode(query_params)}"
 
@@ -426,6 +449,17 @@ class OauthIntegration:
                 },
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
             )
+        elif kind == "tiktok-ads":
+            # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
+            res = requests.post(
+                oauth_config.token_url,
+                json={
+                    "app_id": oauth_config.client_id,
+                    "secret": oauth_config.client_secret,
+                    "auth_code": params["code"],
+                },
+                headers={"Content-Type": "application/json"},
+            )
         else:
             res = requests.post(
                 oauth_config.token_url,
@@ -440,7 +474,14 @@ class OauthIntegration:
 
         config: dict = res.json()
 
-        if res.status_code != 200 or not config.get("access_token"):
+        access_token = None
+        if kind == "tiktok-ads":
+            # TikTok has a different response format - access_token is nested under 'data'
+            access_token = config.get("data", {}).get("access_token")
+        else:
+            access_token = config.get("access_token")
+
+        if res.status_code != 200 or not access_token:
             # Hack to try getting sandbox auth token instead of their salesforce production account
             if kind == "salesforce":
                 oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
@@ -509,9 +550,17 @@ class OauthIntegration:
 
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
+        elif isinstance(integration_id, list) and len(integration_id) > 0:
+            integration_id = ",".join(str(item) for item in integration_id)
 
         if not isinstance(integration_id, str):
             raise Exception("Oauth error")
+
+        # Handle TikTok's nested response format
+        if kind == "tiktok-ads":
+            data = config.pop("data", {})
+            # Move other data fields to main config for TikTok
+            config.update(data)
 
         sensitive_config: dict = {
             "access_token": config.pop("access_token"),
@@ -585,6 +634,17 @@ class OauthIntegration:
                 },
                 # If I use a standard User-Agent, it will throw a 429 too many requests error
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        elif self.integration.kind == "tiktok-ads":
+            res = requests.post(
+                "https://open.tiktokapis.com/v2/oauth/token/",
+                data={
+                    "client_key": oauth_config.client_id,  # TikTok uses client_key instead of client_id
+                    "client_secret": oauth_config.client_secret,
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         else:
             res = requests.post(
