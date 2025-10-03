@@ -19,6 +19,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
+import { DeepResearchTemplatePicker } from './DeepResearchTemplatePicker'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { ToolsDisplay } from './ToolsDisplay'
 
@@ -56,6 +57,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { threadLoading, inputDisabled, submissionDisabledReason, deepResearchMode } = useValues(maxThreadLogic)
+    const threadValues: any = useValues(maxThreadLogic as any)
+    const deepResearchTemplate = threadValues.deepResearchTemplate as any
     const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
@@ -124,12 +127,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         ? 'Thinking…'
                                         : isThreadVisible
                                           ? placeholder || 'Ask follow-up (/ for commands)'
-                                          : 'Ask away (/ for commands)'
+                                          : deepResearchTemplate
+                                            ? 'Template loaded, ask away (/ for commands)'
+                                            : 'Ask away (/ for commands)'
                                 }
                                 onPressEnter={() => {
-                                    if (question && !submissionDisabledReason && !threadLoading) {
+                                    if (!submissionDisabledReason && !threadLoading) {
                                         onSubmit?.()
-                                        askMax(question)
+                                        askMax(question || null)
                                     }
                                 }}
                                 disabled={inputDisabled}
@@ -163,7 +168,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     if (threadLoading) {
                                         stopGeneration()
                                     } else {
-                                        askMax(question)
+                                        askMax(question || null)
                                     }
                                 }}
                                 tooltip={
@@ -200,6 +205,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     bottomActions={bottomActions}
                     deepResearchMode={deepResearchMode}
                 />
+                {deepResearchMode && (
+                    <div className="flex justify-end gap-1 w-full p-1">
+                        <DeepResearchTemplatePicker />
+                    </div>
+                )}
                 {showDeepResearchModeToggle && (
                     <div className="flex justify-end gap-1 w-full p-1">
                         <LemonSwitch

@@ -155,6 +155,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
+        setDeepResearchTemplate: (template: any | null) => ({ template }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
     }),
 
@@ -216,6 +217,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             {
                 setDeepResearchMode: (_, { deepResearchMode }) => deepResearchMode,
                 setConversation: (_, { conversation }) => conversation?.type === ConversationType.DeepResearch,
+            },
+        ],
+        deepResearchTemplate: [
+            null as any | null,
+            {
+                setDeepResearchTemplate: (_: any | null, { template }: { template: any | null }) => template,
             },
         ],
     })),
@@ -291,6 +298,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (values.deepResearchMode) {
                     apiData.deep_research_mode = true
+                    const deepResearchTemplate = (values as any).deepResearchTemplate as {
+                        notebook_short_id?: string
+                        notebook_title?: string
+                    } | null
+                    if (deepResearchTemplate?.notebook_short_id) {
+                        apiData.deep_research_template = {
+                            notebook_short_id: deepResearchTemplate.notebook_short_id,
+                            notebook_title: deepResearchTemplate.notebook_title,
+                        }
+                    }
                 }
 
                 const response = await api.conversations.stream(apiData, {
@@ -347,10 +364,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 })
                             } else {
                                 if (isNotebookUpdateMessage(parsedResponse)) {
-                                    actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
-                                    if (!parsedResponse.id) {
-                                        // we do not want to show partial notebook update messages
-                                        return
+                                    const deepResearchTemplateReference = (values as any).deepResearchTemplate as {
+                                        notebook_short_id?: string | null
+                                    } | null
+                                    const isTemplateNotebookUpdate =
+                                        !!deepResearchTemplateReference?.notebook_short_id &&
+                                        deepResearchTemplateReference.notebook_short_id === parsedResponse.notebook_id
+
+                                    // Avoid mutating template notebooks in any case
+                                    if (!isTemplateNotebookUpdate && (parsedResponse as any).event !== 'loaded') {
+                                        actions.processNotebookUpdate(
+                                            parsedResponse.notebook_id,
+                                            parsedResponse.content
+                                        )
+                                        if (!parsedResponse.id) {
+                                            // we do not want to show partial notebook update messages
+                                            return
+                                        }
                                     }
                                 }
                                 // Check if a message with the same ID already exists
@@ -669,8 +699,22 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         submissionDisabledReason: [
-            (s) => [s.formPending, s.question, s.threadLoading, s.activeStreamingThreads],
-            (formPending, question, threadLoading, activeStreamingThreads): string | undefined => {
+            (s) => [
+                s.formPending,
+                s.question,
+                s.threadLoading,
+                s.activeStreamingThreads,
+                s.deepResearchMode,
+                (s as any).deepResearchTemplate,
+            ],
+            (
+                formPending: boolean,
+                question: string,
+                threadLoading: boolean,
+                activeStreamingThreads: number,
+                deepResearchMode: boolean,
+                deepResearchTemplate: JSONContent | null
+            ): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
@@ -681,6 +725,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
 
                 if (!question) {
+                    // Allow empty question when a deep research template is selected
+                    if (deepResearchMode && deepResearchTemplate) {
+                        return undefined
+                    }
                     return 'I need some input first'
                 }
 

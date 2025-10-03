@@ -145,6 +145,7 @@ export interface NotebookUpdateMessage extends BaseAssistantMessage {
     notebook_id: string
     content: ProsemirrorJSONContent
     notebook_type?: Category
+    event?: 'loaded' | 'updated'
     conversation_notebooks?: NotebookInfo[]
     current_run_notebooks?: NotebookInfo[]
     tool_calls?: AssistantToolCall[]

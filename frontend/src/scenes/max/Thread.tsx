@@ -512,7 +512,11 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                     <IconCheck className="text-success size-4" />
-                    <span>A notebook has been updated</span>
+                    <span>
+                        {message.event === 'loaded'
+                            ? 'A deep research template notebook has been loaded'
+                            : 'A notebook has been updated'}
+                    </span>
                 </div>
                 <LemonButton onClick={() => handleOpenNotebook()} size="xsmall" type="primary" icon={<IconOpenInNew />}>
                     Open notebook

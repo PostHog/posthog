@@ -16868,6 +16868,10 @@
                     },
                     "type": "array"
                 },
+                "event": {
+                    "enum": ["loaded", "updated"],
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
