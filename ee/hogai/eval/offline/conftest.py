@@ -9,6 +9,8 @@ from uuid import UUID
 
 import pytest
 
+from django.conf import settings
+
 from asgiref.sync import async_to_sync
 from autoevals import Score
 from autoevals.oai import LLMClient
@@ -84,7 +86,7 @@ class EvaluationContext(BaseModel):
 
     def get_openai_client_for_tracing(self, trace_id: UUID | str | None) -> TracedLLMClient:
         """Override the OpenAI client to inject tracing parameters."""
-        client = AsyncOpenAI(posthog_client=self.client)
+        client = AsyncOpenAI(posthog_client=self.client, base_url=settings.OPENAI_BASE_URL)
         original_create = client.chat.completions.create
 
         async def patched_create(*args, **kwargs):
