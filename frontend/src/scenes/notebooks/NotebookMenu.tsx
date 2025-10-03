@@ -1,5 +1,3 @@
-import './NotebookScene.scss'
-
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 

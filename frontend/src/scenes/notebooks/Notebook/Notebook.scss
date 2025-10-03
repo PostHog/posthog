@@ -494,20 +494,6 @@
             transform: translateX(-100%);
         }
 
-        .NotebookScene & {
-            --notebook-sidebar-height: calc(100vh - 11rem);
-
-            .NotebookColumn__padding {
-                // Account for fixed title
-                height: 4rem;
-            }
-
-            .NotebookColumn__content {
-                // Account for static header
-                top: 4rem;
-            }
-        }
-
         &--left {
             .NotebookColumn__content {
                 width: var(--notebook-column-left-width);
