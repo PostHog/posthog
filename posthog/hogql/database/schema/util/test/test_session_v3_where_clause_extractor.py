@@ -602,7 +602,7 @@ LIMIT 50000\
         actual = self.print_query(
             """
     select
-       session_id,
+       session_id
     from sessions
     where session_id == '01995624-6a63-7cc4-800c-f5a45d99fa9b'
     """
