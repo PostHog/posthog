@@ -34,7 +34,7 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
             target_integration_id=1,
         )
 
-        self.integration = Integration.objects.create(team=self.team, kind="slack")
+        self.integration = Integration.objects.create(id=1, team=self.team, kind="slack")
 
     def test_subscription_delivery(self, MockSlackIntegration: MagicMock) -> None:
         mock_slack_integration = MagicMock()
@@ -201,7 +201,7 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         # TODO: Should we perhaps save something to say the Subscription failed?
 
     def test_subscription_delivery_with_target_integration_id(self, MockSlackIntegration: MagicMock) -> None:
-        integration2 = Integration.objects.create(team=self.team, kind="slack")
+        integration2 = Integration.objects.create(id=2, team=self.team, kind="slack")
 
         subscription_targeting_integration2 = create_subscription(
             team=self.team,
