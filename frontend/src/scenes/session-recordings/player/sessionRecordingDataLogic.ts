@@ -117,11 +117,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             actions.loadRecordingMeta()
         },
 
-        loadEventsSuccess: () => {
-            actions.loadSnapshotSources()
-        },
-
         loadRecordingMetaSuccess: () => {
+            actions.loadSnapshotSources()
             actions.reportUsageIfFullyLoaded()
         },
 
