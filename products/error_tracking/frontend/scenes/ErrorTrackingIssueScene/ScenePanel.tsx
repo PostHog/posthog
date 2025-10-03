@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonModal, Link, Spinner } from '@posthog/lemon-ui'
 
-// import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
@@ -27,15 +27,12 @@ import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
-// import { RuntimeIcon } from '../../components/RuntimeIcon'
-import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ExternalReferences } from '../../components/ExternalReferences'
 import { StatusIndicator } from '../../components/Indicators'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
-import { ErrorFilters } from '../../components/IssueFilters'
-import { Metadata } from '../../components/IssueMetadata'
 import { IssueTasks } from '../../components/IssueTasks'
+import { RuntimeIcon } from '../../components/RuntimeIcon'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
@@ -45,6 +42,7 @@ interface RelatedIssue {
     id: string
     title: string
     description?: string
+    library?: string
 }
 
 const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
@@ -52,12 +50,11 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
     const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(
         errorTrackingIssueSceneLogic(logicProps)
     )
-    const { selectEvent } = useActions(errorTrackingIssueSceneLogic(logicProps))
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
-            <div className="space-y-2 col-span-3">
+        <div className="ErrorTrackingIssue">
+            <div className="space-y-2">
                 <ExceptionCard
                     issue={issue ?? undefined}
                     issueLoading={issueLoading}
@@ -65,81 +62,9 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
                     eventLoading={initialEventLoading}
                     label={tagRenderer(selectedEvent)}
                 />
-                <ErrorFilters.Root>
-                    <div className="flex gap-2 justify-between">
-                        <ErrorFilters.DateRange />
-                        <ErrorFilters.InternalAccounts />
-                    </div>
-                    <ErrorFilters.FilterGroup />
-                </ErrorFilters.Root>
-                <Metadata>
-                    <EventsTable
-                        issueId={issueId}
-                        selectedEvent={selectedEvent}
-                        onEventSelect={(selectedEvent) => (selectedEvent ? selectEvent(selectedEvent) : null)}
-                    />
-                </Metadata>
-            </div>
-            <div className="col-span-1">
-                <IssueModalPanel issueId={issueId} />
             </div>
         </div>
     )
-}
-
-const IssueModalPanel = ({ issueId }: { issueId: string }): JSX.Element | null => {
-    const logicProps: ErrorTrackingIssueSceneLogicProps = { id: issueId }
-    const { issue } = useValues(errorTrackingIssueSceneLogic(logicProps))
-    const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(
-        errorTrackingIssueSceneLogic(logicProps)
-    )
-    const hasTasks = useFeatureFlag('TASKS')
-    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-
-    return issue ? (
-        <div className="flex flex-col gap-2">
-            <ScenePanelCommonActions>
-                <SceneCommonButtons
-                    comment
-                    share={{
-                        onClick: () => {
-                            void copyToClipboard(
-                                window.location.origin + urls.errorTrackingIssue(issue.id),
-                                'issue link'
-                            )
-                        },
-                    }}
-                    dataAttrKey={RESOURCE_TYPE}
-                />
-            </ScenePanelCommonActions>
-
-            <ScenePanelDivider />
-
-            <SceneTextInput
-                name="name"
-                defaultValue={issue.name ?? ''}
-                onSave={updateName}
-                dataAttrKey={RESOURCE_TYPE}
-            />
-            <SceneTextarea
-                name="description"
-                defaultValue={issue.description ?? ''}
-                onSave={updateDescription}
-                dataAttrKey={RESOURCE_TYPE}
-            />
-
-            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-            <IssueAssigneeSelect
-                assignee={issue.assignee}
-                onChange={updateAssignee}
-                disabled={issue.status != 'active'}
-            />
-            <IssueExternalReference />
-            {hasIssueSplitting && <IssueFingerprints />}
-            {hasTasks && <IssueTasks />}
-            <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-        </div>
-    ) : null
 }
 
 export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
@@ -305,7 +230,7 @@ const RelatedIssues = (): JSX.Element => {
             ) : relatedIssues.length > 0 ? (
                 <div className="flex flex-col gap-1">
                     {relatedIssues.map((relatedIssue: RelatedIssue) => {
-                        // const relatedRuntime = getRuntimeFromLib(relatedIssue.library)
+                        const relatedRuntime = getRuntimeFromLib(relatedIssue.library)
                         return (
                             <div
                                 key={relatedIssue.id}
@@ -316,9 +241,9 @@ const RelatedIssues = (): JSX.Element => {
                                     onClick={() => setSelectedIssue(relatedIssue)}
                                 >
                                     <div className="flex items-center gap-2">
-                                        {/* <span className="shrink-0 text-gray-600">
+                                        <span className="shrink-0 text-gray-600">
                                             <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" />
-                                        </span> */}
+                                        </span>
                                         <div className="font-medium text-sm truncate text-link hover:underline">
                                             {relatedIssue.title}
                                         </div>
