@@ -23,10 +23,10 @@ export interface EvaluationRun {
     id: string
     evaluation_id: string
     generation_id: string
+    trace_id: string
     timestamp: string
-    input_preview: string
-    output_preview: string
     result: boolean
+    reasoning: string
     status: 'completed' | 'failed' | 'running'
     error_message?: string
 }

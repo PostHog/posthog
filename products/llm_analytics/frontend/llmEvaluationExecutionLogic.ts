@@ -1,0 +1,49 @@
+import { actions, kea, path, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
+import { toast } from 'react-toastify'
+
+import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
+
+import type { llmEvaluationExecutionLogicType } from './llmEvaluationExecutionLogicType'
+
+export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>([
+    path(['products', 'llm_analytics', 'frontend', 'llmEvaluationExecutionLogic']),
+    actions({
+        runEvaluation: (evaluationId: string, targetEventId: string) => ({ evaluationId, targetEventId }),
+    }),
+    loaders(() => ({
+        evaluationRun: [
+            null as { workflow_id: string } | null,
+            {
+                runEvaluation: async ({ evaluationId, targetEventId }) => {
+                    const { currentTeamId } = teamLogic.values
+                    if (!currentTeamId) {
+                        throw new Error('No team selected')
+                    }
+
+                    try {
+                        const response = await api.evaluationRuns.create({
+                            evaluation_id: evaluationId,
+                            target_event_id: targetEventId,
+                        })
+
+                        toast.success('Evaluation started successfully')
+                        return response
+                    } catch (error) {
+                        toast.error('Failed to start evaluation')
+                        throw error
+                    }
+                },
+            },
+        ],
+    })),
+    reducers({
+        lastRunWorkflowId: [
+            null as string | null,
+            {
+                runEvaluationSuccess: (_, { evaluationRun }) => evaluationRun?.workflow_id || null,
+            },
+        ],
+    }),
+])

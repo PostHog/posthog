@@ -136,9 +136,55 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         },
 
         loadEvaluationRuns: async () => {
-            // Evaluation runs will be implemented later with ClickHouse
-            // For now, return empty array
-            actions.loadEvaluationRunsSuccess([])
+            if (!props.evaluationId || props.evaluationId === 'new') {
+                actions.loadEvaluationRunsSuccess([])
+                return
+            }
+
+            try {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+
+                // Query $ai_evaluation events from ClickHouse
+                const query = `
+                    SELECT
+                        uuid,
+                        timestamp,
+                        properties.$ai_target_event_id as target_event_id,
+                        properties.$ai_trace_id as trace_id,
+                        properties.$ai_evaluation_result as result,
+                        properties.$ai_evaluation_model as model,
+                        properties.$ai_evaluation_reasoning as reasoning
+                    FROM events
+                    WHERE
+                        event = '$ai_evaluation'
+                        AND team_id = ${teamId}
+                        AND properties.$ai_evaluation_id = '${props.evaluationId}'
+                    ORDER BY timestamp DESC
+                    LIMIT 100
+                `
+
+                const response = await api.query({ kind: 'HogQLQuery', query })
+
+                // Transform results to EvaluationRun format
+                const runs: EvaluationRun[] = (response.results || []).map((row: any) => ({
+                    id: row[0],
+                    evaluation_id: props.evaluationId,
+                    generation_id: row[2],
+                    trace_id: row[3],
+                    timestamp: row[1],
+                    result: row[4],
+                    reasoning: row[6] || 'No reasoning provided',
+                    status: 'completed' as const,
+                }))
+
+                actions.loadEvaluationRunsSuccess(runs)
+            } catch (error) {
+                console.error('Failed to load evaluation runs:', error)
+                actions.loadEvaluationRunsSuccess([])
+            }
         },
 
         refreshEvaluationRuns: async () => {
