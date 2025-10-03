@@ -360,7 +360,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             snapshotDataLogic(props),
             ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure'],
             sessionRecordingDataLogic(props),
-            ['maybeLoadRecordingMeta', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
+            ['loadRecordingData', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
@@ -1804,7 +1804,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         document.addEventListener('fullscreenchange', cache.fullScreenListener)
 
         if (props.sessionRecordingId) {
-            actions.maybeLoadRecordingMeta()
+            actions.loadRecordingData()
         }
 
         cache.openTime = performance.now()
