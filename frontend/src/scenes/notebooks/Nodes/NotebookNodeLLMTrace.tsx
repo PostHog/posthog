@@ -2,21 +2,24 @@ import { useValues } from 'kea'
 
 import { LLMAnalyticsTraces } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
 
-import { NotebookNodeType } from '../types'
+import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = (): JSX.Element | null => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
+    const { personId } = attributes
 
     if (!expanded) {
         return null
     }
 
-    return <LLMAnalyticsTraces />
+    return <LLMAnalyticsTraces personId={personId} />
 }
 
-type NotebookNodeLLMTraceAttributes = {}
+type NotebookNodeLLMTraceAttributes = {
+    personId?: string
+}
 
 export const NotebookNodeLLMTrace = createPostHogWidgetNode<NotebookNodeLLMTraceAttributes>({
     nodeType: NotebookNodeType.LLMTrace,
@@ -25,5 +28,7 @@ export const NotebookNodeLLMTrace = createPostHogWidgetNode<NotebookNodeLLMTrace
     resizeable: false,
     expandable: true,
     startExpanded: true,
-    attributes: {},
+    attributes: {
+        personId: {},
+    },
 })

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -50,6 +50,10 @@ export interface QueryTile {
     }
 }
 
+export interface LLMAnalyticsLogicProps {
+    personId?: string
+}
+
 /**
  * Helper function to get date range for a specific day.
  * @param day - The day string from the chart (e.g., "2024-01-15")
@@ -65,7 +69,8 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 
 export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
-
+    props({} as LLMAnalyticsLogicProps),
+    key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
     connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
 
     actions({
@@ -596,6 +601,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
+                (_, props) => props.personId,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
             ],
@@ -603,6 +609,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 dateFilter,
                 shouldFilterTestAccounts,
                 propertyFilters,
+                personId,
                 groupsTaxonomicTypes,
                 featureFlags
             ): DataTableNode => ({
@@ -615,6 +622,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
+                    ...(personId ? { personId } : {}),
                 },
                 columns: [
                     'id',

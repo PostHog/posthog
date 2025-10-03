@@ -16,10 +16,14 @@ import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDis
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, normalizeMessages, removeMilliseconds } from './utils'
 
-export function LLMAnalyticsTraces(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(llmAnalyticsLogic)
+interface LLMAnalyticsTracesProps {
+    personId?: string
+}
 
-    const { tracesQuery } = useValues(llmAnalyticsLogic)
+export function LLMAnalyticsTraces({ personId = undefined }: LLMAnalyticsTracesProps): JSX.Element {
+    const logic = llmAnalyticsLogic({ personId })
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(logic)
+    const { tracesQuery } = useValues(logic)
 
     return (
         <DataTable
