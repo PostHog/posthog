@@ -37,7 +37,6 @@ class SandboxEnvironmentSnapshotStatus(str, Enum):
 
 
 class SandboxEnvironmentTemplate(str, Enum):
-    UBUNTU_LATEST_X86_64 = "ubuntu_latest_x86_64"
     DEFAULT_BASE = "default_base"
 
 

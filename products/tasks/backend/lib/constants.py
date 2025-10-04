@@ -1,7 +1,7 @@
 SETUP_REPOSITORY_PROMPT = """
 Your goal is to setup the repository in the current environment.
 
-You are operating in a sandbox environment. You must install all dependencies necessary and setup the enviornment such that it is ready for executing code tasks.
+You are operating in a sandbox environment. You must install all dependencies necessary and setup the environment such that it is ready for executing code tasks.
 
 CONTEXT:
 
