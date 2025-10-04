@@ -129,6 +129,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     item_context: {
                         is_emoji: true,
                         time_in_recording: dayjs(values.currentTimestamp).toISOString(),
+                        time_in_recording_ms: values.currentPlayerTime,
                     },
                 })
                 playerCommentModel.actions.commentEdited(props.recordingId)
@@ -159,7 +160,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 }
             },
             submit: async (data) => {
-                const { commentId, content, richContent, dateForTimestamp } = data
+                const { commentId, content, richContent, dateForTimestamp, timestampInRecording } = data
 
                 if (!dateForTimestamp) {
                     throw new Error('Cannot comment without a timestamp.')
@@ -172,6 +173,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     item_id: props.recordingId,
                     item_context: {
                         time_in_recording: dateForTimestamp.toISOString(),
+                        time_in_recording_ms: timestampInRecording ?? values.currentPlayerTime,
                     },
                 }
 

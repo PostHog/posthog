@@ -3,18 +3,21 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
-import { LemonButton, LemonMenu, ProfilePicture } from '@posthog/lemon-ui'
+import { IconCheck, IconClock, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import {
     DEFAULT_EXTENSIONS,
     LemonRichContentEditor,
     serializationOptions,
 } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { colonDelimitedDuration } from 'lib/utils'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { CommentType } from '~/types'
@@ -34,6 +37,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
         isMyComment,
         editingCommentRichContentEditor,
         isEditingCommentEmpty,
+        propsItemContext,
     } = useValues(commentsLogic)
     const {
         deleteComment,
@@ -70,7 +74,31 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         <span className="flex-1 font-semibold ">
                             {comment.created_by?.first_name ?? 'Unknown user'}
                         </span>
-                        {comment.created_at ? (
+                        {comment.item_context?.time_in_recording ? (
+                            <Tooltip title="Time in recording">
+                                <LemonTag icon={<IconClock />} type="highlight">
+                                    {(() => {
+                                        if (comment.item_context.time_in_recording_ms !== undefined) {
+                                            return colonDelimitedDuration(
+                                                comment.item_context.time_in_recording_ms / 1000,
+                                                2
+                                            )
+                                        }
+                                        // Calculate from timestamp for old comments
+                                        const recordingStartTime = propsItemContext?.recording_start_time
+                                        if (recordingStartTime) {
+                                            const commentTime = dayjs(comment.item_context.time_in_recording)
+                                            const startTime = dayjs(recordingStartTime)
+                                            const timeInRecordingMs = commentTime.diff(startTime)
+                                            return colonDelimitedDuration(timeInRecordingMs / 1000, 2)
+                                        }
+                                        // Fallback to absolute time if no recording start time
+                                        return dayjs(comment.item_context.time_in_recording).format('HH:mm:ss')
+                                    })()}
+                                </LemonTag>
+                            </Tooltip>
+                        ) : null}
+                        {comment.created_at && !comment.item_context?.time_in_recording ? (
                             <span className="text-xs">
                                 <TZLabel time={comment.created_at} />
                             </span>
@@ -230,20 +258,29 @@ export function getText(comment: CommentType): string {
     // This is only temporary until all comments are backfilled to rich content
     const content = comment.rich_content
         ? comment.rich_content
-        : {
-              type: 'doc',
-              content: [
-                  {
-                      type: 'paragraph',
-                      content: [
-                          {
-                              type: 'text',
-                              text: comment.content || '',
-                          },
-                      ],
-                  },
-              ],
-          }
+        : comment.content
+          ? {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            {
+                                type: 'text',
+                                text: comment.content,
+                            },
+                        ],
+                    },
+                ],
+            }
+          : {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                    },
+                ],
+            }
 
     return generateText(content, DEFAULT_EXTENSIONS, serializationOptions)
 }

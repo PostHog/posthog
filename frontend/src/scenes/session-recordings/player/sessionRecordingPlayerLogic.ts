@@ -39,7 +39,15 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import {
+    ActivityScope,
+    AvailableFeature,
+    ExporterFormat,
+    RecordingSegment,
+    SessionPlayerData,
+    SessionPlayerState,
+} from '~/types'
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -862,6 +870,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
 
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.sessionRecordingId, s.sessionPlayerData],
+            (sessionRecordingId, sessionPlayerData): SidePanelSceneContext | null => {
+                return sessionRecordingId
+                    ? {
+                          activity_scope: ActivityScope.RECORDING,
+                          activity_item_id: sessionRecordingId,
+                          activity_item_context: {
+                              recording_start_time: sessionPlayerData?.start?.toISOString(),
+                          },
+                      }
+                    : null
+            },
+        ],
 
         playerSpeed: [
             (s) => [s.speed, s.isSkippingInactivity, s.currentSegment, s.currentTimestamp, (_, props) => props.mode],

@@ -88,7 +88,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
             (searchParams: Record<string, any>): SidePanelSceneContext | null => {
                 return searchParams.sessionRecordingId
                     ? {
-                          activity_scope: ActivityScope.REPLAY,
+                          activity_scope: ActivityScope.RECORDING,
                           activity_item_id: searchParams.sessionRecordingId,
                       }
                     : null
