@@ -26,6 +26,7 @@ from posthog.hogql.database.database import create_hogql_database, serialize_dat
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner
@@ -79,6 +80,8 @@ def process_query_dict(
             raise
 
         return QueryResponse(results=None, error=str(e))
+
+    tag_queries(query=upgraded_query_json)
 
     dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
     variables_override = (
