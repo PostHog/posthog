@@ -13,6 +13,7 @@ procs:
 
     frontend:
         shell: './bin/start-frontend'
+        autorestart: true
 
     temporal-worker-general-purpose:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue general-purpose-task-queue'
@@ -63,6 +64,12 @@ procs:
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service cymbal
+
+    et-embedding-worker:
+        shell: |-
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service et-embedding-worker
+        autostart: false
 
     feature-flags:
         shell: |-

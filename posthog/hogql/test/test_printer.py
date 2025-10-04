@@ -856,6 +856,17 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
+        self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
+        self.assertEqual(self._expr("groupArraySample(5, 123456)(event)"), "groupArraySample(5, 123456)(events.event)")
+        self.assertEqual(
+            self._expr("groupArraySampleIf(5)(event, event is not null)"),
+            "groupArraySampleIf(5)(events.event, isNotNull(events.event))",
+        )
+        self.assertEqual(
+            self._expr("groupArraySampleIf(5, 123456)(event, event is not null)"),
+            "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
+        )
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")

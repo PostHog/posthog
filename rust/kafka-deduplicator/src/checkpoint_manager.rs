@@ -416,7 +416,8 @@ impl CheckpointManager {
             counter_for_partition = *counter_guard.get(partition).unwrap_or(&0_u32);
         }
 
-        if counter_for_partition % full_checkpoint_interval == 0 {
+        // when full_checkpoint_interval is 0, we default to always performing Full checkpoints
+        if counter_for_partition.is_multiple_of(full_checkpoint_interval) {
             CheckpointMode::Full
         } else {
             CheckpointMode::Incremental
@@ -641,6 +642,7 @@ impl Drop for CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checkpoint::worker::CheckpointTarget;
     use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
     use common_types::RawEvent;
     use std::{collections::HashMap, path::PathBuf, time::Duration};
@@ -1158,5 +1160,85 @@ mod tests {
         let found_files =
             find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
         assert!(!found_files.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_cleaner_timestamp_dir_handling() {
+        // Add some test stores
+        let store_manager = create_test_store_manager();
+        let store1 = create_test_store("cleaner_timestamp_dir_handling", 0);
+        let store2 = create_test_store("cleaner_timestamp_dir_handling", 1);
+        let store3 = create_test_store("cleaner_timestamp_dir_handling", 2);
+
+        // Add events to the stores
+        let event = create_test_event();
+        store1.handle_event_with_raw(&event).unwrap();
+        store2.handle_event_with_raw(&event).unwrap();
+        store3.handle_event_with_raw(&event).unwrap();
+
+        // add dedup stores to manager
+        let stores = store_manager.stores();
+        stores.insert(
+            Partition::new("cleaner_timestamp_dir_handling".to_string(), 0),
+            store1,
+        );
+        stores.insert(
+            Partition::new("cleaner_timestamp_dir_handling".to_string(), 1),
+            store2,
+        );
+        stores.insert(
+            Partition::new("cleaner_timestamp_dir_handling".to_string(), 2),
+            store3,
+        );
+
+        let tmp_checkpoint_dir = TempDir::new().unwrap();
+
+        // configure frequent checkpoints to create a few quick timestamp dirs per partition
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_millis(100),
+            cleanup_interval: Duration::from_secs(120),
+            max_local_checkpoints: 3,
+
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+
+        // start the manager and produce some local checkpoint files
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+        manager.start();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        manager.stop().await;
+
+        // now introspect on the checkpoint directory trees created
+        // to verify timestamp conversion process powering retention
+        // based cleanup is accurate
+        let scan_dirs =
+            CheckpointManager::find_checkpoint_dirs(Path::new(&config.local_checkpoint_dir))
+                .await
+                .unwrap();
+        let scan_dirs_set: HashSet<&Path> =
+            HashSet::from_iter(scan_dirs.iter().map(|p| p.as_path()));
+
+        // extract a set of only the timestamp directory names and
+        // perform conversion process into SystemTime timestamps
+        // as checkpoint manager does in retention scans
+        let expected_ts_dirs = scan_dirs_set
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect::<HashSet<_>>();
+        let scan_ts_values = expected_ts_dirs
+            .iter()
+            .map(|p| CheckpointManager::parse_checkpoint_timestamp(p).unwrap())
+            .collect::<Vec<_>>();
+
+        // convert SystemTime timestamps back to directory names as CheckpointTarget does
+        let got_ts_dirs = scan_ts_values
+            .iter()
+            .map(|p| CheckpointTarget::format_checkpoint_timestamp(*p).unwrap())
+            .collect::<HashSet<_>>();
+
+        // verify the converted and regenerated directory names are
+        // exactly the same as those we started with
+        assert_eq!(expected_ts_dirs, got_ts_dirs);
     }
 }

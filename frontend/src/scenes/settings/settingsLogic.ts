@@ -240,6 +240,9 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
                         return false
                     }
+                    if (x.hideWhenNoSection && !selectedSectionId) {
+                        return false
+                    }
                     if (x.allowForTeam) {
                         return x.allowForTeam(currentTeam)
                     }

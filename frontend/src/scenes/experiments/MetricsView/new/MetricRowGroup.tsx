@@ -221,6 +221,7 @@ export function MetricRowGroup({
                         metric={metric}
                         metricType={metricType}
                         isPrimaryMetric={!isSecondary}
+                        experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
                     />
                 </td>
@@ -309,6 +310,7 @@ export function MetricRowGroup({
                         metric={metric}
                         metricType={metricType}
                         isPrimaryMetric={!isSecondary}
+                        experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
                     />
                 </td>

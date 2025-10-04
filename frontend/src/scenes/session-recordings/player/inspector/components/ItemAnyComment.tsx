@@ -4,6 +4,7 @@ import { IconPencil, IconTrash } from '@posthog/icons'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { RichContentPreview } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -41,7 +42,9 @@ function ItemComment({ item }: { item: InspectorListItemComment }): JSX.Element 
     // we don't want to render markdown in the list row if there's an image since it won't fit
     const hasMarkdownImage = (item.data.content ?? '').includes('![')
 
-    let rowContent = hasMarkdownImage ? (
+    let rowContent = item.data.rich_content ? (
+        <RichContentPreview content={item.data.rich_content} className="rounded-none" />
+    ) : hasMarkdownImage ? (
         <>{item.data.content ?? ''}</>
     ) : (
         <TextContent text={item.data.content ?? ''} data-attr="item-annotation-comment-title-rendered-content" />
@@ -52,10 +55,14 @@ function ItemComment({ item }: { item: InspectorListItemComment }): JSX.Element 
             {(item.data.content || '').trim().length > 30 ? (
                 <Tooltip
                     title={
-                        <TextContent
-                            text={item.data.content ?? ''}
-                            data-attr="item-annotation-comment-title-rendered-content"
-                        />
+                        item.data.rich_content ? (
+                            <RichContentPreview content={item.data.rich_content} className="rounded-none" />
+                        ) : (
+                            <TextContent
+                                text={item.data.content ?? ''}
+                                data-attr="item-annotation-comment-title-rendered-content"
+                            />
+                        )
                     }
                 >
                     {rowContent}
@@ -123,6 +130,7 @@ function ItemCommentDetail({ item }: { item: InspectorListItemComment }): JSX.El
                             const commentEditPayload: RecordingCommentForm = {
                                 commentId: item.data.id,
                                 content: item.data.content ?? '',
+                                richContent: item.data.rich_content ?? null,
                                 dateForTimestamp: item.timestamp,
                                 recordingId: item.data.item_id ?? null,
                                 timestampInRecording: item.timeInRecording,

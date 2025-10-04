@@ -38,7 +38,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.AdvancedActivityLogs]: {
         projectBased: true,
         organizationBased: false,
-        name: 'Advanced activity logs',
+        name: 'Activity logs',
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
