@@ -77,8 +77,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     action={{ to: 'https://status.posthog.com/incidents/l70cgmt7475m', children: 'Read more' }}
                     className="mb-4"
                 >
-                    This issue was captuered because of a bug in the PostHog SDK. We have fixed the issue and you will
-                    not be charged for any of the associated exception events
+                    This issue was captured because of a bug in the PostHog SDK. We've fixed the issue, and you won't be
+                    charged for any of these exception events. We recommend setting this issue's status to "Suppressed".
                 </LemonBanner>
             )}
 
