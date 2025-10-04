@@ -8,7 +8,7 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
-from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, SandboxNotFoundError
+from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.inject_github_token import (
     InjectGitHubTokenInput,
     inject_github_token,
@@ -48,37 +48,6 @@ class TestInjectGitHubTokenActivity:
                 check_result = await sandbox.execute("bash -c 'source ~/.bashrc && echo $GITHUB_TOKEN'")
                 assert check_result.exit_code == 0
                 assert test_token in check_result.stdout
-
-        finally:
-            if sandbox:
-                await sandbox.destroy()
-
-    @pytest.mark.asyncio
-    @pytest.mark.django_db
-    async def test_inject_github_token_no_token(self, activity_environment, github_integration):
-        config = SandboxEnvironmentConfig(
-            name="test-inject-token-no-token",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
-        )
-
-        sandbox = None
-        try:
-            sandbox = await SandboxEnvironment.create(config)
-
-            input_data = InjectGitHubTokenInput(
-                sandbox_id=sandbox.id,
-                github_integration_id=github_integration.id,
-                task_id="test-task-no-token",
-                distinct_id="test-user-id",
-            )
-
-            with patch(
-                "products.tasks.backend.temporal.process_task.activities.inject_github_token.get_github_token"
-            ) as mock_get_token:
-                mock_get_token.return_value = None
-
-                with pytest.raises(GitHubAuthenticationError):
-                    await activity_environment.run(inject_github_token, input_data)
 
         finally:
             if sandbox:

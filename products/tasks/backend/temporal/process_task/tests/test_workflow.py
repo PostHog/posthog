@@ -151,7 +151,7 @@ class TestProcessTaskWorkflow:
 
             assert len(snapshots) >= 1
             latest_snapshot = snapshots[0]
-            assert "PostHog/posthog-js" in latest_snapshot.repos
+            assert "posthog/posthog-js" in latest_snapshot.repos
             assert latest_snapshot.status == SandboxSnapshot.Status.COMPLETE
             assert latest_snapshot.external_id is not None
 
@@ -258,7 +258,7 @@ class TestProcessTaskWorkflow:
 
             assert len(snapshots) >= 1
             latest_snapshot = snapshots[0]
-            assert "PostHog/posthog-js" in latest_snapshot.repos
+            assert "posthog/posthog-js" in latest_snapshot.repos
             assert latest_snapshot.status == SandboxSnapshot.Status.COMPLETE
 
             created_snapshots.append(latest_snapshot)

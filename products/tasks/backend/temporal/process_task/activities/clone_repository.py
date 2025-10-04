@@ -37,12 +37,6 @@ async def clone_repository(input: CloneRepositoryInput) -> str:
                 {"github_integration_id": input.github_integration_id, "error": str(e)},
             )
 
-        if not github_token:
-            raise GitHubAuthenticationError(
-                f"No GitHub token found for integration {input.github_integration_id}",
-                {"github_integration_id": input.github_integration_id},
-            )
-
         sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
 
         agent = SandboxAgent(sandbox)
