@@ -417,6 +417,9 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # normalize xdist worker database suffixes (posthog_test_gw0 -> posthog_test)
     query = re.sub(r"posthog_test_gw\d+", "posthog_test", query)
 
+    # normalize xdist worker suffixes in Kafka topic names (clickhouse_events_json_test_gw0 -> clickhouse_events_json_test)
+    query = re.sub(r"_test_gw\d+", "_test", query)
+
     # normalize xdist worker suffixes in S3 bucket paths (stripe_customers_gw0 -> stripe_customers)
     query = re.sub(r"_gw\d+/", "/", query)
 
