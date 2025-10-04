@@ -5,15 +5,7 @@ import { join } from 'path'
 import { uuid } from 'lib/utils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-import { useAvailableFeatures } from '~/mocks/features'
-import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
-import { AvailableFeature } from '~/types'
-
-import recordingEventsJson from '../__mocks__/recording_events_query'
-import { recordingMetaJson } from '../__mocks__/recording_meta'
-import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
+import { setupSessionRecordingTest } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 const pathForKeyZero = join(__dirname, './__mocks__/perf-snapshot-key0.jsonl')
@@ -33,20 +25,41 @@ describe('sessionRecordingDataLogic performance', () => {
     let snapshotLogic: ReturnType<typeof snapshotDataLogic.build>
 
     beforeEach(() => {
-        useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
-        useMocks({
-            get: {
+        setupSessionRecordingTest({
+            snapshotSources: [
+                {
+                    source: 'blob_v2',
+                    start_timestamp: '2025-05-14T15:37:16.454000Z',
+                    end_timestamp: '2025-05-14T15:37:18.379000Z',
+                    blob_key: '0',
+                },
+                {
+                    source: 'blob',
+                    start_timestamp: '2025-05-14T15:37:16.454000Z',
+                    end_timestamp: '2025-05-14T15:37:18.379000Z',
+                    blob_key: '1747237036454-1747237038379',
+                },
+                {
+                    source: 'blob_v2',
+                    start_timestamp: '2025-05-14T15:37:18.897000Z',
+                    end_timestamp: '2025-05-14T15:42:18.378000Z',
+                    blob_key: '1',
+                },
+                {
+                    source: 'blob',
+                    start_timestamp: '2025-05-14T15:37:18.897000Z',
+                    end_timestamp: '2025-05-14T15:42:18.378000Z',
+                    blob_key: '1747237038897-1747237338378',
+                },
+            ],
+            getMocks: {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
-                    // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
-                    } else if (req.url.searchParams.get('source') === 'blob_v2') {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
                         const key = req.url.searchParams.get('blob_key')
                         const contents = key === '0' ? keyZero : keyOne
                         return res(ctx.text(contents))
                     }
 
-                    // with no source requested should return sources
                     return [
                         200,
                         {
@@ -79,18 +92,8 @@ describe('sessionRecordingDataLogic performance', () => {
                         },
                     ]
                 },
-                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
-                '/api/projects/:team_id/comments': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
-            },
-            post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
-            },
-            patch: {
-                '/api/environments/:team_id/session_recordings/:id': { success: true },
             },
         })
-        initKeaTests()
     })
 
     describe('loading snapshots', () => {
@@ -142,10 +145,6 @@ describe('sessionRecordingDataLogic performance', () => {
             const averageDuration = durations.reduce((a, b) => a + b, 0) / iterations
             const variance = durations.reduce((a, b) => a + Math.pow(b - averageDuration, 2), 0) / iterations
             const stdDev = Math.sqrt(variance)
-            // oxlint-disable-next-line no-console
-            console.log(`Average duration: ${averageDuration}ms`)
-            // oxlint-disable-next-line no-console
-            console.log(`Standard deviation: ${stdDev}ms`)
 
             expect(averageDuration).toBeLessThan(200)
             expect(stdDev).toBeLessThan(100)

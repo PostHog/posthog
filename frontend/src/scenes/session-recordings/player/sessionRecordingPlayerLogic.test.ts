@@ -7,9 +7,6 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
-import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
-import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { makeLogger } from 'scenes/session-recordings/player/rrweb'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
@@ -18,10 +15,14 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import {
+    BLOB_SOURCE,
+    overrideSessionRecordingMocks,
+    recordingMetaJson,
+    setupSessionRecordingTest,
+} from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 describe('sessionRecordingPlayerLogic', () => {
@@ -31,42 +32,9 @@ describe('sessionRecordingPlayerLogic', () => {
     beforeEach(() => {
         console.warn = mockWarn
         mockWarn.mockClear()
-        useMocks({
-            get: {
-                '/api/projects/:team_id/session_recordings/:id/comments/': { results: [] },
-                '/api/projects/:team_id/notebooks/recording_comments': { results: [] },
-                '/api/environments/:team_id/session_recordings/:id/snapshots/': (req, res, ctx) => {
-                    // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
-                    }
-                    // with no source requested should return sources
-                    return res(
-                        ctx.json({
-                            sources: [
-                                {
-                                    source: 'blob',
-                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                    blob_key: '1691755416097-1691755492268',
-                                },
-                            ],
-                        })
-                    )
-                },
-                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
-            },
-            delete: {
-                '/api/environments/:team_id/session_recordings/:id': { success: true },
-            },
-            post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
-            },
-            patch: {
-                '/api/environments/:team_id/session_recordings/:id': { success: true },
-            },
+        setupSessionRecordingTest({
+            snapshotSources: [BLOB_SOURCE],
         })
-        initKeaTests()
         featureFlagLogic.mount()
         logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
         logic.mount()
@@ -107,11 +75,12 @@ describe('sessionRecordingPlayerLogic', () => {
             silenceKeaLoadersErrors()
 
             await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingData,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
                 snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
-                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
                 logic.actionTypes.setPlay,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
             ])
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
@@ -132,15 +101,13 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it('load snapshot errors and triggers error state', async () => {
-            useMocks({
-                get: {
+            logic.unmount()
+            overrideSessionRecordingMocks({
+                getMocks: {
                     '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                     '/api/projects/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                 },
             })
-
-            // Unmount and remount the logic to trigger fetching the data again after the mock change
-            logic.unmount()
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '2',
                 playerKey: 'test',

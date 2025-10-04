@@ -209,9 +209,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         segments: [
-            (s) => [s.snapshots, s.start, s.end, s.trackedWindow],
-            (snapshots, start, end, trackedWindow): RecordingSegment[] => {
-                return createSegments(snapshots || [], start, end, trackedWindow)
+            (s) => [s.snapshots, s.start, s.end, s.trackedWindow, s.snapshotsByWindowId],
+            (snapshots, start, end, trackedWindow, snapshotsByWindowId): RecordingSegment[] => {
+                return createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
             },
         ],
 

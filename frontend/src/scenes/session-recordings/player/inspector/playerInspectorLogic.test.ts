@@ -4,8 +4,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
+import { setupSessionRecordingTest } from '../__mocks__/test-setup'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -14,8 +13,8 @@ describe('playerInspectorLogic', () => {
     let dataLogic: ReturnType<typeof sessionRecordingDataLogic.build>
 
     beforeEach(() => {
-        useMocks({
-            get: {
+        setupSessionRecordingTest({
+            getMocks: {
                 '/api/environments/:team_id/session_recordings/1/': {},
                 '/api/projects/:team/notebooks/recording_comments': {
                     results: [
@@ -83,11 +82,7 @@ describe('playerInspectorLogic', () => {
                     ],
                 },
             },
-            patch: {
-                '/api/environments/:team_id/session_recordings/:id': { success: true },
-            },
         })
-        initKeaTests()
         featureFlagLogic.mount()
 
         dataLogic = sessionRecordingDataLogic(playerLogicProps)

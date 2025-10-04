@@ -6,13 +6,9 @@ import { join } from 'path'
 
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-import { useAvailableFeatures } from '~/mocks/features'
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
-import { AvailableFeature, SessionRecordingSnapshotSource } from '~/types'
+import { SessionRecordingSnapshotSource } from '~/types'
 
-import recordingEventsJson from '../__mocks__/recording_events_query'
-import { recordingMetaJson } from '../__mocks__/recording_meta'
+import { setupSessionRecordingTest } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 const pathForKeyZero = join(__dirname, './__mocks__/blob_key_0.jsonl')
@@ -51,11 +47,10 @@ describe('sessionRecordingDataLogic blobby v2', () => {
     let snapshotLogic: ReturnType<typeof snapshotDataLogic.build>
 
     beforeEach(() => {
-        useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
-        useMocks({
-            get: {
+        setupSessionRecordingTest({
+            snapshotSources: [BLOB_V2_SOURCE_ZERO, BLOB_SOURCE, BLOB_V2_SOURCE_ONE],
+            getMocks: {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
-                    // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         throw new Error('not expecting this to be called in this test')
                     } else if (req.url.searchParams.get('source') === 'realtime') {
@@ -70,13 +65,11 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                         } else if (key === '1') {
                             return res(ctx.text(keyOne))
                         } else if (start_blob_key === '0' && end_blob_key === '1') {
-                            // This is the case where we load both blob v2 sources at once
                             return res(ctx.text(`${keyZero}\n${keyOne}`))
                         }
                         throw new Error(`Unexpected blob key: ${key}`)
                     }
 
-                    // to avoid having to mock the flag, this always gets blob v2 sources
                     const sources = [BLOB_V2_SOURCE_ZERO, BLOB_SOURCE, BLOB_V2_SOURCE_ONE]
                     return [
                         200,
@@ -85,16 +78,8 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                         },
                     ]
                 },
-                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
-            },
-            post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
-            },
-            patch: {
-                '/api/environments/:team_id/session_recordings/:id': { success: true },
             },
         })
-        initKeaTests()
         const props = {
             sessionRecordingId: '2',
             blobV2PollingDisabled: true,
