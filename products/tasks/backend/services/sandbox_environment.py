@@ -208,9 +208,6 @@ class SandboxEnvironment:
             error=getattr(final_execution, "error", None),
         )
 
-        if result.error:
-            logger.warning(f"Command execution had error: {result.error}")
-
         return result
 
     async def initiate_snapshot(self, metadata: Optional[dict[str, str]] = None) -> str:

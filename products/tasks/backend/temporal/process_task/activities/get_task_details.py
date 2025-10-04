@@ -50,7 +50,7 @@ def get_task_details(task_id: str) -> TaskDetails:
 
     assert task.created_by is not None
 
-    distinct_id = task.created_by.distinct_id
+    distinct_id = task.created_by.distinct_id or "process_task_workflow"
 
     log_with_activity_context(
         "Task details retrieved successfully",

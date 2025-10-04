@@ -27,17 +27,11 @@ async def inject_github_token(input: InjectGitHubTokenInput) -> None:
         github_integration_id=input.github_integration_id,
     ):
         try:
-            github_token = await get_github_token(input.github_integration_id)
+            github_token = await get_github_token(input.github_integration_id) or ""
         except Exception as e:
             raise GitHubAuthenticationError(
                 f"Failed to get GitHub token for integration {input.github_integration_id}",
                 {"github_integration_id": input.github_integration_id, "error": str(e)},
-            )
-
-        if not github_token:
-            raise GitHubAuthenticationError(
-                "Unable to get a valid GitHub token from the integration",
-                {"github_integration_id": input.github_integration_id},
             )
 
         sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)

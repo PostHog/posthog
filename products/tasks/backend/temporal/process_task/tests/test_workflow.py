@@ -2,6 +2,7 @@ import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import cast
 
 import pytest
 from unittest.mock import patch
@@ -125,7 +126,7 @@ class TestProcessTaskWorkflow:
             assert "task complete" in result.task_result.stdout
 
             snapshots_query = SandboxSnapshot.objects.filter(integration=github_integration).order_by("-created_at")
-            snapshots: list[SandboxSnapshot] = await sync_to_async(list)(snapshots_query)
+            snapshots = cast(list[SandboxSnapshot], await sync_to_async(list)(snapshots_query))  # type: ignore[call-arg]
             assert len(snapshots) == 1
             assert snapshots[0].id == snapshot.id
             assert "posthog/posthog-js" in snapshots[0].repos
@@ -146,7 +147,7 @@ class TestProcessTaskWorkflow:
             snapshots_query = SandboxSnapshot.objects.filter(
                 integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
             ).order_by("-created_at")
-            snapshots: list[SandboxSnapshot] = await sync_to_async(list)(snapshots_query)
+            snapshots = cast(list[SandboxSnapshot], await sync_to_async(list)(snapshots_query))  # type: ignore[call-arg]
 
             assert len(snapshots) >= 1
             latest_snapshot = snapshots[0]
@@ -253,7 +254,7 @@ class TestProcessTaskWorkflow:
             snapshots_query = SandboxSnapshot.objects.filter(
                 integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
             ).order_by("-created_at")
-            snapshots: list[SandboxSnapshot] = await sync_to_async(list)(snapshots_query)
+            snapshots = cast(list[SandboxSnapshot], await sync_to_async(list)(snapshots_query))  # type: ignore[call-arg]
 
             assert len(snapshots) >= 1
             latest_snapshot = snapshots[0]
@@ -270,7 +271,7 @@ class TestProcessTaskWorkflow:
             snapshots_after_query = SandboxSnapshot.objects.filter(
                 integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
             ).order_by("-created_at")
-            snapshots_after: list[SandboxSnapshot] = await sync_to_async(list)(snapshots_after_query)
+            snapshots_after = cast(list[SandboxSnapshot], await sync_to_async(list)(snapshots_after_query))  # type: ignore[call-arg]
             assert len(snapshots_after) == len(snapshots)
 
         finally:
