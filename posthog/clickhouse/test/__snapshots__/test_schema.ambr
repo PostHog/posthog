@@ -29,7 +29,7 @@
       
       
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
   
@@ -49,7 +49,7 @@
       metric_name String,
       count Int64
   )
-  ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics2_test_gw1', 'group1', 'JSONEachRow')
+  ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics2_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -70,7 +70,7 @@
       error_type String,
       error_details String CODEC(ZSTD(3))
   )
-  ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics_test_gw1', 'group1', 'JSONEachRow')
+  ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -102,7 +102,7 @@
       inserted_at DateTime64(3, 'UTC'),
       embeddings Array(Float64) -- We could experiment with quantization, but if we do we can use a new column, for now we'll eat the inefficiency
        -- Unused, I think, but the above has it, so
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test_gw1', 'clickhouse_error_tracking_fingerprint_embeddings', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', 'clickhouse_error_tracking_fingerprint_embeddings', 'JSONEachRow')
   
   '''
 # ---
@@ -117,7 +117,7 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_error_tracking_issue_fingerprint_test_gw1', 'clickhouse-error-tracking-issue-fingerprint-overrides', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_error_tracking_issue_fingerprint_test', 'clickhouse-error-tracking-issue-fingerprint-overrides', 'JSONEachRow')
   
   '''
 # ---
@@ -143,7 +143,7 @@
       error VARCHAR,
       tags Array(VARCHAR)
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'events_dead_letter_queue_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
   '''
 # ---
@@ -177,7 +177,7 @@
       
       
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
   
@@ -213,7 +213,7 @@
       
       
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test_gw1', 'group1_recent', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1_recent', 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
   
@@ -230,7 +230,7 @@
       team_id Int64,
       group_properties VARCHAR
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_groups_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -255,7 +255,7 @@
       pointer_target_fixed Bool,
       current_url VARCHAR,
       type LowCardinality(String)
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_heatmap_events_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_heatmap_events_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -270,7 +270,7 @@
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_ingestion_warnings_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -299,7 +299,7 @@
       -- The actual log message.
       message String
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'log_entries_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'log_entries_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -356,7 +356,7 @@
   unload_event_end Float64,
   unload_event_start Float64
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_performance_events_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -373,7 +373,7 @@
       is_deleted Int8,
       version UInt64
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -388,7 +388,7 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -402,7 +402,7 @@
       team_id Int64,
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_unique_id_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -417,19 +417,19 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test_gw1', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
   
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_overrides]
   '''
   
-      CREATE TABLE IF NOT EXISTS `posthog_test_gw1`.`kafka_person_overrides`
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
       ON CLUSTER 'posthog'
   
       ENGINE = Kafka(
           'kafka:9092', -- Kafka hosts
-          'clickhouse_person_override_test_gw1', -- Kafka topic
+          'clickhouse_person_override_test', -- Kafka topic
           'clickhouse-person-overrides', -- Kafka consumer group id
           'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
       )
@@ -449,7 +449,7 @@
           -- set as a default value in the `person_overrides` table.
           -- created_at,
           version
-      FROM `posthog_test_gw1`.`person_overrides`
+      FROM `posthog_test`.`person_overrides`
   
   '''
 # ---
@@ -468,7 +468,7 @@
       message VARCHAR,
       instance_id UUID
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'plugin_log_entries_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -487,7 +487,7 @@
       created_at DateTime64(6, 'UTC')
       
       
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_recording_events_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -517,7 +517,7 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -577,7 +577,7 @@
   , _partition UInt64
   
   )
-  ENGINE=Distributed('posthog', 'posthog_test_gw1', 'sharded_app_metrics2', rand())
+  ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics2', rand())
   
   '''
 # ---
@@ -585,7 +585,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.sharded_app_metrics2
+  TO posthog_test.sharded_app_metrics2
   AS SELECT
   team_id,
   timestamp,
@@ -595,7 +595,7 @@
   metric_kind,
   metric_name,
   count
-  FROM posthog_test_gw1.kafka_app_metrics2
+  FROM posthog_test.kafka_app_metrics2
   
   '''
 # ---
@@ -621,7 +621,7 @@
   , _partition UInt64
   
   )
-  ENGINE=Distributed('posthog', 'posthog_test_gw1', 'sharded_app_metrics', rand())
+  ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics', rand())
   
   '''
 # ---
@@ -629,7 +629,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.sharded_app_metrics
+  TO posthog_test.sharded_app_metrics
   AS SELECT
   team_id,
   timestamp,
@@ -642,7 +642,7 @@
   error_uuid,
   error_type,
   error_details
-  FROM posthog_test_gw1.kafka_app_metrics
+  FROM posthog_test.kafka_app_metrics
   
   '''
 # ---
@@ -658,7 +658,7 @@
       condition String,
       matches SimpleAggregateFunction(sum, UInt64),
       latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_behavioral_cohorts_matches', sipHash64(person_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_behavioral_cohorts_matches', sipHash64(person_id))
   
   '''
 # ---
@@ -748,7 +748,7 @@
   , _partition UInt64
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), _timestamp_ms DateTime64
       
-  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test_gw1', 'events_recent', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'events_recent', sipHash64(distinct_id))
   
   '''
 # ---
@@ -802,7 +802,7 @@
   _timestamp,
   _offset,
   _partition
-  FROM posthog_test_gw1.kafka_error_tracking_issue_fingerprint_embeddings
+  FROM posthog_test.kafka_error_tracking_issue_fingerprint_embeddings
   
   '''
 # ---
@@ -835,7 +835,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_issue_fingerprint_overrides_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.error_tracking_issue_fingerprint_overrides
+  TO posthog_test.error_tracking_issue_fingerprint_overrides
   AS SELECT
   team_id,
   fingerprint,
@@ -845,7 +845,7 @@
   _timestamp,
   _offset,
   _partition
-  FROM posthog_test_gw1.kafka_error_tracking_issue_fingerprint_overrides
+  FROM posthog_test.kafka_error_tracking_issue_fingerprint_overrides
   WHERE version > 0 -- only store updated rows, not newly inserted ones
   
   '''
@@ -897,7 +897,7 @@
   , _offset UInt64
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), consumer_breadcrumbs Array(String)
       
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -940,7 +940,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.events_dead_letter_queue
+  TO posthog_test.events_dead_letter_queue
   AS SELECT
   id,
   event_uuid,
@@ -960,7 +960,7 @@
   tags,
   _timestamp,
   _offset
-  FROM posthog_test_gw1.kafka_events_dead_letter_queue
+  FROM posthog_test.kafka_events_dead_letter_queue
   
   '''
 # ---
@@ -968,7 +968,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.writable_events
+  TO posthog_test.writable_events
   AS SELECT
   uuid,
   event,
@@ -1001,7 +1001,7 @@
           arrayEnumerate(_headers.name)
       )
   ) as consumer_breadcrumbs
-  FROM posthog_test_gw1.kafka_events_json
+  FROM posthog_test.kafka_events_json
   
   '''
 # ---
@@ -1051,7 +1051,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.events_recent
+  TO posthog_test.events_recent
   AS SELECT
   uuid,
   event,
@@ -1079,14 +1079,14 @@
   _timestamp_ms,
   _offset,
   _partition
-  FROM posthog_test_gw1.kafka_events_recent_json
+  FROM posthog_test.kafka_events_recent_json
   
   '''
 # ---
 # name: test_create_table_query[exchange_rate]
   '''
   
-  CREATE TABLE IF NOT EXISTS `posthog_test_gw1`.`exchange_rate` ON CLUSTER 'posthog' (
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate` ON CLUSTER 'posthog' (
       currency String,
       date Date,
       rate Decimal64(10),
@@ -1157,7 +1157,7 @@
       _timestamp DateTime,
       _offset UInt64,
       _partition UInt64
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
   
   '''
 # ---
@@ -1165,7 +1165,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.writable_heatmaps
+  TO posthog_test.writable_heatmaps
   AS SELECT
       session_id,
       team_id,
@@ -1186,7 +1186,7 @@
       _timestamp,
       _offset,
       _partition
-  FROM posthog_test_gw1.kafka_heatmaps
+  FROM posthog_test.kafka_heatmaps
   
   '''
 # ---
@@ -1205,7 +1205,7 @@
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_ingestion_warnings', rand())
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ingestion_warnings', rand())
   
   '''
 # ---
@@ -1213,7 +1213,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.ingestion_warnings
+  TO posthog_test.ingestion_warnings
   AS SELECT
   team_id,
   source,
@@ -1223,7 +1223,7 @@
   _timestamp,
   _offset,
   _partition
-  FROM posthog_test_gw1.kafka_ingestion_warnings
+  FROM posthog_test.kafka_ingestion_warnings
   
   '''
 # ---
@@ -1241,7 +1241,7 @@
       metric_name String,
       count Int64
   )
-  ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics2_test_gw1', 'group1', 'JSONEachRow')
+  ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics2_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1262,7 +1262,7 @@
       error_type String,
       error_details String CODEC(ZSTD(3))
   )
-  ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics_test_gw1', 'group1', 'JSONEachRow')
+  ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1294,7 +1294,7 @@
       inserted_at DateTime64(3, 'UTC'),
       embeddings Array(Float64) -- We could experiment with quantization, but if we do we can use a new column, for now we'll eat the inefficiency
        -- Unused, I think, but the above has it, so
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test_gw1', 'clickhouse_error_tracking_fingerprint_embeddings', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_error_tracking_issue_fingerprint_embeddings_test', 'clickhouse_error_tracking_fingerprint_embeddings', 'JSONEachRow')
   
   '''
 # ---
@@ -1309,7 +1309,7 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_error_tracking_issue_fingerprint_test_gw1', 'clickhouse-error-tracking-issue-fingerprint-overrides', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_error_tracking_issue_fingerprint_test', 'clickhouse-error-tracking-issue-fingerprint-overrides', 'JSONEachRow')
   
   '''
 # ---
@@ -1335,7 +1335,7 @@
       error VARCHAR,
       tags Array(VARCHAR)
       
-  ) ENGINE = Kafka('kafka:9092', 'events_dead_letter_queue_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
   '''
 # ---
@@ -1369,7 +1369,7 @@
       
       
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
   
@@ -1405,7 +1405,7 @@
       
       
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test_gw1', 'group1_recent', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1_recent', 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
   
@@ -1422,7 +1422,7 @@
       team_id Int64,
       group_properties VARCHAR
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1447,7 +1447,7 @@
       pointer_target_fixed Bool,
       current_url VARCHAR,
       type LowCardinality(String)
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_heatmap_events_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_heatmap_events_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1462,7 +1462,7 @@
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_ingestion_warnings_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1491,7 +1491,7 @@
       -- The actual log message.
       message String
       
-  ) ENGINE = Kafka('kafka:9092', 'log_entries_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'log_entries_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1548,7 +1548,7 @@
   unload_event_end Float64,
   unload_event_start Float64
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_performance_events_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1565,7 +1565,7 @@
       is_deleted Int8,
       version UInt64
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1580,7 +1580,7 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1594,7 +1594,7 @@
       team_id Int64,
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1609,19 +1609,19 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test_gw1', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
   
   '''
 # ---
 # name: test_create_table_query[kafka_person_overrides]
   '''
   
-      CREATE TABLE IF NOT EXISTS `posthog_test_gw1`.`kafka_person_overrides`
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
       ON CLUSTER 'posthog'
   
       ENGINE = Kafka(
           'kafka:9092', -- Kafka hosts
-          'clickhouse_person_override_test_gw1', -- Kafka topic
+          'clickhouse_person_override_test', -- Kafka topic
           'clickhouse-person-overrides', -- Kafka consumer group id
           'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
       )
@@ -1641,7 +1641,7 @@
           -- set as a default value in the `person_overrides` table.
           -- created_at,
           version
-      FROM `posthog_test_gw1`.`person_overrides`
+      FROM `posthog_test`.`person_overrides`
   
   '''
 # ---
@@ -1660,7 +1660,7 @@
       message VARCHAR,
       instance_id UUID
       
-  ) ENGINE = Kafka('kafka:9092', 'plugin_log_entries_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1679,7 +1679,7 @@
       created_at DateTime64(6, 'UTC')
       
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1709,7 +1709,7 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test_gw1', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1781,7 +1781,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS log_entries_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.log_entries
+  TO posthog_test.log_entries
   AS SELECT
   team_id,
   log_source,
@@ -1792,7 +1792,7 @@
   message,
   _timestamp,
   _offset
-  FROM posthog_test_gw1.kafka_log_entries
+  FROM posthog_test.kafka_log_entries
   
   '''
 # ---
@@ -1853,7 +1853,7 @@
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_performance_events', sipHash64(session_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_performance_events', sipHash64(session_id))
   
   '''
 # ---
@@ -1861,11 +1861,11 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.writeable_performance_events
+  TO posthog_test.writeable_performance_events
   AS SELECT
   uuid, session_id, window_id, pageview_id, distinct_id, timestamp, time_origin, entry_type, name, team_id, current_url, start_time, duration, redirect_start, redirect_end, worker_start, fetch_start, domain_lookup_start, domain_lookup_end, connect_start, secure_connection_start, connect_end, request_start, response_start, response_end, decoded_body_size, encoded_body_size, initiator_type, next_hop_protocol, render_blocking_status, response_status, transfer_size, largest_contentful_paint_element, largest_contentful_paint_render_time, largest_contentful_paint_load_time, largest_contentful_paint_size, largest_contentful_paint_id, largest_contentful_paint_url, dom_complete, dom_content_loaded_event, dom_interactive, load_event_end, load_event_start, redirect_count, navigation_type, unload_event_end, unload_event_start
   ,_timestamp, _offset, _partition
-  FROM posthog_test_gw1.kafka_performance_events
+  FROM posthog_test.kafka_performance_events
   
   '''
 # ---
@@ -1961,7 +1961,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.person_distinct_id
+  TO posthog_test.person_distinct_id
   AS SELECT
   distinct_id,
   person_id,
@@ -1969,7 +1969,7 @@
   coalesce(_sign, if(is_deleted==0, 1, -1)) AS _sign,
   _timestamp,
   _offset
-  FROM posthog_test_gw1.kafka_person_distinct_id
+  FROM posthog_test.kafka_person_distinct_id
   
   '''
 # ---
@@ -2039,7 +2039,7 @@
 # name: test_create_table_query[person_overrides]
   '''
   
-      CREATE TABLE IF NOT EXISTS `posthog_test_gw1`.`person_overrides`
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
       ON CLUSTER 'posthog' (
           team_id INT NOT NULL,
   
@@ -2103,9 +2103,9 @@
 # name: test_create_table_query[person_overrides_mv]
   '''
   
-      CREATE MATERIALIZED VIEW IF NOT EXISTS `posthog_test_gw1`.`person_overrides_mv`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS `posthog_test`.`person_overrides_mv`
       ON CLUSTER 'posthog'
-      TO `posthog_test_gw1`.`person_overrides`
+      TO `posthog_test`.`person_overrides`
       AS SELECT
           team_id,
           old_person_id,
@@ -2116,7 +2116,7 @@
           -- set as a default value in the `person_overrides` table.
           -- created_at,
           version
-      FROM `posthog_test_gw1`.`kafka_person_overrides`
+      FROM `posthog_test`.`kafka_person_overrides`
   
   '''
 # ---
@@ -2523,7 +2523,7 @@
   
       -- web vitals
       vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_raw_sessions', cityHash64(session_id_v7))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
 # ---
@@ -2531,7 +2531,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS raw_sessions_mv 
-  TO posthog_test_gw1.writable_raw_sessions
+  TO posthog_test.writable_raw_sessions
   AS
   
   SELECT
@@ -2608,7 +2608,7 @@
   
       -- web vitals
       argMinState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64'), timestamp) as vitals_lcp
-  FROM posthog_test_gw1.sharded_events
+  FROM posthog_test.sharded_events
   WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
   GROUP BY
       team_id,
@@ -2697,7 +2697,7 @@
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
   
   '''
 # ---
@@ -2705,7 +2705,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS raw_sessions_v3_mv
-  TO posthog_test_gw1.writable_raw_sessions_v3
+  TO posthog_test.writable_raw_sessions_v3
   AS
   
   WITH parsed_events AS (
@@ -2835,7 +2835,7 @@
           if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
           if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max,
           properties_group_feature_flags
-      FROM posthog_test_gw1.sharded_events
+      FROM posthog_test.sharded_events
       WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
       AND True
   )
@@ -2930,7 +2930,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_session_recording_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -2938,7 +2938,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS session_recording_events_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.writable_session_recording_events
+  TO posthog_test.writable_session_recording_events
   AS SELECT
   uuid,
   timestamp,
@@ -2950,7 +2950,7 @@
   created_at,
   _timestamp,
   _offset
-  FROM posthog_test_gw1.kafka_session_recording_events
+  FROM posthog_test.kafka_session_recording_events
   
   '''
 # ---
@@ -3001,7 +3001,7 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_session_replay_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -3009,7 +3009,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.writable_session_replay_events (
+  TO posthog_test.writable_session_replay_events (
   `session_id` String, `team_id` Int64, `distinct_id` String,
   `min_first_timestamp` DateTime64(6, 'UTC'),
   `max_last_timestamp` DateTime64(6, 'UTC'),
@@ -3063,7 +3063,7 @@
   argMinState(snapshot_library, first_timestamp) as snapshot_library,
   max(_timestamp) as _timestamp
   ,max(retention_period_days) as retention_period_days
-  FROM posthog_test_gw1.kafka_session_replay_events
+  FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
   '''
@@ -3210,7 +3210,7 @@
       -- as these are used in some key queries and need to be fast
       pageview_count SimpleAggregateFunction(sum, Int64),
       autocapture_count SimpleAggregateFunction(sum, Int64),
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_sessions', sipHash64(session_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_sessions', sipHash64(session_id))
   
   '''
 # ---
@@ -3218,7 +3218,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS sessions_mv ON CLUSTER 'posthog'
-  TO posthog_test_gw1.writable_sessions
+  TO posthog_test.writable_sessions
   AS
   
   SELECT
@@ -3263,7 +3263,7 @@
   sumIf(1, event='$pageview') as pageview_count,
   sumIf(1, event='$autocapture') as autocapture_count
   
-  FROM posthog_test_gw1.sharded_events
+  FROM posthog_test.sharded_events
   WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND team_id IN (1, 2, 13610, 19279, 21173, 29929, 32050, 9910, 11775, 21129, 31490)
   GROUP BY `$session_id`, team_id
   
@@ -4394,7 +4394,7 @@
       condition String,
       matches SimpleAggregateFunction(sum, UInt64),
       latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_behavioral_cohorts_matches', sipHash64(person_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_behavioral_cohorts_matches', sipHash64(person_id))
   
   '''
 # ---
@@ -4431,7 +4431,7 @@
   , _offset UInt64
   , consumer_breadcrumbs Array(String)
       
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -4449,7 +4449,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test_gw1', 'groups')
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'groups')
   
   '''
 # ---
@@ -4477,7 +4477,7 @@
       _timestamp DateTime,
       _offset UInt64,
       _partition UInt64
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
   
   '''
 # ---
@@ -4497,7 +4497,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test_gw1', 'person')
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'person')
   
   '''
 # ---
@@ -4518,7 +4518,7 @@
   , _partition UInt64
   
       
-  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test_gw1', 'person_distinct_id2')
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'person_distinct_id2')
   
   '''
 # ---
@@ -4539,7 +4539,7 @@
   , _partition UInt64
   
       
-  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test_gw1', 'person_distinct_id_overrides')
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'person_distinct_id_overrides')
   
   '''
 # ---
@@ -4561,7 +4561,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test_gw1', 'plugin_log_entries')
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'plugin_log_entries')
   
   '''
 # ---
@@ -4651,7 +4651,7 @@
   
       -- web vitals
       vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_raw_sessions', cityHash64(session_id_v7))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
 # ---
@@ -4733,7 +4733,7 @@
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
   
   '''
 # ---
@@ -4755,7 +4755,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_session_recording_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -4806,7 +4806,7 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_session_replay_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
 # ---
@@ -4894,7 +4894,7 @@
       -- as these are used in some key queries and need to be fast
       pageview_count SimpleAggregateFunction(sum, Int64),
       autocapture_count SimpleAggregateFunction(sum, Int64),
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_sessions', sipHash64(session_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_sessions', sipHash64(session_id))
   
   '''
 # ---
@@ -4955,7 +4955,7 @@
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_performance_events', sipHash64(session_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_performance_events', sipHash64(session_id))
   
   '''
 # ---
@@ -5120,7 +5120,7 @@
 # name: test_create_table_query_replicated_and_storage[exchange_rate]
   '''
   
-  CREATE TABLE IF NOT EXISTS `posthog_test_gw1`.`exchange_rate` ON CLUSTER 'posthog' (
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate` ON CLUSTER 'posthog' (
       currency String,
       date Date,
       rate Decimal64(10),
@@ -5283,7 +5283,7 @@
 # name: test_create_table_query_replicated_and_storage[person_overrides]
   '''
   
-      CREATE TABLE IF NOT EXISTS `posthog_test_gw1`.`person_overrides`
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
       ON CLUSTER 'posthog' (
           team_id INT NOT NULL,
   
@@ -6680,7 +6680,7 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
-  ) ENGINE = Distributed('posthog', 'posthog_test_gw1', 'sharded_session_replay_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
 # ---
