@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonModal, Link, Spinner } from '@posthog/lemon-ui'
@@ -27,12 +27,10 @@ import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
-import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ExternalReferences } from '../../components/ExternalReferences'
 import { StatusIndicator } from '../../components/Indicators'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
-import { Metadata } from '../../components/IssueMetadata'
 import { IssueTasks } from '../../components/IssueTasks'
 import { RuntimeIcon } from '../../components/RuntimeIcon'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
@@ -52,7 +50,6 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
     const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(
         errorTrackingIssueSceneLogic(logicProps)
     )
-    const { selectEvent } = useActions(errorTrackingIssueSceneLogic(logicProps))
     const tagRenderer = useErrorTagRenderer()
 
     return (
@@ -65,13 +62,6 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
                     eventLoading={initialEventLoading}
                     label={tagRenderer(selectedEvent)}
                 />
-                <Metadata>
-                    <EventsTable
-                        issueId={issueId}
-                        selectedEvent={selectedEvent}
-                        onEventSelect={(selectedEvent) => (selectedEvent ? selectEvent(selectedEvent) : null)}
-                    />
-                </Metadata>
             </div>
         </div>
     )
@@ -82,7 +72,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
     const hasTasks = useFeatureFlag('TASKS')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-    const hasRelatedIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
+    const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
 
     return issue ? (
         <div className="flex flex-col gap-2">
@@ -126,7 +116,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
             {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-            {hasRelatedIssues && <RelatedIssues />}
+            {hasSimilarIssues && <SimilarIssues />}
         </div>
     ) : null
 }
@@ -216,47 +206,43 @@ const IssueExternalReference = (): JSX.Element => {
     )
 }
 
-const RelatedIssues = (): JSX.Element => {
-    const { issue, relatedIssues, relatedIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
-    const { loadRelatedIssues } = useActions(errorTrackingIssueSceneLogic)
-    const { mergeIssues } = useActions(issueActionsLogic)
+const SimilarIssues = (): JSX.Element => {
+    const { issue, similarIssues, similarIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { loadSimilarIssues } = useActions(errorTrackingIssueSceneLogic)
+    const { mergeIssues } = useAsyncActions(issueActionsLogic)
     const [selectedIssue, setSelectedIssue] = useState<RelatedIssue | null>(null)
 
     useEffect(() => {
-        loadRelatedIssues()
-    }, [loadRelatedIssues])
+        loadSimilarIssues()
+    }, [loadSimilarIssues])
 
     const handleMerge = async (relatedIssueId: string): Promise<void> => {
         if (issue) {
             await mergeIssues([issue.id, relatedIssueId])
-            loadRelatedIssues()
+            loadSimilarIssues()
         }
     }
 
     return (
-        <ScenePanelLabel title="Related issues">
-            {relatedIssuesLoading ? (
+        <ScenePanelLabel title="Similar issues">
+            {similarIssuesLoading ? (
                 <Spinner />
-            ) : relatedIssues.length > 0 ? (
+            ) : similarIssues.length > 0 ? (
                 <div className="flex flex-col gap-1">
-                    {relatedIssues.map((relatedIssue: RelatedIssue) => {
+                    {similarIssues.map((relatedIssue: RelatedIssue) => {
                         const relatedRuntime = getRuntimeFromLib(relatedIssue.library)
                         return (
                             <div
                                 key={relatedIssue.id}
-                                className="flex items-center justify-between p-2 border rounded bg-surface-primary"
+                                className="flex items-center justify-between px-2 py-1 border rounded bg-surface-primary"
                             >
                                 <div
-                                    className="flex flex-col gap-1 min-w-0 cursor-pointer"
+                                    className="flex flex-col gap-0.5 min-w-0 group flex-grow cursor-pointer"
                                     onClick={() => setSelectedIssue(relatedIssue)}
                                 >
-                                    <div className="flex items-center gap-2">
-                                        <span className="shrink-0 text-gray-600">
-                                            <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" />
-                                        </span>
-                                        <div className="font-medium text-sm truncate text-link hover:underline">
-                                            {relatedIssue.title}
-                                        </div>
+                                    <div className="font-medium flex items-center gap-2 text-sm truncate group-hover:text-accent">
+                                        <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" className="shrink-0" />
+                                        {relatedIssue.title}
                                     </div>
                                     {relatedIssue.description && (
                                         <div className="text-xs text-secondary truncate">
@@ -270,7 +256,7 @@ const RelatedIssues = (): JSX.Element => {
                                         e.preventDefault()
                                         handleMerge(relatedIssue.id)
                                     }}
-                                    className="shrink-0 px-2 py-3"
+                                    className="shrink-0 px-2 py-3 h-full"
                                 >
                                     Merge
                                 </ButtonPrimitive>
@@ -279,7 +265,7 @@ const RelatedIssues = (): JSX.Element => {
                     })}
                 </div>
             ) : (
-                <div className="text-sm text-gray-500">No related issues found</div>
+                <div className="text-sm text-gray-500">No similar issues found</div>
             )}
 
             {/* Issue Detail Modal */}
@@ -297,12 +283,6 @@ const RelatedIssues = (): JSX.Element => {
 
 const IssueFingerprints = (): JSX.Element => {
     const { issue, issueFingerprints, issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
-    const { loadIssueFingerprints } = useActions(errorTrackingIssueSceneLogic)
-
-    useEffect(() => {
-        loadIssueFingerprints()
-    }, [loadIssueFingerprints])
-
     return (
         <ScenePanelLabel title="Fingerprints">
             <Link to={issue ? urls.errorTrackingIssueFingerprints(issue.id) : undefined}>
