@@ -284,10 +284,40 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 return count
             },
         ],
+
+        urlSearchParams: [
+            (s) => [s.filters],
+            (filters: AdvancedActivityLogFilters) => {
+                return objectClean({
+                    ...router.values.searchParams,
+                    start_date: filters.start_date,
+                    end_date: filters.end_date,
+                    users: filters.users?.length ? filters.users.join(',') : undefined,
+                    scopes: filters.scopes?.length ? filters.scopes.join(',') : undefined,
+                    activities: filters.activities?.length ? filters.activities.join(',') : undefined,
+                    item_ids: filters.item_ids?.length ? filters.item_ids.join(',') : undefined,
+                    was_impersonated: filters.was_impersonated?.toString(),
+                    is_system: filters.is_system?.toString(),
+                    detail_filters:
+                        filters.detail_filters && Object.keys(filters.detail_filters).length > 0
+                            ? JSON.stringify(filters.detail_filters)
+                            : undefined,
+                    page: filters.page && filters.page > 1 ? filters.page : undefined,
+                })
+            },
+        ],
     }),
 
     listeners(({ actions, values, cache }) => ({
-        setFilters: async (_, breakpoint) => {
+        setFilters: async ({ filters }, breakpoint) => {
+            // Check if we're setting non-page filters while on page > 1
+            const settingNonPageFilters = Object.keys(filters).some((key) => key !== 'page')
+            if (settingNonPageFilters && values.filters.page && values.filters.page > 1 && !filters.page) {
+                // Reset page to 1 by calling setPage
+                actions.setPage(1)
+                return
+            }
+
             await breakpoint(300)
             actions.loadAdvancedActivityLogs({})
         },
@@ -447,26 +477,18 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        setFilters: () => {
-            const params = objectClean({
-                ...router.values.searchParams,
-                start_date: values.filters.start_date,
-                end_date: values.filters.end_date,
-                users: values.filters.users?.length ? values.filters.users.join(',') : undefined,
-                scopes: values.filters.scopes?.length ? values.filters.scopes.join(',') : undefined,
-                activities: values.filters.activities?.length ? values.filters.activities.join(',') : undefined,
-                item_ids: values.filters.item_ids?.length ? values.filters.item_ids.join(',') : undefined,
-                was_impersonated: values.filters.was_impersonated?.toString(),
-                is_system: values.filters.is_system?.toString(),
-                detail_filters:
-                    values.filters.detail_filters && Object.keys(values.filters.detail_filters).length > 0
-                        ? JSON.stringify(values.filters.detail_filters)
-                        : undefined,
-                page: values.filters.page && values.filters.page > 1 ? values.filters.page : undefined,
-            })
-
-            return [router.values.location.pathname, params, router.values.hashParams, { replace: true }]
-        },
+        setFilters: () => [
+            router.values.location.pathname,
+            values.urlSearchParams,
+            router.values.hashParams,
+            { replace: true },
+        ],
+        setPage: () => [
+            router.values.location.pathname,
+            values.urlSearchParams,
+            router.values.hashParams,
+            { replace: true },
+        ],
     })),
 
     urlToAction(({ actions }) => ({

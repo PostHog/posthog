@@ -188,9 +188,9 @@ export function Info(): JSX.Element {
                             />
                         </div>
                         {experiment.description ? (
-                            <p className={cn('m-0')}>{experiment.description}</p>
+                            <p className={cn('m-0 mt-2')}>{experiment.description}</p>
                         ) : (
-                            <p className={cn('m-0 text-secondary')}>Add your hypothesis for this test</p>
+                            <p className={cn('m-0 mt-2 text-secondary italic')}>Add your hypothesis for this test</p>
                         )}
 
                         <LemonModal

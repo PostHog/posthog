@@ -677,10 +677,16 @@ def get_winsorized_metric_values_query(
         lower_bound_expr = parse_expr("min(value)")
 
     if metric.upper_bound_percentile is not None:
-        upper_bound_expr = parse_expr(
-            "quantile({level})(value)",
-            placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
-        )
+        if getattr(metric, "ignore_zeros", False):
+            upper_bound_expr = parse_expr(
+                "quantile({level})(if(value != 0, value, null))",
+                placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
+            )
+        else:
+            upper_bound_expr = parse_expr(
+                "quantile({level})(value)",
+                placeholders={"level": ast.Constant(value=metric.upper_bound_percentile)},
+            )
     else:
         upper_bound_expr = parse_expr("max(value)")
 

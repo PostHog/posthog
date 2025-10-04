@@ -1,12 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
+use common_types::error_tracking::FrameId;
 use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
     error::{PipelineResult, UnhandledError},
     fingerprinting::resolve_fingerprint,
-    frames::FrameId,
     metric_consts::{FINGERPRINT_BATCH_TIME, FRAME_BATCH_TIME, FRAME_RESOLUTION},
     types::{FingerprintedErrProps, RawErrProps, Stacktrace},
 };

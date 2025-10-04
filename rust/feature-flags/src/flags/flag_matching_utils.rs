@@ -1057,7 +1057,7 @@ async fn try_should_write_hash_key_override(
         Ok(Err(e)) => Err(e),
         Err(_) => {
             // Handle timeout
-            Err(FlagError::TimeoutError)
+            Err(FlagError::TimeoutError(None))
         }
     }
 }
@@ -1133,6 +1133,7 @@ mod tests {
             ensure_experience_continuity: flag.ensure_experience_continuity,
             version: flag.version,
             evaluation_runtime: flag.evaluation_runtime,
+            evaluation_tags: flag.evaluation_tags,
         };
 
         // Insert the feature flag into the database
@@ -1235,6 +1236,7 @@ mod tests {
                 ensure_experience_continuity: Some(true),
                 version: Some(1),
                 evaluation_runtime: None,
+                evaluation_tags: None,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1350,6 +1352,7 @@ mod tests {
                 ensure_experience_continuity: Some(true),
                 version: Some(1),
                 evaluation_runtime: None,
+                evaluation_tags: None,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1470,6 +1473,7 @@ mod tests {
             ensure_experience_continuity: Some(true),
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
 
         let inactive_flag = FeatureFlagRow {
@@ -1483,6 +1487,7 @@ mod tests {
             ensure_experience_continuity: Some(true),
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
 
         let deleted_flag = FeatureFlagRow {
@@ -1496,6 +1501,7 @@ mod tests {
             ensure_experience_continuity: Some(true),
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
 
         let no_continuity_flag = FeatureFlagRow {
@@ -1509,6 +1515,7 @@ mod tests {
             ensure_experience_continuity: Some(false), // No experience continuity
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
 
         context
@@ -1600,6 +1607,7 @@ mod tests {
             ensure_experience_continuity: Some(true),
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
         context
             .insert_flag(team.id, Some(flag_row))
@@ -1684,6 +1692,7 @@ mod tests {
             ensure_experience_continuity: Some(true),
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
         context
             .insert_flag(team.id, Some(flag_row))
@@ -1961,7 +1970,7 @@ mod tests {
         assert!(!should_retry_on_error(&column_error));
 
         // Test that other error types don't trigger retries
-        let timeout_error_variant = FlagError::TimeoutError;
+        let timeout_error_variant = FlagError::TimeoutError(None);
         assert!(!should_retry_on_error(&timeout_error_variant));
 
         let missing_id_error = FlagError::MissingDistinctId;

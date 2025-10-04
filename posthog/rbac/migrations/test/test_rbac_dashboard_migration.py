@@ -65,7 +65,7 @@ class TestRBACDashboardMigration(BaseTest):
 
         default_ac = access_controls.first()
         assert default_ac is not None
-        self.assertEqual(default_ac.access_level, "view")
+        self.assertEqual(default_ac.access_level, "viewer")
         self.assertEqual(default_ac.team_id, self.team.id)
         self.assertIsNone(default_ac.organization_member)
         self.assertIsNone(default_ac.role)
@@ -110,16 +110,16 @@ class TestRBACDashboardMigration(BaseTest):
         # Verify default access control
         default_ac = access_controls.filter(organization_member=None, role=None).first()
         assert default_ac is not None
-        self.assertEqual(default_ac.access_level, "view")
+        self.assertEqual(default_ac.access_level, "viewer")
 
         # Verify user-specific access controls
         user2_ac = access_controls.filter(organization_member=self.user2_membership).first()
         assert user2_ac is not None
-        self.assertEqual(user2_ac.access_level, "edit")
+        self.assertEqual(user2_ac.access_level, "editor")
 
         user3_ac = access_controls.filter(organization_member=self.user3_membership).first()
         assert user3_ac is not None
-        self.assertEqual(user3_ac.access_level, "edit")  # All privileges become "edit"
+        self.assertEqual(user3_ac.access_level, "editor")  # All privileges become "editor"
 
         # Verify original privileges were deleted
         self.assertEqual(DashboardPrivilege.objects.filter(dashboard=dashboard).count(), 0)
@@ -178,7 +178,7 @@ class TestRBACDashboardMigration(BaseTest):
             resource="dashboard", resource_id=str(dashboard.id), organization_member=None, role=None
         ).first()
         assert default_ac is not None
-        self.assertEqual(default_ac.access_level, "view")
+        self.assertEqual(default_ac.access_level, "viewer")
 
         # Verify no access control was created for the orphaned user
         self.assertFalse(

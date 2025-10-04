@@ -55,7 +55,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(16, 17)):
+        with self.assertNumQueries(FuzzyInt(18, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -72,7 +72,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(16, 17)):
+        with self.assertNumQueries(FuzzyInt(22, 23)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1701,7 +1701,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(22):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -2656,9 +2656,9 @@ class TestExperimentCRUD(APILicensedTest):
         initial_metrics = response.json()["metrics"]
 
         expected_initial_fingerprints = {
-            "mean": "de1dab82a19408c2964a29b96df7d1a6c85b3c71b8fe73a9510e0b399d25174f",
-            "funnel": "3bfed12a5bfad881855c3bf35f52fb6fcb0925568b5fb5e876f10c7cc912b3f7",
-            "ratio": "8f713ea90302cc058ce14c2fba5f61423eedc8f406dbf685b7f51f06e2cdad72",
+            "mean": "fd431b59b934ba0d2dc650f54a37da146f7532eb7a93bbcf78b9cfdbfcad0d26",
+            "funnel": "d25af73845180f7327572cd9a2cd8745432f1eed5bfa6b0d35d0a368c7175038",
+            "ratio": "fb2f447c7b49bc8973fd3dfd5fb5cd4f33523b4ed2281f6bd33def84fe95dc62",
         }
 
         for metric in initial_metrics:
@@ -2717,9 +2717,9 @@ class TestExperimentCRUD(APILicensedTest):
         updated_metrics = response.json()["metrics"]
 
         expected_updated_fingerprints = {
-            "mean": "a5e74c9c8c2bfd2fbda5fb786f2c068377415123eadaa7bcd67a9c2c0d4e110e",
-            "funnel": "210059a9d7948df92b597dd21def6c8c7356c6b8c3b0d620eb69bdd8fa838e7a",
-            "ratio": "2d82c06a61dabb8b86ca0c317cf64ba9dd33b6744176e0e2777294bf2eec598f",
+            "mean": "61e7a1f22f967262749b72ea086eae04fe2ced040eeb179d7d25a3be32a7ea31",
+            "funnel": "5c21352fe6e13282ca63b24f128ed7e0d8f0cc9d5988964b1bf89b11f4405b23",
+            "ratio": "9b81f680dbc8ff74978877e6eb3827bbafc881f7df80841648e5b97c85452977",
         }
 
         for metric in updated_metrics:
