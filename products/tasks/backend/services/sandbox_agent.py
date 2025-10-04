@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from django.conf import settings
 
@@ -32,12 +33,17 @@ class SandboxAgent:
     def __init__(self, sandbox: SandboxEnvironment):
         self.sandbox = sandbox
 
-    async def clone_repository(self, repository: str, github_token: str) -> ExecutionResult:
+    async def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
         org, repo = repository.lower().split("/")
-        repo_url = f"https://x-access-token:{github_token}@github.com/{repository}.git"
+        repo_url = (
+            f"https://x-access-token:{github_token}@github.com/{repository}.git"
+            if github_token
+            else f"https://github.com/{repository}.git"
+        )
+
         target_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         # Wipe existing directory if present, then clone

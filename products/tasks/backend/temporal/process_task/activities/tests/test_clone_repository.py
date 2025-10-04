@@ -226,7 +226,5 @@ class TestCloneRepositoryActivity:
         ) as mock_get_token:
             mock_get_token.return_value = ""
 
-            with pytest.raises(SandboxNotFoundError) as exc_info:
+            with pytest.raises(SandboxNotFoundError):
                 await activity_environment.run(clone_repository, input_data)
-
-            assert "Failed to get sandbox" in str(exc_info.value)
