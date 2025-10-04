@@ -27,7 +27,7 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     """
     old_events_topic = str(uuid4())
     new_events_topic = str(uuid4())
-    consumer_group_id = "events-ingestion-consumer"
+    consumer_group_id = f"events-ingestion-consumer-{uuid4()}"
     message_key = str(uuid4())
 
     # The command will fail if we don't have a consumer group ID that has
@@ -96,7 +96,7 @@ def test_we_do_not_migrate_when_dry_run_is_set():
     """
     old_events_topic = str(uuid4())
     new_events_topic = str(uuid4())
-    consumer_group_id = "events-ingestion-consumer"
+    consumer_group_id = f"events-ingestion-consumer-{uuid4()}"
     message_key = str(uuid4())
 
     _commit_offsets_for_topic(old_events_topic, consumer_group_id)
@@ -136,7 +136,7 @@ def test_cannot_send_data_back_into_same_topic_on_same_cluster():
     the same cluster, as that would cause duplicates.
     """
     topic = str(uuid4())
-    consumer_group_id = "events-ingestion-consumer"
+    consumer_group_id = f"events-ingestion-consumer-{uuid4()}"
     message_key = str(uuid4())
 
     _commit_offsets_for_topic(topic, consumer_group_id)
@@ -176,6 +176,7 @@ def test_that_the_command_fails_if_the_specified_consumer_group_does_not_exist()
     old_topic = str(uuid4())
     new_topic = str(uuid4())
     message_key = str(uuid4())
+    nonexistent_group = f"nonexistent-consumer-group-{uuid4()}"
 
     _create_topic(new_topic)
 
@@ -198,10 +199,10 @@ def test_that_the_command_fails_if_the_specified_consumer_group_does_not_exist()
             "--to-cluster",
             "localhost:9092",
             "--consumer-group-id",
-            "nonexistent-consumer-group",
+            nonexistent_group,
         )
     except ValueError as e:
-        assert str(e) == "Consumer group nonexistent-consumer-group has no committed offsets"
+        assert str(e) == f"Consumer group {nonexistent_group} has no committed offsets"
     else:
         raise AssertionError("Expected ValueError to be raised")
 
@@ -213,7 +214,7 @@ def test_that_we_error_if_the_target_topic_doesnt_exist():
     """
     old_topic = str(uuid4())
     new_topic = str(uuid4())
-    consumer_group_id = "events-ingestion-consumer"
+    consumer_group_id = f"events-ingestion-consumer-{uuid4()}"
     message_key = str(uuid4())
 
     _commit_offsets_for_topic(old_topic, consumer_group_id)
@@ -252,7 +253,7 @@ def test_we_fail_on_send_errors_to_new_topic():
     """
     old_topic = str(uuid4())
     new_topic = str(uuid4())
-    consumer_group_id = "events-ingestion-consumer"
+    consumer_group_id = f"events-ingestion-consumer-{uuid4()}"
     message_key = str(uuid4())
 
     _create_topic(new_topic)
