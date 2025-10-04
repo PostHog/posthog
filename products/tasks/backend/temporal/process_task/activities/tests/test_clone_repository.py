@@ -8,7 +8,7 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
-from products.tasks.backend.temporal.exceptions import RepositoryCloneError, SandboxProvisionError
+from products.tasks.backend.temporal.exceptions import RepositoryCloneError, SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.clone_repository import (
     CloneRepositoryInput,
     clone_repository,
@@ -226,7 +226,7 @@ class TestCloneRepositoryActivity:
         ) as mock_get_token:
             mock_get_token.return_value = ""
 
-            with pytest.raises(SandboxProvisionError) as exc_info:
+            with pytest.raises(SandboxNotFoundError) as exc_info:
                 await activity_environment.run(clone_repository, input_data)
 
             assert "Failed to get sandbox" in str(exc_info.value)

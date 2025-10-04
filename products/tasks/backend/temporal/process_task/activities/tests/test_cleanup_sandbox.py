@@ -8,6 +8,7 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
+from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 
 
@@ -39,7 +40,7 @@ class TestCleanupSandboxActivity:
     async def test_cleanup_sandbox_not_found(self, activity_environment):
         input_data = CleanupSandboxInput(sandbox_id="non-existent-sandbox-id")
 
-        with pytest.raises(RuntimeError) as exc_info:
+        with pytest.raises(SandboxNotFoundError) as exc_info:
             await activity_environment.run(cleanup_sandbox, input_data)
 
         assert "Failed to cleanup sandbox" in str(exc_info.value)

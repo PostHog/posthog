@@ -125,23 +125,23 @@ def track_event(
         enriched_properties = {**(properties or {})}
 
         if activity.in_activity():
-            info = activity.info()
+            activity_info = activity.info()
             enriched_properties.update(
                 {
-                    "temporal_activity_id": info.activity_id,
-                    "temporal_activity_type": info.activity_type,
-                    "temporal_workflow_id": info.workflow_id,
-                    "temporal_workflow_run_id": info.workflow_run_id,
-                    "temporal_attempt": info.attempt,
+                    "temporal_activity_id": activity_info.activity_id,
+                    "temporal_activity_type": activity_info.activity_type,
+                    "temporal_workflow_id": activity_info.workflow_id,
+                    "temporal_workflow_run_id": activity_info.workflow_run_id,
+                    "temporal_attempt": activity_info.attempt,
                 }
             )
         elif workflow.in_workflow() and not workflow.unsafe.is_replaying():
-            info = workflow.info()
+            workflow_info = workflow.info()
             enriched_properties.update(
                 {
-                    "temporal_workflow_id": info.workflow_id,
-                    "temporal_workflow_run_id": info.run_id,
-                    "temporal_workflow_type": info.workflow_type,
+                    "temporal_workflow_id": workflow_info.workflow_id,
+                    "temporal_workflow_run_id": workflow_info.run_id,
+                    "temporal_workflow_type": workflow_info.workflow_type,
                 }
             )
 

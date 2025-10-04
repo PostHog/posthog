@@ -114,20 +114,21 @@ class SandboxEnvironment:
 
         try:
             # Wait for devbox to be running before returning
-            devbox = await client.devboxes.create_and_await_running(
-                name=config.name,
-                environment_variables=config.environment_variables or {},
-                entrypoint=config.entrypoint,
-                metadata=config.metadata or {},
-                launch_parameters={
+            create_kwargs = {
+                "name": config.name,
+                "environment_variables": config.environment_variables or {},
+                "entrypoint": config.entrypoint,
+                "metadata": config.metadata or {},
+                "launch_parameters": {
                     "keep_alive_time_seconds": config.ttl_seconds,
                 },
-                **(
-                    {"snapshot_id": snapshot_external_id}
-                    if snapshot_external_id
-                    else {"blueprint_name": blueprint_name}
-                ),
-            )
+            }
+            if snapshot_external_id:
+                create_kwargs["snapshot_id"] = snapshot_external_id
+            else:
+                create_kwargs["blueprint_name"] = blueprint_name
+
+            devbox = await client.devboxes.create_and_await_running(**create_kwargs)
 
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")

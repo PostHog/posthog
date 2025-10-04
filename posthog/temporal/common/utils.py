@@ -1,8 +1,8 @@
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import datetime
 from functools import wraps
-from typing import ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 from asgiref.sync import sync_to_async
 from temporalio import workflow
@@ -11,7 +11,7 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 
-def asyncify(fn: Callable[P, T]) -> Callable[P, T]:
+def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
     """Decorator to convert a sync function using sync_to_async - this preserves type hints for Temporal's serialization while allowing sync Django ORM code.
 
     This preserves type hints for Temporal's serialization while allowing

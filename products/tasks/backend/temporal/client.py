@@ -22,6 +22,7 @@ async def _execute_task_processing_workflow(
 ) -> str:
     workflow_id = f"task-processing-{task_id}-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
 
+    workflow_input: str | TaskProcessingInputs
     if use_sandbox:
         workflow_name = "process-task"
         workflow_input = task_id

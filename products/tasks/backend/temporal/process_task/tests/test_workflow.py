@@ -107,11 +107,13 @@ class TestProcessTaskWorkflow:
         return "exists" in result.output
 
     async def test_workflow_with_existing_snapshot_reuses_snapshot(self, test_task, github_integration):
-        snapshot = await sync_to_async(SandboxSnapshot.objects.create)(
-            integration=github_integration,
+        snapshot, _ = await sync_to_async(SandboxSnapshot.objects.get_or_create)(
             external_id=POSTHOG_JS_SNAPSHOT["external_id"],
-            repos=POSTHOG_JS_SNAPSHOT["repos"],
-            status=SandboxSnapshot.Status.COMPLETE,
+            defaults={
+                "integration": github_integration,
+                "repos": POSTHOG_JS_SNAPSHOT["repos"],
+                "status": SandboxSnapshot.Status.COMPLETE,
+            },
         )
 
         try:
