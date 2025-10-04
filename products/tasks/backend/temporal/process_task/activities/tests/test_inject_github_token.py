@@ -8,6 +8,7 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
+from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.inject_github_token import (
     InjectGitHubTokenInput,
     inject_github_token,
@@ -76,10 +77,8 @@ class TestInjectGitHubTokenActivity:
             ) as mock_get_token:
                 mock_get_token.return_value = None
 
-                with pytest.raises(RuntimeError) as exc_info:
+                with pytest.raises(GitHubAuthenticationError):
                     await activity_environment.run(inject_github_token, input_data)
-
-                assert "Unable to get a valid github token" in str(exc_info.value)
 
         finally:
             if sandbox:
@@ -100,7 +99,5 @@ class TestInjectGitHubTokenActivity:
         ) as mock_get_token:
             mock_get_token.return_value = "test_token"
 
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(SandboxNotFoundError):
                 await activity_environment.run(inject_github_token, input_data)
-
-            assert "not found" in str(exc_info.value).lower() or "Failed to retrieve sandbox" in str(exc_info.value)

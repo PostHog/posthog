@@ -83,13 +83,7 @@ async def inject_personal_api_key(input: InjectPersonalAPIKeyInput) -> InjectPer
                 {"task_id": input.task_id, "error": str(e)},
             )
 
-        try:
-            sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
-        except Exception as e:
-            raise SandboxExecutionError(
-                f"Failed to get sandbox {input.sandbox_id}",
-                {"sandbox_id": input.sandbox_id, "error": str(e)},
-            )
+        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
 
         result = await sandbox.execute(
             f"echo 'export POSTHOG_PERSONAL_API_KEY=\"{value}\"' >> ~/.bash_profile && echo 'export POSTHOG_PERSONAL_API_KEY=\"{value}\"' >> ~/.bashrc"

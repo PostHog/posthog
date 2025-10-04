@@ -11,6 +11,7 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
+from products.tasks.backend.temporal.exceptions import SandboxNotFoundError, TaskInvalidStateError
 from products.tasks.backend.temporal.process_task.activities.inject_personal_api_key import (
     InjectPersonalAPIKeyInput,
     InjectPersonalAPIKeyOutput,
@@ -81,10 +82,8 @@ class TestInjectPersonalAPIKeyActivity:
                 distinct_id="test-user-id",
             )
 
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(TaskInvalidStateError):
                 await activity_environment.run(inject_personal_api_key, input_data)
-
-            assert "has no created_by user" in str(exc_info.value)
 
         finally:
             if sandbox:
@@ -99,7 +98,5 @@ class TestInjectPersonalAPIKeyActivity:
             distinct_id="test-user-id",
         )
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(SandboxNotFoundError):
             await activity_environment.run(inject_personal_api_key, input_data)
-
-        assert "not found" in str(exc_info.value).lower() or "Failed to retrieve sandbox" in str(exc_info.value)

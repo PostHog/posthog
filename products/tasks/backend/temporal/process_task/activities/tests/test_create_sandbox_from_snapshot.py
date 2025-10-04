@@ -7,6 +7,7 @@ from asgiref.sync import sync_to_async
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from products.tasks.backend.temporal.exceptions import SandboxProvisionError, SnapshotNotFoundError
 from products.tasks.backend.temporal.process_task.activities.create_sandbox_from_snapshot import (
     CreateSandboxFromSnapshotInput,
     create_sandbox_from_snapshot,
@@ -67,10 +68,8 @@ class TestCreateSandboxFromSnapshotActivity:
             distinct_id="test-user-id",
         )
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(SnapshotNotFoundError):
             await activity_environment.run(create_sandbox_from_snapshot, input_data)
-
-        assert "does not exist" in str(exc_info.value) or "DoesNotExist" in str(exc_info.value)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db
@@ -86,10 +85,8 @@ class TestCreateSandboxFromSnapshotActivity:
                 snapshot_id=str(snapshot.id), task_id=task_id, distinct_id="test-user-id"
             )
 
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(SandboxProvisionError):
                 sandbox_id = await activity_environment.run(create_sandbox_from_snapshot, input_data)
-
-            assert "not found" in str(exc_info.value).lower() or "failed" in str(exc_info.value).lower()
 
         finally:
             await self._cleanup_snapshot(snapshot)

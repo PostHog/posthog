@@ -37,6 +37,12 @@ class SandboxProvisionError(ProcessTaskTransientError):
     pass
 
 
+class SandboxNotFoundError(ProcessTaskFatalError):
+    """Sandbox does not exist."""
+
+    pass
+
+
 class SandboxExecutionError(ProcessTaskError):
     """Error during sandbox command execution."""
 
@@ -45,6 +51,12 @@ class SandboxExecutionError(ProcessTaskError):
 
 class SandboxTimeoutError(ProcessTaskError):
     """Sandbox operation timed out."""
+
+    pass
+
+
+class SandboxCleanupError(ProcessTaskError):
+    """Error during sandbox cleanup/destruction."""
 
     pass
 

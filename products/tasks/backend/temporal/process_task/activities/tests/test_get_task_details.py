@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from asgiref.sync import sync_to_async
 
 from products.tasks.backend.models import Task
+from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.process_task.activities.get_task_details import TaskDetails, get_task_details
 
 
@@ -44,7 +45,7 @@ class TestGetTaskDetailsActivity:
     async def test_get_task_details_task_not_found(self, activity_environment):
         non_existent_task_id = "550e8400-e29b-41d4-a716-446655440000"
 
-        with pytest.raises(Task.DoesNotExist):
+        with pytest.raises(TaskNotFoundError):
             await activity_environment.run(get_task_details, non_existent_task_id)
 
     @pytest.mark.asyncio
@@ -87,7 +88,7 @@ class TestGetTaskDetailsActivity:
         )
 
         try:
-            with pytest.raises(TypeError):
+            with pytest.raises(TaskInvalidStateError):
                 await activity_environment.run(get_task_details, str(task.id))
         finally:
             await self._cleanup_task(task)

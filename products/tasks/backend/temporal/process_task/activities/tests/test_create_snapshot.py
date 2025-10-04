@@ -11,6 +11,7 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
+from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.create_snapshot import CreateSnapshotInput, create_snapshot
 
 
@@ -137,7 +138,5 @@ class TestCreateSnapshotActivity:
             distinct_id="test-user-id",
         )
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(SandboxNotFoundError):
             await activity_environment.run(create_snapshot, input_data)
-
-        assert "not found" in str(exc_info.value).lower() or "Failed to retrieve sandbox" in str(exc_info.value)

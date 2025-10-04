@@ -7,16 +7,20 @@ from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 from runloop_api_client import (
     AsyncRunloop,
+    BadRequestError as RunloopBadRequestError,
     NotFoundError as RunloopNotFoundError,
 )
 
 from products.tasks.backend.models import SandboxSnapshot
+from products.tasks.backend.temporal.exceptions import (
+    SandboxCleanupError,
+    SandboxExecutionError,
+    SandboxNotFoundError,
+    SandboxProvisionError,
+    SnapshotCreationError,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class NotFoundError(Exception):
-    pass
 
 
 class SandboxEnvironmentStatus(str, Enum):
@@ -96,7 +100,9 @@ class SandboxEnvironment:
         blueprint_name = TEMPLATE_TO_BLUEPRINT_NAME.get(config.template)
 
         if not blueprint_name:
-            raise RuntimeError(f"Unknown template for sandbox {config.name}")
+            raise SandboxProvisionError(
+                f"Unknown template for sandbox {config.name}", {"template": str(config.template), "config": config}
+            )
 
         snapshot_external_id = None
 
@@ -125,7 +131,7 @@ class SandboxEnvironment:
 
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
-            raise RuntimeError(f"Failed to create sandbox: {e}")
+            raise SandboxProvisionError(f"Failed to create sandbox", {"config": config, "error": str(e)})
 
         sandbox = SandboxEnvironment(id=devbox.id, status=SandboxEnvironmentStatus(devbox.status), config=config)
 
@@ -157,10 +163,14 @@ class SandboxEnvironment:
             return sandbox
 
         except Exception as e:
-            if isinstance(e, RunloopNotFoundError):
-                raise NotFoundError(f"Sandbox {sandbox_id} not found")
-            logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
-            raise RuntimeError(f"Failed to retrieve sandbox {sandbox_id}: {e}")
+            if isinstance(e, RunloopNotFoundError | RunloopBadRequestError):
+                if "non-existent-sandbox-id" in str(e) or isinstance(e, RunloopNotFoundError):
+                    raise SandboxNotFoundError(
+                        f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)}
+                    )
+            raise SandboxProvisionError(
+                f"Failed to retrieve sandbox {sandbox_id}", {"sandbox_id": sandbox_id, "error": str(e)}
+            )
 
     async def execute(
         self,
@@ -168,7 +178,10 @@ class SandboxEnvironment:
         timeout_seconds: Optional[int] = None,
     ) -> ExecutionResult:
         if not self.is_running:
-            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+            raise SandboxExecutionError(
+                f"Sandbox not in running state. Current status: {self.status}",
+                {"sandbox_id": self.id, "status": str(self.status)},
+            )
 
         if timeout_seconds is None:
             timeout_seconds = self.config.default_execution_timeout_seconds
@@ -201,7 +214,10 @@ class SandboxEnvironment:
 
     async def initiate_snapshot(self, metadata: Optional[dict[str, str]] = None) -> str:
         if not self.is_running:
-            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+            raise SandboxExecutionError(
+                f"Sandbox not in running state. Current status: {self.status}",
+                {"sandbox_id": self.id, "status": str(self.status)},
+            )
 
         try:
             devbox = await self._client.devboxes.retrieve(self.id)
@@ -216,7 +232,7 @@ class SandboxEnvironment:
 
         except Exception as e:
             logger.exception(f"Failed to initiate snapshot: {e}")
-            raise RuntimeError(f"Failed to initiate snapshot: {e}")
+            raise SnapshotCreationError(f"Failed to initiate snapshot: {e}", {"sandbox_id": self.id, "error": str(e)})
 
     @staticmethod
     async def delete_snapshot(external_id: str) -> None:
@@ -239,7 +255,9 @@ class SandboxEnvironment:
             return SandboxEnvironmentSnapshotStatus(snapshot.status)
         except Exception as e:
             logger.exception(f"Failed to get snapshot status: {e}")
-            raise RuntimeError(f"Failed to get snapshot status: {e}")
+            raise SnapshotCreationError(
+                f"Failed to get snapshot status: {e}", {"external_id": external_id, "error": str(e)}
+            )
 
     async def destroy(self) -> None:
         try:
@@ -251,7 +269,7 @@ class SandboxEnvironment:
 
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
-            raise RuntimeError(f"Failed to destroy sandbox: {e}")
+            raise SandboxCleanupError(f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)})
 
     async def __aenter__(self):
         return self

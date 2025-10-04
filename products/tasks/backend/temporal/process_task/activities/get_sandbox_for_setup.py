@@ -9,7 +9,6 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
-from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import get_sandbox_name_for_task
 
@@ -44,12 +43,6 @@ async def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> str:
             metadata={"task_id": input.task_id},
         )
 
-        try:
-            sandbox = await SandboxEnvironment.create(config)
-        except Exception as e:
-            raise SandboxProvisionError(
-                f"Failed to create setup sandbox",
-                {"task_id": input.task_id, "github_integration_id": input.github_integration_id, "error": str(e)},
-            )
+        sandbox = await SandboxEnvironment.create(config)
 
         return sandbox.id

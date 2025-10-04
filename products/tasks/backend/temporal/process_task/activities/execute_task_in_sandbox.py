@@ -5,11 +5,7 @@ from temporalio import activity
 
 from products.tasks.backend.services.sandbox_agent import SandboxAgent
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
-from products.tasks.backend.temporal.exceptions import (
-    SandboxExecutionError,
-    SandboxProvisionError,
-    TaskExecutionFailedError,
-)
+from products.tasks.backend.temporal.exceptions import SandboxExecutionError, TaskExecutionFailedError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 
@@ -39,12 +35,7 @@ async def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
         sandbox_id=input.sandbox_id,
         repository=input.repository,
     ):
-        try:
-            sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
-        except Exception as e:
-            raise SandboxProvisionError(
-                f"Failed to get sandbox {input.sandbox_id}", {"sandbox_id": input.sandbox_id, "error": str(e)}
-            )
+        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
 
         agent = SandboxAgent(sandbox)
 

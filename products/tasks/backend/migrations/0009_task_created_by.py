@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("tasks", "0008_remove_sandboxsnapshot_posthog_san_integra_50465d_idx_and_more"),
+        ("tasks", "0008_task_task_number"),
     ]
 
     operations = [

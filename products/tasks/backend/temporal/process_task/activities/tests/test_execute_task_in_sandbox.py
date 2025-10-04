@@ -8,6 +8,7 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
+from products.tasks.backend.temporal.exceptions import SandboxNotFoundError, TaskExecutionFailedError
 from products.tasks.backend.temporal.process_task.activities.clone_repository import (
     CloneRepositoryInput,
     clone_repository,
@@ -108,10 +109,8 @@ class TestExecuteTaskInSandboxActivity:
                     distinct_id="test-user-id",
                 )
 
-                with pytest.raises(RuntimeError) as exc_info:
+                with pytest.raises(TaskExecutionFailedError):
                     await activity_environment.run(execute_task_in_sandbox, input_data)
-
-                assert "Task execution failed" in str(exc_info.value)
 
         finally:
             if sandbox:
@@ -143,11 +142,8 @@ class TestExecuteTaskInSandboxActivity:
                     distinct_id="test-user-id",
                 )
 
-                with pytest.raises(RuntimeError) as exc_info:
+                with pytest.raises(TaskExecutionFailedError):
                     await activity_environment.run(execute_task_in_sandbox, input_data)
-
-                # Should fail because the repository directory doesn't exist
-                assert "Task execution failed" in str(exc_info.value)
 
         finally:
             if sandbox:
@@ -163,10 +159,8 @@ class TestExecuteTaskInSandboxActivity:
             distinct_id="test-user-id",
         )
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(SandboxNotFoundError):
             await activity_environment.run(execute_task_in_sandbox, input_data)
-
-        assert "not found" in str(exc_info.value).lower() or "Failed to retrieve sandbox" in str(exc_info.value)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db

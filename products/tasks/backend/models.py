@@ -332,12 +332,13 @@ class Task(models.Model):
         """
         config = self.repository_config
         if config.get("organization") and config.get("repository"):
+            full_name = f"{config.get('organization')}/{config.get('repository')}".lower()
             return [
                 {
                     "org": config.get("organization"),
                     "repo": config.get("repository"),
                     "integration_id": self.github_integration_id,
-                    "full_name": f"{config.get('organization')}/{config.get('repository')}",
+                    "full_name": full_name,
                 }
             ]
         return []

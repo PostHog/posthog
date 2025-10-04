@@ -4,11 +4,7 @@ from temporalio import activity
 
 from products.tasks.backend.services.sandbox_agent import SandboxAgent
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
-from products.tasks.backend.temporal.exceptions import (
-    GitHubAuthenticationError,
-    RepositoryCloneError,
-    SandboxProvisionError,
-)
+from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, RepositoryCloneError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 from ..utils import get_github_token
@@ -41,13 +37,7 @@ async def clone_repository(input: CloneRepositoryInput) -> str:
                 {"github_integration_id": input.github_integration_id, "error": str(e)},
             )
 
-        try:
-            sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
-        except Exception as e:
-            raise SandboxProvisionError(
-                f"Failed to get sandbox {input.sandbox_id}",
-                {"sandbox_id": input.sandbox_id, "error": str(e)},
-            )
+        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
 
         agent = SandboxAgent(sandbox)
 

@@ -40,13 +40,7 @@ async def inject_github_token(input: InjectGitHubTokenInput) -> None:
                 {"github_integration_id": input.github_integration_id},
             )
 
-        try:
-            sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
-        except Exception as e:
-            raise SandboxExecutionError(
-                f"Failed to get sandbox {input.sandbox_id}",
-                {"sandbox_id": input.sandbox_id, "error": str(e)},
-            )
+        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
 
         result = await sandbox.execute(
             f"echo 'export GITHUB_TOKEN=\"{github_token}\"' >> ~/.bash_profile && echo 'export GITHUB_TOKEN=\"{github_token}\"' >> ~/.bashrc"

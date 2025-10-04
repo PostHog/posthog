@@ -11,7 +11,7 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
-from products.tasks.backend.temporal.exceptions import SandboxProvisionError, SnapshotNotFoundError
+from products.tasks.backend.temporal.exceptions import SnapshotNotFoundError
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import get_sandbox_name_for_task
 
@@ -51,12 +51,6 @@ async def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) ->
             metadata={"task_id": input.task_id},
         )
 
-        try:
-            sandbox = await SandboxEnvironment.create(config)
-        except Exception as e:
-            raise SandboxProvisionError(
-                f"Failed to create sandbox from snapshot {input.snapshot_id}",
-                {"snapshot_id": input.snapshot_id, "task_id": input.task_id, "error": str(e)},
-            )
+        sandbox = await SandboxEnvironment.create(config)
 
         return sandbox.id

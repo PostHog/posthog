@@ -8,6 +8,7 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
+from products.tasks.backend.temporal.exceptions import RepositorySetupError, SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.clone_repository import (
     CloneRepositoryInput,
     clone_repository,
@@ -97,11 +98,8 @@ class TestSetupRepositoryActivity:
                 distinct_id="test-user-id",
             )
 
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(RepositorySetupError):
                 await activity_environment.run(setup_repository, setup_input)
-
-            assert "does not exist" in str(exc_info.value) or "Failed to setup repository" in str(exc_info.value)
-
         finally:
             if sandbox:
                 await sandbox.destroy()
@@ -116,7 +114,5 @@ class TestSetupRepositoryActivity:
             distinct_id="test-user-id",
         )
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(SandboxNotFoundError):
             await activity_environment.run(setup_repository, setup_input)
-
-        assert "not found" in str(exc_info.value).lower() or "Failed to retrieve sandbox" in str(exc_info.value)

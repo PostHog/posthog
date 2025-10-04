@@ -7,7 +7,7 @@ from temporalio import activity
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
-from products.tasks.backend.temporal.exceptions import SandboxProvisionError, SandboxTimeoutError, SnapshotCreationError
+from products.tasks.backend.temporal.exceptions import SandboxTimeoutError, SnapshotCreationError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 
@@ -41,27 +41,16 @@ async def create_snapshot(input: CreateSnapshotInput) -> str:
         base_repos = base_snapshot.repos if base_snapshot else []
         new_repos: list[str] = list({*base_repos, input.repository})
 
-        try:
-            sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
-        except Exception as e:
-            raise SandboxProvisionError(
-                f"Failed to get sandbox {input.sandbox_id}", {"sandbox_id": input.sandbox_id, "error": str(e)}
-            )
+        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
 
-        try:
-            snapshot_external_id = await sandbox.initiate_snapshot(
-                {
-                    "integration_id": str(input.github_integration_id),
-                    "team_id": str(input.team_id),
-                    "repositories": json.dumps(new_repos),
-                    "base_snapshot_id": str(base_snapshot.id) if base_snapshot else "",
-                }
-            )
-        except Exception as e:
-            raise SnapshotCreationError(
-                f"Failed to initiate snapshot for {input.repository}",
-                {"repository": input.repository, "sandbox_id": input.sandbox_id, "error": str(e)},
-            )
+        snapshot_external_id = await sandbox.initiate_snapshot(
+            {
+                "integration_id": str(input.github_integration_id),
+                "team_id": str(input.team_id),
+                "repositories": json.dumps(new_repos),
+                "base_snapshot_id": str(base_snapshot.id) if base_snapshot else "",
+            }
+        )
 
         max_polls = 80
         for _ in range(max_polls):
