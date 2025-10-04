@@ -1,8 +1,8 @@
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
-import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncPreprocessingStep } from '../processing-pipeline'
+import { drop, ok } from '../pipelines/results'
+import { ProcessingStep } from '../pipelines/steps'
 
 function applyDropEventsRestrictions(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,
@@ -16,8 +16,8 @@ function applyDropEventsRestrictions(
 
 export function createApplyDropRestrictionsStep<T extends { headers: EventHeaders }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-): SyncPreprocessingStep<T, T> {
-    return (input) => {
+): ProcessingStep<T, T> {
+    return async function applyDropRestrictionsStep(input) {
         const { headers } = input
 
         if (applyDropEventsRestrictions(eventIngestionRestrictionManager, headers)) {
@@ -30,6 +30,6 @@ export function createApplyDropRestrictionsStep<T extends { headers: EventHeader
             return drop('Event dropped due to token restrictions')
         }
 
-        return success(input)
+        return Promise.resolve(ok(input))
     }
 }

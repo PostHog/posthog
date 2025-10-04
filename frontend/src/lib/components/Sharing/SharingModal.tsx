@@ -27,7 +27,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 
@@ -140,7 +139,12 @@ export function SharingModalContent({
         <div className="deprecated-space-y-4">
             {dashboardId ? (
                 <>
-                    <DashboardCollaboration dashboardId={dashboardId} />
+                    <AccessControlPopoutCTA
+                        resourceType={AccessControlResourceType.Dashboard}
+                        callback={() => {
+                            push(urls.dashboard(dashboardId))
+                        }}
+                    />
                     <LemonDivider />
                 </>
             ) : undefined}

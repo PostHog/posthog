@@ -21,5 +21,6 @@ export const getStorybookAppContext = (): AppContext => ({
         notebook: 'manager',
         session_recording: 'manager',
         revenue_analytics: 'manager',
+        experiment: 'manager',
     },
 })

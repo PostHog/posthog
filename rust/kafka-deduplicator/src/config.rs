@@ -13,6 +13,11 @@ pub struct Config {
     #[envconfig(default = "kafka-deduplicator")]
     pub kafka_consumer_group: String,
 
+    // supplied by k8s deploy env, used as part of kafka
+    // consumer client ID for sticky partition mappings
+    #[envconfig(from = "HOSTNAME")]
+    pub pod_hostname: Option<String>,
+
     #[envconfig(default = "events")]
     pub kafka_consumer_topic: String,
 
@@ -144,6 +149,9 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: tracing::Level,
+
+    #[envconfig(default = "false")]
+    pub enable_pprof: bool,
 }
 
 impl Config {

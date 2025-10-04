@@ -19,6 +19,7 @@ import {
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DebugNotice } from 'lib/components/DebugNotice'
+import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -68,6 +69,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         showLayoutNavBar,
     } = useActions(panelLayoutLogic)
     const {
+        pathname,
         isLayoutPanelVisible,
         activePanelIdentifier,
         activePanelIdentifierFromUrl,
@@ -80,7 +82,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
-    const { location } = useValues(router)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
@@ -113,7 +114,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     }
 
     const isStaticNavItemActive = (itemIdentifier: string): boolean => {
-        const currentPath = removeProjectIdIfPresent(location.pathname)
+        const currentPath = removeProjectIdIfPresent(pathname)
 
         if (itemIdentifier === 'Home' && currentPath === '/') {
             return true
@@ -182,7 +183,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Database',
-            label: 'Database',
+            label: 'Data warehouse',
             icon: <IconDatabaseBolt />,
             onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -190,7 +191,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Database' ? 'Close database' : 'Open database',
+            tooltip:
+                isLayoutPanelVisible && activePanelIdentifier === 'Database'
+                    ? 'Close data warehouse'
+                    : 'Open data warehouse',
             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
         },
         {
@@ -391,6 +395,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="p-1 flex flex-col gap-px items-center">
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            <NavPanelAdvertisement />
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <ButtonPrimitive
                                     menuItem={!isLayoutNavCollapsed}

@@ -12,7 +12,7 @@ from dagster_slack import SlackResource
 from pydantic import BaseModel, Field, ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from posthog.models import Dataset, DatasetItem
+from products.llm_analytics.backend.models import Dataset, DatasetItem
 
 from dags.common import JobOwners
 from dags.max_ai.snapshot_team_data import (

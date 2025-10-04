@@ -23,6 +23,7 @@ from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, CohortPeople
+from posthog.models.cohort.dependencies import get_cohort_dependents
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
@@ -31,7 +32,11 @@ from posthog.models.cohort.sql import (
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
 )
-from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
+from posthog.models.person.sql import (
+    DELETE_PERSON_FROM_STATIC_COHORT,
+    INSERT_PERSON_STATIC_COHORT,
+    PERSON_STATIC_COHORT_TABLE,
+)
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
@@ -286,15 +291,20 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
 
 
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
-    """Remove a person from a static cohort in ClickHouse."""
+    """Remove a person from a static cohort in ClickHouse.
+
+    Uses DELETE FROM with mutations_sync=0 to avoid replica synchronization issues in production.
+    This is an exception to PostHog's usual pattern due to the table lacking an is_deleted and version columns.
+    """
     tag_queries(cohort_id=cohort_id, team_id=team_id, name="remove_person_from_static_cohort", feature=Feature.COHORT)
     sync_execute(
-        f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s",
+        DELETE_PERSON_FROM_STATIC_COHORT,
         {
             "person_id": str(person_uuid),
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
+        settings={"mutations_sync": "0"},
     )
 
 
@@ -497,7 +507,7 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     return [*cohort_ids, *static_cohort_ids]
 
 
-def get_dependent_cohorts(
+def get_all_cohort_dependencies(
     cohort: Cohort,
     using_database: str = "default",
     seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
@@ -545,6 +555,35 @@ def get_dependent_cohorts(
             continue
 
     return cohorts
+
+
+def get_all_cohort_dependents(cohort: Cohort, using_database: str = "default") -> list[Cohort]:
+    """
+    Get all cohorts that reference the given cohort, traversing the full dependent chain.
+    For example: if A depends on B, and B depends on C, this returns [A, B] for cohort C.
+    This is the reverse traversal of get_dependency_cohorts.
+    """
+    cohorts: list[int] = []
+    seen_cohort_ids: set[int] = {cohort.id}
+    queue: list[int] = [cohort.id]
+
+    while queue:
+        cohort_id = queue.pop()
+
+        for related_id in get_cohort_dependents(cohort_id):
+            if related_id not in seen_cohort_ids:
+                queue.append(related_id)
+                seen_cohort_ids.add(related_id)
+
+        if cohort_id != cohort.id:
+            cohorts.append(cohort_id)
+
+    try:
+        dependent_cohorts = Cohort.objects.db_manager(using_database).filter(id__in=cohorts, deleted=False).all()
+        return list(dependent_cohorts)
+    except Exception as e:
+        logger.exception("Failed to fetch cohorts", error=str(e))
+    return []
 
 
 def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[int, CohortOrEmpty]) -> list[int]:

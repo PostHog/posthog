@@ -94,7 +94,6 @@ export function HogFunctionTemplateList({
                                     </LemonButton>
                                 )
                             }
-
                             return (
                                 <LemonButton
                                     type="primary"
