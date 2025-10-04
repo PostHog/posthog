@@ -146,7 +146,7 @@ describe('sessionRecordingDataCoordinatorLogic performance', () => {
             const variance = durations.reduce((a, b) => a + Math.pow(b - averageDuration, 2), 0) / iterations
             const stdDev = Math.sqrt(variance)
 
-            expect(averageDuration).toBeLessThan(200)
+            expect(averageDuration).toBeLessThan(100)
             expect(stdDev).toBeLessThan(100)
         })
     })
