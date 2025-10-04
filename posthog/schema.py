@@ -91,6 +91,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
+    FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
 
 
 class AssistantDateRange(BaseModel):
@@ -1181,6 +1182,7 @@ class ExperimentMetricOutlierHandling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ignore_zeros: Optional[bool] = None
     lower_bound_percentile: Optional[float] = None
     upper_bound_percentile: Optional[float] = None
 
@@ -1887,6 +1889,13 @@ class MultipleBreakdownType(StrEnum):
     SESSION = "session"
     HOGQL = "hogql"
     REVENUE_ANALYTICS = "revenue_analytics"
+
+
+class NamedQueryLastExecutionTimesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    names: list[str]
 
 
 class NodeKind(StrEnum):
@@ -4360,6 +4369,16 @@ class RetentionValue(BaseModel):
     )
     count: int
     label: Optional[str] = None
+
+
+class RevenueAnalyticsAssistantFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[RevenueAnalyticsBreakdown]
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: list[RevenueAnalyticsPropertyFilter]
 
 
 class RevenueAnalyticsEventItem(BaseModel):
@@ -11025,6 +11044,7 @@ class TracesQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    personId: Optional[str] = Field(default=None, description="Person who performed the event")
     properties: Optional[
         list[
             Union[
@@ -12705,6 +12725,7 @@ class ExperimentMeanMetric(BaseModel):
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
+    ignore_zeros: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
@@ -12720,6 +12741,7 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ignore_zeros: Optional[bool] = None
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
@@ -13813,7 +13835,16 @@ class VisualizationItem(BaseModel):
     )
     answer: Union[
         Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
-        Union[TrendsQuery, FunnelsQuery, RetentionQuery, HogQLQuery],
+        Union[
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            HogQLQuery,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsTopCustomersQuery,
+        ],
     ]
     initiator: Optional[str] = None
     plan: Optional[str] = None
@@ -13826,7 +13857,16 @@ class VisualizationMessage(BaseModel):
     )
     answer: Union[
         Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
-        Union[TrendsQuery, FunnelsQuery, RetentionQuery, HogQLQuery],
+        Union[
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            HogQLQuery,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsTopCustomersQuery,
+        ],
     ]
     id: Optional[str] = None
     initiator: Optional[str] = None

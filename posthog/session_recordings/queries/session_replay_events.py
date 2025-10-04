@@ -178,6 +178,7 @@ class SessionReplayEvents:
     @staticmethod
     def get_block_listing_query(
         recording_start_time: Optional[datetime] = None,
+        format: Optional[str] = None,
     ) -> LiteralString:
         """
         Helper function to build a query for session metadata, to be able to use
@@ -200,11 +201,13 @@ class SessionReplayEvents:
                     {optional_timestamp_clause}
                 GROUP BY
                     session_id
+                {optional_format_clause}
                 """
         query = query.format(
             optional_timestamp_clause=(
                 "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
-            )
+            ),
+            optional_format_clause=(f"FORMAT {format}" if format else ""),
         )
         return query
 
@@ -434,6 +437,33 @@ class SessionReplayEvents:
             query=hq,
         ).calculate()
         return result.columns, result.results
+
+    @staticmethod
+    def get_sessions_from_distinct_id_query(
+        format: Optional[str] = None,
+    ):
+        """
+        Helper function to build a query for listing all session IDs for a given set of distinct IDs
+        """
+        query = """
+                SELECT
+                    session_id
+                FROM
+                    session_replay_events
+                PREWHERE
+                    team_id = %(team_id)s
+                    AND distinct_id IN (%(distinct_ids)s)
+                    AND min_first_timestamp <= %(python_now)s
+                    AND min_first_timestamp >= %(python_now)s - interval %(ttl_days)s days
+                    AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
+                GROUP BY
+                    session_id
+                {optional_format_clause}
+                """
+        query = query.format(
+            optional_format_clause=(f"FORMAT {format}" if format else ""),
+        )
+        return query
 
 
 def ttl_days(team: Team) -> int:
