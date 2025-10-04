@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 
 import { setupSessionRecordingTest } from '../__mocks__/test-setup'
 
@@ -10,7 +10,7 @@ const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
 describe('playerInspectorLogic', () => {
     let logic: ReturnType<typeof playerInspectorLogic.build>
-    let dataLogic: ReturnType<typeof sessionRecordingDataLogic.build>
+    let dataLogic: ReturnType<typeof sessionRecordingDataCoordinatorLogic.build>
 
     beforeEach(() => {
         setupSessionRecordingTest({
@@ -85,7 +85,7 @@ describe('playerInspectorLogic', () => {
         })
         featureFlagLogic.mount()
 
-        dataLogic = sessionRecordingDataLogic(playerLogicProps)
+        dataLogic = sessionRecordingDataCoordinatorLogic(playerLogicProps)
         dataLogic.mount()
 
         logic = playerInspectorLogic(playerLogicProps)

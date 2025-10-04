@@ -32,9 +32,9 @@ import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
-    SessionRecordingDataLogicProps,
-    sessionRecordingDataLogic,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+    SessionRecordingDataCoordinatorLogicProps,
+    sessionRecordingDataCoordinatorLogic,
+} from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -106,7 +106,7 @@ export enum SessionRecordingPlayerMode {
 
 export const ModesWithInteractions = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
-export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
+export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCoordinatorLogicProps {
     playerKey: string
     sessionRecordingData?: SessionPlayerData
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -336,7 +336,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values: [
             snapshotDataLogic(props),
             ['snapshotsLoaded', 'snapshotsLoading'],
-            sessionRecordingDataLogic(props),
+            sessionRecordingDataCoordinatorLogic(props),
             [
                 'urls',
                 'sessionPlayerData',
@@ -359,7 +359,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions: [
             snapshotDataLogic(props),
             ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure'],
-            sessionRecordingDataLogic(props),
+            sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
