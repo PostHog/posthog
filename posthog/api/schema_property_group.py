@@ -1,5 +1,7 @@
 import re
 
+from django.db import transaction
+
 from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -73,17 +75,19 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         properties_data = validated_data.pop("properties", None)
 
-        instance.name = validated_data.get("name", instance.name)
-        instance.description = validated_data.get("description", instance.description)
-        instance.save()
+        with transaction.atomic():
+            instance.name = validated_data.get("name", instance.name)
+            instance.description = validated_data.get("description", instance.description)
+            instance.save()
 
-        if properties_data is not None:
-            # Delete existing properties and recreate
-            instance.properties.all().delete()
-            for property_data in properties_data:
-                SchemaPropertyGroupProperty.objects.create(property_group=instance, **property_data)
+            if properties_data is not None:
+                instance.properties.all().delete()
+                for property_data in properties_data:
+                    property_data.pop("id", None)  # Remove id since we're creating new properties
+                    SchemaPropertyGroupProperty.objects.create(property_group=instance, **property_data)
 
-        return instance
+        # Query fresh instance with properties to ensure all data is current
+        return SchemaPropertyGroup.objects.prefetch_related("properties").get(pk=instance.pk)
 
 
 class SchemaPropertyGroupViewSet(

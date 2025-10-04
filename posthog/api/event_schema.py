@@ -42,7 +42,6 @@ class EventSchemaSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         instance = EventSchema.objects.create(**validated_data)
-        # Reload with prefetch to get property_group with its properties
         return EventSchema.objects.prefetch_related("property_group__properties").get(pk=instance.pk)
 
 
@@ -83,7 +82,12 @@ class EventSchemaViewSet(
         if event_definition_id:
             return (
                 queryset.filter(event_definition_id=event_definition_id)
+                .select_related("property_group")
                 .prefetch_related("property_group__properties")
                 .order_by("-created_at")
             )
-        return queryset.prefetch_related("property_group__properties").order_by("-created_at")
+        return (
+            queryset.select_related("property_group")
+            .prefetch_related("property_group__properties")
+            .order_by("-created_at")
+        )

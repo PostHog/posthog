@@ -1,14 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { EventDefinition } from '~/types'
 
+import { PropertyGroupModal } from '../schema/PropertyGroupModal'
 import { SelectPropertyGroupModal } from '../schema/SelectPropertyGroupModal'
-import { SchemaPropertyGroupProperty } from '../schema/schemaManagementLogic'
+import { SchemaPropertyGroupProperty, schemaManagementLogic } from '../schema/schemaManagementLogic'
 import { EventSchema, eventDefinitionSchemaLogic } from './eventDefinitionSchemaLogic'
 
 function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): JSX.Element {
@@ -35,10 +36,18 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
 export function EventDefinitionSchema({ definition }: { definition: EventDefinition }): JSX.Element {
     const logic = eventDefinitionSchemaLogic({ eventDefinitionId: definition.id })
     const { eventSchemas, allPropertyGroups, eventSchemasLoading } = useValues(logic)
-    const { addPropertyGroup, removePropertyGroup, loadAllPropertyGroups } = useActions(logic)
+    const { addPropertyGroup, removePropertyGroup, loadAllPropertyGroups, loadEventSchemas } = useActions(logic)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
+    const schemaLogic = schemaManagementLogic({ key: `event-${definition.id}` })
+    const { setPropertyGroupModalOpen, setEditingPropertyGroup } = useActions(schemaLogic)
+
     const selectedPropertyGroupIds = new Set(eventSchemas.map((schema: EventSchema) => schema.property_group.id))
+
+    const handleAfterPropertyGroupSave = (): void => {
+        loadEventSchemas()
+        loadAllPropertyGroups()
+    }
 
     return (
         <SceneSection
@@ -81,13 +90,24 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                                             {schema.property_group.properties?.length === 1 ? 'property' : 'properties'}
                                         </LemonTag>
                                     </div>
-                                    <LemonButton
-                                        icon={<IconTrash />}
-                                        size="small"
-                                        status="danger"
-                                        onClick={() => removePropertyGroup(schema.id)}
-                                        tooltip="Remove this property group from the event schema"
-                                    />
+                                    <div className="flex gap-1">
+                                        <LemonButton
+                                            icon={<IconPencil />}
+                                            size="small"
+                                            onClick={() => {
+                                                setEditingPropertyGroup(schema.property_group)
+                                                setPropertyGroupModalOpen(true)
+                                            }}
+                                            tooltip="Edit this property group"
+                                        />
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            size="small"
+                                            status="danger"
+                                            onClick={() => removePropertyGroup(schema.id)}
+                                            tooltip="Remove this property group from the event schema"
+                                        />
+                                    </div>
                                 </div>
                                 {schema.property_group.properties && schema.property_group.properties.length > 0 && (
                                     <>
@@ -113,6 +133,8 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                     </div>
                 )}
             </div>
+
+            <PropertyGroupModal logicKey={`event-${definition.id}`} onAfterSave={handleAfterPropertyGroupSave} />
         </SceneSection>
     )
 }

@@ -25,9 +25,10 @@ function isValidPropertyName(name: string): boolean {
 
 interface PropertyGroupModalProps {
     logicKey?: string
+    onAfterSave?: () => void
 }
 
-export function PropertyGroupModal({ logicKey }: PropertyGroupModalProps = {}): JSX.Element {
+export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModalProps = {}): JSX.Element {
     const logic = schemaManagementLogic({ key: logicKey || 'default' })
     const { propertyGroupModalOpen, editingPropertyGroup } = useValues(logic)
     const { setPropertyGroupModalOpen, createPropertyGroup, updatePropertyGroup } = useActions(logic)
@@ -44,7 +45,7 @@ export function PropertyGroupModal({ logicKey }: PropertyGroupModalProps = {}): 
         }
     }, [propertyGroupModalOpen, editingPropertyGroup])
 
-    const handleSave = (): void => {
+    const handleSave = async (): Promise<void> => {
         const data = {
             name: groupName,
             description: groupDescription,
@@ -52,11 +53,17 @@ export function PropertyGroupModal({ logicKey }: PropertyGroupModalProps = {}): 
         }
 
         if (editingPropertyGroup) {
-            updatePropertyGroup({ id: editingPropertyGroup.id, data })
+            await updatePropertyGroup({ id: editingPropertyGroup.id, data })
         } else {
-            createPropertyGroup(data)
+            await createPropertyGroup(data)
         }
+
         handleClose()
+
+        // Small delay to ensure database transaction is visible to other connections
+        setTimeout(() => {
+            onAfterSave?.()
+        }, 200)
     }
 
     const hasInvalidPropertyNames = properties.some((prop) => !isValidPropertyName(prop.name))
