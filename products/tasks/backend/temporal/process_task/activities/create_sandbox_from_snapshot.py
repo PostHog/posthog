@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from django.core.exceptions import ObjectDoesNotExist
+
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
@@ -9,6 +11,8 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
+from products.tasks.backend.temporal.exceptions import SandboxProvisionError, SnapshotNotFoundError
+from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import get_sandbox_name_for_task
 
 
@@ -16,21 +20,43 @@ from products.tasks.backend.temporal.process_task.utils import get_sandbox_name_
 class CreateSandboxFromSnapshotInput:
     snapshot_id: str
     task_id: str
+    distinct_id: str
 
 
 @activity.defn
 async def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> str:
     """Create a sandbox from a snapshot for task execution. Returns sandbox_id when running."""
-    snapshot = await sync_to_async(SandboxSnapshot.objects.get)(id=input.snapshot_id)
+    async with log_activity_execution(
+        "create_sandbox_from_snapshot",
+        distinct_id=input.distinct_id,
+        task_id=input.task_id,
+        snapshot_id=input.snapshot_id,
+    ):
+        try:
+            snapshot = await sync_to_async(SandboxSnapshot.objects.get)(id=input.snapshot_id)
+        except ObjectDoesNotExist:
+            raise SnapshotNotFoundError(f"Snapshot {input.snapshot_id} not found", {"snapshot_id": input.snapshot_id})
 
-    config = SandboxEnvironmentConfig(
-        name=get_sandbox_name_for_task(input.task_id),
-        template=SandboxEnvironmentTemplate.DEFAULT_BASE,
-        environment_variables={},
-        snapshot_id=str(snapshot.id),
-        metadata={"task_id": input.task_id},
-    )
+        if snapshot.status != SandboxSnapshot.Status.COMPLETE:
+            raise SnapshotNotFoundError(
+                f"Snapshot {input.snapshot_id} is not ready (status: {snapshot.status})",
+                {"snapshot_id": input.snapshot_id, "status": snapshot.status},
+            )
 
-    sandbox = await SandboxEnvironment.create(config)
+        config = SandboxEnvironmentConfig(
+            name=get_sandbox_name_for_task(input.task_id),
+            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+            environment_variables={},
+            snapshot_id=str(snapshot.id),
+            metadata={"task_id": input.task_id},
+        )
 
-    return sandbox.id
+        try:
+            sandbox = await SandboxEnvironment.create(config)
+        except Exception as e:
+            raise SandboxProvisionError(
+                f"Failed to create sandbox from snapshot {input.snapshot_id}",
+                {"snapshot_id": input.snapshot_id, "task_id": input.task_id, "error": str(e)},
+            )
+
+        return sandbox.id

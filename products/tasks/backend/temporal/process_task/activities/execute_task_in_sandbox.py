@@ -5,6 +5,12 @@ from temporalio import activity
 
 from products.tasks.backend.services.sandbox_agent import SandboxAgent
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from products.tasks.backend.temporal.exceptions import (
+    SandboxExecutionError,
+    SandboxProvisionError,
+    TaskExecutionFailedError,
+)
+from products.tasks.backend.temporal.observability import log_activity_execution
 
 
 @dataclass
@@ -12,6 +18,7 @@ class ExecuteTaskInput:
     sandbox_id: str
     task_id: str
     repository: str
+    distinct_id: str
 
 
 @dataclass
@@ -25,17 +32,42 @@ class ExecuteTaskOutput:
 @activity.defn
 async def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
     """Execute the code agent task in the sandbox."""
-    sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
-    agent = SandboxAgent(sandbox)
+    async with log_activity_execution(
+        "execute_task_in_sandbox",
+        distinct_id=input.distinct_id,
+        task_id=input.task_id,
+        sandbox_id=input.sandbox_id,
+        repository=input.repository,
+    ):
+        try:
+            sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
+        except Exception as e:
+            raise SandboxProvisionError(
+                f"Failed to get sandbox {input.sandbox_id}", {"sandbox_id": input.sandbox_id, "error": str(e)}
+            )
 
-    result = await agent.execute_task(input.task_id, input.repository)
+        agent = SandboxAgent(sandbox)
 
-    if result.exit_code != 0:
-        raise RuntimeError(f"Task execution failed: {result.stderr}")
+        try:
+            result = await agent.execute_task(input.task_id, input.repository)
+        except Exception as e:
+            raise SandboxExecutionError(
+                f"Failed to execute task in sandbox",
+                {"task_id": input.task_id, "sandbox_id": input.sandbox_id, "error": str(e)},
+            )
 
-    return ExecuteTaskOutput(
-        stdout=result.stdout,
-        stderr=result.stderr,
-        exit_code=result.exit_code,
-        error=result.error,
-    )
+        if result.exit_code != 0:
+            raise TaskExecutionFailedError(
+                f"Task execution failed with exit code {result.exit_code}",
+                exit_code=result.exit_code,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                context={"task_id": input.task_id, "sandbox_id": input.sandbox_id},
+            )
+
+        return ExecuteTaskOutput(
+            stdout=result.stdout,
+            stderr=result.stderr,
+            exit_code=result.exit_code,
+            error=result.error,
+        )

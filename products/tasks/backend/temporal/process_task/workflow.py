@@ -29,6 +29,7 @@ from .activities.inject_personal_api_key import (
     inject_personal_api_key,
 )
 from .activities.setup_repository import SetupRepositoryInput, setup_repository
+from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 
 logger = get_logger(__name__)
 
@@ -43,6 +44,15 @@ class ProcessTaskOutput:
 
 @temporalio.workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
+    def __init__(self) -> None:
+        self._task_details: Optional[TaskDetails] = None
+
+    @property
+    def task_details(self) -> TaskDetails:
+        if self._task_details is None:
+            raise RuntimeError("task_details accessed before being set")
+        return self._task_details
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> str:
         loaded = json.loads(inputs[0])
@@ -54,29 +64,36 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         personal_api_key_id = None
 
         try:
-            task_details = await self._get_task_details(task_id)
+            self._task_details = await self._get_task_details(task_id)
 
-            snapshot_id = await self._get_snapshot_for_repository(
-                task_details.github_integration_id,
-                task_details.team_id,
-                task_details.repository,
-                task_id,
+            await self._track_workflow_event(
+                "process_task_workflow_started",
+                {
+                    "task_id": self.task_details.task_id,
+                    "repository": self.task_details.repository,
+                    "team_id": self.task_details.team_id,
+                },
             )
 
-            sandbox_id = await self._create_sandbox_from_snapshot(snapshot_id, task_id)
+            snapshot_id = await self._get_snapshot_for_repository()
 
-            await self._inject_github_token(sandbox_id, task_details.github_integration_id)
+            sandbox_id = await self._create_sandbox_from_snapshot(snapshot_id)
 
-            api_key_output = await self._inject_personal_api_key(sandbox_id, task_id)
+            await self._inject_github_token(sandbox_id)
+
+            api_key_output = await self._inject_personal_api_key(sandbox_id)
             personal_api_key_id = api_key_output.personal_api_key_id
 
-            result = await self._execute_task_in_sandbox(sandbox_id, task_id, task_details.repository)
+            result = await self._execute_task_in_sandbox(sandbox_id)
 
-            logger.info(f"Task {task_id} executed successfully in sandbox {sandbox_id}")
-            logger.info(f"stdout: {result.stdout}")
-            logger.info(f"stderr: {result.stderr}")
-            logger.info(f"exit_code: {result.exit_code}")
-            logger.info(f"error: {result.error}")
+            await self._track_workflow_event(
+                "process_task_workflow_completed",
+                {
+                    "task_id": self.task_details.task_id,
+                    "sandbox_id": sandbox_id,
+                    "exit_code": result.exit_code,
+                },
+            )
 
             return ProcessTaskOutput(
                 success=True,
@@ -86,7 +103,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         except Exception as e:
-            logger.exception(f"Agent workflow failed: {e}")
+            if self._task_details:
+                await self._track_workflow_event(
+                    "process_task_workflow_failed",
+                    {
+                        "task_id": self.task_details.task_id,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e)[:500],
+                        "sandbox_id": sandbox_id,
+                    },
+                )
+
             return ProcessTaskOutput(
                 success=False,
                 task_result=None,
@@ -109,14 +136,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _get_snapshot_for_repository(
-        self, github_integration_id: int, team_id: int, repository: str, task_id: str
-    ) -> str:
-        logger.info(f"Getting snapshot for repository {repository}")
+    async def _get_snapshot_for_repository(self) -> str:
+        logger.info(f"Getting snapshot for repository {self.task_details.repository}")
 
         check_input = CheckSnapshotExistsForRepositoryInput(
-            github_integration_id=github_integration_id,
-            repository=repository,
+            github_integration_id=self.task_details.github_integration_id,
+            repository=self.task_details.repository,
         )
 
         check_result = await workflow.execute_activity(
@@ -129,13 +154,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if check_result.snapshot_id:
             return check_result.snapshot_id
 
-        return await self._setup_snapshot_with_repository(github_integration_id, team_id, repository, task_id)
+        return await self._setup_snapshot_with_repository()
 
-    async def _get_sandbox_for_setup(self, github_integration_id: int, team_id: int, task_id: str) -> str:
+    async def _get_sandbox_for_setup(self) -> str:
         get_sandbox_input = GetSandboxForSetupInput(
-            github_integration_id=github_integration_id,
-            team_id=team_id,
-            task_id=task_id,
+            github_integration_id=self.task_details.github_integration_id,
+            team_id=self.task_details.team_id,
+            task_id=self.task_details.task_id,
+            distinct_id=self.task_details.distinct_id,
         )
         return await workflow.execute_activity(
             get_sandbox_for_setup,
@@ -144,11 +170,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    async def _clone_repository_in_sandbox(self, sandbox_id: str, repository: str, github_integration_id: int) -> None:
+    async def _clone_repository_in_sandbox(self, sandbox_id: str) -> None:
         clone_input = CloneRepositoryInput(
             sandbox_id=sandbox_id,
-            repository=repository,
-            github_integration_id=github_integration_id,
+            repository=self.task_details.repository,
+            github_integration_id=self.task_details.github_integration_id,
+            task_id=self.task_details.task_id,
+            distinct_id=self.task_details.distinct_id,
         )
         await workflow.execute_activity(
             clone_repository,
@@ -157,10 +185,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    async def _setup_repository_in_sandbox(self, sandbox_id: str, repository: str) -> None:
+    async def _setup_repository_in_sandbox(self, sandbox_id: str) -> None:
         setup_repo_input = SetupRepositoryInput(
             sandbox_id=sandbox_id,
-            repository=repository,
+            repository=self.task_details.repository,
+            task_id=self.task_details.task_id,
+            distinct_id=self.task_details.distinct_id,
         )
         await workflow.execute_activity(
             setup_repository,
@@ -169,14 +199,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
-    async def _snapshot_sandbox(
-        self, sandbox_id: str, github_integration_id: int, team_id: int, repository: str
-    ) -> str:
+    async def _snapshot_sandbox(self, sandbox_id: str) -> str:
         snapshot_input = CreateSnapshotInput(
             sandbox_id=sandbox_id,
-            github_integration_id=github_integration_id,
-            team_id=team_id,
-            repository=repository,
+            github_integration_id=self.task_details.github_integration_id,
+            team_id=self.task_details.team_id,
+            repository=self.task_details.repository,
+            task_id=self.task_details.task_id,
+            distinct_id=self.task_details.distinct_id,
         )
         return await workflow.execute_activity(
             create_snapshot,
@@ -198,33 +228,30 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             logger.exception(f"Failed to cleanup sandbox {sandbox_id}: {e}")
             raise RuntimeError(f"Failed to cleanup sandbox {sandbox_id}: {e}")
 
-    async def _setup_snapshot_with_repository(
-        self,
-        github_integration_id: int,
-        team_id: int,
-        repository: str,
-        task_id: str,
-    ) -> str:
+    async def _setup_snapshot_with_repository(self) -> str:
         setup_sandbox_id = None
 
         try:
-            setup_sandbox_id = await self._get_sandbox_for_setup(github_integration_id, team_id, task_id)
+            setup_sandbox_id = await self._get_sandbox_for_setup()
 
-            await self._clone_repository_in_sandbox(setup_sandbox_id, repository, github_integration_id)
+            await self._clone_repository_in_sandbox(setup_sandbox_id)
 
-            await self._setup_repository_in_sandbox(setup_sandbox_id, repository)
+            await self._setup_repository_in_sandbox(setup_sandbox_id)
 
-            snapshot_id = await self._snapshot_sandbox(setup_sandbox_id, github_integration_id, team_id, repository)
+            snapshot_id = await self._snapshot_sandbox(setup_sandbox_id)
 
             return snapshot_id
 
         finally:
-            # NOTE: We always want to cleanup the setup sandbox, regardless of success or failure - we will use a different sandbox for the actual task
             if setup_sandbox_id:
                 await self._cleanup_sandbox(setup_sandbox_id)
 
-    async def _create_sandbox_from_snapshot(self, snapshot_id: str, task_id: str) -> str:
-        create_sandbox_input = CreateSandboxFromSnapshotInput(snapshot_id=snapshot_id, task_id=task_id)
+    async def _create_sandbox_from_snapshot(self, snapshot_id: str) -> str:
+        create_sandbox_input = CreateSandboxFromSnapshotInput(
+            snapshot_id=snapshot_id,
+            task_id=self.task_details.task_id,
+            distinct_id=self.task_details.distinct_id,
+        )
         return await workflow.execute_activity(
             create_sandbox_from_snapshot,
             create_sandbox_input,
@@ -232,10 +259,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    async def _inject_github_token(self, sandbox_id: str, github_integration_id: int) -> None:
+    async def _inject_github_token(self, sandbox_id: str) -> None:
         inject_token_input = InjectGitHubTokenInput(
             sandbox_id=sandbox_id,
-            github_integration_id=github_integration_id,
+            github_integration_id=self.task_details.github_integration_id,
         )
         await workflow.execute_activity(
             inject_github_token,
@@ -244,10 +271,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _inject_personal_api_key(self, sandbox_id: str, task_id: str) -> InjectPersonalAPIKeyOutput:
+    async def _inject_personal_api_key(self, sandbox_id: str) -> InjectPersonalAPIKeyOutput:
         inject_key_input = InjectPersonalAPIKeyInput(
             sandbox_id=sandbox_id,
-            task_id=task_id,
+            task_id=self.task_details.task_id,
         )
         return await workflow.execute_activity(
             inject_personal_api_key,
@@ -267,11 +294,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except Exception as e:
             logger.warning(f"Failed to cleanup personal API key {personal_api_key_id}: {e}")
 
-    async def _execute_task_in_sandbox(self, sandbox_id: str, task_id: str, repository: str) -> ExecuteTaskOutput:
+    async def _execute_task_in_sandbox(self, sandbox_id: str) -> ExecuteTaskOutput:
         execute_input = ExecuteTaskInput(
             sandbox_id=sandbox_id,
-            task_id=task_id,
-            repository=repository,
+            task_id=self.task_details.task_id,
+            repository=self.task_details.repository,
+            distinct_id=self.task_details.distinct_id,
         )
         return await workflow.execute_activity(
             execute_task_in_sandbox,
@@ -279,3 +307,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+
+    async def _track_workflow_event(self, event_name: str, properties: dict) -> None:
+        try:
+            track_input = TrackWorkflowEventInput(
+                event_name=event_name,
+                distinct_id=self.task_details.distinct_id,
+                properties=properties,
+            )
+            await workflow.execute_activity(
+                track_workflow_event,
+                track_input,
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception:
+            pass
