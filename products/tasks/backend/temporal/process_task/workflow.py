@@ -263,6 +263,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         inject_token_input = InjectGitHubTokenInput(
             sandbox_id=sandbox_id,
             github_integration_id=self.task_details.github_integration_id,
+            task_id=self.task_details.task_id,
+            distinct_id=self.task_details.distinct_id,
         )
         await workflow.execute_activity(
             inject_github_token,
@@ -275,6 +277,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         inject_key_input = InjectPersonalAPIKeyInput(
             sandbox_id=sandbox_id,
             task_id=self.task_details.task_id,
+            distinct_id=self.task_details.distinct_id,
         )
         return await workflow.execute_activity(
             inject_personal_api_key,

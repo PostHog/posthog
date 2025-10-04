@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from django.core.exceptions import ObjectDoesNotExist
+
 from temporalio import activity
 
 from posthog.models import PersonalAPIKey
@@ -10,12 +12,20 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import Task
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from products.tasks.backend.temporal.exceptions import (
+    PersonalAPIKeyError,
+    SandboxExecutionError,
+    TaskInvalidStateError,
+    TaskNotFoundError,
+)
+from products.tasks.backend.temporal.observability import log_activity_execution
 
 
 @dataclass
 class InjectPersonalAPIKeyInput:
     sandbox_id: str
     task_id: str
+    distinct_id: str
 
 
 @dataclass
@@ -51,23 +61,47 @@ def _create_personal_api_key(task: Task) -> PersonalAPIKey:
 
 @activity.defn
 async def inject_personal_api_key(input: InjectPersonalAPIKeyInput) -> InjectPersonalAPIKeyOutput:
-    task = await _get_task(input.task_id)
+    async with log_activity_execution(
+        "inject_personal_api_key",
+        distinct_id=input.distinct_id,
+        task_id=input.task_id,
+        sandbox_id=input.sandbox_id,
+    ):
+        try:
+            task = await _get_task(input.task_id)
+        except ObjectDoesNotExist:
+            raise TaskNotFoundError(f"Task {input.task_id} not found", {"task_id": input.task_id})
 
-    if not task.created_by:
-        raise RuntimeError(f"Task {input.task_id} has no created_by user")
+        if not task.created_by:
+            raise TaskInvalidStateError(f"Task {input.task_id} has no created_by user", {"task_id": input.task_id})
 
-    value, personal_api_key = await _create_personal_api_key(task)
+        try:
+            value, personal_api_key = await _create_personal_api_key(task)
+        except Exception as e:
+            raise PersonalAPIKeyError(
+                f"Failed to create personal API key for task {input.task_id}",
+                {"task_id": input.task_id, "error": str(e)},
+            )
 
-    sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
+        try:
+            sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
+        except Exception as e:
+            raise SandboxExecutionError(
+                f"Failed to get sandbox {input.sandbox_id}",
+                {"sandbox_id": input.sandbox_id, "error": str(e)},
+            )
 
-    result = await sandbox.execute(
-        f"echo 'export POSTHOG_PERSONAL_API_KEY=\"{value}\"' >> ~/.bash_profile && echo 'export POSTHOG_PERSONAL_API_KEY=\"{value}\"' >> ~/.bashrc"
-    )
+        result = await sandbox.execute(
+            f"echo 'export POSTHOG_PERSONAL_API_KEY=\"{value}\"' >> ~/.bash_profile && echo 'export POSTHOG_PERSONAL_API_KEY=\"{value}\"' >> ~/.bashrc"
+        )
 
-    if result.exit_code != 0:
-        raise RuntimeError(f"Failed to inject personal API key into sandbox environment.")
+        if result.exit_code != 0:
+            raise SandboxExecutionError(
+                f"Failed to inject personal API key into sandbox",
+                {"sandbox_id": input.sandbox_id, "exit_code": result.exit_code, "stderr": result.stderr[:500]},
+            )
 
-    return InjectPersonalAPIKeyOutput(personal_api_key_id=personal_api_key.id)
+        return InjectPersonalAPIKeyOutput(personal_api_key_id=personal_api_key.id)
 
 
 def _get_default_scopes() -> list[str]:
