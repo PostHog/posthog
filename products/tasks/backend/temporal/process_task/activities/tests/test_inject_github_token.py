@@ -31,6 +31,8 @@ class TestInjectGitHubTokenActivity:
             input_data = InjectGitHubTokenInput(
                 sandbox_id=sandbox.id,
                 github_integration_id=github_integration.id,
+                task_id="test-task-123",
+                distinct_id="test-user-id",
             )
 
             test_token = "ghp_test_token_12345"
@@ -65,6 +67,8 @@ class TestInjectGitHubTokenActivity:
             input_data = InjectGitHubTokenInput(
                 sandbox_id=sandbox.id,
                 github_integration_id=github_integration.id,
+                task_id="test-task-no-token",
+                distinct_id="test-user-id",
             )
 
             with patch(
@@ -87,6 +91,8 @@ class TestInjectGitHubTokenActivity:
         input_data = InjectGitHubTokenInput(
             sandbox_id="non-existent-sandbox-id",
             github_integration_id=github_integration.id,
+            task_id="test-task-not-found",
+            distinct_id="test-user-id",
         )
 
         with patch(

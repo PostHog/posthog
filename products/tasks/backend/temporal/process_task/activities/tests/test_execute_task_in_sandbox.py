@@ -37,6 +37,8 @@ class TestExecuteTaskInSandboxActivity:
                 sandbox_id=sandbox.id,
                 repository="PostHog/posthog-js",
                 github_integration_id=github_integration.id,
+                task_id="test-task-123",
+                distinct_id="test-user-id",
             )
 
             with patch(
@@ -55,6 +57,7 @@ class TestExecuteTaskInSandboxActivity:
                     sandbox_id=sandbox.id,
                     task_id="test-task-123",
                     repository="PostHog/posthog-js",
+                    distinct_id="test-user-id",
                 )
 
                 await activity_environment.run(execute_task_in_sandbox, input_data)
@@ -82,6 +85,8 @@ class TestExecuteTaskInSandboxActivity:
                 sandbox_id=sandbox.id,
                 repository="PostHog/posthog-js",
                 github_integration_id=github_integration.id,
+                task_id="test-task-fail",
+                distinct_id="test-user-id",
             )
 
             with patch(
@@ -100,6 +105,7 @@ class TestExecuteTaskInSandboxActivity:
                     sandbox_id=sandbox.id,
                     task_id="test-task-fail",
                     repository="PostHog/posthog-js",
+                    distinct_id="test-user-id",
                 )
 
                 with pytest.raises(RuntimeError) as exc_info:
@@ -134,6 +140,7 @@ class TestExecuteTaskInSandboxActivity:
                     sandbox_id=sandbox.id,
                     task_id="test-task-no-repo",
                     repository="PostHog/posthog-js",
+                    distinct_id="test-user-id",
                 )
 
                 with pytest.raises(RuntimeError) as exc_info:
@@ -153,6 +160,7 @@ class TestExecuteTaskInSandboxActivity:
             sandbox_id="non-existent-sandbox-id",
             task_id="test-task",
             repository="PostHog/posthog-js",
+            distinct_id="test-user-id",
         )
 
         with pytest.raises(Exception) as exc_info:
@@ -184,6 +192,8 @@ class TestExecuteTaskInSandboxActivity:
                         sandbox_id=sandbox.id,
                         repository=repo,
                         github_integration_id=github_integration.id,
+                        task_id=f"test-task-{repo.split('/')[1]}",
+                        distinct_id="test-user-id",
                     )
                     await activity_environment.run(clone_repository, clone_input)
 
@@ -197,6 +207,7 @@ class TestExecuteTaskInSandboxActivity:
                             sandbox_id=sandbox.id,
                             task_id=f"test-task-{repo.split('/')[1]}",
                             repository=repo,
+                            distinct_id="test-user-id",
                         )
 
                         await activity_environment.run(execute_task_in_sandbox, input_data)

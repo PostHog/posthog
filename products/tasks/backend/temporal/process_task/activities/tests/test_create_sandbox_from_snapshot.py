@@ -41,7 +41,9 @@ class TestCreateSandboxFromSnapshotActivity:
         sandbox_id = None
 
         try:
-            input_data = CreateSandboxFromSnapshotInput(snapshot_id=str(snapshot.id), task_id=task_id)
+            input_data = CreateSandboxFromSnapshotInput(
+                snapshot_id=str(snapshot.id), task_id=task_id, distinct_id="test-user-id"
+            )
             sandbox_id = await activity_environment.run(create_sandbox_from_snapshot, input_data)
 
             assert isinstance(sandbox_id, str)
@@ -62,6 +64,7 @@ class TestCreateSandboxFromSnapshotActivity:
         input_data = CreateSandboxFromSnapshotInput(
             snapshot_id=str(uuid.uuid4()),
             task_id="test-task-456",
+            distinct_id="test-user-id",
         )
 
         with pytest.raises(Exception) as exc_info:
@@ -79,7 +82,9 @@ class TestCreateSandboxFromSnapshotActivity:
         sandbox_id = None
 
         try:
-            input_data = CreateSandboxFromSnapshotInput(snapshot_id=str(snapshot.id), task_id=task_id)
+            input_data = CreateSandboxFromSnapshotInput(
+                snapshot_id=str(snapshot.id), task_id=task_id, distinct_id="test-user-id"
+            )
 
             with pytest.raises(Exception) as exc_info:
                 sandbox_id = await activity_environment.run(create_sandbox_from_snapshot, input_data)

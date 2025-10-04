@@ -50,7 +50,10 @@ class TestGetSandboxForSetupActivity:
 
         try:
             input_data = GetSandboxForSetupInput(
-                github_integration_id=github_integration.id, team_id=ateam.id, task_id=task_id
+                github_integration_id=github_integration.id,
+                team_id=ateam.id,
+                task_id=task_id,
+                distinct_id="test-user-id",
             )
             sandbox_id = await activity_environment.run(get_sandbox_for_setup, input_data)
 
@@ -77,7 +80,10 @@ class TestGetSandboxForSetupActivity:
 
         try:
             input_data = GetSandboxForSetupInput(
-                github_integration_id=github_integration.id, team_id=ateam.id, task_id=task_id
+                github_integration_id=github_integration.id,
+                team_id=ateam.id,
+                task_id=task_id,
+                distinct_id="test-user-id",
             )
             sandbox_id = await activity_environment.run(get_sandbox_for_setup, input_data)
 
@@ -110,7 +116,10 @@ class TestGetSandboxForSetupActivity:
 
         try:
             input_data = GetSandboxForSetupInput(
-                github_integration_id=github_integration.id, team_id=ateam.id, task_id=task_id
+                github_integration_id=github_integration.id,
+                team_id=ateam.id,
+                task_id=task_id,
+                distinct_id="test-user-id",
             )
             sandbox_id = await activity_environment.run(get_sandbox_for_setup, input_data)
 
@@ -135,7 +144,10 @@ class TestGetSandboxForSetupActivity:
 
         try:
             input_data = GetSandboxForSetupInput(
-                github_integration_id=github_integration.id, team_id=ateam.id, task_id=task_id
+                github_integration_id=github_integration.id,
+                team_id=ateam.id,
+                task_id=task_id,
+                distinct_id="test-user-id",
             )
             sandbox_id = await activity_environment.run(get_sandbox_for_setup, input_data)
 

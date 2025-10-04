@@ -36,6 +36,8 @@ class TestSetupRepositoryActivity:
                 sandbox_id=sandbox.id,
                 repository="PostHog/posthog-js",
                 github_integration_id=github_integration.id,
+                task_id="test-task-123",
+                distinct_id="test-user-id",
             )
 
             with patch(
@@ -58,6 +60,8 @@ class TestSetupRepositoryActivity:
                 setup_input = SetupRepositoryInput(
                     sandbox_id=sandbox.id,
                     repository="PostHog/posthog-js",
+                    task_id="test-task-123",
+                    distinct_id="test-user-id",
                 )
 
                 result = await activity_environment.run(setup_repository, setup_input)
@@ -89,6 +93,8 @@ class TestSetupRepositoryActivity:
             setup_input = SetupRepositoryInput(
                 sandbox_id=sandbox.id,
                 repository="PostHog/posthog-js",
+                task_id="test-task-no-clone",
+                distinct_id="test-user-id",
             )
 
             with pytest.raises(RuntimeError) as exc_info:
@@ -106,6 +112,8 @@ class TestSetupRepositoryActivity:
         setup_input = SetupRepositoryInput(
             sandbox_id="non-existent-sandbox-id",
             repository="PostHog/posthog-js",
+            task_id="test-task-not-found",
+            distinct_id="test-user-id",
         )
 
         with pytest.raises(Exception) as exc_info:

@@ -37,6 +37,8 @@ class TestCreateSnapshotActivity:
                 github_integration_id=github_integration.id,
                 team_id=ateam.id,
                 repository="test-owner/test-repo",
+                task_id="test-task-123",
+                distinct_id="test-user-id",
             )
 
             # This will create a real snapshot and wait for it to complete
@@ -96,6 +98,8 @@ class TestCreateSnapshotActivity:
                 github_integration_id=github_integration.id,
                 team_id=ateam.id,
                 repository="new-owner/new-repo",
+                task_id="test-task-with-base",
+                distinct_id="test-user-id",
             )
 
             result = await activity_environment.run(create_snapshot, input_data)
@@ -129,6 +133,8 @@ class TestCreateSnapshotActivity:
             github_integration_id=github_integration.id,
             team_id=ateam.id,
             repository="test-owner/test-repo",
+            task_id="test-task-not-found",
+            distinct_id="test-user-id",
         )
 
         with pytest.raises(Exception) as exc_info:

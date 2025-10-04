@@ -8,6 +8,7 @@ from products.tasks.backend.services.sandbox_environment import (
     SandboxEnvironmentConfig,
     SandboxEnvironmentTemplate,
 )
+from products.tasks.backend.temporal.exceptions import RepositoryCloneError, SandboxProvisionError
 from products.tasks.backend.temporal.process_task.activities.clone_repository import (
     CloneRepositoryInput,
     clone_repository,
@@ -32,6 +33,8 @@ class TestCloneRepositoryActivity:
                 sandbox_id=sandbox.id,
                 repository="PostHog/posthog-js",
                 github_integration_id=github_integration.id,
+                task_id="test-task-123",
+                distinct_id="test-user-id",
             )
 
             with patch(
@@ -83,6 +86,8 @@ class TestCloneRepositoryActivity:
                 sandbox_id=sandbox.id,
                 repository="PostHog/posthog-js",
                 github_integration_id=github_integration.id,
+                task_id="test-task-idempotent",
+                distinct_id="test-user-id",
             )
 
             with patch(
@@ -135,6 +140,8 @@ class TestCloneRepositoryActivity:
                 sandbox_id=sandbox.id,
                 repository="PostHog/private-test-repo-that-does-not-exist",
                 github_integration_id=github_integration.id,
+                task_id="test-task-auth-fail",
+                distinct_id="test-user-id",
             )
 
             with patch(
@@ -142,10 +149,10 @@ class TestCloneRepositoryActivity:
             ) as mock_get_token:
                 mock_get_token.return_value = "invalid-token"
 
-                with pytest.raises(RuntimeError) as exc_info:
+                with pytest.raises(RepositoryCloneError) as exc_info:
                     await activity_environment.run(clone_repository, input_data)
 
-                assert "Failed to clone repository" in str(exc_info.value)
+                assert "Git clone failed" in str(exc_info.value)
 
                 # Verify repository doesn't exist
                 check_result = await sandbox.execute("ls /tmp/workspace/repos/posthog/ 2>&1")
@@ -179,6 +186,8 @@ class TestCloneRepositoryActivity:
                         sandbox_id=sandbox.id,
                         repository=repo,
                         github_integration_id=github_integration.id,
+                        task_id=f"test-task-{repo.split('/')[1]}",
+                        distinct_id="test-user-id",
                     )
 
                     result = await activity_environment.run(clone_repository, input_data)
@@ -208,6 +217,8 @@ class TestCloneRepositoryActivity:
             sandbox_id="non-existent-sandbox-id",
             repository="posthog/posthog-js",
             github_integration_id=github_integration.id,
+            task_id="test-task-not-found",
+            distinct_id="test-user-id",
         )
 
         with patch(
@@ -215,7 +226,7 @@ class TestCloneRepositoryActivity:
         ) as mock_get_token:
             mock_get_token.return_value = ""
 
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(SandboxProvisionError) as exc_info:
                 await activity_environment.run(clone_repository, input_data)
 
-            assert "not found" in str(exc_info.value).lower() or "Failed to retrieve sandbox" in str(exc_info.value)
+            assert "Failed to get sandbox" in str(exc_info.value)
