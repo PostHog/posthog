@@ -242,29 +242,20 @@ export function getText(comment: CommentType): string {
     // This is only temporary until all comments are backfilled to rich content
     const content = comment.rich_content
         ? comment.rich_content
-        : comment.content
-          ? {
-                type: 'doc',
-                content: [
-                    {
-                        type: 'paragraph',
-                        content: [
-                            {
-                                type: 'text',
-                                text: comment.content,
-                            },
-                        ],
-                    },
-                ],
-            }
-          : {
-                type: 'doc',
-                content: [
-                    {
-                        type: 'paragraph',
-                    },
-                ],
-            }
+        : {
+              type: 'doc',
+              content: [
+                  {
+                      type: 'paragraph',
+                      content: [
+                          {
+                              type: 'text',
+                              text: comment.content || '',
+                          },
+                      ],
+                  },
+              ],
+          }
 
     return generateText(content, DEFAULT_EXTENSIONS, serializationOptions)
 }
