@@ -476,7 +476,6 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create a role via API."""
         data = {
             "name": name,
-            "feature_flags_access_level": 21,  # Can edit all
             **kwargs,
         }
         response = self.client.post(f"/api/organizations/{self.organization.id}/roles/", data, format="json")

@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import date, timedelta
 from enum import Enum
 from typing import Any, Literal
@@ -27,13 +28,15 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
-class ExperimentSerializer(serializers.ModelSerializer):
+class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(source="get_feature_flag_key")
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -78,6 +81,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "conclusion_comment",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -88,6 +92,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "exposure_cohort",
             "holdout",
             "saved_metrics",
+            "user_access_level",
         ]
 
     def to_representation(self, instance):
@@ -111,6 +116,16 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 saved_metric["query"]["count_query"]["dateRange"] = new_date_range
             if saved_metric.get("query", {}).get("funnels_query", {}).get("dateRange"):
                 saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+
+            # Add fingerprint to saved metric returned from API
+            # so that frontend knows what timeseries records to query
+            if saved_metric.get("query"):
+                saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
+                    saved_metric["query"],
+                    instance.start_date,
+                    instance.stats_config,
+                    instance.exposure_criteria,
+                )
 
         return data
 
@@ -449,7 +464,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             if metrics:
                 updated_metrics = []
                 for metric in metrics:
-                    metric_copy = metric.copy() if metric_field not in validated_data else metric
+                    metric_copy = deepcopy(metric)
                     metric_copy["fingerprint"] = compute_metric_fingerprint(
                         metric_copy,
                         start_date,
@@ -477,7 +492,9 @@ class ExperimentStatus(str, Enum):
     ALL = "all"
 
 
-class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class EnterpriseExperimentsViewSet(
+    ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+):
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.prefetch_related(
@@ -740,17 +757,11 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         if not fingerprint:
             raise ValidationError("fingerprint query parameter is required")
 
-        metrics = experiment.metrics or []
-        metrics_secondary = experiment.metrics_secondary or []
-        all_metrics = metrics + metrics_secondary
-
-        metric_exists = any(m.get("uuid") == metric_uuid for m in all_metrics)
-        if not metric_exists:
-            raise ValidationError(f"Metric with UUID {metric_uuid} not found in experiment")
-
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
-        start_date = experiment.start_date.date() if experiment.start_date else experiment.created_at.date()
+        if not experiment.start_date:
+            raise ValidationError("Experiment has not been started yet")
+        start_date = experiment.start_date.date()
         end_date = experiment.end_date.date() if experiment.end_date else date.today()
 
         experiment_dates = []

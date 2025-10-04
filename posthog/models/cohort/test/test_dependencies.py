@@ -284,6 +284,17 @@ class TestCohortDependencies(BaseTest):
         # it has to iterate all cohorts in the team
         self._assert_depends_on(cohort_b, cohort_a)
 
+    def test_cache_miss_get_cohort_dependent_int_param(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(
+            name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+
+        cache.clear()
+
+        self.assertEqual(get_cohort_dependents(cohort_a.id), [cohort_b.id])
+        self._assert_depends_on(cohort_b, cohort_a)
+
     @parameterized.expand(
         [
             ("dependencies",),

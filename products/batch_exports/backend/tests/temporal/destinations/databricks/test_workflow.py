@@ -107,11 +107,12 @@ class DatabricksDestinationTest(BaseDestinationTest):
         NOTE: we're using machine-to-machine OAuth here:
         https://docs.databricks.com/aws/en/dev-tools/python-sql-connector#oauth-machine-to-machine-m2m-authentication
         """
+        server_hostname = os.getenv("DATABRICKS_SERVER_HOSTNAME")
         integration = await Integration.objects.acreate(
             team_id=team_id,
             kind=Integration.IntegrationKind.DATABRICKS,
-            integration_id=str(team_id),
-            config={"server_hostname": os.getenv("DATABRICKS_SERVER_HOSTNAME")},
+            integration_id=server_hostname,
+            config={"server_hostname": server_hostname},
             sensitive_config={
                 "client_id": os.getenv("DATABRICKS_CLIENT_ID"),
                 "client_secret": os.getenv("DATABRICKS_CLIENT_SECRET"),
@@ -119,16 +120,22 @@ class DatabricksDestinationTest(BaseDestinationTest):
         )
         return integration
 
-    def get_invalid_destination_config(self) -> tuple[dict, str]:
-        """Provide invalid test configuration for Databricks destination."""
-        return (
-            {
-                "http_path": "invalid",
-                "catalog": "invalid",
-                "schema": "invalid",
-                "table_name": "invalid",
+    async def create_invalid_integration(self, team_id: int) -> tuple[Integration, str]:
+        """Create an invalid test integration, and return the expected error message."""
+        server_hostname = "invalid"
+        integration = await Integration.objects.acreate(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.DATABRICKS,
+            integration_id=server_hostname,
+            config={"server_hostname": server_hostname},
+            sensitive_config={
+                "client_id": "invalid",
+                "client_secret": "invalid",
             },
-            "DatabricksConnectionError: Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid.",
+        )
+        return (
+            integration,
+            "DatabricksConnectionError: Failed to connect to Databricks. Please check that the server_hostname and http_path are valid.",
         )
 
     async def get_inserted_records(
@@ -244,6 +251,12 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         yield await destination_test.create_integration(ateam.pk)
 
     @pytest.fixture
+    async def invalid_integration(self, ateam):
+        """Create an invalid test integration (for those destinations that require an integration)"""
+        destination_test = DatabricksDestinationTest()
+        yield await destination_test.create_invalid_integration(ateam.pk)
+
+    @pytest.fixture
     def setup_destination(self, ateam: Team, integration: Integration) -> Generator[None, t.Any, t.Any]:
         """Set up and tear down the Databricks schema for tests."""
         destination_test = DatabricksDestinationTest()
@@ -291,7 +304,6 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
-            batch_export_id=str(batch_export_for_destination.id),
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,
@@ -415,7 +427,6 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
-            batch_export_id=str(batch_export_for_destination.id),
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,

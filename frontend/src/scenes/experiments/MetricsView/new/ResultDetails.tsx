@@ -50,19 +50,16 @@ import {
  */
 function convertExperimentResultToFunnelSteps(
     result: CachedNewExperimentQueryResponse,
-    metric: ExperimentMetric,
-    experiment: Experiment
+    metric: ExperimentMetric
 ): FunnelStepWithNestedBreakdown[] {
-    const variants = experiment.parameters?.feature_flag_variants || []
-
     const allResults = [result.baseline, ...(result.variant_results || [])]
-    const numSteps = (result.baseline.step_counts?.length || 0) + 1
+    // Use step_counts from any variant that has data, not just baseline (which might have 0 users)
+    const stepCountsSource = allResults.find((r) => r.step_counts && r.step_counts.length > 0) || result.baseline
+    const numSteps = (stepCountsSource.step_counts?.length || 0) + 1
     const funnelSteps: FunnelStepWithNestedBreakdown[] = []
 
     for (let stepIndex = 0; stepIndex < numSteps; stepIndex++) {
         const variantSteps: FunnelStep[] = allResults.map((variantResult, variantIndex) => {
-            const variantKey = variants[variantIndex]?.key || (variantIndex === 0 ? 'control' : `test_${variantIndex}`)
-
             let count: number
             if (stepIndex === 0) {
                 count = variantResult.number_of_samples
@@ -85,19 +82,13 @@ function convertExperimentResultToFunnelSteps(
             }
 
             return {
-                action_id: `step_${stepIndex}`,
                 name: stepName,
                 custom_name: null,
-                order: stepIndex,
                 count: count,
                 type: 'events' as EntityType,
-                average_conversion_time: null,
-                median_conversion_time: null,
-                converted_people_url: '',
-                dropped_people_url: null,
-                breakdown_value: variantKey,
-                breakdownIndex: variantIndex,
-            } as FunnelStep & { breakdownIndex: number }
+                breakdown_value: variantResult.key,
+                breakdown_index: variantIndex,
+            } as FunnelStep & { breakdown_index: number }
         })
 
         const baseStep = variantSteps[0]
@@ -125,7 +116,9 @@ export function ResultDetails({
     isSecondary: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const useExperimentFunnelChart = featureFlags[FEATURE_FLAGS.EXPERIMENTS_FUNNEL_CHART] === 'test'
+    // If feature flag is enabled _and_ the result contains the step_counts data, we use the new funnel chart
+    const useExperimentFunnelChart =
+        featureFlags[FEATURE_FLAGS.EXPERIMENTS_FUNNEL_CHART] === 'test' && result.baseline.step_counts !== undefined
 
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
@@ -251,7 +244,7 @@ export function ResultDetails({
             {isExperimentFunnelMetric(metric) &&
                 (useExperimentFunnelChart ? (
                     <FunnelChart
-                        steps={convertExperimentResultToFunnelSteps(result, metric, experiment)}
+                        steps={convertExperimentResultToFunnelSteps(result, metric)}
                         showPersonsModal={false}
                         disableBaseline={true}
                         inCardView={true}
