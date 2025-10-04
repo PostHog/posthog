@@ -8,7 +8,6 @@ import { LemonButton, LemonMenu, LemonTag, ProfilePicture } from '@posthog/lemon
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
-import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import {
@@ -60,6 +59,12 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
         }
     }, [isHighlighted])
 
+    const recordingStartTime = propsItemContext?.recording_start_time
+    const timeInRecording =
+        comment.item_context?.time_in_recording && recordingStartTime
+            ? dayjs(comment.item_context.time_in_recording).diff(dayjs(recordingStartTime), 'second')
+            : null
+
     return (
         <div
             ref={ref}
@@ -74,34 +79,12 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         <span className="flex-1 font-semibold ">
                             {comment.created_by?.first_name ?? 'Unknown user'}
                         </span>
-                        {comment.item_context?.time_in_recording ? (
+                        {timeInRecording !== null ? (
                             <Tooltip title="Time in recording">
                                 <LemonTag icon={<IconClock />} type="highlight">
-                                    {(() => {
-                                        if (comment.item_context.time_in_recording_ms !== undefined) {
-                                            return colonDelimitedDuration(
-                                                comment.item_context.time_in_recording_ms / 1000,
-                                                2
-                                            )
-                                        }
-                                        // Calculate from timestamp for old comments
-                                        const recordingStartTime = propsItemContext?.recording_start_time
-                                        if (recordingStartTime) {
-                                            const commentTime = dayjs(comment.item_context.time_in_recording)
-                                            const startTime = dayjs(recordingStartTime)
-                                            const timeInRecordingMs = commentTime.diff(startTime)
-                                            return colonDelimitedDuration(timeInRecordingMs / 1000, 2)
-                                        }
-                                        // Fallback to absolute time if no recording start time
-                                        return dayjs(comment.item_context.time_in_recording).format('HH:mm:ss')
-                                    })()}
+                                    {colonDelimitedDuration(timeInRecording, 2)}
                                 </LemonTag>
                             </Tooltip>
-                        ) : null}
-                        {comment.created_at && !comment.item_context?.time_in_recording ? (
-                            <span className="text-xs">
-                                <TZLabel time={comment.created_at} />
-                            </span>
                         ) : null}
 
                         <LemonMenu
@@ -245,6 +228,7 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
                         commentWithReplies={{
                             id: x.id,
                             comment: x,
+                            // replies are only one level deep
                             replies: [],
                         }}
                     />

@@ -874,7 +874,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.sessionRecordingId, s.sessionPlayerData],
             (sessionRecordingId, sessionPlayerData): SidePanelSceneContext | null => {
-                return sessionRecordingId
+                return sessionRecordingId && sessionPlayerData?.start
                     ? {
                           activity_scope: ActivityScope.RECORDING,
                           activity_item_id: sessionRecordingId,
