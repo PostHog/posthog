@@ -1,5 +1,6 @@
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
@@ -31,6 +32,7 @@ from products.tasks.backend.temporal.process_task.activities.inject_github_token
 from products.tasks.backend.temporal.process_task.activities.inject_personal_api_key import inject_personal_api_key
 from products.tasks.backend.temporal.process_task.activities.setup_repository import setup_repository
 from products.tasks.backend.temporal.process_task.activities.tests.constants import POSTHOG_JS_SNAPSHOT
+from products.tasks.backend.temporal.process_task.activities.track_workflow_event import track_workflow_event
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskOutput, ProcessTaskWorkflow
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -81,8 +83,10 @@ class TestProcessTaskWorkflow:
                         execute_task_in_sandbox,
                         cleanup_sandbox,
                         cleanup_personal_api_key,
+                        track_workflow_event,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
+                    activity_executor=ThreadPoolExecutor(max_workers=10),
                 ),
             ):
                 result = await env.client.execute_workflow(

@@ -35,7 +35,7 @@ class TestSetupRepositoryActivity:
 
             clone_input = CloneRepositoryInput(
                 sandbox_id=sandbox.id,
-                repository="PostHog/posthog-js",
+                repository="posthog/posthog-js",
                 github_integration_id=github_integration.id,
                 task_id="test-task-123",
                 distinct_id="test-user-id",
@@ -60,7 +60,7 @@ class TestSetupRepositoryActivity:
 
                 setup_input = SetupRepositoryInput(
                     sandbox_id=sandbox.id,
-                    repository="PostHog/posthog-js",
+                    repository="posthog/posthog-js",
                     task_id="test-task-123",
                     distinct_id="test-user-id",
                 )
@@ -93,7 +93,7 @@ class TestSetupRepositoryActivity:
 
             setup_input = SetupRepositoryInput(
                 sandbox_id=sandbox.id,
-                repository="PostHog/posthog-js",
+                repository="posthog/posthog-js",
                 task_id="test-task-no-clone",
                 distinct_id="test-user-id",
             )
@@ -109,7 +109,7 @@ class TestSetupRepositoryActivity:
     async def test_setup_repository_sandbox_not_found(self, activity_environment):
         setup_input = SetupRepositoryInput(
             sandbox_id="non-existent-sandbox-id",
-            repository="PostHog/posthog-js",
+            repository="posthog/posthog-js",
             task_id="test-task-not-found",
             distinct_id="test-user-id",
         )
