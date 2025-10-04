@@ -39,13 +39,18 @@ def _get_task(task_id: str) -> Task:
 
 
 @asyncify
-def _create_personal_api_key(task: Task) -> PersonalAPIKey:
+def _create_personal_api_key(task: Task) -> tuple[str, PersonalAPIKey]:
     scopes = _get_default_scopes()
 
     value = generate_random_token_personal()
 
     mask_value = mask_key_value(value)
     secure_value = hash_key_value(value)
+
+    if not task.created_by:
+        raise TaskInvalidStateError(f"Task {task.id} has no created_by user", {"task_id": task.id})
+
+    assert task.created_by is not None
 
     personal_api_key = PersonalAPIKey.objects.create(
         user=task.created_by,
@@ -76,7 +81,8 @@ async def inject_personal_api_key(input: InjectPersonalAPIKeyInput) -> InjectPer
             raise TaskInvalidStateError(f"Task {input.task_id} has no created_by user", {"task_id": input.task_id})
 
         try:
-            value, personal_api_key = await _create_personal_api_key(task)
+            api_key_tuple: tuple[str, PersonalAPIKey] = await _create_personal_api_key(task)
+            value, personal_api_key = api_key_tuple
         except Exception as e:
             raise PersonalAPIKeyError(
                 f"Failed to create personal API key for task {input.task_id}",

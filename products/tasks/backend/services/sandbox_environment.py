@@ -128,7 +128,7 @@ class SandboxEnvironment:
             else:
                 create_kwargs["blueprint_name"] = blueprint_name
 
-            devbox = await client.devboxes.create_and_await_running(**create_kwargs)
+            devbox = await client.devboxes.create_and_await_running(**create_kwargs)  # type: ignore[arg-type]
 
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
@@ -204,7 +204,7 @@ class SandboxEnvironment:
         result = ExecutionResult(
             stdout=final_execution.stdout,
             stderr=final_execution.stderr,
-            exit_code=final_execution.exit_status,
+            exit_code=final_execution.exit_status or 0,
             error=getattr(final_execution, "error", None),
         )
 

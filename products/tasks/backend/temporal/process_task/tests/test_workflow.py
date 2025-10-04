@@ -104,7 +104,7 @@ class TestProcessTaskWorkflow:
         """Verify a file exists in a sandbox."""
         sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
         result = await sandbox.execute(f"test -f {filepath} && echo 'exists' || echo 'missing'")
-        return "exists" in result.output
+        return "exists" in result.stdout
 
     async def test_workflow_with_existing_snapshot_reuses_snapshot(self, test_task, github_integration):
         snapshot, _ = await sync_to_async(SandboxSnapshot.objects.get_or_create)(
@@ -124,9 +124,8 @@ class TestProcessTaskWorkflow:
             assert result.task_result.exit_code == 0
             assert "task complete" in result.task_result.stdout
 
-            snapshots = await sync_to_async(list)(
-                SandboxSnapshot.objects.filter(integration=github_integration).order_by("-created_at")
-            )
+            snapshots_query = SandboxSnapshot.objects.filter(integration=github_integration).order_by("-created_at")
+            snapshots: list[SandboxSnapshot] = await sync_to_async(list)(snapshots_query)
             assert len(snapshots) == 1
             assert snapshots[0].id == snapshot.id
             assert "posthog/posthog-js" in snapshots[0].repos
@@ -144,11 +143,10 @@ class TestProcessTaskWorkflow:
             assert result.task_result is not None
             assert result.task_result.exit_code == 0
 
-            snapshots = await sync_to_async(list)(
-                SandboxSnapshot.objects.filter(
-                    integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
-                ).order_by("-created_at")
-            )
+            snapshots_query = SandboxSnapshot.objects.filter(
+                integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
+            ).order_by("-created_at")
+            snapshots: list[SandboxSnapshot] = await sync_to_async(list)(snapshots_query)
 
             assert len(snapshots) >= 1
             latest_snapshot = snapshots[0]
@@ -252,11 +250,10 @@ class TestProcessTaskWorkflow:
             assert result.task_result is not None
             assert result.task_result.exit_code == 0
 
-            snapshots = await sync_to_async(list)(
-                SandboxSnapshot.objects.filter(
-                    integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
-                ).order_by("-created_at")
-            )
+            snapshots_query = SandboxSnapshot.objects.filter(
+                integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
+            ).order_by("-created_at")
+            snapshots: list[SandboxSnapshot] = await sync_to_async(list)(snapshots_query)
 
             assert len(snapshots) >= 1
             latest_snapshot = snapshots[0]
@@ -270,11 +267,10 @@ class TestProcessTaskWorkflow:
             assert result2.success is True
             assert result2.task_result is not None
 
-            snapshots_after = await sync_to_async(list)(
-                SandboxSnapshot.objects.filter(
-                    integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
-                ).order_by("-created_at")
-            )
+            snapshots_after_query = SandboxSnapshot.objects.filter(
+                integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
+            ).order_by("-created_at")
+            snapshots_after: list[SandboxSnapshot] = await sync_to_async(list)(snapshots_after_query)
             assert len(snapshots_after) == len(snapshots)
 
         finally:

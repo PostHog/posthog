@@ -20,9 +20,6 @@ class TaskDetails:
     distinct_id: str
 
 
-DEFAULT_DISTINCT_ID = "process_task_workflow"
-
-
 @activity.defn
 @asyncify
 def get_task_details(task_id: str) -> TaskDetails:
@@ -45,7 +42,15 @@ def get_task_details(task_id: str) -> TaskDetails:
             {"task_id": task_id},
         )
 
-    distinct_id = task.created_by.distinct_id if task.created_by else DEFAULT_DISTINCT_ID
+    if not task.created_by:
+        raise TaskInvalidStateError(
+            f"Task {task_id} has no created_by user",
+            {"task_id": task_id},
+        )
+
+    assert task.created_by is not None
+
+    distinct_id = task.created_by.distinct_id
 
     log_with_activity_context(
         "Task details retrieved successfully",
