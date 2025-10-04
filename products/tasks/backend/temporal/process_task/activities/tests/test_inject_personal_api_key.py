@@ -35,6 +35,7 @@ class TestInjectPersonalAPIKeyActivity:
             input_data = InjectPersonalAPIKeyInput(
                 sandbox_id=sandbox.id,
                 task_id=str(test_task.id),
+                distinct_id="test-user-id",
             )
 
             result: InjectPersonalAPIKeyOutput = await activity_environment.run(inject_personal_api_key, input_data)
@@ -77,9 +78,10 @@ class TestInjectPersonalAPIKeyActivity:
             input_data = InjectPersonalAPIKeyInput(
                 sandbox_id=sandbox.id,
                 task_id=str(test_task.id),
+                distinct_id="test-user-id",
             )
 
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(Exception) as exc_info:
                 await activity_environment.run(inject_personal_api_key, input_data)
 
             assert "has no created_by user" in str(exc_info.value)
@@ -94,6 +96,7 @@ class TestInjectPersonalAPIKeyActivity:
         input_data = InjectPersonalAPIKeyInput(
             sandbox_id="non-existent-sandbox-id",
             task_id=str(test_task.id),
+            distinct_id="test-user-id",
         )
 
         with pytest.raises(Exception) as exc_info:

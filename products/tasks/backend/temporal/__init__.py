@@ -20,6 +20,7 @@ from .process_task.activities import (
     inject_github_token,
     inject_personal_api_key,
     setup_repository,
+    track_workflow_event,
 )
 from .process_task.workflow import ProcessTaskWorkflow
 from .workflow_activities import (
@@ -68,4 +69,5 @@ ACTIVITIES = [
     execute_task_in_sandbox,
     cleanup_personal_api_key,
     cleanup_sandbox,
+    track_workflow_event,
 ]

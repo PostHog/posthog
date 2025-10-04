@@ -10,6 +10,7 @@ from .get_task_details import get_task_details
 from .inject_github_token import inject_github_token
 from .inject_personal_api_key import inject_personal_api_key
 from .setup_repository import setup_repository
+from .track_workflow_event import track_workflow_event
 
 __all__ = [
     "check_snapshot_exists_for_repository",
@@ -24,4 +25,5 @@ __all__ = [
     "inject_github_token",
     "inject_personal_api_key",
     "setup_repository",
+    "track_workflow_event",
 ]

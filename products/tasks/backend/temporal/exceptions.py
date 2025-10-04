@@ -1,28 +1,26 @@
 from typing import Optional
 
+from temporalio.exceptions import ApplicationError
 
-class ProcessTaskError(Exception):
-    def __init__(self, message: str, context: Optional[dict] = None):
-        super().__init__(message)
-        self.message = message
+
+class ProcessTaskError(ApplicationError):
+    def __init__(self, message: str, context: Optional[dict] = None, **kwargs):
         self.context = context or {}
-
-    def __str__(self) -> str:
-        if self.context:
-            return f"{self.message} (context: {self.context})"
-        return self.message
+        super().__init__(message, self.context, **kwargs)
 
 
 class ProcessTaskFatalError(ProcessTaskError):
     """Fatal errors that should not be retried."""
 
-    pass
+    def __init__(self, message: str, context: Optional[dict] = None):
+        super().__init__(message, context, non_retryable=True)
 
 
 class ProcessTaskTransientError(ProcessTaskError):
     """Transient errors that may succeed on retry."""
 
-    pass
+    def __init__(self, message: str, context: Optional[dict] = None):
+        super().__init__(message, context, non_retryable=False)
 
 
 class TaskNotFoundError(ProcessTaskFatalError):
@@ -99,7 +97,7 @@ class TaskExecutionFailedError(ProcessTaskError):
     def __init__(
         self, message: str, exit_code: int, stdout: str = "", stderr: str = "", context: Optional[dict] = None
     ):
-        super().__init__(message, context)
         self.exit_code = exit_code
         self.stdout = stdout
         self.stderr = stderr
+        super().__init__(message, context)

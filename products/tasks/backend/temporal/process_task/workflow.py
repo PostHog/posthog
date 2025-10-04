@@ -128,7 +128,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._cleanup_sandbox(sandbox_id)
 
     async def _get_task_details(self, task_id: str) -> TaskDetails:
-        logger.info(f"Getting task details for task {task_id}")
         return await workflow.execute_activity(
             get_task_details,
             task_id,
@@ -137,8 +136,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
     async def _get_snapshot_for_repository(self) -> str:
-        logger.info(f"Getting snapshot for repository {self.task_details.repository}")
-
         check_input = CheckSnapshotExistsForRepositoryInput(
             github_integration_id=self.task_details.github_integration_id,
             repository=self.task_details.repository,
