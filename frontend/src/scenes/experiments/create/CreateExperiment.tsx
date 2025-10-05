@@ -42,7 +42,6 @@ export const CreateExperiment = (): JSX.Element => {
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
         setExperimentValue('name', name)
-        console.log('debouncedOnNameChange', name)
     }, 500)
 
     return (
@@ -119,7 +118,6 @@ export const CreateExperiment = (): JSX.Element => {
                                     <VariantsPanel
                                         experiment={experiment}
                                         updateFeatureFlag={(updates) => {
-                                            console.log('updateFeatureFlag', updates)
                                             setExperimentValue('feature_flag_key', updates.feature_flag_key)
                                         }}
                                     />

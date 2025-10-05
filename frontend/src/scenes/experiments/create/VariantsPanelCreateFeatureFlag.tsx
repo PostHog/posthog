@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconBalance } from '@posthog/icons'
-import { IconTrash } from '@posthog/icons'
-import { IconPlus } from '@posthog/icons'
+import { IconBalance, IconCheck, IconPlus, IconTrash } from '@posthog/icons'
 
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -11,6 +9,7 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { alphabet } from 'lib/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 
@@ -42,6 +41,10 @@ interface VariantsPanelCreateFeatureFlagProps {
         feature_flag_variants?: MultivariateFlagVariant[]
         ensure_experience_continuity?: boolean
         feature_flag_key?: string
+        parameters?: {
+            feature_flag_variants?: MultivariateFlagVariant[]
+            ensure_experience_continuity?: boolean
+        }
     }) => void
 }
 
@@ -49,8 +52,13 @@ export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
-    const { featureFlagKeyDirty, unavailableFeatureFlagKeys } = useValues(variantsPanelLogic)
-    const { setFeatureFlagKeyDirty } = useActions(variantsPanelLogic)
+    const {
+        featureFlagKeyDirty,
+        unavailableFeatureFlagKeys,
+        featureFlagKeyValidation,
+        featureFlagKeyValidationLoading,
+    } = useValues(variantsPanelLogic)
+    const { setFeatureFlagKeyDirty, validateFeatureFlagKey } = useActions(variantsPanelLogic)
 
     const variants = experiment.parameters?.feature_flag_variants || [
         { key: 'control', rollout_percentage: 50 },
@@ -116,6 +124,12 @@ export const VariantsPanelCreateFeatureFlag = ({
         })
     }
 
+    const debouncedValidateFeatureFlagKey = useDebouncedCallback((key: string) => {
+        if (key) {
+            validateFeatureFlagKey(key)
+        }
+    }, 300)
+
     return (
         <div>
             <div className="max-w-2xl mb-4">
@@ -123,7 +137,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                     Feature flag key
                 </label>
                 <LemonInput
-                    id={'experiment-feature-flag-key'}
+                    id="experiment-feature-flag-key"
                     className="mt-1"
                     placeholder="examples: new-landing-page, betaFeature, ab_test_1"
                     value={experiment.feature_flag_key || ''}
@@ -131,11 +145,14 @@ export const VariantsPanelCreateFeatureFlag = ({
                         /**
                          * if the user changes the feature flag key, we need to set the dirty flag to true
                          * so that we don't generate a new key automatically
+                         * TODO: clear dirty flag when the name is empty
                          */
                         setFeatureFlagKeyDirty()
+                        const normalizedValue = value.replace(/\s+/g, '-')
                         onChange({
-                            feature_flag_key: value,
+                            feature_flag_key: normalizedValue,
                         })
+                        debouncedValidateFeatureFlagKey(normalizedValue)
                     }}
                     onFocus={() => {
                         if (experiment.name && !featureFlagKeyDirty) {
@@ -144,7 +161,18 @@ export const VariantsPanelCreateFeatureFlag = ({
                             })
                         }
                     }}
+                    suffix={
+                        featureFlagKeyValidationLoading ? (
+                            <Spinner size="small" />
+                        ) : featureFlagKeyValidation?.valid ? (
+                            <IconCheck className="text-success" />
+                        ) : null
+                    }
+                    status={featureFlagKeyValidation?.error ? 'danger' : 'default'}
                 />
+                {featureFlagKeyValidation?.error && (
+                    <div className="text-xs text-danger mt-1">{featureFlagKeyValidation.error}</div>
+                )}
                 <div className="text-xs text-muted mt-1">
                     Each experiment is backed by a feature flag. This key will be used to control the experiment in your
                     code.
