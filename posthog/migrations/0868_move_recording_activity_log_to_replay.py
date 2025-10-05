@@ -29,7 +29,7 @@ def migrate_recording_scope_to_replay(apps, schema_editor):
                 logs_to_migrate = []
         except Exception as e:
             # If anything fails for a log, skip it and continue with others
-            logger.error("replay_retention_period_migration_failed", log_id=log.id, error=str(e), exc_info=True)
+            logger.error("recording_to_replaylog_scope_migration_failed", log_id=log.id, error=str(e), exc_info=True)
             continue
 
     # Migrate any remaining log
