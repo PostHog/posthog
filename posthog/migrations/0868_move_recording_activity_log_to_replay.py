@@ -15,7 +15,7 @@ def migrate_recording_scope_to_replay(apps, schema_editor):
 
     # Only update ActivityLog records where scope='recording'
     # This specifically targets comment-related activity logs
-    for log in ActivityLog.objects.filter(scope="recording").only("id", "scope").iterator(chunk_size=batch_size / 5):
+    for log in ActivityLog.objects.filter(scope="recording").only("id", "scope").iterator(chunk_size=batch_size // 5):
         try:
             log.scope = "Replay"
             logs_to_migrate.append(log)
@@ -32,7 +32,7 @@ def migrate_recording_scope_to_replay(apps, schema_editor):
             logger.error("recording_to_replaylog_scope_migration_failed", log_id=log.id, error=str(e), exc_info=True)
             continue
 
-    # Migrate any remaining log
+    # Migrate any remaining logs
     ActivityLog.objects.bulk_update(
         logs_to_migrate,
         ["scope"],
