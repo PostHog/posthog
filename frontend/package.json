@@ -41,7 +41,7 @@
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
         "lint": "pnpm lint:js && pnpm lint:css",
         "lint:js": "cd .. && oxlint --quiet",
-        "lint:css": "stylelint \"../(frontend|products)/**/*.{css,scss}\" --ignore-path=frontend/.stylelintignore",
+        "lint:css": "stylelint \"../(frontend|products)/**/*.{css,scss}\" --ignore-path=../.stylelintignore",
         "format": "cd .. && oxlint --fix --fix-suggestions --fix-dangerously --quiet && pnpm prettier -w \"./{products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
         "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",
