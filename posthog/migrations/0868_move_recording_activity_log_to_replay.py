@@ -11,11 +11,11 @@ def migrate_recording_scope_to_replay(apps, schema_editor):
     ActivityLog = apps.get_model("posthog", "ActivityLog")
 
     logs_to_migrate = []
-    batch_size = 100
+    batch_size = 500
 
     # Only update ActivityLog records where scope='recording'
     # This specifically targets comment-related activity logs
-    for log in ActivityLog.objects.filter(scope="recording").only("id", "scope").iterator(chunk_size=500):
+    for log in ActivityLog.objects.filter(scope="recording").only("id", "scope").iterator(chunk_size=batch_size / 5):
         try:
             log.scope = "Replay"
             logs_to_migrate.append(log)
@@ -25,14 +25,14 @@ def migrate_recording_scope_to_replay(apps, schema_editor):
                     logs_to_migrate,
                     ["scope"],
                 )
-                print(f"Migrated {len(logs_to_migrate)} teams")  # noqa: T201
+                print(f"Migrated {len(logs_to_migrate)} logs")  # noqa: T201
                 logs_to_migrate = []
         except Exception as e:
-            # If anything fails for a team, skip it and continue with others
-            logger.error("replay_retention_period_migration_failed", team_id=log.id, error=str(e), exc_info=True)
+            # If anything fails for a log, skip it and continue with others
+            logger.error("replay_retention_period_migration_failed", log_id=log.id, error=str(e), exc_info=True)
             continue
 
-    # Migrate any remaining teams
+    # Migrate any remaining log
     ActivityLog.objects.bulk_update(
         logs_to_migrate,
         ["scope"],
