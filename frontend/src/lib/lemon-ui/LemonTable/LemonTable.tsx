@@ -204,11 +204,7 @@ export function LemonTable<T extends Record<string, any>>({
     useEffect(() => {
         // When the current page changes, scroll back to the top of the table
         if (scrollRef.current) {
-            const realTableOffsetTop = scrollRef.current.getBoundingClientRect().top - 320 // Extra breathing room
-            // If the table starts above the top edge of the view, scroll to the top of the table minus breathing room
-            if (realTableOffsetTop < 0) {
-                window.scrollTo(window.scrollX, window.scrollY + realTableOffsetTop)
-            }
+            scrollRef.current.scrollIntoView()
         }
     }, [paginationState.currentPage, scrollRef.current])
 
