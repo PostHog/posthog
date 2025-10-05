@@ -54,8 +54,8 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
         # Map 'recording' to 'Replay' for activity log
         # this is only necessary while we still have comments with scope 'recording'
         # after we stop allowing 'recording' as a scope this can be removed
-        actual_scope = "Replay" if instance.scope == "recording" else instance.scope
-        scope = "Comment" if instance.source_comment_id else actual_scope
+        corrected_scope = "Replay" if instance.scope == "recording" else instance.scope
+        scope = "Comment" if instance.source_comment_id else corrected_scope
 
         log_activity(
             organization_id=None,
