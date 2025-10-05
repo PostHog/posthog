@@ -42,7 +42,7 @@
         "concurrently": "^5.3.0",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
-        "turbo": "^2.4.2",
+        "turbo": "^2.5.8",
         "uuid": "^10.0.0"
     },
     "devDependencies": {
@@ -66,7 +66,16 @@
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.30.0"
+            "@posthog/icons": "0.31.0",
+            "react": "19.2.0",
+            "react-dom": "19.2.0",
+            "turbo": "^2.5.8"
+        },
+        "peerDependencyRules": {
+            "allowAny": [
+                "react",
+                "react-dom"
+            ]
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
