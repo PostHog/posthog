@@ -77,33 +77,35 @@ class FeatureFlagMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 # Convert external flag to PostHog format
                 posthog_flag_data = self._convert_to_posthog_format(flag_data, field_mappings)
 
-                # Check for conflicts with existing flags
-                existing_flag = FeatureFlag.objects.filter(
-                    team=self.team, key=posthog_flag_data["key"], deleted=False
-                ).first()
-
-                if existing_flag:
-                    failed_imports.append(
-                        {"flag": flag_data, "error": f"Flag with key '{posthog_flag_data['key']}' already exists"}
-                    )
-                    continue
+                # Ensure unique flag key by adding suffix if needed
+                original_flag_key = posthog_flag_data["key"]
+                unique_flag_key = self._generate_unique_flag_key(original_flag_key)
+                posthog_flag_data["key"] = unique_flag_key
 
                 # Create the new flag
                 new_flag = FeatureFlag.objects.create(
                     team=self.team, created_by=request.user, last_modified_by=request.user, **posthog_flag_data
                 )
 
-                imported_flags.append(
-                    {
-                        "external_flag": flag_data,
-                        "posthog_flag": {
-                            "id": new_flag.id,
-                            "key": new_flag.key,
-                            "name": new_flag.name,
-                            "active": new_flag.active,
-                        },
+                import_result = {
+                    "external_flag": flag_data,
+                    "posthog_flag": {
+                        "id": new_flag.id,
+                        "key": new_flag.key,
+                        "name": new_flag.name,
+                        "active": new_flag.active,
+                    },
+                }
+
+                # Add note if key was renamed due to conflict
+                if unique_flag_key != original_flag_key:
+                    import_result["key_renamed"] = {
+                        "original": original_flag_key,
+                        "new": unique_flag_key,
+                        "reason": "Key already existed, suffix added to avoid conflict",
                     }
-                )
+
+                imported_flags.append(import_result)
 
             except Exception as e:
                 logger.exception(f"Error importing flag {flag_data.get('key', 'unknown')}: {e}")
@@ -286,3 +288,28 @@ class FeatureFlagMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "active": external_flag.get("enabled", True),
             "version": 1,
         }
+
+    def _generate_unique_flag_key(self, original_key: str) -> str:
+        """Generate a unique flag key by adding a suffix if the key already exists"""
+        if not original_key:
+            original_key = "imported_flag"
+
+        # Check if the original key is available
+        if not FeatureFlag.objects.filter(team=self.team, key=original_key, deleted=False).exists():
+            return original_key
+
+        # Generate unique key with suffix
+        counter = 1
+        while True:
+            candidate_key = f"{original_key}_{counter}"
+            if not FeatureFlag.objects.filter(team=self.team, key=candidate_key, deleted=False).exists():
+                return candidate_key
+            counter += 1
+
+            # Safety break to avoid infinite loop (though unlikely with reasonable usage)
+            if counter > 1000:
+                # Fallback with timestamp if somehow we have 1000+ duplicate keys
+                import time
+
+                timestamp = int(time.time())
+                return f"{original_key}_{timestamp}"

@@ -103,6 +103,21 @@ export interface ImportFlagsResponse {
     failure_count: number
 }
 
+export interface FieldMapping {
+    external_key: string
+    external_type: string
+    display_name: string
+    posthog_field: string | null
+    posthog_type: string
+    auto_selected: boolean
+    options: Array<{ key: string; label: string; type: string }>
+}
+
+export interface ExtractFieldMappingsResponse {
+    field_mappings: FieldMapping[]
+    total_fields: number
+}
+
 export const featureFlagMigrationApi = {
     async fetchExternalFlags(
         provider: string,
@@ -120,16 +135,26 @@ export const featureFlagMigrationApi = {
         return response
     },
 
+    async extractFieldMappings(params: {
+        provider: string
+        selected_flags: ExternalFeatureFlag[]
+    }): Promise<ExtractFieldMappingsResponse> {
+        const response = await api.featureFlags.extractFieldMappings(params)
+        return response
+    },
+
     async importFlags(
         provider: string,
         selectedFlags: ExternalFeatureFlag[],
-        environment: string = 'production'
+        environment: string = 'production',
+        fieldMappings: Record<string, any> = {}
     ): Promise<ImportFlagsResponse> {
         // Call the actual backend API
         const response = await api.featureFlags.importExternalFlags({
             provider,
             selected_flags: selectedFlags,
             environment,
+            field_mappings: fieldMappings,
         })
         return response
     },

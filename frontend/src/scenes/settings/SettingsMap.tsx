@@ -46,6 +46,7 @@ import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
+import { ImportFromExternalProviders } from './environment/ImportFromExternalProviders'
 import { GithubIntegration } from './environment/Integrations'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
@@ -553,6 +554,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
                 component: <IPAllowListInfo />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-import',
+        title: 'Import from external providers',
+        settings: [
+            {
+                id: 'import-external-providers',
+                title: 'Import from external providers',
+                component: <ImportFromExternalProviders />,
             },
         ],
     },

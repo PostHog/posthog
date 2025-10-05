@@ -1760,6 +1760,19 @@ class FeatureFlagViewSet(
         """
         Fetch feature flags from external providers for migration.
         """
+        # Check if team context is available
+        if not hasattr(self, "team") or self.team is None:
+            # Try to get team from user context as fallback
+            if hasattr(request.user, "team") and request.user.team:
+                logger.info("Using team from request.user.team")
+                self.team = request.user.team
+            else:
+                logger.error(
+                    f"Team context not available. hasattr(self, 'team'): {hasattr(self, 'team')}, self.team: {getattr(self, 'team', 'NOT_SET')}"
+                )
+                logger.error(f"User: {request.user}, User team: {getattr(request.user, 'team', 'NOT_SET')}")
+                return Response({"error": "Project ID is not known"}, status=400)
+
         provider = request.data.get("provider")
         api_key = request.data.get("api_key")
         environment = request.data.get("environment", "production")  # Default to production
@@ -1767,42 +1780,68 @@ class FeatureFlagViewSet(
         if not provider or not api_key:
             return Response({"error": "Provider and API key are required"}, status=400)
 
-        if provider not in ["launchdarkly"]:
+        if provider not in ["launchdarkly", "statsig"]:
             return Response(
-                {"error": f"Provider {provider} is not supported. Supported providers: launchdarkly"}, status=400
+                {"error": f"Provider {provider} is not supported. Supported providers: launchdarkly, statsig"},
+                status=400,
             )
 
         try:
-            # Fetch flags from LaunchDarkly
-            project_key = request.data.get("project_key", "default")
-            external_flags = self._fetch_launchdarkly_flags(api_key, project_key)
+            if provider == "launchdarkly":
+                # Fetch flags from LaunchDarkly
+                project_key = request.data.get("project_key", "default")
+                external_flags = self._fetch_launchdarkly_flags(api_key, project_key)
 
-            if isinstance(external_flags, Response):
-                return external_flags  # Error response
+                if isinstance(external_flags, Response):
+                    return external_flags  # Error response
 
-            # Add debugging for the problematic flag in the raw API response
-            for flag in external_flags:
-                if flag.get("key") == "flag-with-cohort":
-                    logger.error(f"DEBUG API RESPONSE flag-with-cohort: Full flag data: {flag}")
-                    break
+                # Add debugging for the problematic flag in the raw API response
+                for flag in external_flags:
+                    if flag.get("key") == "flag-with-cohort":
+                        logger.error(f"DEBUG API RESPONSE flag-with-cohort: Full flag data: {flag}")
+                        break
 
-            # Transform flags to our standard format
-            logger.info(f"LaunchDarkly: Transforming {len(external_flags)} flags for response")
-            transformed_flags = []
-            for idx, flag in enumerate(external_flags):
-                flag_key = flag.get("key", "no-key")
-                try:
-                    transformed_flag = self._transform_launchdarkly_flag_for_response(
-                        flag, environment, api_key, project_key
-                    )
-                    transformed_flags.append(transformed_flag)
-                    logger.info(
-                        f"LaunchDarkly: Transformed flag {idx + 1}/{len(external_flags)}: {flag_key} - importable: {transformed_flag['importable']}"
-                    )
-                except Exception as e:
-                    logger.exception(
-                        f"LaunchDarkly: Failed to transform flag {idx + 1}/{len(external_flags)}: {flag_key} - Error: {str(e)}"
-                    )
+                # Transform flags to our standard format
+                logger.info(f"LaunchDarkly: Transforming {len(external_flags)} flags for response")
+                transformed_flags = []
+                for idx, flag in enumerate(external_flags):
+                    flag_key = flag.get("key", "no-key")
+                    try:
+                        transformed_flag = self._transform_launchdarkly_flag_for_response(
+                            flag, environment, api_key, project_key
+                        )
+                        transformed_flags.append(transformed_flag)
+                        logger.info(
+                            f"LaunchDarkly: Transformed flag {idx + 1}/{len(external_flags)}: {flag_key} - importable: {transformed_flag['importable']}"
+                        )
+                    except Exception as e:
+                        logger.exception(
+                            f"LaunchDarkly: Failed to transform flag {idx + 1}/{len(external_flags)}: {flag_key} - Error: {str(e)}"
+                        )
+            elif provider == "statsig":
+                # Store API key for segment fetching during condition processing
+                self._statsig_api_key = api_key
+                # Fetch flags from Statsig
+                external_flags = self._fetch_statsig_flags(api_key)
+
+                if isinstance(external_flags, Response):
+                    return external_flags  # Error response
+
+                # Transform flags to our standard format
+                logger.info(f"Statsig: Transforming {len(external_flags)} flags for response")
+                transformed_flags = []
+                for idx, flag in enumerate(external_flags):
+                    flag_key = flag.get("key", "no-key")
+                    try:
+                        transformed_flag = self._transform_statsig_flag_for_response(flag)
+                        transformed_flags.append(transformed_flag)
+                        logger.info(
+                            f"Statsig: Transformed flag {idx + 1}/{len(external_flags)}: {flag_key} - importable: {transformed_flag['importable']}"
+                        )
+                    except Exception as e:
+                        logger.exception(
+                            f"Statsig: Failed to transform flag {idx + 1}/{len(external_flags)}: {flag_key} - Error: {str(e)}"
+                        )
 
             logger.info(
                 f"LaunchDarkly: Successfully transformed {len(transformed_flags)} out of {len(external_flags)} flags"
@@ -1829,19 +1868,68 @@ class FeatureFlagViewSet(
             return Response({"error": f"Failed to fetch flags from {provider}: {str(e)}"}, status=500)
 
     @action(methods=["POST"], detail=False)
+    def extract_field_mappings(self, request: request.Request, **kwargs):
+        """
+        Extract unique fields from selected flags' rules for mapping to PostHog fields.
+        """
+        # Check if team context is available
+        if not hasattr(self, "team") or self.team is None:
+            # Try to get team from user context as fallback
+            if hasattr(request.user, "team") and request.user.team:
+                logger.info("Using team from request.user.team in extract_field_mappings")
+                self.team = request.user.team
+            else:
+                logger.error("Team context not available in extract_field_mappings")
+                return Response({"error": "Project ID is not known"}, status=400)
+
+        provider = request.data.get("provider")
+        selected_flags = request.data.get("selected_flags", [])
+
+        if not provider or not selected_flags:
+            return Response({"error": "Provider and selected flags are required"}, status=400)
+
+        try:
+            # Extract all unique fields from the selected flags
+            unique_fields = self._extract_unique_fields_from_flags(selected_flags, provider)
+
+            # Create field mapping suggestions
+            field_mappings = self._create_field_mapping_suggestions(unique_fields, provider)
+
+            return Response({"field_mappings": field_mappings, "total_fields": len(field_mappings)})
+
+        except Exception as e:
+            logger.exception(f"Error extracting field mappings for {provider}: {e}")
+            return Response({"error": f"Failed to extract field mappings: {str(e)}"}, status=500)
+
+    @action(methods=["POST"], detail=False)
     def import_external_flags(self, request: request.Request, **kwargs):
         """
         Import selected feature flags from external providers to PostHog.
         Only flags with manual percentage rules are supported.
         """
+        # Check if team context is available
+        if not hasattr(self, "team") or self.team is None:
+            # Try to get team from user context as fallback
+            if hasattr(request.user, "team") and request.user.team:
+                logger.info("Using team from request.user.team in import_external_flags")
+                self.team = request.user.team
+            else:
+                logger.error("Team context not available in import_external_flags")
+                return Response({"error": "Project ID is not known"}, status=400)
+
         provider = request.data.get("provider")
         selected_flags = request.data.get("selected_flags", [])
         environment = request.data.get("environment", "production")
+        field_mappings = request.data.get("field_mappings", {})
+
+        logger.info(
+            f"=== IMPORT START: provider={provider}, flags_count={len(selected_flags)}, team={self.team.id} ==="
+        )
 
         if not provider or not selected_flags:
             return Response({"error": "Provider and selected flags are required"}, status=400)
 
-        if provider not in ["amplitude", "launchdarkly"]:
+        if provider not in ["amplitude", "launchdarkly", "statsig"]:
             return Response({"error": f"Provider {provider} is not supported"}, status=400)
 
         imported_flags = []
@@ -1849,49 +1937,142 @@ class FeatureFlagViewSet(
 
         for flag_data in selected_flags:
             try:
-                # Validate flag is importable (only manual percentage rules)
-                # Use the raw environments data for validation if available
-                raw_environments = flag_data.get("metadata", {}).get("raw_environments")
-                if raw_environments and provider == "launchdarkly":
-                    # Create a minimal flag object for validation
-                    mock_flag = {"key": flag_data.get("key", ""), "environments": raw_environments}
-                    if not self._check_launchdarkly_flag_importable(mock_flag, environment):
+                # Validate flag is importable (provider-specific validation)
+                if provider == "launchdarkly":
+                    # Use the raw environments data for validation if available
+                    raw_environments = flag_data.get("metadata", {}).get("raw_environments")
+                    if raw_environments:
+                        # Create a minimal flag object for validation
+                        mock_flag = {"key": flag_data.get("key", ""), "environments": raw_environments}
+                        if not self._check_launchdarkly_flag_importable(mock_flag, environment):
+                            failed_imports.append(
+                                {"flag": flag_data, "error": f"Flag is not importable for environment '{environment}'"}
+                            )
+                            continue
+                    elif not self._is_flag_importable_for_creation(flag_data):
                         failed_imports.append(
-                            {"flag": flag_data, "error": f"Flag is not importable for environment '{environment}'"}
+                            {
+                                "flag": flag_data,
+                                "error": "Only flags with manual percentage rollout rules are supported",
+                            }
+                        )
+                        continue
+                elif provider == "statsig":
+                    # For Statsig, check if the flag was already marked as importable during transformation
+                    if not flag_data.get("importable", True):
+                        import_issues = flag_data.get("import_issues", ["Unknown issue"])
+                        failed_imports.append(
+                            {"flag": flag_data, "error": f"Flag is not importable: {', '.join(import_issues)}"}
                         )
                         continue
                 elif not self._is_flag_importable_for_creation(flag_data):
+                    # Fallback for other providers
                     failed_imports.append(
                         {"flag": flag_data, "error": "Only flags with manual percentage rollout rules are supported"}
                     )
                     continue
 
-                # Check for conflicts with existing flags
-                flag_key = flag_data.get("key", "")
-                existing_flag = FeatureFlag.objects.filter(team=self.team, key=flag_key, deleted=False).first()
-
-                if existing_flag:
-                    failed_imports.append({"flag": flag_data, "error": f"Flag with key '{flag_key}' already exists"})
+                # Validate that all required fields have proper mappings
+                is_valid, validation_error = self._validate_flag_field_mappings(flag_data, field_mappings, provider)
+                if not is_valid:
+                    failed_imports.append({"flag": flag_data, "error": validation_error})
                     continue
 
+                # Generate unique flag key (only adds suffix if there's a conflict)
+                original_flag_key = flag_data.get("key", "")
+                unique_flag_key = self._generate_unique_flag_key(original_flag_key)
+
+                logger.info(f"Import: Original key='{original_flag_key}', Unique key='{unique_flag_key}'")
+
+                # Additional debugging: check what exists in database right now
+                existing_flags = FeatureFlag.objects.filter(team=self.team, key__startswith=original_flag_key, deleted=False).values_list('key', flat=True)
+                logger.info(f"Import: Existing flags with similar keys: {list(existing_flags)}")
+
+                # Update flag_data with unique key before conversion
+                flag_data_with_unique_key = flag_data.copy()
+                flag_data_with_unique_key["key"] = unique_flag_key
+
+                logger.info(f"Import: flag_data_with_unique_key key='{flag_data_with_unique_key.get('key')}'")
+
                 # Convert to PostHog format and create flag
-                posthog_flag_data = self._convert_external_flag_to_posthog_format(flag_data, provider, environment)
-
-                new_flag = FeatureFlag.objects.create(
-                    team=self.team, created_by=request.user, last_modified_by=request.user, **posthog_flag_data
+                posthog_flag_data = self._convert_external_flag_to_posthog_format(
+                    flag_data_with_unique_key, provider, environment, field_mappings
                 )
 
-                imported_flags.append(
-                    {
-                        "external_flag": flag_data,
-                        "posthog_flag": {
-                            "id": new_flag.id,
-                            "key": new_flag.key,
-                            "name": new_flag.name,
-                            "active": new_flag.active,
-                        },
+                logger.info(f"Import: About to create flag with key='{posthog_flag_data.get('key')}'")
+
+                # Log payload data specifically
+                filters = posthog_flag_data.get('filters', {})
+                multivariate = filters.get('multivariate')
+                if multivariate:
+                    logger.info(f"PAYLOAD_TRACK: Creating flag with multivariate data: {multivariate}")
+                else:
+                    logger.info(f"PAYLOAD_TRACK: Creating flag with no multivariate data")
+
+                # Create flag with retry logic to handle race conditions
+                max_retries = 5  # Increased retries
+                new_flag = None
+
+                for attempt in range(max_retries):
+                    try:
+                        logger.info(f"Import: Attempt {attempt + 1} to create flag with key='{posthog_flag_data.get('key')}'")
+                        new_flag = FeatureFlag.objects.create(
+                            team=self.team, created_by=request.user, last_modified_by=request.user, **posthog_flag_data
+                        )
+                        logger.info(f"Import: Successfully created flag with key='{new_flag.key}' (id={new_flag.id})")
+                        break  # Success, exit retry loop
+                    except Exception as e:
+                        if "unique constraint" in str(e).lower() and "key" in str(e).lower() and attempt < max_retries - 1:
+                            # Key conflict detected, regenerate key and retry
+                            current_failed_key = posthog_flag_data.get('key', '')
+                            logger.warning(f"Key conflict detected for '{current_failed_key}', regenerating key (attempt {attempt + 1})")
+
+                            # Force generation of a unique key with timestamp to avoid race conditions
+                            import time
+                            import random
+                            original_flag_key = flag_data.get("key", "")
+                            timestamp = int(time.time())
+                            random_suffix = random.randint(100, 999)
+                            unique_flag_key = f"{original_flag_key}_{timestamp}_{random_suffix}"
+
+                            # Double-check this key doesn't exist (very unlikely but safe)
+                            while FeatureFlag.objects.filter(team=self.team, key=unique_flag_key, deleted=False).exists():
+                                random_suffix = random.randint(100, 999)
+                                unique_flag_key = f"{original_flag_key}_{timestamp}_{random_suffix}"
+
+                            # Update both the working data and the PostHog format data
+                            flag_data_with_unique_key["key"] = unique_flag_key
+                            posthog_flag_data = self._convert_external_flag_to_posthog_format(
+                                flag_data_with_unique_key, provider, environment, field_mappings
+                            )
+                            logger.info(f"Retrying with guaranteed unique key: '{unique_flag_key}'")
+                        else:
+                            # Not a key conflict or max retries reached, re-raise
+                            raise
+
+                # Ensure flag was created successfully
+                if new_flag is None:
+                    raise Exception("Failed to create flag after all retry attempts")
+
+                import_result = {
+                    "external_flag": flag_data,
+                    "posthog_flag": {
+                        "id": new_flag.id,
+                        "key": new_flag.key,
+                        "name": new_flag.name,
+                        "active": new_flag.active,
+                    },
+                }
+
+                # Add note if key was renamed due to conflict
+                if unique_flag_key != original_flag_key:
+                    import_result["key_renamed"] = {
+                        "original": original_flag_key,
+                        "new": unique_flag_key,
+                        "reason": "Key already existed, suffix added to avoid conflict",
                     }
-                )
+
+                imported_flags.append(import_result)
 
             except Exception as e:
                 failed_imports.append({"flag": flag_data, "error": f"Failed to import flag: {str(e)}"})
@@ -2099,7 +2280,9 @@ class FeatureFlagViewSet(
         logger.debug(f"Flag {flag_key}: Final variant rollouts: {variant_rollouts}")
         return variant_rollouts
 
-    def _convert_external_flag_to_posthog_format(self, external_flag, provider, environment="production"):
+    def _convert_external_flag_to_posthog_format(
+        self, external_flag, provider, environment="production", field_mappings=None
+    ):
         """Convert external flag to PostHog FeatureFlag model format"""
         key = external_flag.get("key", "")
         name = external_flag.get("name", "") or key
@@ -2121,6 +2304,9 @@ class FeatureFlagViewSet(
                 enabled = external_flag.get("enabled", True)
                 conditions = external_flag.get("conditions", [])
                 conditions[0].get("rollout_percentage", 100) if conditions else 100
+        elif provider == "statsig":
+            enabled = external_flag.get("enabled", True)
+            conditions = external_flag.get("conditions", [])
         else:
             enabled = external_flag.get("enabled", True)
             # For other providers, use the conditions data
@@ -2180,21 +2366,47 @@ class FeatureFlagViewSet(
                 if non_boolean_variants:
                     has_variants = True
                     filters = {"multivariate": {"variants": non_boolean_variants}}
-            else:
-                # For other providers, include all variants
+            elif provider == "statsig":
+                # For Statsig, handle variants similar to other providers but with Statsig-specific logic
                 posthog_variants = []
+                posthog_payloads = {}
                 for variant in variants:
-                    posthog_variants.append(
-                        {
-                            "key": variant.get("key", ""),
-                            "name": variant.get("name", ""),
-                            "rollout_percentage": variant.get("rollout_percentage", 0),
-                        }
-                    )
-                has_variants = True
-                filters = {"multivariate": {"variants": posthog_variants}}
+                    # Statsig gates usually have boolean values, but we support custom return values
+                    variant_value = variant.get("value")
+                    variant_key = variant.get("key", "")
+                    if variant_value not in [True, False, "true", "false"]:
+                        posthog_variants.append(
+                            {
+                                "key": variant_key,
+                                "name": variant.get("name", ""),
+                                "rollout_percentage": variant.get("rollout_percentage", 0),
+                            }
+                        )
+                        # Store the payload separately in the payloads dict
+                        if variant_value is not None:
+                            posthog_payloads[variant_key] = variant_value
+                            logger.info(f"PAYLOAD_TRACK: Added payload for variant '{variant_key}': {variant_value}")
+                        else:
+                            logger.warning(f"PAYLOAD_TRACK: Variant '{variant_key}' has no payload (variant_value is None)")
 
-        # For LaunchDarkly imports, re-transform conditions with cohort creation
+                if posthog_variants:
+                    has_variants = True
+                    # Convert payloads to JSON strings for top-level payloads
+                    import json
+                    top_level_payloads = {}
+                    for variant_key, payload_value in posthog_payloads.items():
+                        top_level_payloads[variant_key] = json.dumps(payload_value) if payload_value is not None else None
+
+                    filters = {
+                        "payloads": top_level_payloads,  # Top-level payloads as JSON strings
+                        "multivariate": {
+                            "variants": posthog_variants,
+                            "payloads": posthog_payloads  # Multivariate payloads as objects
+                        }
+                    }
+                    logger.info(f"PAYLOAD_TRACK: Final filters - top_level_payloads: {top_level_payloads}, multivariate_payloads: {posthog_payloads}")
+
+        # Provider-specific condition transformation
         if provider == "launchdarkly":
             # Get raw flag data for cohort creation
             raw_environments = external_flag.get("metadata", {}).get("raw_environments")
@@ -2217,6 +2429,9 @@ class FeatureFlagViewSet(
             else:
                 # Fallback to existing conditions if no raw data
                 conditions = external_flag.get("conditions", [])
+        elif provider == "statsig":
+            # For Statsig, use the transformed conditions directly
+            conditions = external_flag.get("conditions", [])
         else:
             # For other providers, use existing conditions
             conditions = external_flag.get("conditions", [])
@@ -2230,8 +2445,35 @@ class FeatureFlagViewSet(
                 filters["groups"] = []
 
             for condition in conditions:
+                properties = condition.get("properties", [])
+
+                # Apply field mappings to properties if provided
+                if field_mappings:
+                    original_count = len(properties)
+                    properties = self._apply_field_mappings_to_properties(properties, field_mappings, provider)
+                    logger.info(f"Applied field mappings: {original_count} -> {len(properties)} properties for condition {condition.get('rule_id', 'unknown')}")
+
+                # Validate properties have supported types (person, cohort, flag)
+                valid_properties = []
+                for prop in properties:
+                    prop_type = prop.get("type", "")
+                    if prop_type in ["person", "cohort", "flag"]:
+                        valid_properties.append(prop)
+                    else:
+                        logger.warning(f"Skipping property with unsupported type '{prop_type}': {prop.get('key', 'unknown')}")
+
+                properties = valid_properties
+                if len(properties) < len(condition.get("properties", [])):
+                    logger.info(f"Filtered properties to only valid types: {len(condition.get('properties', []))} -> {len(properties)}")
+
+                # Only create groups that have actual properties
+                # Skip conditions with empty properties to avoid empty condition sets
+                if not properties:
+                    logger.debug(f"Skipping condition with empty properties: {condition}")
+                    continue
+
                 group = {
-                    "properties": condition.get("properties", []),
+                    "properties": properties,
                     "rollout_percentage": condition.get("rollout_percentage", 100),
                 }
 
@@ -3774,6 +4016,1470 @@ class FeatureFlagViewSet(
             "importable": is_importable,
             "import_issues": import_issues,
         }
+
+    def _fetch_statsig_flags(self, api_key: str):
+        """Fetch both feature gates and dynamic configs from Statsig API"""
+        import requests
+
+        headers = {"STATSIG-API-KEY": api_key, "STATSIG-API-VERSION": "20240601", "Content-Type": "application/json"}
+
+        all_flags = []
+
+        try:
+            # Fetch Feature Gates
+            gates_endpoint = "https://statsigapi.net/console/v1/gates"
+            logger.info(f"Statsig: Fetching feature gates from {gates_endpoint}")
+
+            gates_response = requests.get(gates_endpoint, headers=headers, timeout=30)
+
+            if gates_response.status_code == 401:
+                return Response({"error": "Invalid API key. Please check your Statsig Console API Key."}, status=401)
+            elif gates_response.status_code == 403:
+                return Response(
+                    {"error": "Access denied. Please ensure your API key has the required permissions."}, status=403
+                )
+            elif gates_response.status_code == 200:
+                gates_data = gates_response.json()
+                if isinstance(gates_data, dict):
+                    gates_list = gates_data.get("data", [])
+                    # Mark each gate with its type
+                    for gate in gates_list:
+                        gate["_statsig_type"] = "feature_gate"
+                    all_flags.extend(gates_list)
+                    logger.info(f"Statsig: Fetched {len(gates_list)} feature gates")
+                else:
+                    logger.warning(f"Statsig: Unexpected gates response format: {type(gates_data)}")
+            else:
+                logger.warning(f"Statsig: Failed to fetch gates: {gates_response.status_code}")
+
+            # Fetch Dynamic Configs
+            configs_endpoint = "https://statsigapi.net/console/v1/dynamic_configs"
+            logger.info(f"Statsig: Fetching dynamic configs from {configs_endpoint}")
+
+            configs_response = requests.get(configs_endpoint, headers=headers, timeout=30)
+
+            if configs_response.status_code == 200:
+                configs_data = configs_response.json()
+                if isinstance(configs_data, dict):
+                    configs_list = configs_data.get("data", [])
+                    # Mark each config with its type
+                    for config in configs_list:
+                        config["_statsig_type"] = "dynamic_config"
+                    all_flags.extend(configs_list)
+                    logger.info(f"Statsig: Fetched {len(configs_list)} dynamic configs")
+                else:
+                    logger.warning(f"Statsig: Unexpected configs response format: {type(configs_data)}")
+            else:
+                logger.warning(f"Statsig: Failed to fetch configs: {configs_response.status_code}")
+
+            logger.info(f"Statsig: Returning {len(all_flags)} total items (gates + configs)")
+            return all_flags
+
+        except requests.RequestException as e:
+            logger.exception(f"Statsig: Request failed: {str(e)}")
+            return Response({"error": f"Failed to connect to Statsig API: {str(e)}"}, status=400)
+        except Exception as e:
+            logger.exception(f"Statsig: Unexpected error: {str(e)}")
+            return Response({"error": f"Unexpected error fetching Statsig flags: {str(e)}"}, status=500)
+
+    def _transform_statsig_flag_for_response(self, raw_flag):
+        """Transform Statsig gate to PostHog response format"""
+        gate_id = raw_flag.get("id", "unknown")
+        gate_name = raw_flag.get("name", "")
+
+        logger.debug(f"Statsig: Transforming gate {gate_id} ({gate_name})")
+
+        # Check if gate is importable
+        is_importable = self._check_statsig_gate_importable(raw_flag)
+        import_issues = []
+
+        if not is_importable:
+            logger.debug(f"Statsig: Gate {gate_id} is not importable, checking reasons...")
+
+            # Check specific reasons for non-importability
+            if raw_flag.get("isEnabled") is False:
+                import_issues.append("Gate is disabled")
+
+            rules = raw_flag.get("rules", [])
+            # We now support multiple rules - no longer a restriction
+
+            # Additional validation for dynamic configs
+            if raw_flag.get("_statsig_type") == "dynamic_config":
+                variant_consistency_issue = self._validate_dynamic_config_variants(raw_flag)
+                if variant_consistency_issue:
+                    import_issues.append(variant_consistency_issue)
+
+            # Check for unsupported condition types
+            for rule in rules:
+                conditions = rule.get("conditions", [])
+                # We now support multiple conditions per rule - no longer a restriction
+
+                for condition in conditions:
+                    condition_type = condition.get("type", "")
+                    supported_types = [
+                        "public",
+                        "pass_gate",
+                        "fail_gate",
+                        "user_id",
+                        "email",
+                        "country",
+                        "region",
+                        "ip",
+                        "custom",
+                        "custom_field",
+                        "browser_name",
+                        "browser_version",
+                        "os_name",
+                        "os_version",
+                        "app_version",
+                        "passes_segment",
+                    ]
+                    if condition_type not in supported_types:
+                        import_issues.append(f"Condition type '{condition_type}' not supported")
+                        break
+
+        # Extract basic flag information
+        flag_data = {
+            "key": gate_id,
+            "name": gate_name or gate_id,
+            "description": raw_flag.get("description", ""),
+            "enabled": raw_flag.get("isEnabled", False),
+            "conditions": self._extract_statsig_conditions(raw_flag),
+            "variants": self._extract_statsig_variants(raw_flag),
+            "metadata": {
+                "provider": "statsig",
+                "statsig_type": raw_flag.get("_statsig_type", "feature_gate"),  # Preserve type info
+                "original_id": gate_id,
+                "created_at": raw_flag.get("createdTime"),
+                "updated_at": raw_flag.get("lastModifierTime"),
+                "creator": raw_flag.get("creatorID"),
+                "last_modifier": raw_flag.get("lastModifierID"),
+                "original_rules": raw_flag.get("rules", []),  # Include original rules for field extraction
+            },
+            "importable": is_importable,
+            "import_issues": import_issues,
+        }
+
+        logger.debug(f"Statsig: Transformed gate {gate_id} - importable: {is_importable}")
+        return flag_data
+
+    def _check_statsig_gate_importable(self, gate):
+        """Check if a Statsig gate can be imported to PostHog"""
+        try:
+            # Gate must be enabled
+            if not gate.get("isEnabled", False):
+                return False
+
+            # Check rules complexity - now we support multiple rules
+            rules = gate.get("rules", [])
+
+            # Check each rule
+            for rule in rules:
+                conditions = rule.get("conditions", [])
+
+                # We can handle multiple conditions per rule now
+                # Check condition types - support more types
+                for condition in conditions:
+                    condition_type = condition.get("type", "")
+                    # Support more condition types including email, country, user_id, etc.
+                    supported_types = [
+                        "public",
+                        "pass_gate",
+                        "fail_gate",
+                        "user_id",
+                        "email",
+                        "country",
+                        "region",
+                        "ip",
+                        "custom",
+                        "custom_field",
+                        "browser_name",
+                        "browser_version",
+                        "os_name",
+                        "os_version",
+                        "app_version",
+                        "passes_segment",
+                    ]
+                    if condition_type not in supported_types:
+                        return False
+
+            return True
+        except (KeyError, TypeError):
+            return False
+
+    def _extract_statsig_conditions(self, gate):
+        """Extract targeting conditions from Statsig gate or dynamic config"""
+        conditions = []
+        rules = gate.get("rules", [])
+
+        # Check if this is a dynamic config
+        is_dynamic_config = gate.get("_statsig_type") == "dynamic_config"
+
+        for rule in rules:
+            # Skip "Default: Fail" fallback rules
+            pass_percentage = rule.get("passPercentage", 100)
+            rule_name = rule.get("name", "").lower()
+            rule_conditions = rule.get("conditions", [])
+
+
+            # Skip rules that are explicitly named as default or fail rules
+            if "default" in rule_name and ("fail" in rule_name or "false" in rule_name):
+                logger.info(f"Statsig: Skipping Default: Fail rule named '{rule.get('name', '')}'")
+                continue
+
+            # Skip rules with no conditions that serve as catch-all fallbacks (only these are true fallbacks)
+            if not rule_conditions:
+                logger.info(f"Statsig: Skipping empty fallback rule with no conditions")
+                continue
+
+            # Convert all conditions in a rule into a single PostHog condition group
+            # In Statsig, multiple conditions in a rule are AND-ed together
+            all_properties = []
+            for condition in rule_conditions:
+                properties = self._convert_statsig_condition_to_properties(condition)
+                all_properties.extend(properties)
+
+            # Only create a condition if there are actual properties
+            if all_properties:
+                # For dynamic configs, use variant rollout percentages instead of passPercentage
+                if is_dynamic_config:
+                    # Extract rollout percentage from variants in the rule
+                    rule_variants = rule.get("variants", [])
+                    if rule_variants:
+                        # For dynamic configs, the rollout percentage is the total of all variant percentages
+                        total_variant_percentage = sum(v.get("passPercentage", 0) for v in rule_variants)
+                        rollout_percentage = total_variant_percentage
+                    else:
+                        # No variants, use passPercentage as fallback
+                        rollout_percentage = pass_percentage
+                else:
+                    # For feature gates, use passPercentage
+                    rollout_percentage = pass_percentage
+
+                condition_data = {
+                    "properties": all_properties,
+                    "rollout_percentage": rollout_percentage,
+                    "rule_id": rule.get("id"),
+                }
+                conditions.append(condition_data)
+                logger.info(f"Statsig: Created condition group with {len(all_properties)} properties for rule {rule.get('id', 'unknown')}: {all_properties}")
+            else:
+                logger.warning(f"Statsig: Skipped rule {rule.get('id', 'unknown')} - no properties generated from {len(rule_conditions)} conditions")
+
+        return conditions
+
+    def _convert_statsig_condition_to_properties(self, condition):
+        """Convert Statsig condition to PostHog property format"""
+        properties = []
+
+        condition_type = condition.get("type", "")
+
+        if condition_type == "user_id":
+            # User ID targeting
+            target_value = condition.get("targetValue", [])
+            if target_value:
+                properties.append(
+                    {
+                        "key": "distinct_id",
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "email":
+            # Email targeting
+            target_value = condition.get("targetValue", [])
+            if target_value:
+                properties.append(
+                    {
+                        "key": "email",
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "country":
+            # Country targeting - preserve original field name for field mapping
+            target_value = condition.get("targetValue", [])
+            if target_value:
+                properties.append(
+                    {
+                        "key": "country",  # Use original field name for field mapping
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "region":
+            # Region/state targeting - preserve original field name for field mapping
+            target_value = condition.get("targetValue", [])
+            if target_value:
+                properties.append(
+                    {
+                        "key": "region",  # Use original field name for field mapping
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "ip":
+            # IP targeting - preserve original field name for field mapping
+            target_value = condition.get("targetValue", [])
+            if target_value:
+                properties.append(
+                    {
+                        "key": "ip",  # Use original field name for field mapping
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "browser_name":
+            # Browser name targeting - preserve original field name for field mapping
+            target_value = condition.get("targetValue", [])
+            if target_value:
+                properties.append(
+                    {
+                        "key": "browser_name",  # Use original field name for field mapping
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "os_name":
+            # Operating system targeting - preserve original field name for field mapping
+            target_value = condition.get("targetValue", [])
+            if target_value:
+                properties.append(
+                    {
+                        "key": "os_name",  # Use original field name for field mapping
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "browser_version":
+            # Browser version targeting - preserve original field name for field mapping
+            target_value = condition.get("targetValue", [])
+            if target_value:
+                properties.append(
+                    {
+                        "key": "browser_version",  # Use original field name for field mapping
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "os_version":
+            # Operating system version targeting - preserve original field name for field mapping
+            target_value = condition.get("targetValue", [])
+            if target_value:
+                properties.append(
+                    {
+                        "key": "os_version",  # Use original field name for field mapping
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "app_version":
+            # App version targeting - preserve original field name for field mapping
+            target_value = condition.get("targetValue", [])
+            if target_value:
+                properties.append(
+                    {
+                        "key": "app_version",  # Use original field name for field mapping
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "custom":
+            # Custom field targeting - map to PostHog person properties
+            field_name = condition.get("field", "")
+            target_value = condition.get("targetValue", [])
+            if field_name and target_value:
+                properties.append(
+                    {
+                        "key": field_name,
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "custom_field":
+            # Custom field targeting - map to PostHog person properties
+            # For custom_field, field name might be in 'field', 'name', or 'key'
+            field_name = condition.get("field", "") or condition.get("name", "") or condition.get("key", "")
+            target_value = condition.get("targetValue", [])
+            if field_name and target_value:
+                properties.append(
+                    {
+                        "key": field_name,
+                        "operator": "exact" if len(target_value) == 1 else "in",
+                        "value": target_value[0] if len(target_value) == 1 else target_value,
+                        "type": "person",
+                    }
+                )
+        elif condition_type == "passes_segment":
+            # Try different ways Statsig might store segment references
+            segment_name = condition.get("targetValue") or condition.get("segment") or condition.get("segmentID")
+
+            logger.info(f"Statsig: Processing passes_segment condition. Full condition: {condition}")
+            logger.info(f"Statsig: Extracted segment_name: {segment_name}")
+
+            if segment_name and hasattr(self, "_statsig_api_key"):
+                try:
+                    logger.info(f"Statsig: Fetching segment data for {segment_name}")
+                    segment_data = self._fetch_statsig_segment(self._statsig_api_key, segment_name)
+
+                    if segment_data:
+                        logger.info(f"Statsig: Creating cohort for segment {segment_name}")
+                        cohort = self._find_or_create_cohort_for_statsig_segment(segment_name, segment_data, self.team)
+
+                        # Only use the cohort if it's not deleted
+                        if cohort and not cohort.deleted:
+                            properties.append(
+                                {
+                                    "key": "id",
+                                    "value": cohort.id,
+                                    "operator": "in",
+                                    "type": "cohort",
+                                }
+                            )
+                            logger.info(
+                                f"Statsig: Successfully added cohort property for segment {segment_name}, cohort ID: {cohort.id}"
+                            )
+                        else:
+                            logger.warning(f"Statsig: Cohort for segment {segment_name} is deleted or null, skipping")
+                    else:
+                        logger.warning(f"Statsig: No segment data returned for {segment_name}")
+                        # Create a placeholder cohort with a descriptive name for debugging
+                        from posthog.models.cohort import Cohort
+
+                        placeholder_filters = [
+                            {
+                                "key": "distinct_id",
+                                "value": f"SEGMENT_FETCH_FAILED_{segment_name}",
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                        placeholder_cohort = Cohort.objects.create(
+                            team=self.team,
+                            name=f"Statsig Segment (Failed): {segment_name}",
+                            filters={
+                                "properties": {"type": "AND", "values": [{"type": "OR", "values": placeholder_filters}]}
+                            },
+                            is_calculating=True,
+                            is_static=False,
+                        )
+                        # Only use the placeholder cohort if it's not deleted
+                        if placeholder_cohort and not placeholder_cohort.deleted:
+                            properties.append(
+                                {
+                                    "key": "id",
+                                    "value": placeholder_cohort.id,
+                                    "operator": "in",
+                                    "type": "cohort",
+                                }
+                            )
+                except Exception as e:
+                    logger.exception(f"Statsig: Failed to import segment {segment_name}: {e}")
+            else:
+                logger.warning(
+                    f"Statsig: Missing segment_name ({segment_name}) or API key for passes_segment condition"
+                )
+
+        # For "public", "pass_gate", "fail_gate" we don't add specific properties
+        # as they represent simple on/off states
+
+        return properties
+
+    def _extract_statsig_variants(self, gate):
+        """Extract variants from Statsig gate or dynamic config"""
+        variants = []
+
+        # Check if this is a dynamic config
+        if gate.get("_statsig_type") == "dynamic_config":
+            return self._extract_dynamic_config_variants(gate)
+
+        # Statsig gates are typically boolean, but we can represent them as variants
+        # if they have return values
+        return_value = gate.get("defaultValue", True)
+
+        if isinstance(return_value, bool):
+            # Simple boolean gate
+            variants = [
+                {
+                    "key": "true",
+                    "name": "Enabled",
+                    "value": True,
+                    "rollout_percentage": 100 if gate.get("isEnabled") else 0,
+                },
+                {
+                    "key": "false",
+                    "name": "Disabled",
+                    "value": False,
+                    "rollout_percentage": 0 if gate.get("isEnabled") else 100,
+                },
+            ]
+        else:
+            # Gate with custom return value
+            variants = [
+                {
+                    "key": "enabled",
+                    "name": "Enabled",
+                    "value": return_value,
+                    "rollout_percentage": 100 if gate.get("isEnabled") else 0,
+                }
+            ]
+
+        return variants
+
+    def _extract_dynamic_config_variants(self, config):
+        """Extract variants from Statsig dynamic config"""
+        variants = []
+        rules = config.get("rules", [])
+
+        # For dynamic configs, we need to extract variants from the rules
+        # and validate that they're consistent across rules
+        variant_sets_by_rule = []
+
+        for _rule_idx, rule in enumerate(rules):
+            # Variants are directly in the rule, not in returnValue.variants
+            rule_variants = rule.get("variants", [])
+
+            if rule_variants:
+                # Extract variant info: split percentages and payloads
+                rule_variant_set = []
+                for variant in rule_variants:
+                    # For Statsig dynamic configs, the percentage is in 'passPercentage'
+                    # and the value is in 'returnValue' or 'returnValueJson5'
+                    variant_value = variant.get("returnValue")
+
+                    # If returnValue is empty or None, try to parse JSON5
+                    if not variant_value and variant.get("returnValueJson5"):
+                        json5_str = variant.get("returnValueJson5", "{}")
+
+                        # Try to parse JSON5 if returnValue is empty
+                        try:
+                            import json
+                            # Remove JSON5 comments for basic parsing
+                            cleaned_json = "\n".join(line for line in json5_str.split("\n") if not line.strip().startswith("//"))
+
+                            if cleaned_json.strip() and cleaned_json.strip() != "{}":
+                                variant_value = json.loads(cleaned_json)
+                            else:
+                                variant_value = {}
+                        except Exception as e:
+                            logger.warning(f"Statsig: Failed to parse JSON5 for variant {variant.get('name')}: {e}")
+                            variant_value = {}
+
+                    # If still empty, use the original returnValue even if it's {}
+                    if variant_value is None:
+                        variant_value = variant.get("returnValue", {})
+
+                    variant_data = {
+                        "key": variant.get("name", variant.get("id", "")),  # Use name as key
+                        "name": variant.get("name", variant.get("id", "")),
+                        "value": variant_value,
+                        "rollout_percentage": variant.get("passPercentage", 0)
+                    }
+                    logger.info(f"PAYLOAD_TRACK: Extracted variant '{variant_data['key']}' with payload: {variant_value}")
+                    rule_variant_set.append(variant_data)
+                variant_sets_by_rule.append(rule_variant_set)
+
+        # Validate that all rules have consistent variants and splits
+        if variant_sets_by_rule:
+            # Use the first rule's variants as the baseline
+            baseline_variants = variant_sets_by_rule[0]
+
+            # Check if all other rules have the same variant structure
+            for i, rule_variants in enumerate(variant_sets_by_rule[1:], 1):
+                if not self._variants_are_consistent(baseline_variants, rule_variants):
+                    # This should be flagged as a validation error
+                    logger.warning(f"Statsig Dynamic Config: Inconsistent variants found between rules. Rule 0 vs Rule {i}")
+                    # For now, we'll use the baseline and add this to import issues
+                    return []  # Return empty to mark as non-importable
+
+            # If all variants are consistent, use the baseline
+            variants = baseline_variants
+        else:
+            # No variants found, check for simple return value
+            default_value = config.get("defaultValue")
+            if default_value is not None:
+                variants = [
+                    {
+                        "key": "default",
+                        "name": "Default Value",
+                        "value": default_value,
+                        "rollout_percentage": 100 if config.get("isEnabled") else 0,
+                    }
+                ]
+
+        return variants
+
+    def _variants_are_consistent(self, variants1, variants2):
+        """Check if two variant sets have consistent keys and rollout percentages"""
+        if len(variants1) != len(variants2):
+            return False
+
+        # Sort both by key for comparison
+        sorted1 = sorted(variants1, key=lambda v: v.get("key", ""))
+        sorted2 = sorted(variants2, key=lambda v: v.get("key", ""))
+
+        for v1, v2 in zip(sorted1, sorted2):
+            # Check both rollout_percentage and percentage fields
+            v1_percentage = v1.get("rollout_percentage", v1.get("percentage", 0))
+            v2_percentage = v2.get("rollout_percentage", v2.get("percentage", 0))
+
+            if (v1.get("key") != v2.get("key") or v1_percentage != v2_percentage):
+                return False
+
+        return True
+
+    def _validate_dynamic_config_variants(self, config):
+        """Validate that dynamic config has consistent variants across all rules"""
+        rules = config.get("rules", [])
+
+        if len(rules) <= 1:
+            # Single rule or no rules - no consistency check needed
+            return None
+
+        variant_sets_by_rule = []
+
+        # Extract variant information from each rule
+        for rule_idx, rule in enumerate(rules):
+            rule_variants = rule.get("variants", [])
+            if rule_variants:
+                # Extract variant info: keys and split percentages
+                rule_variant_set = []
+                for variant in rule_variants:
+                    rule_variant_set.append({
+                        "key": variant.get("name", variant.get("id", "")),
+                        "percentage": variant.get("passPercentage", 0)
+                    })
+                variant_sets_by_rule.append((rule_idx, rule_variant_set))
+
+        if len(variant_sets_by_rule) <= 1:
+            # Only one rule has variants or no rules have variants
+            return None
+
+        # Compare all variant sets for consistency
+        baseline_rule_idx, baseline_variants = variant_sets_by_rule[0]
+
+        for rule_idx, rule_variants in variant_sets_by_rule[1:]:
+            if not self._variants_are_consistent(baseline_variants, rule_variants):
+                return f"Inconsistent variants/splits between rules. Rule {baseline_rule_idx} vs Rule {rule_idx} have different variant configurations"
+
+        return None
+
+    def _fetch_statsig_segment(self, api_key: str, segment_id: str):
+        """Fetch segment details from Statsig API"""
+        import requests
+
+        headers = {"STATSIG-API-KEY": api_key, "STATSIG-API-VERSION": "20240601", "Content-Type": "application/json"}
+
+        # Use the correct Statsig Console API endpoint for segments
+        url = f"https://statsigapi.net/console/v1/segments/{segment_id}"
+
+        try:
+            logger.info(f"Statsig: Fetching segment {segment_id} from {url}")
+            response = requests.get(url, headers=headers, timeout=30)
+            logger.info(f"Statsig: Segment API response status: {response.status_code}")
+
+            if response.status_code == 200:
+                segment_data = response.json()
+                logger.info(f"Statsig: Successfully fetched segment {segment_id}")
+                logger.info(f"Statsig: Segment data structure: {segment_data}")
+                return segment_data
+            elif response.status_code == 401:
+                logger.error(f"Statsig segment {segment_id}: Invalid API key")
+                return None
+            elif response.status_code == 403:
+                logger.error(f"Statsig segment {segment_id}: Access denied")
+                return None
+            elif response.status_code == 404:
+                logger.error(f"Statsig segment {segment_id}: Segment not found")
+                return None
+            else:
+                logger.error(f"Statsig segment {segment_id}: API error {response.status_code}: {response.text}")
+                return None
+
+        except requests.RequestException as e:
+            logger.exception(f"Statsig: Failed to fetch segment {segment_id}: {str(e)}")
+            return None
+        except Exception as e:
+            logger.exception(f"Statsig: Unexpected error fetching segment {segment_id}: {str(e)}")
+            return None
+
+    def _convert_statsig_segment_to_cohort_filters(self, segment_data):
+        """Convert Statsig segment rules to PostHog cohort filters"""
+        if not segment_data:
+            logger.warning("Statsig: No segment data provided for cohort conversion")
+            return []
+
+        logger.info(f"Statsig: Converting segment to cohort filters. Segment data keys: {list(segment_data.keys())}")
+        rules = segment_data.get("rules", [])
+        logger.info(f"Statsig: Found {len(rules)} rules in segment")
+
+        if rules:
+            logger.info(f"Statsig: First rule structure: {rules[0] if rules else 'No rules'}")
+
+        cohort_filters = []
+
+        for rule_idx, rule in enumerate(rules):
+            logger.info(f"Statsig: Processing rule {rule_idx + 1}: {rule}")
+            conditions = rule.get("conditions", [])
+            logger.info(f"Statsig: Rule {rule_idx + 1} has {len(conditions)} conditions")
+
+            for condition_idx, condition in enumerate(conditions):
+                # Convert each Statsig condition to PostHog cohort filter
+                condition_type = condition.get("type", "")
+                logger.info(
+                    f"Statsig: Processing condition {condition_idx + 1} of type '{condition_type}': {condition}"
+                )
+
+                if condition_type == "user_id":
+                    target_values = condition.get("targetValue", [])
+                    if target_values:
+                        cohort_filter = {
+                            "key": "distinct_id",
+                            "value": target_values if len(target_values) > 1 else target_values[0],
+                            "operator": "in" if len(target_values) > 1 else "exact",
+                            "type": "person",
+                        }
+                        cohort_filters.append(cohort_filter)
+                        logger.info(f"Statsig: Added user_id cohort filter: {cohort_filter}")
+
+                elif condition_type == "email":
+                    target_values = condition.get("targetValue", [])
+                    if target_values:
+                        cohort_filter = {
+                            "key": "email",
+                            "value": target_values if len(target_values) > 1 else target_values[0],
+                            "operator": "in" if len(target_values) > 1 else "exact",
+                            "type": "person",
+                        }
+                        cohort_filters.append(cohort_filter)
+                        logger.info(f"Statsig: Added email cohort filter: {cohort_filter}")
+
+                elif condition_type == "country":
+                    target_values = condition.get("targetValue", [])
+                    if target_values:
+                        cohort_filter = {
+                            "key": "country",  # Use original field name for field mapping
+                            "value": target_values if len(target_values) > 1 else target_values[0],
+                            "operator": "in" if len(target_values) > 1 else "exact",
+                            "type": "person",
+                        }
+                        cohort_filters.append(cohort_filter)
+                        logger.info(f"Statsig: Added country cohort filter: {cohort_filter}")
+
+                elif condition_type == "custom":
+                    field_name = condition.get("field", "")
+                    target_values = condition.get("targetValue", [])
+                    if field_name and target_values:
+                        cohort_filter = {
+                            "key": field_name,
+                            "value": target_values if len(target_values) > 1 else target_values[0],
+                            "operator": "in" if len(target_values) > 1 else "exact",
+                            "type": "person",
+                        }
+                        cohort_filters.append(cohort_filter)
+                        logger.info(f"Statsig: Added custom field cohort filter: {cohort_filter}")
+
+                elif condition_type == "custom_field":
+                    # For custom_field, field name might be in 'field', 'name', or 'key'
+                    field_name = condition.get("field", "") or condition.get("name", "") or condition.get("key", "")
+                    target_values = condition.get("targetValue", [])
+                    if field_name and target_values:
+                        cohort_filter = {
+                            "key": field_name,
+                            "value": target_values if len(target_values) > 1 else target_values[0],
+                            "operator": "in" if len(target_values) > 1 else "exact",
+                            "type": "person",
+                        }
+                        cohort_filters.append(cohort_filter)
+                        logger.info(f"Statsig: Added custom_field cohort filter: {cohort_filter}")
+
+                else:
+                    logger.warning(f"Statsig: Unsupported condition type '{condition_type}' in segment, skipping")
+
+        logger.info(f"Statsig: Converted segment to {len(cohort_filters)} cohort filters")
+        return cohort_filters
+
+    def _find_or_create_cohort_for_statsig_segment(self, segment_id, segment_data, team):
+        """Find existing cohort or create new one for Statsig segment"""
+        from posthog.models.cohort import Cohort
+
+        # Check if cohort already exists for this segment
+        cohort_name = f"Statsig Segment: {segment_data.get('name', segment_id)}"
+        existing_cohort = Cohort.objects.filter(team=team, name=cohort_name, deleted=False).first()
+
+        if existing_cohort:
+            logger.info(f"Statsig: Found existing cohort {existing_cohort.id} for segment {segment_id}")
+            return existing_cohort
+
+        # Create new cohort
+        try:
+            cohort_filters = self._convert_statsig_segment_to_cohort_filters(segment_data)
+
+            if not cohort_filters:
+                logger.warning(f"Statsig: No valid filters for segment {segment_id}, creating empty cohort")
+                # Create empty cohort that matches no users
+                cohort_filters = [
+                    {
+                        "key": "distinct_id",
+                        "value": "NEVER_MATCH_STATSIG_SEGMENT",
+                        "operator": "exact",
+                        "type": "person",
+                    }
+                ]
+
+            cohort = Cohort.objects.create(
+                team=team,
+                name=cohort_name,
+                description=f"Auto-created from Statsig segment {segment_id}: {segment_data.get('description', '')}",
+                filters={"properties": {"type": "AND", "values": [{"type": "OR", "values": cohort_filters}]}},
+                is_calculating=True,  # Enable calculation
+                is_static=False,
+            )
+
+            logger.info(f"Statsig: Created cohort {cohort.id} for segment {segment_id}")
+            return cohort
+
+        except Exception as e:
+            logger.exception(f"Statsig: Failed to create cohort for segment {segment_id}: {str(e)}")
+            return None
+
+    def _generate_unique_flag_key(self, original_key: str) -> str:
+        """Generate a unique flag key by adding a suffix if the key already exists"""
+        import time
+        import random
+        from django.db import transaction
+
+        if not original_key:
+            original_key = "imported_flag"
+
+        logger.info(f"Checking if key '{original_key}' exists for team {self.team.id}")
+
+        # Use atomic transaction to prevent race conditions
+        with transaction.atomic():
+            # Check if the original key is available
+            existing_flag = FeatureFlag.objects.filter(team=self.team, key=original_key, deleted=False).first()
+            if not existing_flag:
+                logger.info(f"Key '{original_key}' is available")
+                return original_key
+
+            logger.info(f"Key '{original_key}' already exists (flag id: {existing_flag.id}), generating unique key")
+
+            # Generate unique key with suffix
+            counter = 1
+            max_attempts = 100  # Reduced from 1000 for faster fallback
+
+            while counter <= max_attempts:
+                candidate_key = f"{original_key}_{counter}"
+                logger.info(f"Trying candidate key: '{candidate_key}'")
+
+                if not FeatureFlag.objects.filter(team=self.team, key=candidate_key, deleted=False).exists():
+                    logger.info(f"Generated unique key: '{candidate_key}'")
+                    return candidate_key
+                counter += 1
+
+            # Fallback with timestamp and random suffix for high collision scenarios
+            timestamp = int(time.time())
+            random_suffix = random.randint(1000, 9999)
+            fallback_key = f"{original_key}_{timestamp}_{random_suffix}"
+            logger.warning(f"Hit counter limit, using timestamp fallback: '{fallback_key}'")
+            return fallback_key
+
+    def _extract_unique_fields_from_flags(self, selected_flags, provider):
+        """Extract unique fields from selected flags' rules for field mapping"""
+        logger.info(f"DEBUG: Extracting fields from {len(selected_flags)} selected flags for provider: {provider}")
+        unique_fields = set()
+
+        for flag_idx, flag in enumerate(selected_flags):
+            flag_key = flag.get("key", f"flag_{flag_idx}")
+            logger.info(f"DEBUG: Processing flag {flag_idx + 1}/{len(selected_flags)}: {flag_key}")
+
+            if provider == "statsig":
+                # For Statsig, look at the original metadata to get the actual criteria fields
+                field_info_list = self._extract_statsig_fields_from_flag(flag)
+                logger.info(f"DEBUG: Flag {flag_key} returned {len(field_info_list)} field info items")
+                for field_info in field_info_list:
+                    if field_info:
+                        unique_fields.add((field_info["type"], field_info["key"], field_info["display_name"]))
+                        logger.info(f"DEBUG: Added field to unique set: {field_info}")
+            elif provider == "launchdarkly":
+                # For LaunchDarkly, look at the original metadata to get the actual criteria fields
+                field_info_list = self._extract_launchdarkly_fields_from_flag(flag)
+                for field_info in field_info_list:
+                    if field_info:
+                        unique_fields.add((field_info["type"], field_info["key"], field_info["display_name"]))
+            # ALWAYS also check transformed conditions to catch any fields that might be missed by provider-specific extraction
+            conditions = flag.get("conditions", [])
+            logger.info(f"DEBUG: Flag {flag_key} also checking {len(conditions)} transformed conditions as backup")
+            for condition_idx, condition in enumerate(conditions):
+                properties = condition.get("properties", [])
+                logger.info(f"DEBUG: Flag {flag_key} condition {condition_idx} has {len(properties)} properties")
+                for prop_idx, prop in enumerate(properties):
+                    logger.info(f"DEBUG: Flag {flag_key} condition {condition_idx} property {prop_idx}: {prop}")
+                    # Skip cohort properties
+                    if prop.get("type") == "cohort":
+                        continue
+
+                    # Get the external key that would be used in validation
+                    external_key = self._get_external_key_from_property(prop, provider)
+                    logger.info(f"DEBUG: Flag {flag_key} extracted external_key from property: '{external_key}'")
+
+                    if external_key:
+                        # Create field info for this property
+                        field_info = self._extract_field_info_from_property(prop, provider)
+                        if field_info:
+                            unique_fields.add((field_info["type"], field_info["key"], field_info["display_name"]))
+                            logger.info(f"DEBUG: Flag {flag_key} added field from transformed conditions: {field_info}")
+                        else:
+                            # If we can't extract field info, create a basic one so the field appears in mapping
+                            display_name = external_key.replace("_", " ").title()
+                            unique_fields.add(("custom", external_key, f"Custom Field: {display_name}"))
+                            logger.info(f"DEBUG: Flag {flag_key} created basic field info for unmapped key: {external_key}")
+
+        logger.info(f"DEBUG: Total unique fields found: {len(unique_fields)}")
+        logger.info(f"DEBUG: Unique fields: {sorted(unique_fields)}")
+
+        # Deduplicate by key, prioritizing built-in fields over custom ones
+        deduplicated_fields = {}
+        for field_type, field_key, display_name in sorted(unique_fields):
+            if field_key not in deduplicated_fields:
+                # First occurrence - add it
+                deduplicated_fields[field_key] = (field_type, field_key, display_name)
+            else:
+                # Field already exists - prefer built-in over custom
+                existing_type, existing_key, existing_display = deduplicated_fields[field_key]
+                if existing_type == "custom" and field_type in ["built_in", "segment"]:
+                    # Replace custom with built-in or segment
+                    deduplicated_fields[field_key] = (field_type, field_key, display_name)
+                    logger.info(f"DEBUG: Replaced custom field '{field_key}' with {field_type} version")
+
+        # Convert deduplicated dict to list of dictionaries
+        result = [
+            {"type": field_type, "external_key": field_key, "display_name": display_name, "provider": provider}
+            for field_type, field_key, display_name in sorted(deduplicated_fields.values())
+        ]
+
+        logger.info(f"DEBUG: Final deduplicated field mappings result: {result}")
+        return result
+
+    def _extract_field_info_from_property(self, prop, provider):
+        """Extract field information from a property"""
+        if provider == "statsig":
+            return self._extract_statsig_field_info(prop)
+        elif provider == "launchdarkly":
+            return self._extract_launchdarkly_field_info(prop)
+
+        # Generic fallback for any provider
+        prop_key = prop.get("key", "")
+        if prop_key and prop.get("type") != "cohort":
+            return {
+                "type": "custom",
+                "key": prop_key,
+                "display_name": f"Custom Field: {prop_key.replace('_', ' ').title()}"
+            }
+        return None
+
+    def _extract_statsig_fields_from_flag(self, flag):
+        """Extract actual criteria fields from Statsig flag metadata"""
+        flag_key = flag.get("key", "unknown")
+        logger.info(f"DEBUG: Extracting fields from Statsig flag: {flag_key}")
+
+        # Log the entire flag structure to understand what we're working with
+        logger.info(f"DEBUG: Full flag structure for {flag_key}: {flag}")
+
+        field_info_list = []
+
+        # Extract from original Statsig rules structure
+        metadata = flag.get("metadata", {})
+        logger.info(f"DEBUG: Flag {flag_key} metadata keys: {list(metadata.keys())}")
+
+        if "original_rules" in metadata:
+            original_rules = metadata["original_rules"]
+            logger.info(f"DEBUG: Flag {flag_key} has {len(original_rules)} original rules")
+
+            for rule_idx, rule in enumerate(original_rules):
+                logger.info(f"DEBUG: Flag {flag_key} Rule {rule_idx}: {rule}")
+                rule_conditions = rule.get("conditions", [])
+                logger.info(f"DEBUG: Flag {flag_key} Rule {rule_idx} has {len(rule_conditions)} conditions")
+
+                for cond_idx, condition in enumerate(rule_conditions):
+                    logger.info(f"DEBUG: Flag {flag_key} Rule {rule_idx} Condition {cond_idx} full structure: {condition}")
+
+                    condition_type = condition.get("type", "")
+                    # Check for other possible field names in the condition
+                    condition_field = condition.get("field", "")
+                    condition_targetValue = condition.get("targetValue", "")
+                    condition_operator = condition.get("operator", "")
+
+                    logger.info(f"DEBUG: Flag {flag_key} Rule {rule_idx} Condition {cond_idx}: type='{condition_type}', field='{condition_field}', targetValue='{condition_targetValue}', operator='{condition_operator}'")
+
+                    # Handle custom_field type specially
+                    if condition_type == "custom_field":
+                        # For custom fields, the actual field name is likely in the 'field' property
+                        custom_field_name = condition_field or condition.get("name", "") or condition.get("key", "")
+                        logger.info(f"DEBUG: Flag {flag_key} Found custom_field condition with name: '{custom_field_name}'")
+
+                        if custom_field_name:
+                            field_info = self._create_statsig_field_info(custom_field_name)
+                            if field_info:
+                                # Override the type to mark it as custom
+                                field_info["type"] = "custom"
+                                logger.info(f"DEBUG: Flag {flag_key} Added custom field info: {field_info}")
+                                field_info_list.append(field_info)
+                            else:
+                                logger.warning(f"DEBUG: Flag {flag_key} No field info created for custom field: {custom_field_name}")
+                        else:
+                            logger.warning(f"DEBUG: Flag {flag_key} custom_field condition missing field name: {condition}")
+                    else:
+                        # Try to extract field name from different possible locations for non-custom fields
+                        field_to_use = condition_type or condition_field
+
+                        if field_to_use and field_to_use not in ["user_id", "public", "pass_gate", "fail_gate"]:
+                            field_info = self._create_statsig_field_info(field_to_use)
+                            if field_info:
+                                logger.info(f"DEBUG: Flag {flag_key} Added field info: {field_info}")
+                                field_info_list.append(field_info)
+                            else:
+                                logger.warning(f"DEBUG: Flag {flag_key} No field info created for field: {field_to_use}")
+                        else:
+                            logger.info(f"DEBUG: Flag {flag_key} Skipped field: {field_to_use} (excluded or empty)")
+        else:
+            logger.warning(f"DEBUG: Flag {flag_key} has no 'original_rules' in metadata")
+
+        # Also check if there are other locations where field information might be stored
+        if "conditions" in flag:
+            logger.info(f"DEBUG: Flag {flag_key} also has top-level 'conditions': {flag['conditions']}")
+            # Search for custom fields in top-level conditions too
+            for cond_idx, condition in enumerate(flag.get("conditions", [])):
+                for prop_idx, prop in enumerate(condition.get("properties", [])):
+                    if "name" in str(prop).lower() or "custom" in str(prop).lower():
+                        logger.info(f"DEBUG: Flag {flag_key} Found potential custom field in top-level conditions[{cond_idx}].properties[{prop_idx}]: {prop}")
+
+        # Check transformed conditions as backup
+        if "transformed_conditions" in metadata:
+            logger.info(f"DEBUG: Flag {flag_key} has transformed_conditions: {metadata['transformed_conditions']}")
+
+        # Search for any mention of "name" or "custom" anywhere in the flag structure
+        flag_str = str(flag).lower()
+        if "name" in flag_str and "custom" in flag_str:
+            logger.info(f"DEBUG: Flag {flag_key} contains both 'name' and 'custom' in its structure - might have custom name field")
+
+        # Log any fields that might be custom but with different structure
+        for _rule_idx, rule in enumerate(metadata.get("original_rules", [])):
+            for _cond_idx, condition in enumerate(rule.get("conditions", [])):
+                # Check if there are any unusual field structures
+                if condition.get("type") not in ["email", "country", "passes_segment", "browser_name", "os_name", "browser_version", "user_id", "public", "pass_gate", "fail_gate"]:
+                    logger.info(f"DEBUG: Flag {flag_key} Found unusual condition type that might be custom: {condition}")
+
+                # Check for any field that has the word "name" in its values
+                target_value = condition.get("targetValue", [])
+                if "name" in str(target_value).lower():
+                    logger.info(f"DEBUG: Flag {flag_key} Found condition with 'name' in targetValue: {condition}")
+
+        # Remove duplicates by converting to dict and back
+        unique_fields = {}
+        for field_info in field_info_list:
+            key = (field_info["type"], field_info["key"])
+            if key not in unique_fields:
+                unique_fields[key] = field_info
+
+        logger.info(f"DEBUG: Flag {flag_key} extracted {len(unique_fields)} unique fields: {list(unique_fields.values())}")
+        return list(unique_fields.values())
+
+    def _create_statsig_field_info(self, attribute):
+        """Create field info for a Statsig attribute/criteria field"""
+        logger.info(f"DEBUG: Creating field info for attribute: '{attribute}' (type: {type(attribute)})")
+
+        if not attribute:
+            logger.warning(f"DEBUG: Attribute is empty or None: {attribute}")
+            return None
+
+        # Map Statsig attribute names to field info
+        statsig_field_mapping = {
+            "email": {"type": "built_in", "key": "email", "display_name": "Email"},
+            "country": {"type": "built_in", "key": "country", "display_name": "Country"},
+            "region": {"type": "built_in", "key": "region", "display_name": "Region"},
+            "ip": {"type": "built_in", "key": "ip", "display_name": "IP Address"},
+            "browser_name": {"type": "built_in", "key": "browser_name", "display_name": "Browser Name"},
+            "browser_version": {"type": "built_in", "key": "browser_version", "display_name": "Browser Version"},
+            "os_name": {"type": "built_in", "key": "os_name", "display_name": "Operating System"},
+            "os_version": {"type": "built_in", "key": "os_version", "display_name": "OS Version"},
+            "app_version": {"type": "built_in", "key": "app_version", "display_name": "App Version"},
+            "device_model": {"type": "built_in", "key": "device_model", "display_name": "Device Model"},
+            "device_type": {"type": "built_in", "key": "device_type", "display_name": "Device Type"},
+            "passes_segment": {"type": "segment", "key": "passes_segment", "display_name": "Segment/Cohort"},
+        }
+
+        # Check if it's a known Statsig field
+        if attribute in statsig_field_mapping:
+            result = statsig_field_mapping[attribute]
+            logger.info(f"DEBUG: Found known Statsig field '{attribute}': {result}")
+            return result
+
+        # For unknown/custom fields, treat as custom
+        result = {"type": "custom", "key": attribute, "display_name": f"Custom Field: {attribute}"}
+        logger.info(f"DEBUG: Created custom field for '{attribute}': {result}")
+        return result
+
+    def _extract_statsig_field_info(self, prop):
+        """Extract field info from Statsig property - focusing on actual field keys/criteria"""
+        prop_key = prop.get("key", "")
+        prop_type = prop.get("type", "")
+
+        # Skip cohort properties as they don't need field mapping
+        if prop_type == "cohort":
+            return None
+
+        # For built-in Statsig fields, the key is usually the same as the type
+        if prop_type in ["user_id", "email", "country", "region", "ip"]:
+            return {"type": "built_in", "key": prop_type, "display_name": prop_type.replace("_", " ").title()}
+
+        # For custom fields, extract the actual field name from the key
+        elif prop_type == "custom" and prop_key:
+            return {"type": "custom", "key": prop_key, "display_name": f"Custom Field: {prop_key}"}
+
+        # For other field types (browser, OS, app version, etc.), use the key if available
+        elif prop_key:
+            return {"type": prop_type or "custom", "key": prop_key, "display_name": f"Custom Field: {prop_key}"}
+
+        # Fallback: use the type as the key for fields like browser_name, os_name, etc.
+        elif prop_type and prop_type not in ["person", "event"]:
+            return {"type": "custom", "key": prop_type, "display_name": f"Custom Field: {prop_type.replace('_', ' ').title()}"}
+
+        return None
+
+    def _extract_launchdarkly_fields_from_flag(self, flag):
+        """Extract actual criteria fields from LaunchDarkly flag metadata"""
+        field_info_list = []
+
+        # Look at the detailed environment configs for rule criteria
+        metadata = flag.get("metadata", {})
+        environment_configs = metadata.get("environment_configs", {})
+
+        for _env_name, env_config in environment_configs.items():
+            detailed_rules = env_config.get("detailed_rules", [])
+
+            for rule in detailed_rules:
+                clauses = rule.get("clauses", [])
+
+                for clause in clauses:
+                    attribute = clause.get("attribute", "")
+                    if attribute and attribute not in ["key", "user"]:  # Skip user key as it's handled specially
+                        field_info = self._create_launchdarkly_field_info(attribute)
+                        if field_info:
+                            field_info_list.append(field_info)
+
+        return field_info_list
+
+    def _create_launchdarkly_field_info(self, attribute):
+        """Create field info for a LaunchDarkly attribute/criteria field"""
+        if not attribute:
+            return None
+
+        # Determine if this is a built-in PostHog property or a custom field
+        if attribute.startswith("$") or attribute in ["email", "country", "region", "city"]:
+            field_type = "built_in"
+            display_name = attribute
+        else:
+            field_type = "custom"
+            display_name = f"Custom Field: {attribute}"
+
+        return {"type": field_type, "key": attribute, "display_name": display_name}
+
+    def _extract_launchdarkly_field_info(self, prop):
+        """Extract field info from LaunchDarkly property - focusing on actual field keys/criteria"""
+        prop_key = prop.get("key", "")
+        prop_type = prop.get("type", "person")
+
+        # Skip cohort properties
+        if prop_key == "id" and prop_type == "cohort":
+            return None
+
+        # Return the actual field key being used as criteria
+        if prop_key:
+            # Determine if this is a built-in PostHog property or a custom field
+            if prop_key.startswith("$") or prop_key in ["email", "country", "region", "city"]:
+                field_type = "built_in"
+                display_name = prop_key
+            else:
+                field_type = "custom"
+                display_name = f"Custom Field: {prop_key}"
+
+            return {"type": field_type, "key": prop_key, "display_name": display_name}
+
+        return None
+
+    def _create_field_mapping_suggestions(self, unique_fields, provider):
+        """Create field mapping suggestions with default mappings for known fields"""
+        field_mappings = []
+
+        for field in unique_fields:
+            external_key = field["external_key"]
+            field_type = field["type"]
+            display_name = field["display_name"]
+
+            # Default PostHog mappings for known fields
+            default_posthog_field = self._get_default_posthog_mapping(field_type, external_key)
+            auto_selected = default_posthog_field is not None
+
+            mapping = {
+                "external_key": external_key,
+                "external_type": field_type,
+                "display_name": display_name,
+                "posthog_field": default_posthog_field,
+                "posthog_type": self._get_posthog_field_type(default_posthog_field),
+                "auto_selected": auto_selected,
+                "options": self._get_posthog_field_options(field_type),
+            }
+
+            field_mappings.append(mapping)
+
+        return field_mappings
+
+    def _get_default_posthog_mapping(self, field_type, external_key):
+        """Get default PostHog field mapping for known field keys/criteria"""
+        # Segments should not be auto-mapped - they need manual handling
+        if field_type == "segment":
+            return None
+
+        # Map external field keys/names to PostHog properties
+        mapping = {
+            # Identity fields
+            "email": "email",
+            "user_id": "distinct_id",
+            "distinct_id": "distinct_id",
+            # Geographic fields
+            "country": "$geoip_country_code",
+            "region": "$geoip_subdivision_1_code",
+            "city": "$geoip_city_name",
+            "ip": "$ip",
+            # Device/Browser fields
+            "browser_name": "$browser",
+            "browser_version": "$browser_version",
+            "os_name": "$os",
+            "os_version": "$os_version",
+            "device": "$device_type",
+            "device_model": "$device_type",
+            "device_type": "$device_type",
+            "app_version": "$app_version",
+            # Common alternative names
+            "browser": "$browser",
+            "operating_system": "$os",
+            "os": "$os",
+            "version": "$app_version",
+            "application_version": "$app_version",
+            # PostHog properties that are already correct
+            "$browser": "$browser",
+            "$browser_version": "$browser_version",
+            "$os": "$os",
+            "$os_version": "$os_version",
+            "$device_type": "$device_type",
+            "$app_version": "$app_version",
+            "$geoip_country_code": "$geoip_country_code",
+            "$geoip_subdivision_1_code": "$geoip_subdivision_1_code",
+            "$geoip_city_name": "$geoip_city_name",
+            "$ip": "$ip",
+        }
+
+        return mapping.get(external_key.lower())
+
+    def _get_posthog_field_type(self, posthog_field):
+        """Get the PostHog field type (person or event)"""
+        if not posthog_field:
+            return "person"
+
+        event_properties = [
+            # Geographic
+            "$geoip_country_code",
+            "$geoip_subdivision_1_code",
+            "$geoip_city_name",
+            "$ip",
+            # Browser/Device
+            "$browser",
+            "$browser_version",
+            "$os",
+            "$os_version",
+            "$device_type",
+            # App/Platform
+            "$app_version",
+            "$app_name",
+            "$app_build",
+            "$lib",
+            "$lib_version",
+            # Screen/Resolution
+            "$screen_height",
+            "$screen_width",
+            "$viewport_height",
+            "$viewport_width",
+            # UTM/Campaign
+            "$utm_source",
+            "$utm_medium",
+            "$utm_campaign",
+            "$utm_content",
+            "$utm_term",
+            # Referrer
+            "$referrer",
+            "$referring_domain",
+        ]
+
+        return "event" if posthog_field in event_properties else "person"
+
+    def _get_posthog_field_options(self, field_type):
+        """Get available PostHog field options for mapping"""
+        # For segments, no options needed - they're handled automatically
+        if field_type == "segment":
+            return []
+
+        common_person_fields = [
+            {"key": "email", "label": "Email", "type": "person"},
+            {"key": "distinct_id", "label": "User ID", "type": "person"},
+            {"key": "$name", "label": "Name", "type": "person"},
+            {"key": "$created_at", "label": "Created At", "type": "person"},
+        ]
+
+        common_event_fields = [
+            # Geographic
+            {"key": "$geoip_country_code", "label": "Country", "type": "person"},
+            {"key": "$geoip_subdivision_1_code", "label": "Region/State", "type": "person"},
+            {"key": "$geoip_city_name", "label": "City", "type": "person"},
+            {"key": "$ip", "label": "IP Address", "type": "person"},
+            # Browser/Device
+            {"key": "$browser", "label": "Browser", "type": "person"},
+            {"key": "$browser_version", "label": "Browser Version", "type": "person"},
+            {"key": "$os", "label": "Operating System", "type": "person"},
+            {"key": "$os_version", "label": "OS Version", "type": "person"},
+            {"key": "$device_type", "label": "Device Type", "type": "person"},
+            # App/Platform
+            {"key": "$app_version", "label": "App Version", "type": "person"},
+            {"key": "$app_name", "label": "App Name", "type": "person"},
+            {"key": "$app_build", "label": "App Build", "type": "person"},
+            {"key": "$lib", "label": "Library", "type": "person"},
+            {"key": "$lib_version", "label": "Library Version", "type": "person"},
+            # Screen/Resolution
+            {"key": "$screen_height", "label": "Screen Height", "type": "person"},
+            {"key": "$screen_width", "label": "Screen Width", "type": "person"},
+            {"key": "$viewport_height", "label": "Viewport Height", "type": "person"},
+            {"key": "$viewport_width", "label": "Viewport Width", "type": "person"},
+            # UTM/Campaign
+            {"key": "$utm_source", "label": "UTM Source", "type": "person"},
+            {"key": "$utm_medium", "label": "UTM Medium", "type": "person"},
+            {"key": "$utm_campaign", "label": "UTM Campaign", "type": "person"},
+            {"key": "$utm_content", "label": "UTM Content", "type": "person"},
+            {"key": "$utm_term", "label": "UTM Term", "type": "person"},
+            # Referrer
+            {"key": "$referrer", "label": "Referrer", "type": "person"},
+            {"key": "$referring_domain", "label": "Referring Domain", "type": "person"},
+        ]
+
+        # Custom field option
+        custom_option = {"key": "", "label": "Custom field...", "type": "person"}
+
+        return common_person_fields + common_event_fields + [custom_option]
+
+    def _apply_field_mappings_to_properties(self, properties, field_mappings, provider):
+        """Apply field mappings to transform properties for PostHog"""
+        if not properties or not field_mappings:
+            return properties
+
+        mapped_properties = []
+
+        for prop in properties:
+            # Skip cohort properties as they don't need field mapping
+            if prop.get("type") == "cohort":
+                mapped_properties.append(prop)
+                continue
+
+            # Get the external field key based on provider
+            external_key = self._get_external_key_from_property(prop, provider)
+
+            if external_key and external_key in field_mappings:
+                mapping = field_mappings[external_key]
+                posthog_field = mapping.get("posthog_field")
+                posthog_type = mapping.get("posthog_type", "person")
+
+                if posthog_field:
+                    # Create mapped property
+                    mapped_prop = {
+                        "key": posthog_field,
+                        "operator": prop.get("operator", "exact"),
+                        "value": prop.get("value"),
+                        "type": posthog_type,
+                    }
+                    mapped_properties.append(mapped_prop)
+                    logger.info(f"Applied field mapping: {external_key} -> {posthog_field} (type: {posthog_type})")
+                else:
+                    # No mapping provided, but keep the original property for custom fields
+                    logger.info(f"No PostHog field mapping provided for {external_key}, keeping original property")
+                    mapped_properties.append(prop)
+            else:
+                # No mapping found, keep original property
+                mapped_properties.append(prop)
+
+        return mapped_properties
+
+    def _get_external_key_from_property(self, prop, provider):
+        """Extract the external field key from a property based on provider"""
+        if provider == "statsig":
+            # For Statsig, always use the key field to match field mapping extraction
+            return prop.get("key")
+        elif provider == "launchdarkly":
+            # For LaunchDarkly, use the key directly
+            return prop.get("key")
+
+        return prop.get("key")
+
+    def _validate_flag_field_mappings(self, flag_data, field_mappings, provider):
+        """
+        Validate that all required fields in a flag have proper mappings.
+        Returns a tuple of (is_valid, error_message).
+        """
+        if not flag_data or not flag_data.get("conditions"):
+            # Flag has no conditions, so no field validation needed
+            return True, None
+
+        unmapped_fields = []
+
+        # Check each condition in the flag
+        for condition_idx, condition in enumerate(flag_data.get("conditions", [])):
+            properties = condition.get("properties", [])
+
+            for prop_idx, prop in enumerate(properties):
+                # Skip cohort properties as they don't need field mapping
+                if prop.get("type") == "cohort":
+                    continue
+
+                # Get the external field key based on provider
+                external_key = self._get_external_key_from_property(prop, provider)
+
+                if external_key:
+                    # Check if this field has a mapping
+                    if not field_mappings or external_key not in field_mappings:
+                        unmapped_fields.append(external_key)
+                    else:
+                        mapping = field_mappings[external_key]
+                        posthog_field = mapping.get("posthog_field")
+
+                        # Check if the mapping has a valid PostHog field
+                        if not posthog_field or not posthog_field.strip():
+                            unmapped_fields.append(external_key)
+
+        if unmapped_fields:
+            # Remove duplicates and format error message
+            unique_unmapped = list(set(unmapped_fields))
+            error_msg = f"Flag contains unmapped fields: {', '.join(unique_unmapped)}. All fields used in flag conditions must be mapped to PostHog properties."
+            return False, error_msg
+
+        return True, None
 
 
 @receiver(model_activity_signal, sender=FeatureFlag)
