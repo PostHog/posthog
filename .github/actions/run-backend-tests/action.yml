@@ -114,7 +114,7 @@ runs:
           shell: bash
           run: |
               pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
-              bin/turbo --filter=@posthog/plugin-transpiler build
+              pnpm turbo --filter=@posthog/plugin-transpiler build
 
         - name: Install Python dependencies
           shell: bash
