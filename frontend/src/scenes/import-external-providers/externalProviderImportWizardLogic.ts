@@ -62,6 +62,10 @@ export const externalProviderImportWizardLogic = kea([
         resetFieldMappings: (originalMappings) => ({ originalMappings }),
         startNewImport: true,
 
+        // UI state management
+        setActiveTab: (tab) => ({ tab }),
+        setDropdownOpen: (open) => ({ open }),
+
         // Import execution
         executeImport: true,
         executeImportSuccess: (results) => ({ results }),
@@ -202,6 +206,24 @@ export const externalProviderImportWizardLogic = kea([
                 extractFieldMappings: () => null,
                 executeImport: () => null,
                 onClear: () => null,
+            },
+        ],
+
+        // UI state
+        activeTab: [
+            'feature-gates' as 'importable' | 'not-supported' | 'feature-gates' | 'dynamic-configs',
+            {
+                setActiveTab: (_, { tab }) => tab,
+                selectProvider: (_, { provider }) => provider === ExternalProvider.STATSIG ? 'feature-gates' : 'importable',
+                onClear: () => 'feature-gates',
+            },
+        ],
+
+        dropdownOpen: [
+            false,
+            {
+                setDropdownOpen: (_, { open }) => open,
+                onClear: () => false,
             },
         ],
     }),

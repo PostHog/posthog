@@ -8,7 +8,6 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDropdown } from '@posthog/lemon-ui'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useState } from 'react'
 
 import { ExternalFeatureFlag } from 'lib/api/featureFlagMigration'
 import { ExternalProvider, externalProviderImportWizardLogic } from './externalProviderImportWizardLogic'
@@ -389,11 +388,8 @@ function AuthenticationStep(): JSX.Element {
 }
 
 function SelectionStep({ importType }: { importType: string }): JSX.Element {
-    const { fetchedResources, selectedResources, selectedProvider, isLoading } = useValues(externalProviderImportWizardLogic)
-    const { toggleResourceSelection } = useActions(externalProviderImportWizardLogic)
-    const [activeTab, setActiveTab] = useState<'importable' | 'not-supported' | 'feature-gates' | 'dynamic-configs'>(
-        selectedProvider === ExternalProvider.STATSIG ? 'feature-gates' : 'importable'
-    )
+    const { fetchedResources, selectedResources, selectedProvider, isLoading, activeTab } = useValues(externalProviderImportWizardLogic)
+    const { toggleResourceSelection, setActiveTab } = useActions(externalProviderImportWizardLogic)
 
     const getLoadingText = () => {
         switch (importType) {
@@ -836,7 +832,8 @@ function PropertySelector({
     onChange: (value: string) => void
     placeholder: string
 }): JSX.Element {
-    const [dropdownOpen, setDropdownOpen] = useState(false)
+    const { dropdownOpen } = useValues(externalProviderImportWizardLogic)
+    const { setDropdownOpen } = useActions(externalProviderImportWizardLogic)
 
     const taxonomicFilter = (
         <TaxonomicFilter
