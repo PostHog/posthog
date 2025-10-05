@@ -32,7 +32,7 @@ jobs:
               run: cd posthog && pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Build storybook
-              run: cd posthog && bin/turbo --filter=@posthog/storybook build
+              run: cd posthog && pnpm turbo --filter=@posthog/storybook build
 
             - name: Check out PostHog/storybook-build repo
               uses: actions/checkout@v4
