@@ -21,6 +21,27 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
     const { confirmationMessageLoading } = useValues(featureFlagConfirmationSettingsLogic)
 
     return (
+        <GeneralSettingsTab
+            currentTeam={currentTeam}
+            updateCurrentTeam={updateCurrentTeam}
+            confirmationMessageLoading={confirmationMessageLoading}
+            inModal={inModal}
+        />
+    )
+}
+
+function GeneralSettingsTab({
+    currentTeam,
+    updateCurrentTeam,
+    confirmationMessageLoading,
+    inModal
+}: {
+    currentTeam: any
+    updateCurrentTeam: any
+    confirmationMessageLoading: boolean
+    inModal: boolean
+}): JSX.Element {
+    return (
         <div className="space-y-8">
             <div className="space-y-2">
                 <h3 className="min-w-[25rem]">Flag Persistence</h3>
@@ -106,6 +127,7 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                     </div>
                 )}
             </div>
+
             <div className="space-y-2">
                 <FlagsSecureApiKeys />
             </div>

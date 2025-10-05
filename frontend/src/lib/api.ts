@@ -892,6 +892,10 @@ export class ApiRequest {
         return this.featureFlags(teamId).addPathComponent('activity')
     }
 
+    public featureFlagMigration(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('feature_flag_migration')
+    }
+
     public featureFlagScheduledChanges(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('scheduled_changes')
@@ -1684,6 +1688,25 @@ const api = {
             featureFlagId: FeatureFlagType['id']
         ): Promise<FeatureFlagStatusResponse> {
             return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
+        },
+        async fetchExternalFlags(data: {
+            provider: string
+            api_key: string
+            environment?: string
+            project_key?: string
+        }): Promise<any> {
+            return await new ApiRequest().featureFlagMigration().withAction('fetch_external_flags').create({ data })
+        },
+        async extractFieldMappings(data: { provider: string; selected_flags: any[] }): Promise<any> {
+            return await new ApiRequest().featureFlagMigration().withAction('extract_field_mappings').create({ data })
+        },
+        async importExternalFlags(data: {
+            provider: string
+            selected_flags: any[]
+            environment?: string
+            field_mappings?: Record<string, any>
+        }): Promise<any> {
+            return await new ApiRequest().featureFlagMigration().withAction('import_flags').create({ data })
         },
     },
 
