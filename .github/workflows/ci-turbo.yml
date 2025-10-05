@@ -93,7 +93,7 @@ jobs:
 
             - name: Turbo Affected
               run: |
-                  bin/turbo build --affected --dry-run
+                  pnpm turbo build --affected --dry-run
               env:
                   NODE_OPTIONS: --max-old-space-size=8192
                   TURBO_SCM_BASE: ${{ env.TURBO_SCM_BASE }}

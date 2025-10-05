@@ -99,7 +99,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/frontend prepare
+                  pnpm turbo --filter=@posthog/frontend prepare
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
@@ -158,7 +158,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/frontend prepare
+                  pnpm turbo --filter=@posthog/frontend prepare
 
             - name: Build products
               if: needs.changes.outputs.frontend == 'true'
@@ -221,7 +221,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/frontend prepare
+                  pnpm turbo --filter=@posthog/frontend prepare
 
             - name: Cache .typegen
               if: needs.changes.outputs.frontend == 'true'
@@ -296,7 +296,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
-              run: bin/turbo run test --filter=@posthog/frontend
+              run: pnpm turbo run test --filter=@posthog/frontend
               if: needs.changes.outputs.frontend == 'true'
               env:
                   NODE_OPTIONS: --max-old-space-size=16384

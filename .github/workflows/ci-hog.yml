@@ -133,7 +133,7 @@ jobs:
               run: |
                   pnpm --filter=@posthog/hogvm install --frozen-lockfile
                   pnpm --filter=@posthog/hogvm compile:stl
-                  bin/turbo --filter=@posthog/hogvm build
+                  pnpm turbo --filter=@posthog/hogvm build
                   cd common/hogvm
                   ./test.sh && git diff --exit-code
 
