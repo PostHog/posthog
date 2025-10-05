@@ -51,7 +51,9 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
 
         # If it is a reply, the scope is the original comment
         item_id = cast(str, instance.source_comment_id) or instance.item_id
-        scope = "Comment" if instance.source_comment_id else instance.scope
+        # Map 'recording' to 'Replay' for activity log
+        actual_scope = "Replay" if instance.scope == "recording" else instance.scope
+        scope = "Comment" if instance.source_comment_id else actual_scope
 
         log_activity(
             organization_id=None,
