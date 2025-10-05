@@ -767,15 +767,22 @@ class RootNodeTools(AssistantNode):
                     messages=new_state.messages[len(state.messages) :],
                     root_tool_calls_count=tool_call_count + 1,
                 )
-            raise NodeInterrupt(
-                AssistantToolCallMessage(
-                    content=str(result.content) if result.content else "",
-                    ui_payload={tool_call.name: getattr(result, "artifact", None)},
-                    id=str(uuid4()),
-                    tool_call_id=tool_call.id,
-                    visible=tool_class.show_tool_call_message,
+
+            # Convert result to AssistantToolCallMessage and return it
+            if isinstance(result, AssistantToolCallMessage):
+                # Result is already an AssistantToolCallMessage (e.g., from exception handler)
+                raise NodeInterrupt(result)
+            else:
+                # Convert LangchainToolMessage to AssistantToolCallMessage
+                raise NodeInterrupt(
+                    AssistantToolCallMessage(
+                        content=str(result.content) if result.content else "",
+                        ui_payload={tool_call.name: getattr(result, "artifact", None)},
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                        visible=tool_class.show_tool_call_message,
+                    )
                 )
-            )
         else:
             raise ValueError(f"Unknown tool called: {tool_call.name}")
 
