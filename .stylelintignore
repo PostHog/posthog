@@ -1,2 +1,3 @@
 frontend/dist/
 common/tailwind/
+node_modules/
