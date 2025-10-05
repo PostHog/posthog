@@ -7,7 +7,10 @@ settings:
 overrides:
   playwright: 1.45.0
   typescript: 5.2.2
-  '@posthog/icons': 0.30.0
+  '@posthog/icons': 0.31.0
+  react: 19.2.0
+  react-dom: 19.2.0
+  turbo: 2.5.8
 
 patchedDependencies:
   chartjs-plugin-crosshair@2.0.0:
@@ -445,8 +448,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -1561,8 +1564,8 @@ importers:
   products/actions:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.20(react-dom@19.2.0(react@18.3.1))(react@18.3.1)(typescript@5.2.2)
@@ -1597,8 +1600,8 @@ importers:
   products/cohorts:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -1624,8 +1627,8 @@ importers:
   products/customer_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -1651,8 +1654,8 @@ importers:
   products/dashboards:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -1678,8 +1681,8 @@ importers:
   products/early_access_features:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.20(react-dom@19.2.0(react@18.3.1))(react@18.3.1)(typescript@5.2.2)
@@ -1708,8 +1711,8 @@ importers:
   products/endpoints:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -1747,8 +1750,8 @@ importers:
         specifier: '*'
         version: 3.2.2(react@18.3.1)
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@storybook/addon-actions':
         specifier: '*'
         version: 7.6.20
@@ -1816,8 +1819,8 @@ importers:
   products/experiments:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -1843,8 +1846,8 @@ importers:
   products/feature_flags:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -1870,8 +1873,8 @@ importers:
   products/games:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -1897,8 +1900,8 @@ importers:
   products/groups:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -1924,8 +1927,8 @@ importers:
   products/links:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.20(react-dom@19.2.0(react@18.3.1))(react@18.3.1)(typescript@5.2.2)
@@ -1957,8 +1960,8 @@ importers:
   products/llm_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.20(react-dom@19.2.0(react@18.3.1))(react@18.3.1)(typescript@5.2.2)
@@ -2012,8 +2015,8 @@ importers:
   products/logs:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@posthog/products-error-tracking':
         specifier: workspace:*
         version: link:../error_tracking
@@ -2069,8 +2072,8 @@ importers:
   products/managed_migrations:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.27.4(date-fns@2.30.0)(luxon@3.7.2)(moment@2.30.1)(react-dom@19.2.0(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@3.1.7(react@18.3.1)))(kea@3.1.7(react@18.3.1))(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
@@ -2096,8 +2099,8 @@ importers:
   products/messaging:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -2144,8 +2147,8 @@ importers:
   products/notebooks:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -2171,8 +2174,8 @@ importers:
   products/persons:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -2198,8 +2201,8 @@ importers:
   products/product_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -2225,8 +2228,8 @@ importers:
   products/replay:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -2252,8 +2255,8 @@ importers:
   products/revenue_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.20(react-dom@19.2.0(react@18.3.1))(react@18.3.1)(typescript@5.2.2)
@@ -2282,8 +2285,8 @@ importers:
   products/surveys:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -2321,8 +2324,8 @@ importers:
         specifier: '*'
         version: 3.2.2(react@18.3.1)
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.20(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.2.2)
@@ -2361,8 +2364,8 @@ importers:
   products/user_interviews:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -2388,8 +2391,8 @@ importers:
   products/web_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.30.0
-        version: 0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)
+        specifier: 0.31.0
+        version: 0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@types/react':
         specifier: '*'
         version: 19.2.0
@@ -6016,11 +6019,11 @@ packages:
   '@posthog/core@1.2.2':
     resolution: {integrity: sha512-f16Ozx6LIigRG+HsJdt+7kgSxZTHeX5f1JlCGKI1lXcvlZgfsCR338FuMI2QRYXGl+jg/vYFzGOTQBxl90lnBg==}
 
-  '@posthog/icons@0.30.0':
-    resolution: {integrity: sha512-V3QBSLwcEeSitNetafrGYqzXG2uWXzoNAc0z6yvQ7UBMPx/DFOxTfRoIaRb1m6GnAhXzR8fbprhJDmqKZB2D6w==}
+  '@posthog/icons@0.31.0':
+    resolution: {integrity: sha512-on9J+mMh3bdgU6UR8OwflSNxHrDIT9DM4I3gCiZ2MInmYDL9CMuO6KHp86bZ2pEWkK2wj5jIdK1i7+uu5OWMNg==}
     peerDependencies:
-      react: '>=16.14.0'
-      react-dom: '>=16.14.0'
+      react: 19.2.0
+      react-dom: 19.2.0
 
   '@posthog/lemon-ui@0.0.0':
     resolution: {integrity: sha512-SJaquP2UGsfOx33d7SssxNvUTfDT5VWWBEzWyHvJXaFrHNZd3ZeRrHLzsETXjhJO3ZcsVdoJD+tm27B6Qe5GuQ==}
@@ -23105,12 +23108,7 @@ snapshots:
 
   '@posthog/core@1.2.2': {}
 
-  '@posthog/icons@0.30.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
-    dependencies:
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-
-  '@posthog/icons@0.30.0(react-dom@19.2.0(react@18.3.1))(react@18.3.1)':
+  '@posthog/icons@0.31.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
     dependencies:
       react: 18.3.1
       react-dom: 19.2.0(react@18.3.1)
