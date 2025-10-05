@@ -118,7 +118,15 @@ export const CreateExperiment = (): JSX.Element => {
                                     <VariantsPanel
                                         experiment={experiment}
                                         updateFeatureFlag={(updates) => {
-                                            setExperimentValue('feature_flag_key', updates.feature_flag_key)
+                                            if (updates.feature_flag_key !== undefined) {
+                                                setExperimentValue('feature_flag_key', updates.feature_flag_key)
+                                            }
+                                            if (updates.parameters) {
+                                                setExperimentValue('parameters', {
+                                                    ...experiment.parameters,
+                                                    ...updates.parameters,
+                                                })
+                                            }
                                         }}
                                     />
                                 ),

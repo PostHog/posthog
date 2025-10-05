@@ -237,6 +237,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                         </div>
                         <div className="col-span-8">
                             <JSONEditorInput
+                                readOnly={true}
                                 onChange={(newValue) => {
                                     const updatedVariant = { ...variant, name: newValue }
                                     if (newValue === '') {
@@ -246,7 +247,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                                     }
                                     updateVariant(index, updatedVariant)
                                 }}
-                                value={variant.name || ''}
+                                value={''}
                                 placeholder='{"key": "value"}'
                             />
                         </div>
