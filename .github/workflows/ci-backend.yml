@@ -291,7 +291,7 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: ${{ needs.changes.outputs.backend == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
+        runs-on: ${{ needs.changes.outputs.backend == 'true' && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
 
         strategy:
             fail-fast: false
