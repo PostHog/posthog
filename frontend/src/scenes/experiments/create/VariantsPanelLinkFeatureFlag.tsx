@@ -16,7 +16,7 @@ interface VariantsPanelLinkFeatureFlagProps {
     setShowFeatureFlagSelector: () => void
 }
 
-function getTargetingSummary(flag: FeatureFlagType): string[] {
+const getTargetingSummary = (flag: FeatureFlagType): string[] => {
     return match(flag)
         .with({ is_simple_flag: true, rollout_percentage: P.not(P.nullish) }, (f) => [
             `${f.rollout_percentage}% of all users`,
@@ -35,7 +35,7 @@ function getTargetingSummary(flag: FeatureFlagType): string[] {
         )
 }
 
-function TargetingSummary({ flag }: { flag: FeatureFlagType }): JSX.Element {
+const TargetingSummary = ({ flag }: { flag: FeatureFlagType }): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
     const conditions = getTargetingSummary(flag)
     const hasMultipleConditions = conditions.length > 2
