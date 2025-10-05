@@ -35,17 +35,14 @@ interface FunnelBarVerticalCSSProperties extends React.CSSProperties {
 }
 
 export function FunnelBarVertical({ inCardView = false }: ChartParams): JSX.Element {
-    const { visibleStepsWithConversionMetrics } = useFunnelChartData()
+    const { stepsWithConversionMetrics } = useFunnelChartData()
     const { vizRef, showTooltip, hideTooltip } = useFunnelTooltip()
 
     const { height: availableHeight } = useResizeObserver({ ref: vizRef })
     const [scrollbarHeightPx, setScrollbarHeightPx] = useState(0)
     const [stepLegendRowHeightPx, setStepLegendRowHeightPx] = useState(0)
 
-    const seriesCount = Math.max(
-        ...visibleStepsWithConversionMetrics.map((step) => step.nested_breakdown?.length || 1),
-        1
-    )
+    const seriesCount = Math.max(...stepsWithConversionMetrics.map((step) => step.nested_breakdown?.length || 1), 1)
     // Calculate base bar width based on series count
     const widthLimits = [
         { min: 60, width: 4 },
@@ -83,7 +80,7 @@ export function FunnelBarVertical({ inCardView = false }: ChartParams): JSX.Elem
 
     /** Average conversion time is only shown if it's known for at least one step. */
     // != is intentional to catch undefined too
-    const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
+    const showTime = stepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
 
     const minimumBarHeightPx = 150
     const borderHeightPx = 1
@@ -105,7 +102,7 @@ export function FunnelBarVertical({ inCardView = false }: ChartParams): JSX.Elem
                         }
                     >
                         <colgroup>
-                            {visibleStepsWithConversionMetrics.map((_, i) => (
+                            {stepsWithConversionMetrics.map((_, i) => (
                                 <col key={i} width={0} />
                             ))}
                             <col width="100%" />
@@ -116,7 +113,7 @@ export function FunnelBarVertical({ inCardView = false }: ChartParams): JSX.Elem
                                 <td>
                                     <StepBarLabels />
                                 </td>
-                                {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
+                                {stepsWithConversionMetrics.map((step, stepIndex) => (
                                     <td key={stepIndex}>
                                         <StepBars step={step} stepIndex={stepIndex} />
                                     </td>
@@ -124,7 +121,7 @@ export function FunnelBarVertical({ inCardView = false }: ChartParams): JSX.Elem
                             </tr>
                             <tr ref={stepLegendRowRef}>
                                 <td />
-                                {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
+                                {stepsWithConversionMetrics.map((step, stepIndex) => (
                                     <td key={stepIndex}>
                                         <StepLegend step={step} stepIndex={stepIndex} showTime={showTime} />
                                     </td>

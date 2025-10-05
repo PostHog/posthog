@@ -480,6 +480,8 @@
          COUNT() as count
   FROM events
   WHERE event = '$exception'
+    AND not arrayExists(x -> x != ''
+                        AND position(x, 'persistence.isDisabled is not a function') > 0, JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)'))
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id

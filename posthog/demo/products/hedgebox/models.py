@@ -533,10 +533,12 @@ class HedgeboxPerson(SimPerson):
                 2 + self.cluster.random.betavariate(1.5, 1.2) * math.log10(0.1 + len(self.account.files))
             )
             if self.active_session_intent == HedgeboxSessionIntent.DELETE_FILE_S:
-                file = self.cluster.random.choice(list(self.account.files))
+                # Sort files for deterministic selection
+                file = self.cluster.random.choice(sorted(self.account.files, key=lambda f: f.id))
                 self.delete_file(file)
             elif self.active_session_intent == HedgeboxSessionIntent.DOWNLOAD_OWN_FILE_S:
-                file = self.cluster.random.choice(list(self.account.files))
+                # Sort files for deterministic selection
+                file = self.cluster.random.choice(sorted(self.account.files, key=lambda f: f.id))
                 if self.cluster.random.random() < 0.3:  # Sometimes download using the menu
                     self.download_file(file)
                 else:  # Other times go to the file page first
@@ -788,9 +790,9 @@ class HedgeboxPerson(SimPerson):
     def remove_team_member(self):
         self.advance_timer(self.cluster.random.betavariate(1.2, 1.2) * 2)
         assert self.account is not None
-        random_member = self.cluster.random.choice(
-            list(self.account.team_members.difference({self, self.cluster.kernel}))
-        )
+        # Sort team members for deterministic selection
+        eligible_members = self.account.team_members.difference({self, self.cluster.kernel})
+        random_member = self.cluster.random.choice(sorted(eligible_members, key=lambda p: p.in_product_id))
         self.account.team_members.remove(random_member)
         self.active_client.capture(EVENT_REMOVED_TEAM_MEMBER)
 

@@ -27,6 +27,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
@@ -485,6 +486,8 @@ export const surveyLogic = kea<surveyLogicType>([
             ['user'],
             teamLogic,
             ['currentTeam'],
+            propertyDefinitionsModel,
+            ['propertyDefinitionsByType'],
         ],
     })),
     actions({

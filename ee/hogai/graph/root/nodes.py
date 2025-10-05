@@ -33,6 +33,10 @@ from posthog.schema import (
     MaxUIContext,
     ReasoningMessage,
     RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsTopCustomersQuery,
     TrendsQuery,
 )
 
@@ -75,6 +79,10 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
     "FunnelsQuery": FunnelsQuery,
     "RetentionQuery": RetentionQuery,
     "HogQLQuery": HogQLQuery,
+    "RevenueAnalyticsGrossRevenueQuery": RevenueAnalyticsGrossRevenueQuery,
+    "RevenueAnalyticsMetricsQuery": RevenueAnalyticsMetricsQuery,
+    "RevenueAnalyticsMRRQuery": RevenueAnalyticsMRRQuery,
+    "RevenueAnalyticsTopCustomersQuery": RevenueAnalyticsTopCustomersQuery,
 }
 
 SLASH_COMMAND_INIT = "/init"

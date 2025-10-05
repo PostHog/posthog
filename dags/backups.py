@@ -395,13 +395,23 @@ def wait_for_backup(
             )
         return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
 
+    done = False
+    tries = 0
     if backup:
-        map_hosts(backup.wait).result().values()
-        most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
-        if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
-            raise ValueError(
-                f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
-            )
+        while not done:
+            tries += 1
+            map_hosts(backup.wait).result().values()
+            most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
+            if most_recent_status and most_recent_status.status == "CREATING_BACKUP":
+                continue
+            if most_recent_status and most_recent_status.status == "BACKUP_CREATED":
+                done = True
+            if (most_recent_status and most_recent_status.status != "BACKUP_CREATED") or (
+                most_recent_status and tries >= 5
+            ):
+                raise ValueError(
+                    f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
+                )
     else:
         context.log.info("No backup to wait for")
 

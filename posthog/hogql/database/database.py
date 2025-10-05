@@ -711,23 +711,31 @@ def create_hogql_database(
                 expr=parse_expr(warehouse_modifier.id_field),
             )
 
-        if "timestamp" not in table.fields.keys() or not isinstance(
-            table.fields.get("timestamp"), DateTimeDatabaseField
-        ):
+        table_has_no_timestamp_field = "timestamp" not in table.fields.keys()
+        timestamp_field_is_datetime = isinstance(table.fields.get("timestamp"), DateTimeDatabaseField)
+
+        if table_has_no_timestamp_field or not timestamp_field_is_datetime:
             table_model = get_table(team=team, warehouse_modifier=warehouse_modifier)
             timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
+            modifier_timestamp_field_is_timestamp = warehouse_modifier.timestamp_field == "timestamp"
 
             # If field type is none or datetime, we can use the field directly
             if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
-                table.fields["timestamp"] = ExpressionField(
-                    name="timestamp",
-                    expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
-                )
+                if modifier_timestamp_field_is_timestamp:
+                    table.fields["timestamp"] = DateTimeDatabaseField(name="timestamp")
+                else:
+                    table.fields["timestamp"] = ExpressionField(
+                        name="timestamp",
+                        expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
+                    )
             else:
-                table.fields["timestamp"] = ExpressionField(
-                    name="timestamp",
-                    expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
-                )
+                if modifier_timestamp_field_is_timestamp:
+                    table.fields["timestamp"] = UnknownDatabaseField(name="timestamp")
+                else:
+                    table.fields["timestamp"] = ExpressionField(
+                        name="timestamp",
+                        expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
+                    )
 
         # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
         if "distinct_id" not in table.fields.keys():

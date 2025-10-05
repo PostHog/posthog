@@ -26,6 +26,10 @@ from posthog.schema import (
     PlanningMessage,
     ReasoningMessage,
     RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsTopCustomersQuery,
     TaskExecutionItem,
     TaskExecutionMessage,
     TaskExecutionStatus,
@@ -56,7 +60,16 @@ AssistantOutput = (
 AnyAssistantGeneratedQuery = (
     AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 )
-AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+AnyAssistantSupportedQuery = (
+    TrendsQuery
+    | FunnelsQuery
+    | RetentionQuery
+    | HogQLQuery
+    | RevenueAnalyticsGrossRevenueQuery
+    | RevenueAnalyticsMetricsQuery
+    | RevenueAnalyticsMRRQuery
+    | RevenueAnalyticsTopCustomersQuery
+)
 # We define this since AssistantMessageUnion is a type and wouldn't work with isinstance()
 ASSISTANT_MESSAGE_TYPES = (
     HumanMessage,
@@ -368,6 +381,8 @@ class AssistantNodeName(StrEnum):
     HOGQL_GENERATOR_TOOLS = "hogql_generator_tools"
     SESSION_REPLAY_FILTER = "session_replay_filter"
     SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
+    REVENUE_ANALYTICS_FILTER = "revenue_analytics_filter"
+    REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
 
 
 class AssistantMode(StrEnum):

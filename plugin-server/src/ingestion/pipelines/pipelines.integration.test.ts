@@ -1,10 +1,10 @@
 import { Message } from 'node-rdkafka'
 
+import { BaseBatchPipeline, BatchProcessingStep } from './base-batch-pipeline'
 import { createBatch, createNewBatchPipeline, createNewPipeline } from './helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
 import { PipelineResult, dlq, drop, ok, redirect } from './results'
-import { BatchProcessingStep, SequentialBatchPipeline } from './sequential-batch-pipeline'
-import { AsyncProcessingStep, SyncProcessingStep } from './steps'
+import { ProcessingStep } from './steps'
 
 // Simple test types - only include fields needed for testing
 type TestTeam = {
@@ -42,33 +42,14 @@ type TestEventWithTeam = {
  * replicate every single step from the actual ingestion consumer.
  */
 
-// Helper function to create Jest mocks for pipeline steps
-const createMockStep = <TInput extends { message: Message }, TOutput>(
-    resultMap: Map<string, PipelineResult<TOutput>>
-): jest.MockedFunction<SyncProcessingStep<TInput, TOutput>> => {
-    return jest.fn((input: TInput) => {
-        // Extract event ID from message value
-        const eventId = input.message.value?.toString() || 'default'
-
-        const result = resultMap.get(eventId)
-
-        if (result) {
-            return result
-        }
-
-        // Throw exception if no result found in map
-        throw new Error(`No result found for event ID: ${eventId}`)
-    })
-}
-
 type AsyncStepConfig<TOutput> = {
     delay: number
     result: PipelineResult<TOutput>
 }
 
-const createMockAsyncStep = <TInput extends { message: Message }, TOutput>(
+const createMockStep = <TInput extends { message: Message }, TOutput>(
     resultMap: Map<string, AsyncStepConfig<TOutput>>
-): jest.MockedFunction<AsyncProcessingStep<TInput, TOutput>> => {
+): jest.MockedFunction<ProcessingStep<TInput, TOutput>> => {
     return jest.fn(async (input: TInput) => {
         // Extract event ID from message value
         const eventId = input.message.value?.toString() || 'default'
@@ -146,32 +127,47 @@ describe('Pipeline Integration Tests', () => {
             ]
 
             // Define result maps
-            const step1Map = new Map<string, PipelineResult<{ message: Message; headers: TestHeaders }>>([
-                ['event1', ok({ message: messages[0], headers: { token: 'test-token' } })],
-                ['event2', ok({ message: messages[1], headers: { token: 'test-token' } })],
-            ])
-            const step2Map = new Map<
-                string,
-                PipelineResult<{ message: Message; headers: TestHeaders; event: TestEvent }>
-            >([
+            const step1Map = new Map([
                 [
                     'event1',
-                    ok({
-                        message: messages[0],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event1', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({ message: messages[0], headers: { token: 'test-token' } }),
+                    },
                 ],
                 [
                     'event2',
-                    ok({
-                        message: messages[1],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event2', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({ message: messages[1], headers: { token: 'test-token' } }),
+                    },
                 ],
             ])
-            const asyncStep3Map = new Map<string, AsyncStepConfig<TestEventWithTeam>>([
+            const step2Map = new Map([
+                [
+                    'event1',
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[0],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event1', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
+                ],
+                [
+                    'event2',
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[1],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event2', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
+                ],
+            ])
+            const step3Map = new Map([
                 [
                     'event1',
                     {
@@ -199,7 +195,7 @@ describe('Pipeline Integration Tests', () => {
             ])
 
             // Define batch step result map
-            const batchStep4Map = new Map<number, PipelineResult<TestEventWithTeam>>([
+            const batchStep4Map = new Map([
                 [
                     0,
                     ok({
@@ -236,16 +232,16 @@ describe('Pipeline Integration Tests', () => {
                 { message: Message; headers: TestHeaders },
                 { message: Message; headers: TestHeaders; event: TestEvent }
             >(step2Map)
-            const asyncStep3 = createMockAsyncStep<
+            const step3 = createMockStep<
                 { message: Message; headers: TestHeaders; event: TestEvent },
                 TestEventWithTeam
-            >(asyncStep3Map)
+            >(step3Map)
 
             // Define batch step
             const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipeAsync(asyncStep3)
+            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
             const batchPipeline = createNewBatchPipeline()
                 .pipeConcurrently(preprocessingPipeline)
@@ -254,7 +250,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -270,7 +266,7 @@ describe('Pipeline Integration Tests', () => {
             // Verify mock steps were called with correct arguments
             expect(step1).toHaveBeenCalledTimes(2)
             expect(step2).toHaveBeenCalledTimes(2)
-            expect(asyncStep3).toHaveBeenCalledTimes(2)
+            expect(step3).toHaveBeenCalledTimes(2)
 
             // Verify batch step was called with events in correct order
             expect(batchStep4).toHaveBeenCalledTimes(1)
@@ -296,15 +292,15 @@ describe('Pipeline Integration Tests', () => {
             ]
 
             // Define result map
-            const step1Map = new Map<string, PipelineResult<{ message: Message; headers: TestHeaders }>>([
-                ['drop-event', drop('Mock drop')],
+            const step1Map = new Map<string, AsyncStepConfig<{ message: Message; headers: TestHeaders }>>([
+                ['drop-event', { delay: 0, result: drop('Mock drop') }],
             ])
 
             // Define step
             const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }>(step1Map)
 
             // Define batch step result map
-            const batchStep2Map = new Map<number, PipelineResult<TestEventWithTeam>>([
+            const batchStep2Map = new Map([
                 [
                     0,
                     ok({
@@ -331,7 +327,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -357,15 +353,15 @@ describe('Pipeline Integration Tests', () => {
             ]
 
             // Define result map
-            const step1Map = new Map<string, PipelineResult<{ message: Message; headers: TestHeaders }>>([
-                ['redirect-event', redirect('Mock redirect', 'mock-topic', true)],
+            const step1Map = new Map<string, AsyncStepConfig<{ message: Message; headers: TestHeaders }>>([
+                ['redirect-event', { delay: 0, result: redirect('Mock redirect', 'mock-topic', true) }],
             ])
 
             // Define step
             const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }>(step1Map)
 
             // Define batch step result map
-            const batchStep2Map = new Map<number, PipelineResult<TestEventWithTeam>>([
+            const batchStep2Map = new Map([
                 [
                     0,
                     ok({
@@ -392,7 +388,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -427,8 +423,8 @@ describe('Pipeline Integration Tests', () => {
             // Define result map
             const step1Map = new Map<
                 string,
-                PipelineResult<{ message: Message; headers: TestHeaders; event: TestEvent }>
-            >([['dlq-event', dlq('Mock DLQ', new Error('Mock error'))]])
+                AsyncStepConfig<{ message: Message; headers: TestHeaders; event: TestEvent }>
+            >([['dlq-event', { delay: 0, result: dlq('Mock DLQ', new Error('Mock error')) }]])
 
             // Define step
             const step1 = createMockStep<
@@ -437,7 +433,7 @@ describe('Pipeline Integration Tests', () => {
             >(step1Map)
 
             // Define batch step result map
-            const batchStep2Map = new Map<number, PipelineResult<TestEventWithTeam>>([
+            const batchStep2Map = new Map([
                 [
                     0,
                     ok({
@@ -465,7 +461,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -514,41 +510,47 @@ describe('Pipeline Integration Tests', () => {
             ]
 
             // Define result maps
-            const step1Map = new Map<string, PipelineResult<{ message: Message; headers: TestHeaders }>>([
-                ['event-1', ok({ message: messages[0], headers: { token: 'test-token' } })],
-                ['event-2', ok({ message: messages[1], headers: { token: 'test-token' } })],
-                ['event-3', ok({ message: messages[2], headers: { token: 'test-token' } })],
+            const step1Map = new Map([
+                ['event-1', { delay: 0, result: ok({ message: messages[0], headers: { token: 'test-token' } }) }],
+                ['event-2', { delay: 0, result: ok({ message: messages[1], headers: { token: 'test-token' } }) }],
+                ['event-3', { delay: 0, result: ok({ message: messages[2], headers: { token: 'test-token' } }) }],
             ])
-            const step2Map = new Map<
-                string,
-                PipelineResult<{ message: Message; headers: TestHeaders; event: TestEvent }>
-            >([
+            const step2Map = new Map([
                 [
                     'event-1',
-                    ok({
-                        message: messages[0],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event-1', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[0],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event-1', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
                 ],
                 [
                     'event-2',
-                    ok({
-                        message: messages[1],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event-2', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[1],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event-2', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
                 ],
                 [
                     'event-3',
-                    ok({
-                        message: messages[2],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event-3', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[2],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event-3', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
                 ],
             ])
-            const asyncStep3Map = new Map<string, AsyncStepConfig<TestEventWithTeam>>([
+            const step3Map = new Map([
                 [
                     'event-1',
                     {
@@ -588,7 +590,7 @@ describe('Pipeline Integration Tests', () => {
             ])
 
             // Define batch step result map
-            const batchStep4Map = new Map<number, PipelineResult<TestEventWithTeam>>([
+            const batchStep4Map = new Map([
                 [
                     0,
                     ok({
@@ -624,16 +626,16 @@ describe('Pipeline Integration Tests', () => {
                 { message: Message; headers: TestHeaders },
                 { message: Message; headers: TestHeaders; event: TestEvent }
             >(step2Map)
-            const asyncStep3 = createMockAsyncStep<
+            const step3 = createMockStep<
                 { message: Message; headers: TestHeaders; event: TestEvent },
                 TestEventWithTeam
-            >(asyncStep3Map)
+            >(step3Map)
 
             // Define batch step
             const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipeAsync(asyncStep3)
+            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
             const batchPipeline = createNewBatchPipeline()
                 .pipeConcurrently(preprocessingPipeline)
@@ -642,7 +644,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -661,7 +663,7 @@ describe('Pipeline Integration Tests', () => {
             // Verify mock steps were called with correct arguments
             expect(step1).toHaveBeenCalledTimes(3)
             expect(step2).toHaveBeenCalledTimes(3)
-            expect(asyncStep3).toHaveBeenCalledTimes(3)
+            expect(step3).toHaveBeenCalledTimes(3)
 
             // Verify batch step was called with events in correct order
             expect(batchStep4).toHaveBeenCalledTimes(1)
@@ -704,33 +706,36 @@ describe('Pipeline Integration Tests', () => {
             ]
 
             // Define result maps
-            const step1Map = new Map<string, PipelineResult<{ message: Message; headers: TestHeaders }>>([
-                ['event1', ok({ message: messages[0], headers: { token: 'test-token' } })],
-                ['drop-event', drop('Mock drop')],
-                ['event3', ok({ message: messages[2], headers: { token: 'test-token' } })],
+            const step1Map = new Map<string, AsyncStepConfig<{ message: Message; headers: TestHeaders }>>([
+                ['event1', { delay: 0, result: ok({ message: messages[0], headers: { token: 'test-token' } }) }],
+                ['drop-event', { delay: 0, result: drop('Mock drop') }],
+                ['event3', { delay: 0, result: ok({ message: messages[2], headers: { token: 'test-token' } }) }],
             ])
-            const step2Map = new Map<
-                string,
-                PipelineResult<{ message: Message; headers: TestHeaders; event: TestEvent }>
-            >([
+            const step2Map = new Map([
                 [
                     'event1',
-                    ok({
-                        message: messages[0],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event1', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[0],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event1', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
                 ],
                 [
                     'event3',
-                    ok({
-                        message: messages[2],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event3', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[2],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event3', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
                 ],
             ])
-            const asyncStep3Map = new Map<string, AsyncStepConfig<TestEventWithTeam>>([
+            const step3Map = new Map([
                 [
                     'event1',
                     {
@@ -758,7 +763,7 @@ describe('Pipeline Integration Tests', () => {
             ])
 
             // Define batch step result map
-            const batchStep4Map = new Map<number, PipelineResult<TestEventWithTeam>>([
+            const batchStep4Map = new Map([
                 [
                     0,
                     ok({
@@ -785,16 +790,16 @@ describe('Pipeline Integration Tests', () => {
                 { message: Message; headers: TestHeaders },
                 { message: Message; headers: TestHeaders; event: TestEvent }
             >(step2Map)
-            const asyncStep3 = createMockAsyncStep<
+            const step3 = createMockStep<
                 { message: Message; headers: TestHeaders; event: TestEvent },
                 TestEventWithTeam
-            >(asyncStep3Map)
+            >(step3Map)
 
             // Define batch step
             const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipeAsync(asyncStep3)
+            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
             const batchPipeline = createNewBatchPipeline()
                 .pipeConcurrently(preprocessingPipeline)
@@ -803,7 +808,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -820,7 +825,7 @@ describe('Pipeline Integration Tests', () => {
             // Verify mock steps were called with correct arguments
             expect(step1).toHaveBeenCalledTimes(3)
             expect(step2).toHaveBeenCalledTimes(2) // Only valid events reach validation
-            expect(asyncStep3).toHaveBeenCalledTimes(2) // Only valid events reach team resolution
+            expect(step3).toHaveBeenCalledTimes(2) // Only valid events reach team resolution
             expect(batchStep4).toHaveBeenCalledTimes(1) // Batch step called once with 2 events
 
             // Verify batch step was called with remaining events in correct order (dropped event excluded)
@@ -858,13 +863,13 @@ describe('Pipeline Integration Tests', () => {
             ]
 
             // Define result maps
-            const step1Map = new Map<string, PipelineResult<{ message: Message; headers: TestHeaders }>>([
-                ['event1', ok({ message: messages[0], headers: { token: 'test-token' } })],
-                ['event2', ok({ message: messages[1], headers: { token: 'test-token' } })],
+            const step1Map = new Map([
+                ['event1', { delay: 0, result: ok({ message: messages[0], headers: { token: 'test-token' } }) }],
+                ['event2', { delay: 0, result: ok({ message: messages[1], headers: { token: 'test-token' } }) }],
             ])
 
             // Define batch step result map
-            const batchStep4Map = new Map<number, PipelineResult<TestEventWithTeam>>([
+            const batchStep4Map = new Map([
                 [
                     0,
                     ok({
@@ -931,7 +936,7 @@ describe('Pipeline Integration Tests', () => {
                     },
                 ],
             ])
-            const step3 = createMockAsyncStep<
+            const step3 = createMockStep<
                 { message: Message; headers: TestHeaders; event: TestEvent },
                 TestEventWithTeam
             >(step3Map)
@@ -939,7 +944,7 @@ describe('Pipeline Integration Tests', () => {
             const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipeAsync(step2).pipeAsync(step3)
+            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
             const batchPipeline = createNewBatchPipeline()
                 .pipeConcurrently(preprocessingPipeline)
@@ -952,7 +957,7 @@ describe('Pipeline Integration Tests', () => {
                 promiseScheduler: mockPromiseScheduler,
             })
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             // Expect the pipeline to throw an exception
@@ -990,29 +995,35 @@ describe('Pipeline Integration Tests', () => {
             ]
 
             // Define result maps
-            const step1Map = new Map<string, PipelineResult<TestEventWithTeam>>([
+            const step1Map = new Map([
                 [
                     'event1',
-                    ok({
-                        message: messages[0],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event1', event: 'test-event', token: 'test-token' },
-                        team: { id: 1, name: 'Test Team' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[0],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event1', event: 'test-event', token: 'test-token' },
+                            team: { id: 1, name: 'Test Team' },
+                        }),
+                    },
                 ],
                 [
                     'event2',
-                    ok({
-                        message: messages[1],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event2', event: 'test-event', token: 'test-token' },
-                        team: { id: 1, name: 'Test Team' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[1],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event2', event: 'test-event', token: 'test-token' },
+                            team: { id: 1, name: 'Test Team' },
+                        }),
+                    },
                 ],
             ])
 
             // Define batch step result maps
-            const batchStep1Map = new Map<number, PipelineResult<TestEventWithTeam>>([
+            const batchStep1Map = new Map([
                 [
                     0,
                     ok({
@@ -1095,8 +1106,8 @@ describe('Pipeline Integration Tests', () => {
             const gatheredPipeline = createNewBatchPipeline().pipeConcurrently(preprocessingPipeline).gather()
 
             const batchPipeline1 = gatheredPipeline.pipeBatch(batchStep1)
-            const batchPipeline2 = new SequentialBatchPipeline(batchStep2, batchPipeline1)
-            const batchPipeline = new SequentialBatchPipeline(batchStep3, batchPipeline2)
+            const batchPipeline2 = new BaseBatchPipeline(batchStep2, batchPipeline1)
+            const batchPipeline = new BaseBatchPipeline(batchStep3, batchPipeline2)
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, {
                 kafkaProducer: mockKafkaProducer,
@@ -1104,7 +1115,7 @@ describe('Pipeline Integration Tests', () => {
                 promiseScheduler: mockPromiseScheduler,
             })
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             // Expect the pipeline to throw an exception
@@ -1162,11 +1173,11 @@ describe('Pipeline Integration Tests', () => {
             ]
 
             // Define result maps
-            const step1Map = new Map<string, PipelineResult<{ message: Message; headers: TestHeaders }>>([
-                ['drop-event', drop('Mock drop')],
-                ['dlq-event', dlq('Mock DLQ')],
-                ['redirect-event', redirect('Mock redirect', 'redirect-topic', true)],
-                ['ok-event', ok({ message: messages[3], headers: { token: 'test-token' } })],
+            const step1Map = new Map<string, AsyncStepConfig<{ message: Message; headers: TestHeaders }>>([
+                ['drop-event', { delay: 0, result: drop('Mock drop') }],
+                ['dlq-event', { delay: 0, result: dlq('Mock DLQ') }],
+                ['redirect-event', { delay: 0, result: redirect('Mock redirect', 'redirect-topic', true) }],
+                ['ok-event', { delay: 0, result: ok({ message: messages[3], headers: { token: 'test-token' } }) }],
             ])
 
             // Define steps
@@ -1184,7 +1195,7 @@ describe('Pipeline Integration Tests', () => {
             )
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipeAsync(step2)
+            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2)
 
             const batchPipeline = createNewBatchPipeline().pipeConcurrently(preprocessingPipeline).gather()
 
@@ -1194,7 +1205,7 @@ describe('Pipeline Integration Tests', () => {
                 promiseScheduler: mockPromiseScheduler,
             })
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             // Expect the pipeline to throw an exception
@@ -1257,15 +1268,15 @@ describe('Pipeline Integration Tests', () => {
             })
 
             // Define result maps
-            const step1Map = new Map<string, PipelineResult<{ message: Message; headers: TestHeaders }>>([
-                ['event1', ok({ message: messages[0], headers: { token: 'test-token' } })],
-                ['event2', ok({ message: messages[1], headers: { token: 'test-token' } })],
-                ['event3', ok({ message: messages[2], headers: { token: 'test-token' } })],
+            const step1Map = new Map<string, AsyncStepConfig<{ message: Message; headers: TestHeaders }>>([
+                ['event1', { delay: 0, result: ok({ message: messages[0], headers: { token: 'test-token' } }) }],
+                ['event2', { delay: 0, result: ok({ message: messages[1], headers: { token: 'test-token' } }) }],
+                ['event3', { delay: 0, result: ok({ message: messages[2], headers: { token: 'test-token' } }) }],
             ])
 
             // Create deterministic async step that waits for manual resolution
             let callCount = 0
-            const asyncStep2 = jest.fn(
+            const step2 = jest.fn(
                 async (input: {
                     message: Message
                     headers: TestHeaders
@@ -1295,7 +1306,7 @@ describe('Pipeline Integration Tests', () => {
             const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }>(step1Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipeAsync(asyncStep2)
+            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2)
 
             const batchPipeline = createNewBatchPipeline().pipeConcurrently(preprocessingPipeline).gather()
 
@@ -1305,7 +1316,7 @@ describe('Pipeline Integration Tests', () => {
                 promiseScheduler: mockPromiseScheduler,
             })
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             // Start the pipeline processing
@@ -1349,7 +1360,7 @@ describe('Pipeline Integration Tests', () => {
 
             // Verify mock steps were called with correct arguments
             expect(step1).toHaveBeenCalledTimes(3)
-            expect(asyncStep2).toHaveBeenCalledTimes(3)
+            expect(step2).toHaveBeenCalledTimes(3)
         })
 
         it('should process multiple events concurrently while maintaining ordering', async () => {
@@ -1367,59 +1378,71 @@ describe('Pipeline Integration Tests', () => {
             )
 
             // Define result maps
-            const step1Map = new Map<string, PipelineResult<{ message: Message; headers: TestHeaders }>>([
-                ['event-0', ok({ message: messages[0], headers: { token: 'test-token' } })],
-                ['event-1', ok({ message: messages[1], headers: { token: 'test-token' } })],
-                ['event-2', ok({ message: messages[2], headers: { token: 'test-token' } })],
-                ['event-3', ok({ message: messages[3], headers: { token: 'test-token' } })],
-                ['event-4', ok({ message: messages[4], headers: { token: 'test-token' } })],
+            const step1Map = new Map([
+                ['event-0', { delay: 0, result: ok({ message: messages[0], headers: { token: 'test-token' } }) }],
+                ['event-1', { delay: 0, result: ok({ message: messages[1], headers: { token: 'test-token' } }) }],
+                ['event-2', { delay: 0, result: ok({ message: messages[2], headers: { token: 'test-token' } }) }],
+                ['event-3', { delay: 0, result: ok({ message: messages[3], headers: { token: 'test-token' } }) }],
+                ['event-4', { delay: 0, result: ok({ message: messages[4], headers: { token: 'test-token' } }) }],
             ])
-            const step2Map = new Map<
-                string,
-                PipelineResult<{ message: Message; headers: TestHeaders; event: TestEvent }>
-            >([
+            const step2Map = new Map([
                 [
                     'event-0',
-                    ok({
-                        message: messages[0],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event-0', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[0],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event-0', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
                 ],
                 [
                     'event-1',
-                    ok({
-                        message: messages[1],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event-1', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[1],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event-1', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
                 ],
                 [
                     'event-2',
-                    ok({
-                        message: messages[2],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event-2', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[2],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event-2', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
                 ],
                 [
                     'event-3',
-                    ok({
-                        message: messages[3],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event-3', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[3],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event-3', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
                 ],
                 [
                     'event-4',
-                    ok({
-                        message: messages[4],
-                        headers: { token: 'test-token' },
-                        event: { uuid: 'event-4', event: 'test-event', token: 'test-token' },
-                    }),
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[4],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event-4', event: 'test-event', token: 'test-token' },
+                        }),
+                    },
                 ],
             ])
-            const asyncStep3Map = new Map<string, AsyncStepConfig<TestEventWithTeam>>([
+            const step3Map = new Map([
                 [
                     'event-0',
                     {
@@ -1483,7 +1506,7 @@ describe('Pipeline Integration Tests', () => {
             ])
 
             // Define batch step result map
-            const batchStep4Map = new Map<number, PipelineResult<TestEventWithTeam>>([
+            const batchStep4Map = new Map([
                 [
                     0,
                     ok({
@@ -1537,16 +1560,16 @@ describe('Pipeline Integration Tests', () => {
                 { message: Message; headers: TestHeaders },
                 { message: Message; headers: TestHeaders; event: TestEvent }
             >(step2Map)
-            const asyncStep3 = createMockAsyncStep<
+            const step3 = createMockStep<
                 { message: Message; headers: TestHeaders; event: TestEvent },
                 TestEventWithTeam
-            >(asyncStep3Map)
+            >(step3Map)
 
             // Define batch step
             const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipeAsync(asyncStep3)
+            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
             const batchPipeline = createNewBatchPipeline()
                 .pipeConcurrently(preprocessingPipeline)
@@ -1555,7 +1578,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const results = await resultHandlingPipeline.next()
@@ -1569,7 +1592,7 @@ describe('Pipeline Integration Tests', () => {
             // Verify mock steps were called with correct arguments
             expect(step1).toHaveBeenCalledTimes(5)
             expect(step2).toHaveBeenCalledTimes(5)
-            expect(asyncStep3).toHaveBeenCalledTimes(5)
+            expect(step3).toHaveBeenCalledTimes(5)
 
             // Verify batch step was called with events in correct order
             expect(batchStep4).toHaveBeenCalledTimes(1)
@@ -1602,10 +1625,10 @@ describe('Pipeline Integration Tests', () => {
             )
 
             // Create result map with random delays between 50-150ms
-            const asyncStep1Map = new Map<string, AsyncStepConfig<TestEventWithTeam>>()
+            const step1Map = new Map<string, AsyncStepConfig<TestEventWithTeam>>()
             for (let i = 0; i < 100; i++) {
                 const randomDelay = Math.floor(Math.random() * 100) + 50 // 50-150ms
-                asyncStep1Map.set(`event-${i}`, {
+                step1Map.set(`event-${i}`, {
                     delay: randomDelay,
                     result: ok({
                         message: messages[i],
@@ -1636,13 +1659,13 @@ describe('Pipeline Integration Tests', () => {
             }
 
             // Define step with random delays
-            const asyncStep1 = createMockAsyncStep<{ message: Message }, TestEventWithTeam>(asyncStep1Map)
+            const step1 = createMockStep<{ message: Message }, TestEventWithTeam>(step1Map)
 
             // Define batch step
             const batchStep2 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep2Map)
 
             // Create pipeline with single async step
-            const preprocessingPipeline = createNewPipeline().pipeAsync(asyncStep1)
+            const preprocessingPipeline = createNewPipeline().pipe(step1)
 
             const batchPipeline = createNewBatchPipeline()
                 .pipeConcurrently(preprocessingPipeline)
@@ -1651,7 +1674,7 @@ describe('Pipeline Integration Tests', () => {
 
             const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
 
-            const batch = createBatch(messages)
+            const batch = createBatch(messages.map((message) => ({ message })))
             resultHandlingPipeline.feed(batch)
 
             const startTime = Date.now()
@@ -1672,7 +1695,7 @@ describe('Pipeline Integration Tests', () => {
             expect(totalTime).toBeLessThanOrEqual(300) // Should complete within 300ms due to concurrency
 
             // Verify mock step was called for all events
-            expect(asyncStep1).toHaveBeenCalledTimes(100)
+            expect(step1).toHaveBeenCalledTimes(100)
         })
     })
 })

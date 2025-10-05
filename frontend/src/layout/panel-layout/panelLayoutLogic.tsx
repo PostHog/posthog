@@ -23,7 +23,7 @@ export const PANEL_LAYOUT_MIN_WIDTH: number = 160
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
     connect(() => ({
-        values: [navigation3000Logic, ['mobileLayout']],
+        values: [navigation3000Logic, ['mobileLayout'], router, ['location']],
     })),
     actions({
         closePanel: true,
@@ -220,6 +220,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 return ''
             },
         ],
+        pathname: [(s) => [s.location], (location): string => location.pathname],
     }),
     afterMount(({ actions, cache, values }) => {
         const handleResize = (): void => {

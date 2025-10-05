@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { NamedQueryRequest, NodeKind } from '~/queries/schema/schema-general'
 
 import type { queryEndpointLogicType } from './queryEndpointLogicType'
+import { queryEndpointsLogic } from './queryEndpointsLogic'
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 
@@ -20,6 +21,9 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
     path(['products', 'embedded_analytics', 'frontend', 'queryEndpointLogic']),
     props({} as QueryEndpointLogicProps),
     key((props) => props.tabId),
+    connect(() => ({
+        actions: [queryEndpointsLogic, ['loadQueryEndpoints']],
+    })),
     actions({
         setQueryEndpointName: (queryEndpointName: string) => ({ queryEndpointName }),
         setQueryEndpointDescription: (queryEndpointDescription: string) => ({ queryEndpointDescription }),
@@ -87,6 +91,7 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
         },
         deleteQueryEndpointSuccess: () => {
             lemonToast.success('Query endpoint deleted successfully')
+            actions.loadQueryEndpoints()
         },
         deleteQueryEndpointFailure: ({ error }) => {
             console.error('Failed to delete query endpoint:', error)

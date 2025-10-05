@@ -162,7 +162,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
-                sql=PERSONS_TABLE_MV_SQL,
+                sql=PERSONS_TABLE_MV_SQL(target_table=PERSON_TABLE),
                 rollback=None,
             ),
             AsyncMigrationOperation(

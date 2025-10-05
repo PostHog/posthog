@@ -35,7 +35,7 @@ export function QueryEndpoints({ tabId }: QueryEndpointsProps): JSX.Element {
 
 export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.Element => {
     const { setFilters } = useActions(queryEndpointsLogic({ tabId }))
-    const { queryEndpoints, queryEndpointsLoading, filters } = useValues(queryEndpointsLogic({ tabId }))
+    const { queryEndpoints, allQueryEndpointsLoading, filters } = useValues(queryEndpointsLogic({ tabId }))
 
     const { deleteQueryEndpoint, deactivateQueryEndpoint } = useActions(queryEndpointLogic({ tabId }))
 
@@ -165,7 +165,7 @@ export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.El
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 columns={columns}
-                loading={queryEndpointsLoading}
+                loading={allQueryEndpointsLoading}
                 // TODO: defaultSorting & onSort
                 emptyState="No query endpoints matching your filters!"
                 nouns={['query endpoint', 'query endpoints']}

@@ -338,6 +338,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": ALL_MONTHS_DAYS,
                     "labels": ALL_MONTHS_LABELS,
                     "data": [0, 0, 3, 6, 6, 6, 6, 3, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Subscription Count",
+                    },
                     "action": {
                         "days": ALL_MONTHS_FAKEDATETIMES,
                         "id": "Subscription Count | stripe.posthog_test",
@@ -349,6 +353,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": ALL_MONTHS_DAYS,
                     "labels": ALL_MONTHS_LABELS,
                     "data": [0, 0, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "New Subscription Count",
+                    },
                     "action": {
                         "days": ALL_MONTHS_FAKEDATETIMES,
                         "id": "New Subscription Count | stripe.posthog_test",
@@ -360,6 +368,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": ALL_MONTHS_DAYS,
                     "labels": ALL_MONTHS_LABELS,
                     "data": [0, 0, 0, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Churned Subscription Count",
+                    },
                     "action": {
                         "days": ALL_MONTHS_FAKEDATETIMES,
                         "id": "Churned Subscription Count | stripe.posthog_test",
@@ -371,6 +383,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": ALL_MONTHS_DAYS,
                     "labels": ALL_MONTHS_LABELS,
                     "data": [0, 0, 3, 6, 6, 6, 6, 3, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Customer Count",
+                    },
                     "action": {
                         "days": ALL_MONTHS_FAKEDATETIMES,
                         "id": "Customer Count | stripe.posthog_test",
@@ -382,6 +398,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": ALL_MONTHS_DAYS,
                     "labels": ALL_MONTHS_LABELS,
                     "data": [0, 0, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "New Customer Count",
+                    },
                     "action": {
                         "days": ALL_MONTHS_FAKEDATETIMES,
                         "id": "New Customer Count | stripe.posthog_test",
@@ -393,6 +413,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": ALL_MONTHS_DAYS,
                     "labels": ALL_MONTHS_LABELS,
                     "data": [0, 0, 0, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Churned Customer Count",
+                    },
                     "action": {
                         "days": ALL_MONTHS_FAKEDATETIMES,
                         "id": "Churned Customer Count | stripe.posthog_test",
@@ -424,6 +448,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         0,
                         0,
                     ],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "ARPU",
+                    },
                     "action": {
                         "days": ALL_MONTHS_FAKEDATETIMES,
                         "id": "ARPU | stripe.posthog_test",
@@ -455,6 +483,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         0,
                         0,
                     ],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "LTV",
+                    },
                     "action": {
                         "days": ALL_MONTHS_FAKEDATETIMES,
                         "id": "LTV | stripe.posthog_test",
@@ -481,6 +513,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [6, 6, 3, 2],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Subscription Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "Subscription Count | stripe.posthog_test",
@@ -492,6 +528,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0, 0, 0, 0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "New Subscription Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "New Subscription Count | stripe.posthog_test",
@@ -503,6 +543,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0, 3, 1, 0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Churned Subscription Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "Churned Subscription Count | stripe.posthog_test",
@@ -514,6 +558,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [6, 6, 3, 2],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Customer Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "Customer Count | stripe.posthog_test",
@@ -525,6 +573,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0, 0, 0, 0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "New Customer Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "New Customer Count | stripe.posthog_test",
@@ -536,6 +588,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0, 3, 1, 0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Churned Customer Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "Churned Customer Count | stripe.posthog_test",
@@ -552,6 +608,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         Decimal("7.1804790033"),
                         Decimal("10.7707185049"),
                     ],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "ARPU",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "ARPU | stripe.posthog_test",
@@ -563,6 +623,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [None, Decimal("540.4021990224"), Decimal("21.541437012"), None],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "LTV",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "LTV | stripe.posthog_test",
@@ -590,6 +654,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Subscription Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "Subscription Count | stripe.posthog_test",
@@ -601,6 +669,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "New Subscription Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "New Subscription Count | stripe.posthog_test",
@@ -612,6 +684,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Churned Subscription Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "Churned Subscription Count | stripe.posthog_test",
@@ -623,6 +699,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Customer Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "Customer Count | stripe.posthog_test",
@@ -634,6 +714,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "New Customer Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "New Customer Count | stripe.posthog_test",
@@ -645,6 +729,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "Churned Customer Count",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "Churned Customer Count | stripe.posthog_test",
@@ -656,6 +744,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "ARPU",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "ARPU | stripe.posthog_test",
@@ -667,6 +759,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [0],
+                    "breakdown": {
+                        "property": "stripe.posthog_test",
+                        "kind": "LTV",
+                    },
                     "action": {
                         "days": action_days,
                         "id": "LTV | stripe.posthog_test",

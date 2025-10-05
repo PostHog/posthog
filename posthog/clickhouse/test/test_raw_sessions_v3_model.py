@@ -542,3 +542,26 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         assert not result[1]["has_f1_a"]
         assert not result[1]["has_f1_b"]
         assert result[1]["has_f1_c"]
+
+    def test_tracks_all_distinct_ids(self):
+        distinct_id_1 = create_distinct_id()
+        distinct_id_2 = create_distinct_id()
+        session_id = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id_1,
+            properties={"$current_url": "/", "$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id_2,
+            properties={"$current_url": "/", "$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert set(result[0]["distinct_ids"]) == {distinct_id_1, distinct_id_2}

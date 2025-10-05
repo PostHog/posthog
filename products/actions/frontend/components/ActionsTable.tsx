@@ -220,10 +220,11 @@ export function ActionsTable(): JSX.Element {
                                     sideIcon={<IconPlayCircle />}
                                     fullWidth
                                     data-attr="action-table-view-recordings"
+                                    targetBlank
                                 >
                                     View recordings
                                 </LemonButton>
-                                <LemonButton to={tryInInsightsUrl(action)} fullWidth>
+                                <LemonButton to={tryInInsightsUrl(action)} fullWidth targetBlank>
                                     Try out in Insights
                                 </LemonButton>
                                 <LemonDivider />

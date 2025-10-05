@@ -512,23 +512,23 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
                 expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_from": "-1d", "date_to": "-1d"}),
             ),
             EvalCase(
-                input="Show me recordings since the 1st of August",
-                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_from": "2025-08-01T00:00:00:000"}),
+                input="Assuming we're in 2024, show me recordings since the 1st of August",
+                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_from": "2024-08-01T00:00:00:000"}),
             ),
             EvalCase(
-                input="Show me recordings until the 31st of August",
-                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_to": "2025-08-31T23:59:59:999"}),
+                input="Assuming we're in 2024, show me recordings until the 31st of August",
+                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_to": "2024-08-31T23:59:59:999"}),
             ),
             EvalCase(
-                input="Show me recordings from the 1st of September to the 31st of September",
+                input="Assuming we're in 2024, show me recordings from the 1st of September to the 31st of September",
                 expected=DUMMY_CURRENT_FILTERS.model_copy(
-                    update={"date_from": "2025-09-01T00:00:00:000", "date_to": "2025-09-30T23:59:59:999"}
+                    update={"date_from": "2024-09-01T00:00:00:000", "date_to": "2024-09-30T23:59:59:999"}
                 ),
             ),
             EvalCase(
-                input="Show me recordings from the 1st of September to the 1st of September",
+                input="Assuming we're in 2024, show me recordings from the 1st of September to the 1st of September",
                 expected=DUMMY_CURRENT_FILTERS.model_copy(
-                    update={"date_from": "2025-09-01T00:00:00:000", "date_to": "2025-09-01T23:59:59:999"}
+                    update={"date_from": "2024-09-01T00:00:00:000", "date_to": "2024-09-01T23:59:59:999"}
                 ),
             ),
             EvalCase(

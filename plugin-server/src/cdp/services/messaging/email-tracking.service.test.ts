@@ -18,7 +18,8 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
 
 import { Hub, Team } from '../../../types'
-import { PIXEL_GIF, generateEmailTrackingCode } from './email-tracking.service'
+import { PIXEL_GIF } from './email-tracking.service'
+import { generateEmailTrackingCode } from './helpers/tracking-code'
 import { MailjetEventBase, MailjetWebhookEvent } from './types'
 
 describe('EmailTrackingService', () => {

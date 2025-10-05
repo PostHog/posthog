@@ -53,7 +53,7 @@ def rbac_dashboard_access_control_migration(organization_id: int):
                     # Create default access control entry for the dashboard (view access for all)
                     AccessControl.objects.create(
                         team_id=dashboard.team_id,
-                        access_level="view",
+                        access_level="viewer",
                         resource="dashboard",
                         resource_id=str(dashboard.id),
                     )
@@ -86,7 +86,7 @@ def rbac_dashboard_access_control_migration(organization_id: int):
                                 # Create access control entry for the user with edit access
                                 AccessControl.objects.create(
                                     team_id=dashboard.team_id,
-                                    access_level="edit",
+                                    access_level="editor",
                                     resource="dashboard",
                                     resource_id=str(dashboard.id),
                                     organization_member=org_membership,

@@ -44,7 +44,6 @@ class RoleSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
-            "feature_flags_access_level",
             "created_at",
             "created_by",
             "members",

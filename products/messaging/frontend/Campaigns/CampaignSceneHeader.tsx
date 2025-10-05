@@ -10,7 +10,7 @@ import { CampaignSceneLogicProps } from './campaignSceneLogic'
 export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.Element => {
     const logic = campaignLogic(props)
     const { campaign, campaignChanged, isCampaignSubmitting, campaignLoading, campaignHasErrors } = useValues(logic)
-    const { saveCampaign, submitCampaign, discardChanges, setCampaignValue } = useActions(logic)
+    const { saveCampaignPartial, submitCampaign, discardChanges, setCampaignValue } = useActions(logic)
 
     const isSavedCampaign = props.id && props.id !== 'new'
 
@@ -32,7 +32,7 @@ export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.El
                                 <LemonButton
                                     type="primary"
                                     onClick={() =>
-                                        saveCampaign({
+                                        saveCampaignPartial({
                                             status: campaign?.status === 'draft' ? 'active' : 'draft',
                                         })
                                     }

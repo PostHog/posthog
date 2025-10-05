@@ -66,7 +66,7 @@ export function TextCardModal({
                 enableFormOnSubmit
             >
                 <Field name="body" label="">
-                    <LemonTextAreaMarkdown data-attr="text-card-edit-area" />
+                    <LemonTextAreaMarkdown maxLength={4000} data-attr="text-card-edit-area" />
                 </Field>
             </Form>
         </LemonModal>

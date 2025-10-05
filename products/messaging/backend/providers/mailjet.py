@@ -9,7 +9,7 @@ from rest_framework import exceptions
 logger = logging.getLogger(__name__)
 
 
-class MailjetResponse:
+class MailjetDnsResponse:
     count: int
     data: list[dict]
     total: int
@@ -23,10 +23,22 @@ class MailjetResponse:
         return self.data[0] if self.data else None
 
 
+class MailjetValidationResponse:
+    validation_method: str
+    errors: dict
+    global_error: str
+
+    def __init__(self, ValidationMethod: str, Errors: dict, GlobalError: str):
+        self.validation_method = ValidationMethod
+        self.errors = Errors
+        self.global_error = GlobalError
+
+
 class MailjetConfig:
     API_BASE_URL_V3: str = "https://api.mailjet.com/v3/REST"
 
     SENDER_ENDPOINT: str = "/sender"
+    SENDER_VALIDATE_ENDPOINT: str = "/validate"
     DNS_ENDPOINT: str = "/dns"
     DNS_CHECK_ENDPOINT: str = "/check"
 
@@ -54,14 +66,16 @@ class MailjetProvider:
             raise ValueError("MAILJET_SECRET_KEY is not set in environment or settings")
         return api_secret
 
-    def _format_dns_records(self, required_dns_records: dict, dns_status_response: dict) -> tuple[str, list[dict]]:
+    def _format_dns_records(
+        self, required_dns_records: dict, dns_status_response: dict, is_mailjet_validated: bool
+    ) -> tuple[str, list[dict]]:
         formatted_dns_records = []
 
         # DKIM status possible values: "Not checked", "OK", "Error"
         dkim_status = dns_status_response.get("DKIMStatus", "Not checked")
         # SPF status possible values: "Not checked", "Not found", "OK", "Error"
         spf_status = dns_status_response.get("SPFStatus", "Not checked")
-        overall_status = "success" if dkim_status == "OK" and spf_status == "OK" else "pending"
+        overall_status = "success" if dkim_status == "OK" and spf_status == "OK" and is_mailjet_validated else "pending"
 
         if "DKIMRecordName" in required_dns_records and "DKIMRecordValue" in required_dns_records:
             formatted_dns_records.append(
@@ -85,11 +99,22 @@ class MailjetProvider:
                 }
             )
 
+        if "OwnerShipToken" in required_dns_records and "OwnerShipTokenRecordName" in required_dns_records:
+            formatted_dns_records.append(
+                {
+                    "type": "ownership",
+                    "recordType": "TXT",
+                    "recordHostname": required_dns_records.get("OwnerShipTokenRecordName"),
+                    "recordValue": required_dns_records.get("OwnerShipToken"),
+                    "status": "success" if is_mailjet_validated else "pending",
+                }
+            )
+
         return overall_status, formatted_dns_records
 
     def _get_domain_dns_records(self, domain: str):
         """
-        Get DNS records for a domain (DKIM and SPF verification status)
+        Get DNS records for a domain (Mailjet verification, DKIM + SPF verification status)
 
         Reference: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/dns/
         """
@@ -98,7 +123,7 @@ class MailjetProvider:
         try:
             response = requests.get(url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS)
             response.raise_for_status()
-            return MailjetResponse(**response.json()).get_first_item()
+            return MailjetDnsResponse(**response.json()).get_first_item()
         except requests.exceptions.RequestException as e:
             logger.exception(f"Mailjet API error fetching DNS records: {e}")
             raise
@@ -114,7 +139,23 @@ class MailjetProvider:
         try:
             response = requests.post(url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS)
             response.raise_for_status()
-            return MailjetResponse(**response.json()).get_first_item()
+            return MailjetDnsResponse(**response.json()).get_first_item()
+        except requests.exceptions.RequestException as e:
+            logger.exception(f"Mailjet API error checking DNS records: {e}")
+            raise
+
+    def _validate_email_sender(self, sender_id: str):
+        """
+        Trigger validation of the sender in Mailjet
+
+        Reference: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/sender/#v3_post_sender_sender_ID_validate
+        """
+        url = f"{MailjetConfig.API_BASE_URL_V3}{MailjetConfig.SENDER_ENDPOINT}/{sender_id}{MailjetConfig.SENDER_VALIDATE_ENDPOINT}"
+        try:
+            response = requests.post(url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS)
+            response.raise_for_status()
+            validation_response = MailjetValidationResponse(**response.json())
+            return validation_response.errors.get("DNSValidationError") is None
         except requests.exceptions.RequestException as e:
             logger.exception(f"Mailjet API error checking DNS records: {e}")
             raise
@@ -147,21 +188,24 @@ class MailjetProvider:
 
             if (
                 response.status_code == 400
-                and "There is an already existing inactive sender with the same email" in response.text
+                and "There is an already existing" in response.text
+                and "sender with the same email" in response.text
             ):
-                # If the domain already exists, we can return without raising exception
                 return
 
-            response.raise_for_status()
         except requests.exceptions.RequestException as e:
             logger.exception(f"Mailjet API error creating sender domain: {e}")
             raise
 
-    def verify_email_domain(self, domain: str, team_id: int):
+    def verify_email_domain(self, domain: str):
         """
         Verify the email domain by checking DNS records status.
         """
         required_dns_records = self._get_domain_dns_records(domain)
         dns_status_response = self._check_domain_dns_records(domain)
-        overall_status, formatted_dns_records = self._format_dns_records(required_dns_records, dns_status_response)
+        is_mailjet_validated = self._validate_email_sender(f"*@{domain}")
+        overall_status, formatted_dns_records = self._format_dns_records(
+            required_dns_records, dns_status_response, is_mailjet_validated
+        )
+
         return {"status": overall_status, "dnsRecords": formatted_dns_records}

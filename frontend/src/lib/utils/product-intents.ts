@@ -67,6 +67,9 @@ export enum ProductIntentContext {
     SURVEY_DUPLICATED = 'survey_duplicated',
     SURVEY_EDITED = 'survey_edited',
     SURVEY_ANALYZED = 'survey_analyzed',
+
+    // Nav Panel Advertisement
+    NAV_PANEL_ADVERTISEMENT_CLICKED = 'nav_panel_advertisement_clicked',
 }
 
 export type ProductIntentMetadata = Record<string, unknown>

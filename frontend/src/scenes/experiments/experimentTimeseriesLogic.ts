@@ -1,10 +1,11 @@
-import { actions, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import api from 'lib/api'
 
 import {
+    ExperimentMetric,
     ExperimentMetricTimeseries,
     ExperimentQueryResponse,
     ExperimentVariantResultBayesian,
@@ -43,6 +44,7 @@ export interface ProcessedChartData {
 
 export interface ExperimentTimeseriesLogicProps {
     experimentId: number | string
+    metric?: ExperimentMetric
 }
 
 export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
@@ -58,9 +60,16 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
         timeseries: [
             null as ExperimentMetricTimeseries | null,
             {
-                loadTimeseries: async ({ metricUuid }: { metricUuid: string }) => {
+                loadTimeseries: async ({ metric }: { metric: ExperimentMetric }) => {
+                    if (!metric.uuid) {
+                        throw new Error('Metric UUID is required')
+                    }
+                    if (!metric.fingerprint) {
+                        throw new Error('Metric fingerprint is required')
+                    }
+
                     const response = await api.get(
-                        `api/projects/@current/experiments/${props.experimentId}/timeseries_results/?metric_uuid=${metricUuid}`
+                        `api/projects/@current/experiments/${props.experimentId}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
                     )
                     return response
                 },
@@ -147,27 +156,30 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
             },
         ],
 
-        // Simple status check for complete data
-        timeseriesStatus: [
+        // Progress message - only shown when we have partial data
+        progressMessage: [
             (s) => [s.timeseries],
             (timeseries: ExperimentMetricTimeseries | null): string | null => {
-                if (!timeseries) {
+                if (!timeseries || timeseries.status !== 'partial') {
                     return null
                 }
 
-                if (timeseries.status === 'pending') {
-                    return 'Calculating timeseries data...'
-                }
+                const timeseriesData = timeseries.timeseries || {}
+                const computedDays = Object.values(timeseriesData).filter(Boolean).length
+                const totalDays = Object.keys(timeseriesData).length
 
-                if (timeseries.status === 'failed') {
-                    return 'Failed to calculate timeseries data'
-                }
-
-                if (timeseries.status === 'partial') {
-                    return 'Timeseries calculation in progress...'
-                }
-
-                return null
+                return totalDays > 0 ? `Computed ${computedDays} of ${totalDays} days` : null
+            },
+        ],
+        hasTimeseriesData: [
+            (s) => [s.timeseries],
+            (timeseries: ExperimentMetricTimeseries | null): boolean => {
+                return !!(
+                    timeseries &&
+                    (timeseries.status === 'completed' || timeseries.status === 'partial') &&
+                    timeseries.timeseries &&
+                    Object.values(timeseries.timeseries).some((data) => data !== null)
+                )
             },
         ],
 
@@ -265,5 +277,11 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                 }
             },
         ],
+    }),
+
+    afterMount(({ props, actions }) => {
+        if (props.metric && props.metric.uuid && props.metric.fingerprint) {
+            actions.loadTimeseries({ metric: props.metric })
+        }
     }),
 ])

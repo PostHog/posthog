@@ -1,12 +1,10 @@
-// Middleware + prometheus exporter setup
+// prometheus exporter setup
 
-use std::time::Instant;
-
-use axum::body::Body;
-use axum::{extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse};
 use limiters::redis::QuotaResource;
 use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+
+use crate::metrics_middleware::METRIC_CAPTURE_REQUEST_SIZE_BYTES;
 
 pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
 
@@ -43,6 +41,18 @@ pub fn setup_metrics_recorder() -> PrometheusHandle {
     const BATCH_SIZES: &[f64] = &[
         1.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0,
     ];
+    // Buckets for request content-length in bytes (1KB to 20MB)
+    const REQUEST_SIZE_BYTES: &[f64] = &[
+        1024.0,       // 1 KB
+        10_240.0,     // 10 KB
+        102_400.0,    // 100 KB
+        512_000.0,    // 500 KB
+        1_048_576.0,  // 1 MB
+        5_242_880.0,  // 5 MB
+        10_485_760.0, // 10 MB
+        20_971_520.0, // 20 MB
+        52_428_800.0, // 50 MB (for edge cases)
+    ];
 
     PrometheusBuilder::new()
         .set_buckets_for_metric(
@@ -52,39 +62,11 @@ pub fn setup_metrics_recorder() -> PrometheusHandle {
         .unwrap()
         .set_buckets_for_metric(Matcher::Suffix("_batch_size".to_string()), BATCH_SIZES)
         .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full(METRIC_CAPTURE_REQUEST_SIZE_BYTES.to_string()),
+            REQUEST_SIZE_BYTES,
+        )
+        .unwrap()
         .install_recorder()
         .unwrap()
-}
-
-/// Middleware to record some common HTTP metrics
-/// Generic over B to allow for arbitrary body types (eg Vec<u8>, Streams, a deserialized thing, etc)
-/// Someday tower-http might provide a metrics middleware: https://github.com/tower-rs/tower-http/issues/57
-pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse {
-    let start = Instant::now();
-
-    let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
-        matched_path.as_str().to_owned()
-    } else {
-        req.uri().path().to_owned()
-    };
-
-    let method = req.method().clone();
-
-    // Run the rest of the request handling first, so we can measure it and get response
-    // codes.
-    let response = next.run(req).await;
-
-    let latency = start.elapsed().as_secs_f64();
-    let status = response.status().as_u16().to_string();
-
-    let labels = [
-        ("method", method.to_string()),
-        ("path", path),
-        ("status", status),
-    ];
-
-    metrics::counter!("http_requests_total", &labels).increment(1);
-    metrics::histogram!("http_requests_duration_seconds", &labels).record(latency);
-
-    response
 }

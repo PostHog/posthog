@@ -6,6 +6,7 @@ import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { cn } from 'lib/utils/css-classes'
 
+import { ScrollDepthCanvas } from './ScrollDepthCanvas'
 import { useMousePosition } from './useMousePosition'
 
 function HeatmapMouseInfo({
@@ -131,8 +132,19 @@ export function HeatmapCanvas({
         })
     }, [heatmapJSColorGradient])
 
-    if (!heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
+    if (!heatmapFilters.enabled) {
         return null
+    }
+
+    if (heatmapFilters.type === 'scrolldepth') {
+        return (
+            <ScrollDepthCanvas
+                key={`scrolldepth-${heatmapFilters.type}-${exportToken ? 'export' : `${widthOverride ?? windowWidth}x${windowHeight}`}`}
+                positioning={positioning}
+                context={context}
+                exportToken={exportToken}
+            />
+        )
     }
 
     return (

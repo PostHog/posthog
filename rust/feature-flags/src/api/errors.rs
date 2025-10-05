@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use common_cookieless::CookielessManagerError;
-use common_database::CustomDatabaseError;
+use common_database::{extract_timeout_type, is_timeout_error, CustomDatabaseError};
 use common_redis::CustomRedisError;
 use thiserror::Error;
 
@@ -52,7 +52,7 @@ pub enum FlagError {
     #[error("Database error: {0}")]
     DatabaseError(sqlx::Error, Option<String>),
     #[error("Timed out while fetching data")]
-    TimeoutError,
+    TimeoutError(Option<String>),
     #[error("No group type mappings")]
     NoGroupTypeMappings,
     #[error("Dependency of type {0} with id {1} not found")]
@@ -69,6 +69,42 @@ pub enum FlagError {
     StaticCohortMatchesNotCached,
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
+}
+
+impl FlagError {
+    pub fn is_5xx(&self) -> bool {
+        let status = match self {
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+            FlagError::ClientFacing(_) => return false, // All other ClientFacing are 4XX
+            FlagError::Internal(_)
+            | FlagError::CacheUpdateError
+            | FlagError::DeserializeFiltersError
+            | FlagError::DatabaseError(_, _)
+            | FlagError::NoGroupTypeMappings
+            | FlagError::RowNotFound
+            | FlagError::DependencyNotFound(_, _)
+            | FlagError::CohortFiltersParsingError
+            | FlagError::DependencyCycle(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
+
+            FlagError::RedisDataParsingError
+            | FlagError::RedisUnavailable
+            | FlagError::DatabaseUnavailable
+            | FlagError::TimeoutError(_) => StatusCode::SERVICE_UNAVAILABLE,
+
+            FlagError::CookielessError(
+                CookielessManagerError::HashError(_)
+                | CookielessManagerError::ChronoError(_)
+                | CookielessManagerError::RedisError(_, _)
+                | CookielessManagerError::SaltCacheError(_)
+                | CookielessManagerError::InvalidIdentifyCount(_),
+            ) => StatusCode::INTERNAL_SERVER_ERROR,
+            FlagError::CookielessError(_) => return false, // Other CookielessErrors are 4XX
+            _ => return false,                             // Everything else is 4XX
+        };
+        status.is_server_error()
+    }
 }
 
 impl IntoResponse for FlagError {
@@ -149,8 +185,9 @@ impl IntoResponse for FlagError {
                     "A database error occurred. Please try again later or contact support if the problem persists.".to_string(),
                 )
             }
-            FlagError::TimeoutError => {
-                tracing::error!("Timeout error: {:?}", self);
+            FlagError::TimeoutError(ref timeout_type) => {
+                let timeout_desc = timeout_type.as_deref().unwrap_or("unknown type");
+                tracing::error!("Timeout error ({}): {:?}", timeout_desc, self);
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "The request timed out. This could be due to high load or network issues. Please try again later.".to_string(),
@@ -228,7 +265,7 @@ impl From<CustomRedisError> for FlagError {
         match e {
             CustomRedisError::NotFound => FlagError::TokenValidationError,
             CustomRedisError::ParseError(_) => FlagError::RedisDataParsingError,
-            CustomRedisError::Timeout => FlagError::TimeoutError,
+            CustomRedisError::Timeout => FlagError::TimeoutError(Some("redis_timeout".to_string())),
             CustomRedisError::Other(_) => FlagError::RedisUnavailable,
         }
     }
@@ -237,8 +274,19 @@ impl From<CustomRedisError> for FlagError {
 impl From<CustomDatabaseError> for FlagError {
     fn from(e: CustomDatabaseError) -> Self {
         match e {
-            CustomDatabaseError::Other(_) => FlagError::DatabaseUnavailable,
-            CustomDatabaseError::Timeout(_) => FlagError::TimeoutError,
+            CustomDatabaseError::Timeout(_) => {
+                FlagError::TimeoutError(Some("client_timeout".to_string()))
+            }
+            CustomDatabaseError::Other(sqlx_error) => {
+                // Check if it's a timeout-related SQL error
+                if is_timeout_error(&sqlx_error) {
+                    FlagError::TimeoutError(
+                        extract_timeout_type(&sqlx_error).map(|s| s.to_string()),
+                    )
+                } else {
+                    FlagError::DatabaseUnavailable
+                }
+            }
         }
     }
 }
@@ -247,7 +295,108 @@ impl From<sqlx::Error> for FlagError {
     fn from(e: sqlx::Error) -> Self {
         match e {
             sqlx::Error::RowNotFound => FlagError::RowNotFound,
-            _ => FlagError::DatabaseError(e, None),
+            _ => {
+                // Check if it's a timeout-related SQL error
+                if is_timeout_error(&e) {
+                    FlagError::TimeoutError(extract_timeout_type(&e).map(|s| s.to_string()))
+                } else {
+                    FlagError::DatabaseError(e, None)
+                }
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::time::{timeout, Duration};
+
+    #[test]
+    fn test_is_5xx() {
+        // Test 5XX errors
+        assert!(FlagError::Internal("test".to_string()).is_5xx());
+        assert!(FlagError::CacheUpdateError.is_5xx());
+        assert!(FlagError::DatabaseUnavailable.is_5xx());
+        assert!(FlagError::RedisUnavailable.is_5xx());
+        assert!(FlagError::TimeoutError(None).is_5xx());
+        assert!(FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).is_5xx());
+
+        // Test 4XX errors
+        assert!(
+            !FlagError::ClientFacing(ClientFacingError::BadRequest("test".to_string())).is_5xx()
+        );
+        assert!(
+            !FlagError::ClientFacing(ClientFacingError::Unauthorized("test".to_string())).is_5xx()
+        );
+        assert!(!FlagError::ClientFacing(ClientFacingError::RateLimited).is_5xx());
+        assert!(!FlagError::ClientFacing(ClientFacingError::BillingLimit).is_5xx());
+        assert!(!FlagError::MissingDistinctId.is_5xx());
+        assert!(!FlagError::NoTokenError.is_5xx());
+        assert!(!FlagError::TokenValidationError.is_5xx());
+        assert!(!FlagError::PersonNotFound.is_5xx());
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_timeout() {
+        // Test that CustomDatabaseError::Timeout converts to FlagError::TimeoutError with client_timeout
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let elapsed_error = rt.block_on(async {
+            timeout(
+                Duration::from_nanos(1),
+                tokio::time::sleep(Duration::from_secs(1)),
+            )
+            .await
+            .unwrap_err()
+        });
+
+        let timeout_error = CustomDatabaseError::Timeout(elapsed_error);
+        let flag_error: FlagError = timeout_error.into();
+        assert!(
+            matches!(flag_error, FlagError::TimeoutError(Some(ref timeout_type)) if timeout_type == "client_timeout")
+        );
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_sqlx_timeout() {
+        // Test that sqlx timeout errors convert to FlagError::TimeoutError with pool_timeout
+        let sqlx_timeout = CustomDatabaseError::Other(sqlx::Error::PoolTimedOut);
+        let flag_error: FlagError = sqlx_timeout.into();
+        assert!(
+            matches!(flag_error, FlagError::TimeoutError(Some(ref timeout_type)) if timeout_type == "pool_timeout")
+        );
+    }
+
+    #[test]
+    fn test_custom_database_error_conversion_sqlx_non_timeout() {
+        // Test that non-timeout sqlx errors convert to FlagError::DatabaseUnavailable
+        let sqlx_error = CustomDatabaseError::Other(sqlx::Error::RowNotFound);
+        let flag_error: FlagError = sqlx_error.into();
+        assert!(matches!(flag_error, FlagError::DatabaseUnavailable));
+    }
+
+    #[test]
+    fn test_direct_sqlx_timeout_conversion() {
+        // Test that direct sqlx timeout errors convert to FlagError::TimeoutError with type
+        let sqlx_timeout: FlagError = sqlx::Error::PoolTimedOut.into();
+        assert!(
+            matches!(sqlx_timeout, FlagError::TimeoutError(Some(ref timeout_type)) if timeout_type == "pool_timeout")
+        );
+    }
+
+    #[test]
+    fn test_direct_sqlx_non_timeout_conversion() {
+        // Test that direct non-timeout sqlx errors are handled correctly
+        let sqlx_error: FlagError = sqlx::Error::RowNotFound.into();
+        assert!(matches!(sqlx_error, FlagError::RowNotFound));
+    }
+
+    #[test]
+    fn test_redis_timeout_conversion() {
+        // Test that Redis timeout errors include timeout type
+        let redis_timeout: FlagError = CustomRedisError::Timeout.into();
+        assert!(
+            matches!(redis_timeout, FlagError::TimeoutError(Some(ref timeout_type)) if timeout_type == "redis_timeout")
+        );
     }
 }

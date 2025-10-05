@@ -1,15 +1,14 @@
 import { DateTime, DurationLike } from 'luxon'
 
 import { HogFlowAction } from '../../../../schema/hogflow'
-import { CyclotronJobInvocationHogFlow } from '../../../types'
 import { findContinueAction } from '../hogflow-utils'
-import { ActionHandler, ActionHandlerResult } from './action.interface'
+import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 export class DelayHandler implements ActionHandler {
-    execute(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'delay' }>
-    ): ActionHandlerResult {
+    execute({
+        invocation,
+        action,
+    }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'delay' }>>): ActionHandlerResult {
         const nextScheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
             invocation.state.currentAction?.startedAtTimestamp

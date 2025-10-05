@@ -43,6 +43,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(null=True, auto_now=True)
     deleted = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
 
@@ -424,6 +425,37 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             serializer_data["filters"] = {**current_filters, "groups": current_groups + new_groups}
         elif payload["operation"] == "update_status":
             serializer_data["active"] = payload["value"]
+        elif payload["operation"] == "update_variants":
+            current_filters = self.get_filters()
+            variant_data = payload["value"]
+
+            new_variants = variant_data.get("variants", [])
+            new_payloads = variant_data.get("payloads", {})
+
+            # Validate variant rollout percentages before proceeding
+            if new_variants:
+                total_rollout = sum(variant.get("rollout_percentage", 0) for variant in new_variants)
+                if total_rollout != 100:
+                    raise ValueError(f"Invalid variant rollout percentages: sum is {total_rollout}, must be 100")
+
+            # Validate payload keys match variant keys
+            variant_keys = {v.get("key") for v in new_variants}
+            payload_keys = set(new_payloads.keys()) if new_payloads else set()
+
+            # Only validate payload-variant key matching if both exist and are non-empty
+            # Allow no payloads (for variants without payloads) or empty variants
+            if payload_keys and variant_keys and not payload_keys.issubset(variant_keys):
+                invalid_keys = payload_keys - variant_keys
+                raise ValueError(f"Payload keys {invalid_keys} don't match variant keys {variant_keys}")
+
+            updated_multivariate = current_filters.get("multivariate", {})
+            updated_multivariate["variants"] = new_variants
+
+            serializer_data["filters"] = {
+                **current_filters,
+                "multivariate": updated_multivariate,
+                "payloads": new_payloads,
+            }
         else:
             raise Exception(f"Unrecognized operation: {payload['operation']}")
 

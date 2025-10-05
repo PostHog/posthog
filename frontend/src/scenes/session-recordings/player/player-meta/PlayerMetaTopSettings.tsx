@@ -126,7 +126,7 @@ export function PlayerMetaTopSettings(): JSX.Element {
         <div
             className={cn(
                 hoverModeIsEnabled
-                    ? 'absolute top-full left-0 right-0 z-10 transition-all duration-750 ease-in-out'
+                    ? 'absolute top-full left-0 right-0 z-10 transition-all duration-25 ease-in-out'
                     : '',
                 hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 pointer-events-auto'

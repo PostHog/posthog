@@ -216,6 +216,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Group analytics',
             },
             {
+                value: 'customer_analytics',
+                'data-attr': `support-form-target-area-customer-analytics`,
+                label: 'Customer analytics',
+            },
+            {
                 value: 'llm-analytics',
                 'data-attr': `support-form-target-area-llm-analytics`,
                 label: 'LLM analytics',
@@ -300,6 +305,7 @@ export type SupportTicketTargetArea =
     | 'messaging'
     | 'platform_addons'
     | 'max-ai'
+    | 'customer-analytics'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 

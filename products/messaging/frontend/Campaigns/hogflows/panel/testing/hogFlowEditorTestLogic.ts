@@ -36,13 +36,19 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     props({} as CampaignLogicProps),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
-        values: [campaignLogic(props), ['campaign', 'triggerAction'], hogFlowEditorLogic, ['selectedNodeId']],
+        values: [
+            campaignLogic(props),
+            ['campaign', 'campaignSanitized', 'triggerAction'],
+            hogFlowEditorLogic,
+            ['selectedNodeId'],
+        ],
         actions: [hogFlowEditorLogic, ['setSelectedNodeId']],
     })),
     actions({
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
+        setSampleGlobals: (globals?: string | null) => ({ globals }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
         cancelSampleGlobalsLoading: true,
         receiveExampleGlobals: (globals: object | null) => ({ globals }),
@@ -79,6 +85,18 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             null as string | null,
             {
                 setNextActionId: (_, { nextActionId }) => nextActionId,
+            },
+        ],
+        sampleGlobals: [
+            null as CyclotronJobInvocationGlobals | null,
+            {
+                setSampleGlobals: (previousGlobals, { globals }) => {
+                    try {
+                        return globals ? JSON.parse(globals) : previousGlobals
+                    } catch {
+                        return previousGlobals
+                    }
+                },
             },
         ],
     }),
@@ -255,7 +273,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             submit: async (testInvocation: HogflowTestInvocation) => {
                 try {
                     const apiResponse = await api.hogFlows.createTestInvocation(values.campaign.id, {
-                        configuration: values.campaign,
+                        configuration: values.campaignSanitized,
                         globals: JSON.parse(testInvocation.globals),
                         mock_async_functions: testInvocation.mock_async_functions,
                         current_action_id: values.selectedNodeId ?? undefined,
@@ -287,6 +305,9 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     })),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
+            actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
+        },
+        setSampleGlobals: () => {
             actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },
         cancelSampleGlobalsLoading: () => {

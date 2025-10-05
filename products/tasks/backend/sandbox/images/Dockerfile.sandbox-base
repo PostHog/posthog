@@ -58,6 +58,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
 # Install additional language package managers
 RUN npm install -g yarn pnpm typescript ts-node nodemon
 
+# Install PostHog CLI
+RUN npm install -g @posthog/cli
+
 
 ###
 # Claude Code SDK

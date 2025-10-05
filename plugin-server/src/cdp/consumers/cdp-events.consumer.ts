@@ -29,12 +29,6 @@ export const counterParseError = new Counter({
     labelNames: ['error'],
 })
 
-export const counterMissingAddon = new Counter({
-    name: 'cdp_function_missing_addon',
-    help: 'A function invocation was missing an addon',
-    labelNames: ['team_id'],
-})
-
 const counterQuotaLimited = new Counter({
     name: 'cdp_function_quota_limited',
     help: 'A function invocation was quota limited',
@@ -170,7 +164,10 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     logger.error('🔴', 'Error checking rate limit for hog function', { err: e })
                 }
 
-                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(item.teamId, 'cdp_invocations')
+                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(
+                    item.teamId,
+                    'cdp_trigger_events'
+                )
 
                 // The legacy addon was not usage based so we skip dropping if they are on it
                 const isTeamOnLegacyAddon = !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')
@@ -191,14 +188,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     //     'hog_function'
                     // )
                     // return
-                }
-
-                if (
-                    !teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines') &&
-                    (await this.isAddonRequired(item.hogFunction))
-                ) {
-                    // NOTE: This will be removed in favour of the quota limited metric
-                    counterMissingAddon.labels({ team_id: item.teamId }).inc()
                 }
 
                 const state = states[item.hogFunction.id].state

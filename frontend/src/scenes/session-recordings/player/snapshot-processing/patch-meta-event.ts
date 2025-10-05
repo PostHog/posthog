@@ -22,49 +22,6 @@ export const getHrefFromSnapshot = (snapshot: unknown): string | undefined => {
         : undefined
 }
 
-export function patchMetaEventIntoWebData(
-    snapshots: RecordingSnapshot[],
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string
-): RecordingSnapshot[] {
-    // Iterate in reverse order so we can modify the array while iterating
-    for (let i = snapshots.length - 1; i >= 0; i--) {
-        const snapshot = snapshots[i]
-        if (snapshot.type !== EventType.FullSnapshot) {
-            continue
-        }
-
-        const previousEvent = snapshots[i - 1]
-        const previousEventIsMeta = previousEvent?.type === EventType.Meta
-        if (previousEventIsMeta) {
-            continue
-        }
-
-        const viewport = viewportForTimestamp(snapshot.timestamp)
-        const thereIsNoViewport = !viewport || !viewport.width || !viewport.height
-        if (thereIsNoViewport) {
-            throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
-                posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
-                    snapshot,
-                })
-            })
-        } else {
-            snapshots.splice(i, 0, {
-                type: EventType.Meta,
-                timestamp: snapshot.timestamp,
-                windowId: snapshot.windowId,
-                data: {
-                    width: parseInt(viewport.width, 10),
-                    height: parseInt(viewport.height, 10),
-                    href: viewport.href || 'unknown',
-                },
-            })
-        }
-    }
-
-    return snapshots
-}
-
 /*
  there was a bug in mobile SDK that didn't consistently send a meta event with a full snapshot.
  rrweb player hides itself until it has seen the meta event 🤷

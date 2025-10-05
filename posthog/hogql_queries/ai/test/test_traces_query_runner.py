@@ -1413,3 +1413,39 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         # Should sum: Span A (100) + Generation B (200) = 300, exclude Generation A1
         self.assertEqual(response.results[0].totalLatency, 300.0)
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    def test_person_id_filter(self):
+        """Test that personId parameter filters traces by person."""
+        person1 = _create_person(distinct_ids=["user1"], team=self.team)
+        person2 = _create_person(distinct_ids=["user2"], team=self.team)
+
+        _create_ai_generation_event(
+            distinct_id="user1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 0),
+        )
+
+        _create_ai_generation_event(
+            distinct_id="user2",
+            trace_id="trace2",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 1, 0),
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
+        self.assertEqual(len(response.results), 2)
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(person1.uuid))).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace1")
+        self.assertEqual(response.results[0].person.uuid, str(person1.uuid))
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(person2.uuid))).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace2")
+        self.assertEqual(response.results[0].person.uuid, str(person2.uuid))
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(uuid.uuid4()))).calculate()
+        self.assertEqual(len(response.results), 0)

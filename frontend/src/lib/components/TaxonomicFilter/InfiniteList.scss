@@ -65,7 +65,8 @@
             }
         }
 
-        &.hover {
+        &.hover,
+        &.active {
             background-color: var(--color-bg-primary);
             border-radius: var(--radius);
         }

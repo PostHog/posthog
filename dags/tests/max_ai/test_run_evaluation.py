@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import dagster
 
-from posthog.models import Dataset, DatasetItem
+from products.llm_analytics.backend.models import Dataset, DatasetItem
 
 from dags.max_ai.run_evaluation import prepare_dataset
 

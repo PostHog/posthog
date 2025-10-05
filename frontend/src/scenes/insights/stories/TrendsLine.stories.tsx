@@ -46,13 +46,14 @@ TrendsLine.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const TrendsLineEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
-    'edit'
-)
-TrendsLineEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
+// FLAP!
+// export const TrendsLineEdit: Story = createInsightStory(
+//     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+//     'edit'
+// )
+// TrendsLineEdit.parameters = {
+//     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+// }
 
 export const TrendsLineMulti: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')

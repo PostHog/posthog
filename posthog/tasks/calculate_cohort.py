@@ -18,7 +18,11 @@ from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Cohort
 from posthog.models.cohort import CohortOrEmpty
-from posthog.models.cohort.util import get_all_cohort_dependencies, sort_cohorts_topologically
+from posthog.models.cohort.util import (
+    get_all_cohort_dependencies,
+    get_all_cohort_dependents,
+    sort_cohorts_topologically,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
@@ -185,15 +189,17 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
-    dependent_cohorts = get_all_cohort_dependencies(cohort)
-    if dependent_cohorts:
-        logger.info("cohort_has_dependencies", cohort_id=cohort.id, dependent_count=len(dependent_cohorts))
+    dependent_cohorts = get_all_cohort_dependents(cohort)
+    dependency_cohorts = get_all_cohort_dependencies(cohort)
+    related_cohorts = dependent_cohorts + dependency_cohorts
+    if related_cohorts:
+        logger.info("cohort_has_dependencies", cohort_id=cohort.id, related_cohort_count=len(related_cohorts))
 
-        all_cohort_ids = {dep.id for dep in dependent_cohorts}
+        all_cohort_ids = {dep.id for dep in related_cohorts}
         all_cohort_ids.add(cohort.id)
 
         # Sort cohorts (dependencies first)
-        seen_cohorts_cache: dict[int, CohortOrEmpty] = {dep.id: dep for dep in dependent_cohorts}
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {dep.id: dep for dep in related_cohorts}
         seen_cohorts_cache[cohort.id] = cohort
 
         try:

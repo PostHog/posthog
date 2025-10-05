@@ -12,7 +12,6 @@ from posthog.models import (
     Annotation,
     Cohort,
     Dashboard,
-    EarlyAccessFeature,
     EventDefinition,
     Experiment,
     FeatureFlag,
@@ -28,6 +27,8 @@ from posthog.models import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.ph_client import get_client
+
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 
 @dataclass

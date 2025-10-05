@@ -5,83 +5,68 @@ import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
 
 describe('StartPipeline', () => {
-    describe('basic functionality', () => {
-        it('should process single item through pipeline with success result', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+    it('should process single item through pipeline with success result', async () => {
+        const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const pipeline = new StartPipeline<{ data: string }>().pipe((input) => {
-                return ok({ processed: input.data })
-            })
-
-            const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-            expect(result).toEqual({ result: ok({ processed: 'test' }), context: { message } })
+        const pipeline = new StartPipeline<{ data: string }>().pipe((input) => {
+            return Promise.resolve(ok({ processed: input.data }))
         })
 
-        it('should process single item through pipeline with drop result', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+        const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
+        expect(result).toEqual({ result: ok({ processed: 'test' }), context: expect.objectContaining({ message }) })
+    })
 
-            const pipeline = new StartPipeline<{ data: string }>().pipe((_input) => {
-                return drop('dropped item')
-            })
+    it('should process single item through pipeline with drop result', async () => {
+        const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-            expect(result).toEqual({ result: drop('dropped item'), context: { message } })
+        const pipeline = new StartPipeline<{ data: string }>().pipe((_input) => {
+            return Promise.resolve(drop('dropped item'))
         })
 
-        it('should process single item through pipeline with dlq result', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+        const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
+        expect(result).toEqual({ result: drop('dropped item'), context: expect.objectContaining({ message }) })
+    })
 
-            const pipeline = new StartPipeline<{ data: string }>().pipe((_input) => {
-                return dlq('dlq item', new Error('test error'))
-            })
+    it('should process single item through pipeline with dlq result', async () => {
+        const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-            expect(result).toEqual({ result: dlq('dlq item', new Error('test error')), context: { message } })
+        const pipeline = new StartPipeline<{ data: string }>().pipe((_input) => {
+            return Promise.resolve(dlq('dlq item', new Error('test error')))
         })
 
-        it('should process single item through pipeline with redirect result', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
-
-            const pipeline = new StartPipeline<{ data: string }>().pipe((_input) => {
-                return redirect('redirect item', 'retry-topic')
-            })
-
-            const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-            expect(result).toEqual({ result: redirect('redirect item', 'retry-topic'), context: { message } })
+        const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
+        expect(result).toEqual({
+            result: dlq('dlq item', new Error('test error')),
+            context: expect.objectContaining({ message }),
         })
     })
 
-    describe('pipe() - synchronous steps', () => {
-        it('should return StepPipeline instance and call the step', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
-            const step = jest.fn().mockReturnValue(ok({ processed: 'test' }))
+    it('should process single item through pipeline with redirect result', async () => {
+        const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const pipeline = new StartPipeline<{ data: string }>()
-            const stepPipeline = pipeline.pipe(step)
+        const pipeline = new StartPipeline<{ data: string }>().pipe((_input) => {
+            return Promise.resolve(redirect('redirect item', 'retry-topic'))
+        })
 
-            expect(stepPipeline).toBeInstanceOf(StepPipeline)
-
-            const result = await stepPipeline.process({ result: ok({ data: 'test' }), context: { message } })
-
-            expect(step).toHaveBeenCalledWith({ data: 'test' })
-            expect(result).toEqual({ result: ok({ processed: 'test' }), context: { message } })
+        const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
+        expect(result).toEqual({
+            result: redirect('redirect item', 'retry-topic'),
+            context: expect.objectContaining({ message }),
         })
     })
 
-    describe('pipeAsync() - async steps', () => {
-        it('should return StepPipeline instance and call the async step', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
-            const asyncStep = jest.fn().mockResolvedValue(ok({ processed: 'test' }))
+    it('should return StepPipeline instance and call the async step', async () => {
+        const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+        const step = jest.fn().mockResolvedValue(ok({ processed: 'test' }))
 
-            const pipeline = new StartPipeline<{ data: string }>()
-            const stepPipeline = pipeline.pipeAsync(asyncStep)
+        const pipeline = new StartPipeline<{ data: string }>()
+        const stepPipeline = pipeline.pipe(step)
 
-            expect(stepPipeline).toBeInstanceOf(StepPipeline)
+        expect(stepPipeline).toBeInstanceOf(StepPipeline)
 
-            const result = await stepPipeline.process({ result: ok({ data: 'test' }), context: { message } })
+        const result = await stepPipeline.process({ result: ok({ data: 'test' }), context: { message } })
 
-            expect(asyncStep).toHaveBeenCalledWith({ data: 'test' })
-            expect(result).toEqual({ result: ok({ processed: 'test' }), context: { message } })
-        })
+        expect(step).toHaveBeenCalledWith({ data: 'test' })
+        expect(result).toEqual({ result: ok({ processed: 'test' }), context: expect.objectContaining({ message }) })
     })
 })

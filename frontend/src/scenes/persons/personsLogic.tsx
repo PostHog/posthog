@@ -75,11 +75,19 @@ function createInitialExceptionsPayload(personId: string): DataTableNode {
 export const personsLogic = kea<personsLogicType>([
     props({} as PersonsLogicProps),
     key((props) => {
+        if (props.urlId) {
+            return `url_${props.urlId}`
+        }
+
         if (props.fixedProperties) {
             return JSON.stringify(props.fixedProperties)
         }
 
-        return props.cohort ? `cohort_${props.cohort}` : 'scene'
+        if (props.cohort) {
+            return `cohort_${props.cohort}`
+        }
+
+        return 'scene'
     }),
     path((key) => ['scenes', 'persons', 'personsLogic', key]),
     connect(() => ({
@@ -348,7 +356,7 @@ export const personsLogic = kea<personsLogicType>([
             ],
         ],
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
-        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.PERSON_FEED_CANVAS]],
+        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]],
         primaryDistinctId: [
             (s) => [s.person],
             (person): string | null => {

@@ -206,7 +206,9 @@ export const insightToMaxContext = (
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>
 ): MaxInsightContext => {
-    const source = (insight.query as any)?.source
+    // Some insights (especially revenue analytics insights) don't have an inner source so we fallback to the outer query
+    const source = (insight.query as any)?.source ?? insight.query
+
     return {
         type: MaxContextType.INSIGHT,
         id: insight.short_id!,

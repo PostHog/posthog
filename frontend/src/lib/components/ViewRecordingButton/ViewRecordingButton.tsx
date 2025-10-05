@@ -83,7 +83,14 @@ export default function ViewRecordingButton({
     )
 
     return (
-        <LemonButton disabledReason={disabledReason} to={to} onClick={onClick} sideIcon={sideIcon} {...props}>
+        <LemonButton
+            disabledReason={disabledReason}
+            to={to}
+            onClick={onClick}
+            sideIcon={sideIcon}
+            {...props}
+            targetBlank
+        >
             <div className="flex items-center gap-2 whitespace-nowrap">
                 <span>{label ? label : 'View recording'}</span>
                 {maybeUnwatchedIndicator}

@@ -308,7 +308,7 @@ pub async fn event(
                     "processing",
                     state.capture_mode.as_tag(),
                 );
-                error!("event: rejected payload: {}", err);
+                warn!("event: rejected payload: {}", err);
                 return Err(err);
             }
 
@@ -373,7 +373,7 @@ pub async fn recording(
                     "processing",
                     state.capture_mode.as_tag(),
                 );
-                error!("recordings:rejected payload: {:?}", err);
+                warn!("recordings:rejected payload: {:?}", err);
                 return Err(err);
             }
             Ok(CaptureResponse {
@@ -458,6 +458,7 @@ pub fn process_single_event(
         data_type,
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
+        event_name: event.event.clone(),
     };
 
     let event = CapturedEvent {
@@ -648,6 +649,7 @@ pub async fn process_replay_events<'a>(
         data_type: DataType::SnapshotMain,
         session_id: Some(session_id_str.to_string()),
         computed_timestamp: Some(computed_timestamp), // Use computed event timestamp
+        event_name: "$snapshot_items".to_string(),
     };
 
     let event = CapturedEvent {

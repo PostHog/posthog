@@ -247,7 +247,7 @@ jobs:
             - name: Check for changes that affect general purpose temporal worker
               id: check_changes_general_purpose_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/subscriptions|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/usage_reports|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/enforce_max_replay_retention|^posthog/temporal/delete_recordings|^posthog/temporal/subscriptions|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/usage_reports|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect billing temporal worker
               id: check_changes_billing_temporal_worker

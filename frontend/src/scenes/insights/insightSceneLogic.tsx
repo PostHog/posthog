@@ -326,11 +326,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     return []
                 }
                 return [
-                    createMaxContextHelpers.insight(
-                        insight,
-                        filtersOverride ?? undefined,
-                        variablesOverride ?? undefined
-                    ),
+                    createMaxContextHelpers.insight(insight, {
+                        filtersOverride: filtersOverride ?? undefined,
+                        variablesOverride: variablesOverride ?? undefined,
+                    }),
                 ]
             },
         ],
@@ -494,9 +493,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (q) {
                 const validQuery = typeof q === 'string' ? parseDraftQueryFromURL(q) : q
                 if (validQuery) {
-                    validatingQuery = true
                     if (initial) {
+                        validatingQuery = true
                         actions.upgradeQuery(validQuery)
+                    } else if (method !== 'REPLACE') {
+                        queryFromUrl = validQuery
                     }
                 } else {
                     console.error('Invalid query', q)

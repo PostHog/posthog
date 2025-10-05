@@ -657,7 +657,7 @@ async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incomp
 
     assert isinstance(result, BatchExportResult)
     assert result.error is not None
-    assert result.error.type == "SnowflakeDestinationTableIncompatibleSchemaError"
+    assert result.error.type == "SnowflakeIncompatibleSchemaError"
 
 
 @pytest.mark.parametrize(

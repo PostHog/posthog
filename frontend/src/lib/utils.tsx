@@ -133,6 +133,33 @@ export function tryDecodeURIComponent(value: string): string {
     }
 }
 
+// Parse a tags filter value coming from URL search params.
+// Supports:
+// - Repeated params handled upstream and aggregated as an array
+// - JSON array string (e.g. "[\"a\",\"b\"]")
+// - Comma-separated string (e.g. "a,b")
+export function parseTagsFilter(raw: unknown): string[] | undefined {
+    if (Array.isArray(raw)) {
+        return (raw as unknown[]).map((v) => String(v)).filter(Boolean)
+    }
+    if (typeof raw === 'string') {
+        // Try JSON first
+        try {
+            const parsed = JSON.parse(raw)
+            if (Array.isArray(parsed)) {
+                return parsed.map((v) => String(v)).filter(Boolean)
+            }
+        } catch {
+            // Fall through to comma-separated
+        }
+        return raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+    }
+    return undefined
+}
+
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
     division: number,
@@ -790,7 +817,7 @@ export function isExternalLink(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^(https?:|mailto:)/
+    const regexp = /^(https?:|mailto:|\/api\/)/
     return !!input.trim().match(regexp)
 }
 
