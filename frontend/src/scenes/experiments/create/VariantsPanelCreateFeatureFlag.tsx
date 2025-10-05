@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useDebouncedCallback } from 'use-debounce'
+
 import { IconBalance } from '@posthog/icons'
 import { IconTrash } from '@posthog/icons'
 import { IconPlus } from '@posthog/icons'
@@ -14,15 +17,31 @@ import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { percentageDistribution } from '../utils'
+import { variantsPanelLogic } from './variantsPanelLogic'
+
+const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys?: Set<string>): string => {
+    const baseKey = name
+        .toLowerCase()
+        .replace(/[^A-Za-z0-9-_]+/g, '-')
+        .replace(/-+$/, '')
+        .replace(/^-+/, '')
+
+    let key = baseKey
+    let counter = 1
+
+    while (unavailableFeatureFlagKeys?.has(key)) {
+        key = `${baseKey}-${counter}`
+        counter++
+    }
+    return key
+}
 
 interface VariantsPanelCreateFeatureFlagProps {
     experiment: Experiment
     onChange: (updates: {
-        parameters: {
-            feature_flag_variants: MultivariateFlagVariant[]
-            ensure_experience_continuity?: boolean
-            feature_flag_key?: string
-        }
+        feature_flag_variants?: MultivariateFlagVariant[]
+        ensure_experience_continuity?: boolean
+        feature_flag_key?: string
     }) => void
 }
 
@@ -30,6 +49,9 @@ export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
+    const { featureFlagKeyDirty, unavailableFeatureFlagKeys } = useValues(variantsPanelLogic)
+    const { setFeatureFlagKeyDirty } = useActions(variantsPanelLogic)
+
     const variants = experiment.parameters?.feature_flag_variants || [
         { key: 'control', rollout_percentage: 50 },
         { key: 'test', rollout_percentage: 50 },
@@ -101,26 +123,24 @@ export const VariantsPanelCreateFeatureFlag = ({
                     Feature flag key
                 </label>
                 <LemonInput
+                    id={'experiment-feature-flag-key'}
                     className="mt-1"
-                    placeholder="pricing-page-conversion"
-                    data-attr="experiment-feature-flag-key"
+                    placeholder="examples: new-landing-page, betaFeature, ab_test_1"
                     value={experiment.feature_flag_key || ''}
                     onChange={(value) => {
+                        /**
+                         * if the user changes the feature flag key, we need to set the dirty flag to true
+                         * so that we don't generate a new key automatically
+                         */
+                        setFeatureFlagKeyDirty()
                         onChange({
-                            parameters: {
-                                feature_flag_variants: variants,
-                                ensure_experience_continuity: ensureExperienceContinuity,
-                                feature_flag_key: value,
-                            },
+                            feature_flag_key: value,
                         })
                     }}
                     onFocus={() => {
-                        if (!experiment.feature_flag_key && experiment.name) {
+                        if (experiment.name && !featureFlagKeyDirty) {
                             onChange({
-                                parameters: {
-                                    feature_flag_variants: variants,
-                                    ensure_experience_continuity: ensureExperienceContinuity,
-                                },
+                                feature_flag_key: generateFeatureFlagKey(experiment.name, unavailableFeatureFlagKeys),
                             })
                         }
                     }}
