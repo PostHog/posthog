@@ -1,6 +1,7 @@
 import { IconToggle } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
@@ -17,48 +18,49 @@ export const VariantsPanelLinkFeatureFlag = ({
     setShowFeatureFlagSelector,
 }: VariantsPanelLinkFeatureFlagProps): JSX.Element => {
     return (
-        <div className="max-w-2xl">
+        <div>
             <label className="text-sm font-semibold">Selected Feature Flag</label>
             {!linkedFeatureFlag ? (
-                <div className="mt-2 p-4 border border-dashed rounded bg-surface-light">
-                    <div className="text-center">
-                        <div className="text-sm text-muted mb-2">No feature flag selected</div>
-                        <LemonButton type="primary" onClick={() => setShowFeatureFlagSelector(true)}>
-                            Select Feature Flag
-                        </LemonButton>
+                <div className="mt-2 p-8 border border-dashed rounded-lg bg-bg-light flex flex-col items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        <IconToggle className="text-muted text-2xl" />
+                        <div className="text-base font-semibold">No feature flag selected</div>
                     </div>
+                    <div className="text-sm text-muted-alt text-center">
+                        Select an existing multivariate feature flag to use with this experiment
+                    </div>
+                    <LemonButton type="primary" size="small" onClick={() => setShowFeatureFlagSelector(true)}>
+                        Select Feature Flag
+                    </LemonButton>
                 </div>
             ) : (
-                <div className="mt-2 border-2 border-primary-light rounded-lg bg-primary-highlight p-4">
-                    <div className="flex justify-between items-start gap-4">
-                        <div className="flex-1">
+                <div className="mt-2 border border-border rounded-lg bg-bg-light shadow-sm p-6">
+                    <div className="flex justify-between items-start gap-6">
+                        <div className="flex-1 space-y-3">
                             <div className="flex items-center gap-2">
-                                <IconToggle className="text-primary" />
-                                <div className="font-semibold text-base">{linkedFeatureFlag.key}</div>
+                                <IconToggle className="text-lg" />
+                                <div className="font-bold text-lg">{linkedFeatureFlag.key}</div>
                                 <Link
                                     to={urls.featureFlag(linkedFeatureFlag.id as number)}
                                     target="_blank"
-                                    className="flex items-center text-primary hover:text-primary-dark"
+                                    className="flex items-center hover:text-link"
                                 >
-                                    <IconOpenInNew className="text-lg" />
+                                    <IconOpenInNew />
                                 </Link>
                             </div>
                             {linkedFeatureFlag.name && (
-                                <div className="text-muted-alt mt-1">{linkedFeatureFlag.name}</div>
+                                <div className="text-sm text-muted-alt">{linkedFeatureFlag.name}</div>
                             )}
-                            <div className="mt-3 flex items-center gap-4">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-medium text-muted">VARIANTS:</span>
-                                    <div className="flex gap-1">
-                                        {linkedFeatureFlag.filters?.multivariate?.variants?.map(({ key }) => (
-                                            <span
-                                                key={key}
-                                                className="inline-flex items-center px-2 py-0.5 rounded-md bg-bg-light text-xs font-medium"
-                                            >
-                                                {key}
-                                            </span>
-                                        )) || []}
-                                    </div>
+                            <div className="flex items-center gap-3">
+                                <span className="text-2xs uppercase tracking-wide font-semibold text-muted">
+                                    Variants
+                                </span>
+                                <div className="flex flex-wrap gap-1">
+                                    {linkedFeatureFlag.filters?.multivariate?.variants?.map(({ key }) => (
+                                        <LemonTag key={key} type="default">
+                                            {key}
+                                        </LemonTag>
+                                    )) || []}
                                 </div>
                             </div>
                         </div>
