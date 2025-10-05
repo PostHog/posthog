@@ -313,7 +313,7 @@ describe('VariantsPanel', () => {
             await userEvent.click(selectFlagButton)
 
             // Should display variants
-            expect(screen.getByText('Variants')).toBeInTheDocument()
+            expect(screen.getByText('VARIANTS:')).toBeInTheDocument()
             expect(screen.getByText('control')).toBeInTheDocument()
             expect(screen.getByText('variant-a')).toBeInTheDocument()
         })

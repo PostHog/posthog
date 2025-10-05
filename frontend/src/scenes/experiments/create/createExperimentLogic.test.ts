@@ -361,7 +361,6 @@ describe('createExperimentLogic', () => {
                             { key: 'control', rollout_percentage: 50 },
                             { key: 'test', rollout_percentage: 50 },
                         ],
-                        ensure_experience_continuity: false,
                     },
                 })
                 logic.actions.submitExperiment()

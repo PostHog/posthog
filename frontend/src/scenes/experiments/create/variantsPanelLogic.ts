@@ -43,7 +43,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         mode: [
             'create' as 'create' | 'link',
             {
-                setMode: (_, { mode }) => mode,
+                setMode: (_: any, { mode }: { mode: 'create' | 'link' }) => mode,
             },
         ],
         featureFlagKeyDirty: [
@@ -172,7 +172,10 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                 ])
             },
         ],
-        featureFlagKey: [(_, props) => [props.experiment], (experiment): string => experiment.feature_flag_key || ''],
+        featureFlagKey: [
+            (_, props) => [props.experiment],
+            (experiment: Experiment): string => experiment.feature_flag_key || '',
+        ],
     },
     listeners: ({ values, actions }) => ({
         [createExperimentLogic.actionTypes.setExperimentValue]: ({ name, value }) => {
