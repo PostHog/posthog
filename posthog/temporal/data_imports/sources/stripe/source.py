@@ -63,7 +63,7 @@ You can also simplify the setup by selecting **read** for the **entire resource*
                         label="API key",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="rk_live_...",
+                        placeholder="sk_live_...",
                     ),
                 ],
             ),
