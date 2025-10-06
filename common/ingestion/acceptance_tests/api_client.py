@@ -117,7 +117,7 @@ class PostHogTestClient:
 
         response = self.session.post(
             f"{self.base_url}/api/projects/{project_id}/query/",
-            json={"refrest": "force_blocking", "query": {"kind": "HogQLQuery", "query": query}},
+            json={"refresh": "force_blocking", "query": {"kind": "HogQLQuery", "query": query}},
         )
         response.raise_for_status()
 

@@ -190,3 +190,164 @@ class TestLLMAnalytics:
                     logger.exception("Failed to delete organization: %s", e)
 
             logger.info("\n" + "=" * 60)
+
+    def test_ai_endpoint_returns_200_for_valid_request(self, test_client):
+        """Test that /ai endpoint returns 200 for valid multipart request."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: /ai endpoint returns 200 for valid request")
+        logger.info("=" * 60)
+
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            time.sleep(5)
+
+            event_data = {
+                "event": "$ai_generation",
+                "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+                "properties": {"$ai_model": "test"},
+            }
+
+            fields = {
+                "event": ("event.json", json.dumps(event_data), "application/json"),
+            }
+
+            multipart_data = MultipartEncoder(fields=fields)
+            headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project['api_token']}"}
+
+            response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
+
+    def test_ai_endpoint_get_returns_405(self, test_client):
+        """Test that GET requests to /ai endpoint return 405 Method Not Allowed."""
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            response = requests.get(
+                f"{client.base_url}/ai", headers={"Authorization": f"Bearer {project['api_token']}"}
+            )
+            assert response.status_code == 405, f"Expected 405, got {response.status_code}"
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
+
+    def test_ai_endpoint_put_returns_405(self, test_client):
+        """Test that PUT requests to /ai endpoint return 405 Method Not Allowed."""
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            response = requests.put(
+                f"{client.base_url}/ai", headers={"Authorization": f"Bearer {project['api_token']}"}, data="test"
+            )
+            assert response.status_code == 405, f"Expected 405, got {response.status_code}"
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
+
+    def test_ai_endpoint_delete_returns_405(self, test_client):
+        """Test that DELETE requests to /ai endpoint return 405 Method Not Allowed."""
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            response = requests.delete(
+                f"{client.base_url}/ai", headers={"Authorization": f"Bearer {project['api_token']}"}
+            )
+            assert response.status_code == 405, f"Expected 405, got {response.status_code}"
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
+
+    def test_ai_endpoint_no_auth_returns_401(self, test_client):
+        """Test that requests without authentication return 401 Unauthorized."""
+        client = test_client
+
+        event_data = {
+            "event": "$ai_generation",
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {"$ai_model": "test"},
+        }
+
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        response = requests.post(
+            f"{client.base_url}/ai", data=multipart_data, headers={"Content-Type": multipart_data.content_type}
+        )
+        assert response.status_code == 401, f"Expected 401, got {response.status_code}"
+
+    def test_ai_endpoint_invalid_auth_returns_401(self, test_client):
+        """Test that requests with invalid API key return 401 Unauthorized."""
+        client = test_client
+
+        event_data = {
+            "event": "$ai_generation",
+            "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+            "properties": {"$ai_model": "test"},
+        }
+
+        fields = {
+            "event": ("event.json", json.dumps(event_data), "application/json"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        response = requests.post(
+            f"{client.base_url}/ai",
+            data=multipart_data,
+            headers={"Content-Type": multipart_data.content_type, "Authorization": "Bearer invalid_key_123"},
+        )
+        assert response.status_code == 401, f"Expected 401, got {response.status_code}"
+
+    def test_ai_endpoint_wrong_content_type_returns_400(self, test_client):
+        """Test that non-multipart content type returns 400 Bad Request."""
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            event_data = {
+                "event": "$ai_generation",
+                "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+                "properties": {"$ai_model": "test"},
+            }
+
+            response = requests.post(
+                f"{client.base_url}/ai", json=event_data, headers={"Authorization": f"Bearer {project['api_token']}"}
+            )
+            assert response.status_code == 400, f"Expected 400, got {response.status_code}"
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
+
+    def test_ai_endpoint_empty_body_returns_400(self, test_client):
+        """Test that empty body returns 400 Bad Request."""
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            response = requests.post(
+                f"{client.base_url}/ai", headers={"Authorization": f"Bearer {project['api_token']}"}
+            )
+            assert response.status_code == 400, f"Expected 400, got {response.status_code}"
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
