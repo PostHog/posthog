@@ -120,20 +120,27 @@
     },
     "next_steps": {
         "date": "2025-10-06",
-        "action": "Reduce shard count + add funnel correlation isolation",
+        "action": "Reduce shard count + add targeted isolation",
         "changes": [
             "Added xdist_group(name='funnel_correlations') to test_funnel_correlation.py and test_funnel_correlations_persons.py",
+            "Added xdist_group(name='project_api') to test_project.py (fixes ClickHouse memory issue)",
             "Reduced Core POE-off shards: 40 → 30 (-25%)",
             "Reduced Core POE-on shards: 10 → 8 (-20%)",
             "Reduced Temporal shards: 10 → 8 (-20%)",
-            "Total jobs reduced: 60 → 46 (-23% cost reduction)"
+            "Total jobs reduced: 60 → 46 (-23%)"
         ],
-        "rationale": "Previous grouping approach created bottlenecks (max 803s). New strategy: fewer shards for cost savings + targeted isolation for funnel tests only",
+        "rationale": "Previous grouping approach created bottlenecks (max 803s). New strategy: fewer shards + targeted isolation for tests with race conditions or resource exhaustion",
         "expected_outcome": {
-            "max_time_target": "5-7 minutes (300-420s)",
-            "estimated_avg": "~500s (8.3 min)",
-            "cost_savings": "23% fewer jobs",
-            "risk": "If max time balloons, incrementally add shards back"
+            "max_time_target": "~660s (11 min)",
+            "estimated_avg": "~420s (7 min)",
+            "actual_baseline": "Run 18203053271/attempt 5: 500s avg, 798s max",
+            "economics": "28% higher compute cost (76.5k vs 60k core-seconds) for 17-20% faster wall-clock time"
+        },
+        "memory_issue": {
+            "problem": "ClickHouseQueryMemoryLimitExceeded in test_cannot_create_second_demo_project",
+            "root_cause": "Shard reduction (40→30) means 33% more tests per shard, demo project tests in parallel exhausted ClickHouse memory",
+            "fix": "Added xdist_group(name='project_api') to isolate project tests on single worker",
+            "alternative_rejected": "Increasing shards to 35 would make economics worse (41% cost increase vs 28%)"
         }
     }
 }

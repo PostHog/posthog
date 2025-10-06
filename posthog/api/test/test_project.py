@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from rest_framework import status
@@ -8,6 +9,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal
+
+pytestmark = pytest.mark.xdist_group(name="project_api")
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
