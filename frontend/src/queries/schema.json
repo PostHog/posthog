@@ -25776,7 +25776,7 @@
                     "type": "string"
                 },
                 "role_at_organization": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "uuid": {
                     "type": "string"
