@@ -653,6 +653,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
                 adjusted_field = arrow_schema.field(field_index).with_nullable(has_nulls)
                 arrow_schema = arrow_schema.set(field_index, adjusted_field)
+                val = safe_parse_datetime(val)
 
             # Upscale second timestamps to microsecond
             if pa.types.is_timestamp(field.type) and issubclass(py_type, int) and field.type.unit == "s":
