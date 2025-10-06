@@ -2,6 +2,7 @@ import urllib.parse
 from datetime import datetime, timedelta
 from uuid import UUID
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -22,6 +23,8 @@ from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.test.test_journeys import journeys_for
 
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
+
+pytestmark = pytest.mark.xdist_group(name="funnel_correlations")
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0

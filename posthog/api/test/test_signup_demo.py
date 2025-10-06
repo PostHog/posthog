@@ -8,9 +8,10 @@ from rest_framework import status
 
 from posthog.models import Organization, User
 
+pytestmark = [pytest.mark.ee, pytest.mark.xdist_group(name="demo_projects")]
+
 
 @override_settings(DEMO=True)
-@pytest.mark.ee
 class TestDemoSignupAPI(APIBaseTest):
     """Demo environment signup tests - signup and login are unified."""
 

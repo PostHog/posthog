@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -27,6 +28,8 @@ from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+pytestmark = pytest.mark.xdist_group(name="clickhouse_paths")
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 

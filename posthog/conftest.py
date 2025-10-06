@@ -137,8 +137,11 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
 
 
-@pytest.fixture(scope="package")
+@pytest.fixture(scope="session")
 def django_db_setup(django_db_setup, django_db_keepdb):
+    """Override to set up ClickHouse alongside Django's PostgreSQL test database"""
+
+    # Setup ClickHouse
     database = Database(
         settings.CLICKHOUSE_DATABASE,
         db_url=settings.CLICKHOUSE_HTTP_URL,
@@ -155,7 +158,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
         except:
             pass
 
-    database.create_database()  # Create database if it doesn't exist
+    database.create_database()
     create_clickhouse_tables()
 
     yield
