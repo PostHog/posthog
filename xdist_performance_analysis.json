@@ -1,0 +1,139 @@
+{
+    "analysis_date": "2025-10-05",
+    "note": "All times are TOTAL JOB DURATION visible in GitHub UI (includes setup + test execution)",
+    "test_runs": {
+        "baseline_2core_no_xdist": {
+            "run_id": 18249440656,
+            "config": "2-core, sequential (no xdist)",
+            "runner": "depot-ubuntu-latest",
+            "shards": 40,
+            "total_jobs": 60,
+            "avg_job_duration_seconds": 522,
+            "max_job_duration_seconds": 1583,
+            "min_job_duration_seconds": 189,
+            "pytest_avg_seconds": 256,
+            "status": "stable - baseline",
+            "failures": 1,
+            "notes": "Original stable config, high variance in max time (1583s = 26 min)"
+        },
+        "4core_xdist_auto": {
+            "run_id": 18259344382,
+            "config": "4-core, -n auto (4 workers)",
+            "runner": "depot-ubuntu-24.04-4",
+            "shards": 40,
+            "total_jobs": 60,
+            "avg_job_duration_seconds": 397,
+            "max_job_duration_seconds": 545,
+            "min_job_duration_seconds": 163,
+            "pytest_avg_seconds": 212,
+            "status": "unstable - test timeouts",
+            "failures": 3,
+            "failure_types": [
+                "TimeoutError in paths query tests",
+                "TimeoutError in batch export tests",
+                "500 error in playwright setup"
+            ],
+            "notes": "24% faster than baseline but introduced race conditions"
+        },
+        "4core_xdist_n2": {
+            "run_id": 18263344633,
+            "config": "4-core, -n 2 (2 workers)",
+            "runner": "depot-ubuntu-24.04-4",
+            "shards": 40,
+            "total_jobs": 60,
+            "avg_job_duration_seconds": 391,
+            "max_job_duration_seconds": 575,
+            "min_job_duration_seconds": 163,
+            "pytest_avg_seconds": 199,
+            "status": "unstable - test failures",
+            "failures": 1,
+            "failure_types": ["ClickHouse mutation test assertion failure"],
+            "notes": "25% faster than baseline, slightly better than -n auto"
+        },
+        "4core_xdist_n2_with_groups": {
+            "run_id": 18273249888,
+            "config": "4-core, -n 2 with xdist_group markers",
+            "runner": "depot-ubuntu-24.04-4",
+            "shards": 40,
+            "total_jobs": 60,
+            "avg_job_duration_seconds": 390,
+            "max_job_duration_seconds": 803,
+            "min_job_duration_seconds": 162,
+            "status": "failed - worse than without groups",
+            "failures": "multiple",
+            "failure_types": ["Funnel correlation test assertion (0 != 1)"],
+            "notes": "xdist_group markers INCREASED max time from 575s to 803s - grouping created bottlenecks by forcing heavy tests onto same worker. Added groups: clickhouse_mutations, clickhouse_paths, batch_exports_temporal, playwright_setup"
+        }
+    },
+    "cost_analysis": {
+        "baseline_2core": {
+            "avg_job_seconds": 522,
+            "core_seconds_per_job": 1044,
+            "total_core_seconds_40_shards": 41760,
+            "relative_cost": 1.0
+        },
+        "4core_xdist_n2": {
+            "avg_job_seconds": 391,
+            "core_seconds_per_job": 1564,
+            "total_core_seconds_40_shards": 62560,
+            "relative_cost": 1.5,
+            "notes": "50% more expensive for 25% speedup"
+        }
+    },
+    "performance_comparison": {
+        "wall_clock_speedup": {
+            "4core_xdist_auto": "24% faster (522s -> 397s avg, 1583s -> 545s max)",
+            "4core_xdist_n2": "25% faster (522s -> 391s avg, 1583s -> 575s max)"
+        },
+        "max_time_improvement": {
+            "note": "Max time reduced by 66% (1583s -> 545s), critical for developer experience",
+            "baseline_max": "26 minutes",
+            "xdist_max": "9 minutes"
+        },
+        "stability": {
+            "2core_no_xdist": "stable, 1 failure, but high variance (26 min max)",
+            "4core_xdist_auto": "unstable, 3 failures (timeouts)",
+            "4core_xdist_n2": "unstable, 1-2 failures (race conditions)"
+        }
+    },
+    "recommendations": {
+        "conclusion": "xdist gives 25% average speedup and 66% max time reduction, but 50% higher cost and introduces race conditions",
+        "key_insight": "Max time reduction (26min -> 9min) is significant for developer experience",
+        "options": [
+            {
+                "option": "Keep 2-core sequential",
+                "pros": ["Stable", "Lower cost", "Known working"],
+                "cons": ["25% slower avg", "66% slower worst case (26 min max)"]
+            },
+            {
+                "option": "Use 4-core sequential (no xdist)",
+                "pros": ["Slight speedup from more CPU", "No race conditions", "Still cheaper than xdist"],
+                "cons": ["Not as fast as xdist", "Needs testing"]
+            },
+            {
+                "option": "Continue with xdist + extensive grouping",
+                "pros": ["25% faster avg", "66% faster worst case", "Better DX"],
+                "cons": ["50% more expensive", "High maintenance", "More groups needed"]
+            }
+        ],
+        "preferred": "Try 4-core sequential first to see if we get speedup without race conditions"
+    },
+    "next_steps": {
+        "date": "2025-10-06",
+        "action": "Reduce shard count + add funnel correlation isolation",
+        "changes": [
+            "Added xdist_group(name='funnel_correlations') to test_funnel_correlation.py and test_funnel_correlations_persons.py",
+            "Reduced Core POE-off shards: 40 → 30 (-25%)",
+            "Reduced Core POE-on shards: 10 → 8 (-20%)",
+            "Reduced Temporal shards: 10 → 8 (-20%)",
+            "Total jobs reduced: 60 → 46 (-23% cost reduction)"
+        ],
+        "rationale": "Previous grouping approach created bottlenecks (max 803s). New strategy: fewer shards for cost savings + targeted isolation for funnel tests only",
+        "expected_outcome": {
+            "max_time_target": "5-7 minutes (300-420s)",
+            "estimated_avg": "~500s (8.3 min)",
+            "cost_savings": "23% fewer jobs",
+            "risk": "If max time balloons, incrementally add shards back"
+        }
+    }
+}

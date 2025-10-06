@@ -1,3 +1,4 @@
+import pytest
 import unittest
 from posthog.test.base import (
     APIBaseTest,
@@ -23,6 +24,8 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
+
+pytestmark = pytest.mark.xdist_group(name="funnel_correlations")
 
 
 def _create_action(**kwargs):
