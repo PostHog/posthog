@@ -82,7 +82,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     return issue ? (
         <div className="flex flex-col gap-2 @container">
             <ScenePanelActionsSection>
-                <div className="grid grid-cols-1 gap-1 @[200px]:grid-cols-2">
+                <div className="grid grid-cols-2 gap-1">
                     <ButtonPrimitive
                         onClick={() => {
                             if (!hasDiscussions) {
@@ -95,7 +95,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
                         className="justify-center"
                     >
                         <IconComment />
-                        Comment
+                        <span className="hidden @[200px]:block">Comment</span>
                     </ButtonPrimitive>
 
                     <ButtonPrimitive
@@ -111,7 +111,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
                         className="justify-center"
                     >
                         <IconShare />
-                        Share
+                        <span className="hidden @[200px]:block">Share</span>
                     </ButtonPrimitive>
                 </div>
             </ScenePanelActionsSection>
