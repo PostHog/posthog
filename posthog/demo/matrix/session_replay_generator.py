@@ -1,22 +1,22 @@
 import asyncio
 import datetime as dt
+import math
 import os
 import random
 import subprocess
-import math
+import urllib.parse
+from dataclasses import dataclass
 from pathlib import Path
 from time import sleep
 from typing import Optional
-from dataclasses import dataclass
-import urllib.parse
-import requests
 
+import requests
 from posthog.demo.products.hedgebox.taxonomy import (
-    EVENT_SIGNED_UP,
-    EVENT_LOGGED_IN,
-    EVENT_UPLOADED_FILE,
-    EVENT_DOWNLOADED_FILE,
     EVENT_DELETED_FILE,
+    EVENT_DOWNLOADED_FILE,
+    EVENT_LOGGED_IN,
+    EVENT_SIGNED_UP,
+    EVENT_UPLOADED_FILE,
 )
 
 from playwright.async_api import Browser, async_playwright
@@ -70,7 +70,7 @@ class SessionReplayGenerator:
         *,
         headless: bool = False,
     ):
-        self.app_path = Path(__file__).parent.parent.parent / "demo" / "products" / "hedgebox" / "app"
+        self.app_path = Path(__file__).parent.parent.parent.parent / "hedgebox-dummy"
         self.posthog_api_token = posthog_api_token
         self.headless = headless
 
