@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import Header from '@/components/Header'
-import { posthog } from '@/lib/posthog'
 import { useAuth } from '@/lib/auth'
 import { useAuthRedirect } from '@/lib/hooks'
+import { posthog } from '@/lib/posthog'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 
 export default function LoginPage(): JSX.Element {
     const [formData, setFormData] = useState({

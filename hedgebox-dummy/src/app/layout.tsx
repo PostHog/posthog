@@ -1,28 +1,23 @@
-'use client';
+'use client'
 
-import './globals.css';
-import { useEffect } from 'react';
-import { initPostHog } from '@/lib/posthog';
-import { AuthProvider } from '@/lib/auth';
+import './globals.css'
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  useEffect(() => {
-    initPostHog();
-  }, []);
+import { AuthProvider } from '@/lib/auth'
+import { initPostHog } from '@/lib/posthog'
+import { useEffect } from 'react'
 
-  return (
-    <html lang="en" data-theme="hedgebox">
-      <body>
-        <AuthProvider>
-          <div className="min-h-screen bg-base-100">
-            {children}
-          </div>
-        </AuthProvider>
-      </body>
-    </html>
-  );
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+    useEffect(() => {
+        initPostHog()
+    }, [])
+
+    return (
+        <html lang="en" data-theme="hedgebox">
+            <body>
+                <AuthProvider>
+                    <div className="min-h-screen bg-base-100">{children}</div>
+                </AuthProvider>
+            </body>
+        </html>
+    )
 }
