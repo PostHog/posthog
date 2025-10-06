@@ -10,7 +10,6 @@ import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -30,6 +29,7 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    NamedQueryLastExecutionTimesRequest,
     NamedQueryRequest,
     Node,
     NodeKind,
@@ -42,7 +42,7 @@ import {
     SourceConfig,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -62,7 +62,6 @@ import {
     CreateGroupParams,
     CyclotronJobFiltersType,
     CyclotronJobTestInvocationResult,
-    DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
     DashboardTemplateType,
@@ -137,6 +136,7 @@ import {
     RawBatchExportRun,
     RoleMemberType,
     RoleType,
+    SavedSessionRecordingPlaylistsResult,
     ScheduledChangeType,
     SchemaIncrementalFieldsResponse,
     SearchListParams,
@@ -180,7 +180,6 @@ import {
 import {
     ACTIVITY_PAGE_SIZE,
     COHORT_PERSONS_QUERY_LIMIT,
-    DashboardPrivilegeLevel,
     EVENT_DEFINITIONS_PER_PAGE,
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     LOGS_PORTION_LIMIT,
@@ -1008,6 +1007,10 @@ export class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('assign')
     }
 
+    public errorTrackingSimilarIssues(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent(`${issueId}/similar_issues`)
+    }
+
     public errorTrackingExternalReference(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('external_references')
     }
@@ -1276,6 +1279,10 @@ export class ApiRequest {
 
     public queryEndpointDetail(name: string): ApiRequest {
         return this.queryEndpoint().addPathComponent(name)
+    }
+
+    public lastExecutionTimes(): ApiRequest {
+        return this.addPathComponent('last_execution_times')
     }
 
     // Conversations
@@ -1619,29 +1626,24 @@ const api = {
         async update(name: string, data: NamedQueryRequest): Promise<QueryEndpointType> {
             return await new ApiRequest().queryEndpointDetail(name).update({ data })
         },
-        async getLastExecutionTimes(names: string[]): Promise<Record<string, string>> {
-            if (names.length === 0) {
+        async getLastExecutionTimes(data: NamedQueryLastExecutionTimesRequest): Promise<Record<string, string>> {
+            if (data.names.length === 0) {
                 return {}
             }
 
-            const query = hogql`
-                SELECT
-                    name,
-                    max(query_start_time) as last_executed_at
-                FROM query_log
-                WHERE name in (${hogql.raw(names.map((name) => `'${name}'`).join(','))})
-                GROUP BY name
-            `
-
-            const response = await api.queryHogQL(query, {
-                refresh: 'force_blocking',
-            })
-
+            const response: QueryStatusResponse = await new ApiRequest()
+                .queryEndpoint()
+                .lastExecutionTimes()
+                .create({ data })
             const result: Record<string, string> = {}
-            for (const row of response.results) {
-                const [name, lastExecutedAt] = row
-                if (name && lastExecutedAt) {
-                    result[name] = lastExecutedAt
+            if (response.query_status?.results) {
+                for (const row of response.query_status.results) {
+                    if (row && row.length >= 2) {
+                        const [name, timestamp] = row
+                        if (name && timestamp) {
+                            result[name] = timestamp
+                        }
+                    }
                 }
             }
 
@@ -2340,27 +2342,6 @@ const api = {
 
             return () => abortController.abort()
         },
-
-        collaborators: {
-            async list(dashboardId: DashboardType['id']): Promise<DashboardCollaboratorType[]> {
-                return await new ApiRequest().dashboardCollaborators(dashboardId).get()
-            },
-            async create(
-                dashboardId: DashboardType['id'],
-                userUuid: UserType['uuid'],
-                level: DashboardPrivilegeLevel
-            ): Promise<DashboardCollaboratorType> {
-                return await new ApiRequest().dashboardCollaborators(dashboardId).create({
-                    data: {
-                        user_uuid: userUuid,
-                        level,
-                    },
-                })
-            },
-            async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
-                return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
-            },
-        },
     },
 
     dashboardTemplates: {
@@ -2965,6 +2946,12 @@ const api = {
             return await new ApiRequest()
                 .errorTrackingExternalReference()
                 .create({ data: { integration_id: integrationId, issue: issueId, config } })
+        },
+
+        async getSimilarIssues(
+            issueId: ErrorTrackingIssue['id']
+        ): Promise<Array<{ id: string; title: string; description: string }>> {
+            return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
         },
     },
 

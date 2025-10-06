@@ -4,7 +4,6 @@ import time
 import typing as t
 import asyncio
 import datetime as dt
-import threading
 import contextlib
 import dataclasses
 import collections.abc
@@ -14,7 +13,14 @@ from django.conf import settings
 
 import pyarrow as pa
 from databricks import sql
+from databricks.sdk._base_client import _BaseClient
 from databricks.sdk.core import Config, oauth_service_principal
+from databricks.sdk.oauth import (
+    OidcEndpoints,
+    get_account_endpoints,
+    get_azure_entra_id_workspace_endpoints,
+    get_workspace_endpoints,
+)
 from databricks.sql.client import Connection
 from databricks.sql.exc import OperationalError, ServerOperationError
 from databricks.sql.types import Row
@@ -32,7 +38,7 @@ from posthog.batch_exports.service import (
 from posthog.models.integration import DatabricksIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -43,12 +49,17 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
+from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer, TransformerProtocol
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    cast_record_batch_schema_json_columns,
+    handle_non_retryable_errors,
+)
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 NON_RETRYABLE_ERROR_TYPES: list[str] = [
@@ -124,12 +135,33 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
     table_partition_field: str | None = None
 
 
+class DatabricksConfig(Config):
+    """Config for Databricks.
+
+    We need to override the oidc_endpoints method to use a custom client with a custom timeout since the default
+    implementation uses an unconfigurable timeout of 5 minutes. This means our code just hangs if the user provides
+    invalid connection parameters.
+
+    I have opened an issue with Databricks to make this timeout configurable:
+    https://github.com/databricks/databricks-sdk-py/issues/1046
+    """
+
+    @property
+    def oidc_endpoints(self) -> OidcEndpoints | None:
+        self._fix_host_if_needed()
+        if not self.host:
+            return None
+        if self.is_azure and self.azure_client_id:
+            return get_azure_entra_id_workspace_endpoints(self.host)
+        if self.is_account_client and self.account_id:
+            return get_account_endpoints(self.host, self.account_id)
+        return get_workspace_endpoints(self.host, client=_BaseClient(retry_timeout_seconds=5))
+
+
 class DatabricksClient:
     # How often to poll for query status. This is a trade-off between responsiveness and number of
     # queries we make to Databricks. 1 second has been chosen rather arbitrarily.
     DEFAULT_POLL_INTERVAL = 1.0
-    # Timeout to use for initializing the Databricks connection.
-    CONNECT_TIMEOUT = 5.0
 
     def __init__(
         self,
@@ -179,58 +211,58 @@ class DatabricksClient:
         return self._connection
 
     async def _connect(self):
-        """Establish a raw Databricks connection in a separate thread.
-
-        NOTE: When initializing the Config object, Databricks tries to fetch the OIDC endpoints for the workspace.
-        When performing this request, Databricks uses an unconfigurable timeout of 5 minutes, which means we can end
-        up waiting for a long time.  I have opened an issue with Databricks to make this timeout configurable:
-        https://github.com/databricks/databricks-sdk-py/issues/1046
-
-        As a result, we try to establish the connection using a separate thread with a timeout, ensuring that we
-        terminate the thread if it takes too long.
-        """
+        """Establish a raw Databricks connection in a separate thread."""
 
         def get_credential_provider():
-            config = Config(
+            config = DatabricksConfig(
                 host=f"https://{self.server_hostname}",
                 client_id=self.client_id,
                 client_secret=self.client_secret,
             )
             return oauth_service_principal(config)
 
-        result: Connection | Exception | None = None
-        done = asyncio.Event()
-        loop = asyncio.get_event_loop()
-
-        def connect_thread():
-            nonlocal result
-            try:
-                result = sql.connect(
-                    server_hostname=self.server_hostname,
-                    http_path=self.http_path,
-                    credentials_provider=get_credential_provider,
-                    user_agent_entry="PostHog batch exports",
-                    enable_telemetry=False,
-                    _socket_timeout=60,
-                )
-            except Exception as e:
-                result = e
-            finally:
-                loop.call_soon_threadsafe(done.set)
-
-        threading.Thread(target=connect_thread, daemon=True).start()
-
         try:
-            await asyncio.wait_for(done.wait(), timeout=self.CONNECT_TIMEOUT)
-            if isinstance(result, Exception):
-                if isinstance(result, OperationalError):
-                    raise DatabricksConnectionError(f"Failed to connect to Databricks: {result}") from result
-                raise result
-            return result
+            result = await asyncio.to_thread(
+                sql.connect,
+                server_hostname=self.server_hostname,
+                http_path=self.http_path,
+                credentials_provider=get_credential_provider,
+                # user agent can be used for usage tracking
+                user_agent_entry="PostHog batch exports",
+                enable_telemetry=False,
+                _socket_timeout=5,
+                _retry_stop_after_attempts_count=2,
+                _retry_delay_max=1,
+            )
         except TimeoutError:
+            self.logger.info(
+                "Timed out while trying to connect to Databricks. server_hostname: %s, http_path: %s",
+                self.server_hostname,
+                self.http_path,
+            )
             raise DatabricksConnectionError(
                 f"Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
+        # for some reason, some connection failures are reported as a ValueError
+        except ValueError as err:
+            self.logger.info(
+                "Failed to connect to Databricks: %s. server_hostname: %s, http_path: %s",
+                err,
+                self.server_hostname,
+                self.http_path,
+            )
+            raise DatabricksConnectionError(
+                f"Failed to connect to Databricks. Please check that the server_hostname and http_path are valid."
+            )
+        except OperationalError as err:
+            self.logger.info(
+                "Failed to connect to Databricks: %s. server_hostname: %s, http_path: %s",
+                err,
+                self.server_hostname,
+                self.http_path,
+            )
+            raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err
+        return result
 
     @contextlib.asynccontextmanager
     async def connect(self):
@@ -240,10 +272,10 @@ class DatabricksClient:
 
         We call `use_catalog` and `use_schema` to ensure that all queries are run in the correct catalog and schema.
         """
-        self.logger.debug("Initializing Databricks connection")
+        self.logger.info("Initializing Databricks connection")
 
         self._connection = await self._connect()
-        self.logger.debug("Connected to Databricks")
+        self.logger.info("Connected to Databricks")
 
         await self.use_catalog(self.catalog)
         await self.use_schema(self.schema)
@@ -934,14 +966,20 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     volume_path=volume_path,
                 )
 
+                transformer: TransformerProtocol = ParquetStreamTransformer(
+                    schema=cast_record_batch_schema_json_columns(
+                        record_batch_schema, json_columns=known_variant_columns
+                    ),
+                    compression="zstd",
+                    include_inserted_at=False,
+                )
+
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
                     schema=record_batch_schema,
-                    file_format="Parquet",
-                    compression="zstd",
-                    include_inserted_at=False,
+                    transformer=transformer,
                     max_file_size_bytes=settings.BATCH_EXPORT_DATABRICKS_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                 )

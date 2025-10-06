@@ -1,3 +1,5 @@
+import uuid
+
 from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError
@@ -8,7 +10,7 @@ from parameterized import parameterized
 from posthog.models import Integration, Organization, Team
 
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowStageTemplate, WorkflowTemplate
-from products.tasks.backend.models import Task, TaskProgress, TaskWorkflow, WorkflowStage
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskProgress, TaskWorkflow, WorkflowStage
 
 
 class TestTaskWorkflow(TestCase):
@@ -665,6 +667,107 @@ class TestTask(TestCase):
         self.assertTrue(task.workflow.is_default)
 
 
+class TestTaskSlug(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.workflow = TaskWorkflow.objects.create(
+            team=self.team,
+            name="Test Workflow",
+            is_default=True,
+        )
+        WorkflowStage.objects.create(
+            workflow=self.workflow,
+            name="Backlog",
+            key="backlog",
+            position=0,
+        )
+
+    @parameterized.expand(
+        [
+            ("JonathanLab", "JON"),
+            ("Test Team", "TES"),
+            ("ABC", "ABC"),
+            ("PostHog", "POS"),
+            ("my team", "MYT"),
+            ("123test", "123"),
+            ("test", "TES"),
+            ("t", "T"),
+            ("", "TSK"),
+        ]
+    )
+    def test_generate_team_prefix(self, team_name, expected_prefix):
+        result = Task.generate_team_prefix(team_name)
+        self.assertEqual(result, expected_prefix)
+
+    def test_task_number_auto_generation(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="First Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self.assertIsNotNone(task.task_number)
+        self.assertEqual(task.task_number, 0)
+
+    def test_task_number_sequential(self):
+        task1 = Task.objects.create(
+            team=self.team,
+            title="First Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        task2 = Task.objects.create(
+            team=self.team,
+            title="Second Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        task3 = Task.objects.create(
+            team=self.team,
+            title="Third Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        self.assertEqual(task1.task_number, 0)
+        self.assertEqual(task2.task_number, 1)
+        self.assertEqual(task3.task_number, 2)
+
+    def test_slug_generation(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self.assertEqual(task.slug, "TES-0")
+
+    def test_slug_with_different_teams(self):
+        other_team = Team.objects.create(organization=self.organization, name="JonathanLab")
+        TaskWorkflow.objects.create(
+            team=other_team,
+            name="Other Workflow",
+            is_default=True,
+        )
+
+        task1 = Task.objects.create(
+            team=self.team,
+            title="Task 1",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        task2 = Task.objects.create(
+            team=other_team,
+            title="Task 2",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        self.assertEqual(task1.slug, "TES-0")
+        self.assertEqual(task2.slug, "JON-0")
+
+
 class TestTaskProgress(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
@@ -793,3 +896,244 @@ class TestTaskProgress(TestCase):
         self.assertEqual(progress.workflow_id, "workflow-123")
         self.assertEqual(progress.workflow_run_id, "run-456")
         self.assertEqual(progress.activity_id, "activity-789")
+
+
+class TestSandboxSnapshot(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.integration = Integration.objects.create(team=self.team, kind="github", config={})
+
+    @parameterized.expand(
+        [
+            (SandboxSnapshot.Status.IN_PROGRESS,),
+            (SandboxSnapshot.Status.COMPLETE,),
+            (SandboxSnapshot.Status.ERROR,),
+        ]
+    )
+    def test_snapshot_creation_with_statuses(self, status):
+        external_id = f"snapshot-{uuid.uuid4()}"
+        snapshot = SandboxSnapshot.objects.create(
+            integration=self.integration,
+            external_id=external_id,
+            repos=["PostHog/posthog", "PostHog/posthog-js"],
+            status=status,
+        )
+        self.assertEqual(snapshot.integration, self.integration)
+        self.assertEqual(snapshot.external_id, external_id)
+        self.assertEqual(snapshot.repos, ["PostHog/posthog", "PostHog/posthog-js"])
+        self.assertEqual(snapshot.status, status)
+
+    def test_snapshot_default_values(self):
+        snapshot = SandboxSnapshot.objects.create(integration=self.integration)
+        self.assertEqual(snapshot.repos, [])
+        self.assertEqual(snapshot.metadata, {})
+        self.assertEqual(snapshot.status, SandboxSnapshot.Status.IN_PROGRESS)
+
+    def test_str_representation(self):
+        snapshot = SandboxSnapshot.objects.create(
+            integration=self.integration,
+            external_id=f"snapshot-{uuid.uuid4()}",
+            repos=["PostHog/posthog", "PostHog/posthog-js"],
+            status=SandboxSnapshot.Status.COMPLETE,
+        )
+        self.assertEqual(str(snapshot), f"Snapshot {snapshot.external_id} (Complete, 2 repos)")
+
+    def test_is_complete(self):
+        snapshot = SandboxSnapshot.objects.create(
+            integration=self.integration,
+            status=SandboxSnapshot.Status.IN_PROGRESS,
+            external_id=f"snapshot-{uuid.uuid4()}",
+        )
+        self.assertFalse(snapshot.is_complete())
+
+        snapshot.status = SandboxSnapshot.Status.COMPLETE
+        snapshot.save()
+        self.assertTrue(snapshot.is_complete())
+
+    @parameterized.expand(
+        [
+            (["PostHog/posthog", "PostHog/posthog-js"], "PostHog/posthog", True),
+            (["PostHog/posthog", "PostHog/posthog-js"], "PostHog/other", False),
+            ([], "PostHog/posthog", False),
+        ]
+    )
+    def test_has_repo(self, repos, check_repo, expected):
+        snapshot = SandboxSnapshot.objects.create(
+            integration=self.integration, repos=repos, external_id=f"snapshot-{uuid.uuid4()}"
+        )
+        self.assertEqual(snapshot.has_repo(check_repo), expected)
+
+    @parameterized.expand(
+        [
+            (["PostHog/posthog", "PostHog/posthog-js"], ["PostHog/posthog"], True),
+            (["PostHog/posthog", "PostHog/posthog-js"], ["PostHog/posthog", "PostHog/posthog-js"], True),
+            (["PostHog/posthog"], ["PostHog/posthog", "PostHog/posthog-js"], False),
+            ([], ["PostHog/posthog"], False),
+        ]
+    )
+    def test_has_repos(self, snapshot_repos, required_repos, expected):
+        snapshot = SandboxSnapshot.objects.create(
+            integration=self.integration, repos=snapshot_repos, external_id=f"snapshot-{uuid.uuid4()}"
+        )
+        self.assertEqual(snapshot.has_repos(required_repos), expected)
+
+    def test_update_status_to_complete(self):
+        snapshot = SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
+        self.assertEqual(snapshot.status, SandboxSnapshot.Status.IN_PROGRESS)
+
+        snapshot.update_status(SandboxSnapshot.Status.COMPLETE)
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.status, SandboxSnapshot.Status.COMPLETE)
+
+    def test_update_status_to_error(self):
+        snapshot = SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
+
+        snapshot.update_status(SandboxSnapshot.Status.ERROR)
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.status, SandboxSnapshot.Status.ERROR)
+
+    @parameterized.expand(
+        [
+            (["PostHog/posthog"], "posthog/posthog", True),
+            (["PostHog/posthog"], "POSTHOG/POSTHOG", True),
+            (["posthog/posthog-js"], "PostHog/PostHog-JS", True),
+        ]
+    )
+    def test_has_repo_case_insensitive(self, repos, check_repo, expected):
+        snapshot = SandboxSnapshot.objects.create(
+            integration=self.integration, repos=repos, external_id=f"snapshot-{uuid.uuid4()}"
+        )
+        self.assertEqual(snapshot.has_repo(check_repo), expected)
+
+    @parameterized.expand(
+        [
+            (["PostHog/posthog", "PostHog/posthog-js"], ["posthog/posthog"], True),
+            (["PostHog/posthog", "PostHog/posthog-js"], ["POSTHOG/POSTHOG", "posthog/posthog-js"], True),
+        ]
+    )
+    def test_has_repos_case_insensitive(self, snapshot_repos, required_repos, expected):
+        snapshot = SandboxSnapshot.objects.create(
+            integration=self.integration, repos=snapshot_repos, external_id=f"snapshot-{uuid.uuid4()}"
+        )
+        self.assertEqual(snapshot.has_repos(required_repos), expected)
+
+    def test_get_latest_snapshot_for_integration(self):
+        SandboxSnapshot.objects.create(
+            integration=self.integration, status=SandboxSnapshot.Status.COMPLETE, external_id=f"snapshot-{uuid.uuid4()}"
+        )
+        snapshot2 = SandboxSnapshot.objects.create(
+            integration=self.integration, status=SandboxSnapshot.Status.COMPLETE, external_id=f"snapshot-{uuid.uuid4()}"
+        )
+
+        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
+        self.assertEqual(latest, snapshot2)
+
+    def test_get_latest_snapshot_for_integration_ignores_in_progress(self):
+        SandboxSnapshot.objects.create(
+            integration=self.integration, status=SandboxSnapshot.Status.COMPLETE, external_id=f"snapshot-{uuid.uuid4()}"
+        )
+        SandboxSnapshot.objects.create(
+            integration=self.integration,
+            status=SandboxSnapshot.Status.IN_PROGRESS,
+            external_id=f"snapshot-{uuid.uuid4()}",
+        )
+
+        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
+        assert latest is not None
+        self.assertEqual(latest.status, SandboxSnapshot.Status.COMPLETE)
+
+    def test_get_latest_snapshot_for_integration_ignores_error(self):
+        SandboxSnapshot.objects.create(
+            integration=self.integration,
+            status=SandboxSnapshot.Status.COMPLETE,
+            external_id=f"snapshot-{uuid.uuid4()}",
+        )
+        SandboxSnapshot.objects.create(
+            integration=self.integration,
+            status=SandboxSnapshot.Status.ERROR,
+            external_id=f"snapshot-{uuid.uuid4()}",
+        )
+
+        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
+        assert latest is not None
+        self.assertEqual(latest.status, SandboxSnapshot.Status.COMPLETE)
+
+    def test_get_latest_snapshot_for_integration_none(self):
+        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
+        self.assertIsNone(latest)
+
+    def test_get_latest_snapshot_with_repos(self):
+        SandboxSnapshot.objects.create(
+            integration=self.integration,
+            repos=["PostHog/posthog"],
+            status=SandboxSnapshot.Status.COMPLETE,
+            external_id=f"snapshot-{uuid.uuid4()}",
+        )
+        snapshot2 = SandboxSnapshot.objects.create(
+            integration=self.integration,
+            repos=["PostHog/posthog", "PostHog/posthog-js"],
+            status=SandboxSnapshot.Status.COMPLETE,
+            external_id=f"snapshot-{uuid.uuid4()}",
+        )
+
+        result = SandboxSnapshot.get_latest_snapshot_with_repos(self.integration.id, ["PostHog/posthog"])
+        self.assertEqual(result, snapshot2)
+
+        result = SandboxSnapshot.get_latest_snapshot_with_repos(
+            self.integration.id, ["PostHog/posthog", "PostHog/posthog-js"]
+        )
+        self.assertEqual(result, snapshot2)
+
+    def test_get_latest_snapshot_with_repos_not_found(self):
+        SandboxSnapshot.objects.create(
+            integration=self.integration,
+            repos=["PostHog/posthog"],
+            status=SandboxSnapshot.Status.COMPLETE,
+            external_id=f"snapshot-{uuid.uuid4()}",
+        )
+
+        result = SandboxSnapshot.get_latest_snapshot_with_repos(
+            self.integration.id, ["PostHog/posthog", "PostHog/other"]
+        )
+        self.assertIsNone(result)
+
+    def test_get_latest_snapshot_with_repos_ignores_in_progress(self):
+        SandboxSnapshot.objects.create(
+            integration=self.integration,
+            repos=["PostHog/posthog"],
+            status=SandboxSnapshot.Status.COMPLETE,
+            external_id=f"snapshot-{uuid.uuid4()}",
+        )
+        SandboxSnapshot.objects.create(
+            integration=self.integration,
+            repos=["PostHog/posthog", "PostHog/posthog-js"],
+            status=SandboxSnapshot.Status.IN_PROGRESS,
+            external_id=f"snapshot-{uuid.uuid4()}",
+        )
+
+        result = SandboxSnapshot.get_latest_snapshot_with_repos(
+            self.integration.id, ["PostHog/posthog", "PostHog/posthog-js"]
+        )
+        self.assertIsNone(result)
+
+    def test_multiple_snapshots_per_integration(self):
+        snapshot1 = SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
+        snapshot2 = SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
+        snapshot3 = SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
+
+        snapshots = SandboxSnapshot.objects.filter(integration=self.integration)
+        self.assertEqual(snapshots.count(), 3)
+        self.assertIn(snapshot1, snapshots)
+        self.assertIn(snapshot2, snapshots)
+        self.assertIn(snapshot3, snapshots)
+
+    def test_set_null_on_integration_delete(self):
+        SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
+        SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")
+
+        self.assertEqual(SandboxSnapshot.objects.filter(integration=self.integration).count(), 2)
+
+        self.integration.delete()
+
+        self.assertEqual(SandboxSnapshot.objects.filter(integration__isnull=True).count(), 2)

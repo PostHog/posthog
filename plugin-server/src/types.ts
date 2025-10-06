@@ -299,12 +299,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Redis params for the ingestion services
     INGESTION_REDIS_HOST: string
     INGESTION_REDIS_PORT: number
-    // Deduplication redis params
-    DEDUPLICATION_REDIS_HOST: string
-    DEDUPLICATION_REDIS_PORT: number
-    DEDUPLICATION_REDIS_PASSWORD: string
-    DEDUPLICATION_REDIS_PREFIX: string
-    DEDUPLICATION_TTL_SECONDS: number
     // Redis params for the core posthog (django+celery) services
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -370,6 +364,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
+    EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
+    EXTERNAL_REQUEST_CONNECTIONS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
@@ -381,8 +377,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
-    LAZY_LOADER_TTL_MS: number
-    LAZY_LOADER_EVICTION_ENABLED: boolean
     LAZY_LOADER_MAX_SIZE: number
     CAPTURE_INTERNAL_URL: string
 
