@@ -1,10 +1,12 @@
 import { actions, kea, key, path, props, reducers, selectors, useActions, useMountedLogic, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
@@ -117,7 +119,7 @@ export const scene: SceneExport = {
 
 function BatchExportSceneHeader({ logicProps }: { logicProps: BatchExportConfigurationLogicProps }): JSX.Element {
     const { configuration, batchExportConfigLoading } = useValues(batchExportConfigurationLogic(logicProps))
-    const { setConfigurationValue } = useActions(batchExportConfigurationLogic(logicProps))
+    const { setConfigurationValue, deleteBatchExport } = useActions(batchExportConfigurationLogic(logicProps))
 
     return (
         <>
@@ -138,6 +140,17 @@ function BatchExportSceneHeader({ logicProps }: { logicProps: BatchExportConfigu
                 canEdit
                 actions={
                     <>
+                        <More
+                            size="small"
+                            overlay={
+                                <>
+                                    <LemonButton status="danger" fullWidth onClick={() => deleteBatchExport()}>
+                                        Delete
+                                    </LemonButton>
+                                </>
+                            }
+                        />
+                        <LemonDivider vertical />
                         <BatchExportConfigurationClearChangesButton />
                         <BatchExportConfigurationSaveButton />
                     </>

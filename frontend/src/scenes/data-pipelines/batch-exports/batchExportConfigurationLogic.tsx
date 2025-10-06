@@ -519,6 +519,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
         setRunningStep: (step: number | null) => ({ step }),
+        deleteBatchExport: () => true,
     }),
     loaders(({ props, actions, values }) => ({
         batchExportConfig: [
@@ -877,6 +878,22 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         json_config_file: 'The config file is not valid',
                     })
                 }
+            }
+        },
+        deleteBatchExport: async () => {
+            // TODO: support undo'ing a delete
+            const batchExportId = values.batchExportConfig?.id
+            if (!batchExportId) {
+                return
+            }
+            try {
+                await api.batchExports.delete(batchExportId)
+                lemonToast.success('Batch export deleted successfully')
+                router.actions.replace(urls.dataPipelines('destinations'))
+            } catch (error: any) {
+                // Show error toast with the error message from the API
+                const errorMessage = error.detail || error.message || 'Failed to delete'
+                lemonToast.error(errorMessage)
             }
         },
     })),
