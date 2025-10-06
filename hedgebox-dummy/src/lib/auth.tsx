@@ -66,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const userWithAvatar = {
         ...userData,
-        avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${userData.email}&backgroundColor=1e40af`
+        avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(userData.email)}&backgroundColor=1e40af`
       };
 
       setUser(userWithAvatar);
@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name,
         email,
         plan,
-        avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${email}&backgroundColor=1e40af`
+        avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(email)}&backgroundColor=1e40af`
       };
 
       setUser(userData);
