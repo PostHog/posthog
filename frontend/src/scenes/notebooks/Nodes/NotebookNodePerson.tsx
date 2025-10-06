@@ -19,6 +19,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id, distinctId } = attributes
@@ -183,7 +184,7 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     },
     // FIXME: pasteOptions is not really working. Maybe change to personByUUID
     pasteOptions: {
-        find: urls.personByDistinctId('(.+)', false),
+        find: OPTIONAL_PROJECT_NON_CAPTURE_GROUP + urls.personByDistinctId('(.+)', false),
         getAttributes: async (match) => {
             return { distinctId: match[1], id: undefined }
         },

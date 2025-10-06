@@ -78,6 +78,7 @@ import {
     DatasetItem,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
+    EndpointType,
     EventDefinition,
     EventDefinitionMetrics,
     EventDefinitionType,
@@ -129,7 +130,6 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
-    QueryEndpointType,
     QueryTabState,
     RawAnnotationType,
     RawBatchExportBackfill,
@@ -1007,8 +1007,8 @@ export class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('assign')
     }
 
-    public errorTrackingRelatedIssues(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTrackingIssues(teamId).addPathComponent(`${issueId}/related_issues`)
+    public errorTrackingSimilarIssues(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent(`${issueId}/similar_issues`)
     }
 
     public errorTrackingExternalReference(teamId?: TeamType['id']): ApiRequest {
@@ -1273,12 +1273,12 @@ export class ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
-    public queryEndpoint(teamId?: TeamType['id']): ApiRequest {
+    public endpoint(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('named_query')
     }
 
-    public queryEndpointDetail(name: string): ApiRequest {
-        return this.queryEndpoint().addPathComponent(name)
+    public endpointDetail(name: string): ApiRequest {
+        return this.endpoint().addPathComponent(name)
     }
 
     public lastExecutionTimes(): ApiRequest {
@@ -1613,18 +1613,18 @@ const api = {
         },
     },
 
-    queryEndpoint: {
-        async list(): Promise<CountedPaginatedResponse<QueryEndpointType>> {
-            return await new ApiRequest().queryEndpoint().get()
+    endpoint: {
+        async list(): Promise<CountedPaginatedResponse<EndpointType>> {
+            return await new ApiRequest().endpoint().get()
         },
-        async create(data: NamedQueryRequest): Promise<QueryEndpointType> {
-            return await new ApiRequest().queryEndpoint().create({ data })
+        async create(data: NamedQueryRequest): Promise<EndpointType> {
+            return await new ApiRequest().endpoint().create({ data })
         },
         async delete(name: string): Promise<void> {
-            return await new ApiRequest().queryEndpointDetail(name).delete()
+            return await new ApiRequest().endpointDetail(name).delete()
         },
-        async update(name: string, data: NamedQueryRequest): Promise<QueryEndpointType> {
-            return await new ApiRequest().queryEndpointDetail(name).update({ data })
+        async update(name: string, data: NamedQueryRequest): Promise<EndpointType> {
+            return await new ApiRequest().endpointDetail(name).update({ data })
         },
         async getLastExecutionTimes(data: NamedQueryLastExecutionTimesRequest): Promise<Record<string, string>> {
             if (data.names.length === 0) {
@@ -1632,7 +1632,7 @@ const api = {
             }
 
             const response: QueryStatusResponse = await new ApiRequest()
-                .queryEndpoint()
+                .endpoint()
                 .lastExecutionTimes()
                 .create({ data })
             const result: Record<string, string> = {}
@@ -2948,10 +2948,10 @@ const api = {
                 .create({ data: { integration_id: integrationId, issue: issueId, config } })
         },
 
-        async getRelatedIssues(
+        async getSimilarIssues(
             issueId: ErrorTrackingIssue['id']
         ): Promise<Array<{ id: string; title: string; description: string }>> {
-            return await new ApiRequest().errorTrackingRelatedIssues(issueId).get()
+            return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
         },
     },
 
