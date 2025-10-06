@@ -16,7 +16,7 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.metrics import pushed_metrics_registry
@@ -77,11 +77,9 @@ def process_query_task(
     """
     from posthog.clickhouse.client import execute_process_query
 
-    # we don't want to override defaults in celery's task_prerun
-    query_tags.pop("kind", None)
-    query_tags.pop("id", None)
-
-    tag_queries(**query_tags)
+    existing_query_tags = get_query_tags()
+    all_query_tags = {**query_tags, **existing_query_tags.model_dump(exclude_unset=True)}
+    tag_queries(**all_query_tags)
 
     if is_query_service:
         tag_queries(chargeable=1)
