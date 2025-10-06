@@ -1,8 +1,7 @@
 import uuid
 from enum import StrEnum
-from typing import Optional
 
-from django.conf import settings
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, E2E_TESTING, TEST
 
 
 class ReplicationScheme(StrEnum):
@@ -31,7 +30,7 @@ class MergeTreeEngine:
         self.force_unique_zk_path = force_unique_zk_path
         self.kwargs = kwargs
 
-        self.zookeeper_path_key: Optional[str] = None
+        self.zookeeper_path_key: str | None = None
 
     def set_zookeeper_path_key(self, zookeeper_path_key: str):
         "Used in situations where a unique zookeeper path is needed"
@@ -49,7 +48,7 @@ class MergeTreeEngine:
             shard_key, replica_key = "noshard", "{replica}-{shard}"
 
         # ZK is not automatically cleaned up after DROP TABLE. Avoid zk path conflicts in tests by generating unique paths.
-        if (settings.TEST or settings.E2E_TESTING) and self.zookeeper_path_key is None or self.force_unique_zk_path:
+        if (TEST or E2E_TESTING) and self.zookeeper_path_key is None or self.force_unique_zk_path:
             self.set_zookeeper_path_key(str(uuid.uuid4()))
 
         if self.zookeeper_path_key is not None:
@@ -80,15 +79,13 @@ class AggregatingMergeTree(MergeTreeEngine):
 
 
 class Distributed:
-    def __init__(self, data_table: str, sharding_key: Optional[str] = None, cluster: str = settings.CLICKHOUSE_CLUSTER):
+    def __init__(self, data_table: str, sharding_key: str | None = None, cluster: str = CLICKHOUSE_CLUSTER):
         self.data_table = data_table
         self.sharding_key = sharding_key
         self.cluster = cluster
 
     def __str__(self):
         if not self.sharding_key:
-            return f"Distributed('{self.cluster}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}')"
+            return f"Distributed('{self.cluster}', '{CLICKHOUSE_DATABASE}', '{self.data_table}')"
 
-        return (
-            f"Distributed('{self.cluster}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"
-        )
+        return f"Distributed('{self.cluster}', '{CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"
