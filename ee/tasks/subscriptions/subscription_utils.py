@@ -6,7 +6,7 @@ from django.conf import settings
 
 import structlog
 from celery import chain
-from prometheus_client import Histogram
+from prometheus_client import Counter, Histogram
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
@@ -26,6 +26,12 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     "Time spent generating assets for a subscription",
     labelnames=["execution_path"],
     buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
+)
+
+SUBSCRIPTION_ASSET_GENERATION_TIMEOUT_COUNTER = Counter(
+    "subscription_asset_generation_timeout_total",
+    "Number of times asset generation timed out during subscription delivery",
+    labelnames=["execution_path"],
 )
 
 
@@ -176,10 +182,31 @@ async def generate_assets_async(
                 team_id=resource.team_id,
             )
         except TimeoutError:
+            SUBSCRIPTION_ASSET_GENERATION_TIMEOUT_COUNTER.labels(execution_path="temporal").inc()
+
+            # Identify which assets failed (no content)
+            failed_assets = [a for a in assets if not a.content and not a.content_location]
+            failed_insight_ids = [a.insight_id for a in failed_assets if a.insight_id]
+            failed_insight_urls = [
+                f"/project/{resource.team_id}/insights/{a.insight.short_id}"
+                for a in failed_assets
+                if a.insight and hasattr(a.insight, "short_id")
+            ]
+
+            # Build dashboard URL if applicable
+            dashboard_url = (
+                f"/project/{resource.team_id}/dashboard/{resource.dashboard_id}" if resource.dashboard else None
+            )
+
             logger.warning(
                 "generate_assets_async.exports_timeout",
                 asset_count=len(assets),
+                failed_asset_count=len(failed_assets),
                 subscription_id=subscription_id,
+                dashboard_id=resource.dashboard_id if resource.dashboard else None,
+                dashboard_url=dashboard_url,
+                failed_insight_ids=failed_insight_ids,
+                failed_insight_urls=failed_insight_urls,
                 team_id=resource.team_id,
             )
             # Continue with partial results - some assets may not have content
