@@ -1323,7 +1323,7 @@ class FileSystemIconType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
-    EMBEDDED_ANALYTICS = "embedded_analytics"
+    ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
     WEB_ANALYTICS = "web_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -8618,35 +8618,6 @@ class ExperimentEventExposureConfig(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentExposureCriteria(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    exposure_config: Optional[ExperimentEventExposureConfig] = None
-    filterTestAccounts: Optional[bool] = None
-    multiple_variant_handling: Optional[MultipleVariantHandling] = None
-
-
-class ExperimentExposureQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    end_date: Optional[str] = None
-    experiment_id: Optional[int] = None
-    experiment_name: str
-    exposure_criteria: Optional[ExperimentExposureCriteria] = None
-    feature_flag: dict[str, Any]
-    holdout: Optional[ExperimentHoldoutType] = None
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[ExperimentExposureQueryResponse] = None
-    start_date: Optional[str] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11044,6 +11015,7 @@ class TracesQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    personId: Optional[str] = Field(default=None, description="Person who performed the event")
     properties: Optional[
         list[
             Union[
@@ -11817,6 +11789,35 @@ class EventTaxonomyQuery(BaseModel):
     )
     properties: Optional[list[str]] = None
     response: Optional[EventTaxonomyQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_config: Optional[Union[ExperimentEventExposureConfig, ActionsNode]] = None
+    filterTestAccounts: Optional[bool] = None
+    multiple_variant_handling: Optional[MultipleVariantHandling] = None
+
+
+class ExperimentExposureQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end_date: Optional[str] = None
+    experiment_id: Optional[int] = None
+    experiment_name: str
+    exposure_criteria: Optional[ExperimentExposureCriteria] = None
+    feature_flag: dict[str, Any]
+    holdout: Optional[ExperimentHoldoutType] = None
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[ExperimentExposureQueryResponse] = None
+    start_date: Optional[str] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 

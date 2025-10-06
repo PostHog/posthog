@@ -11284,11 +11284,21 @@
             "required": ["event", "kind", "properties"],
             "type": "object"
         },
+        "ExperimentExposureConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                }
+            ]
+        },
         "ExperimentExposureCriteria": {
             "additionalProperties": false,
             "properties": {
                 "exposure_config": {
-                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                    "$ref": "#/definitions/ExperimentExposureConfig"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
@@ -12592,7 +12602,7 @@
                 "revenue_analytics",
                 "revenue_analytics_metadata",
                 "marketing_settings",
-                "embedded_analytics",
+                "endpoints",
                 "sql_editor",
                 "web_analytics",
                 "error_tracking",
@@ -25271,6 +25281,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "personId": {
+                    "description": "Person who performed the event",
+                    "type": "string"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
