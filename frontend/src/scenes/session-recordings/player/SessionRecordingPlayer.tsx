@@ -3,13 +3,14 @@ import './SessionRecordingPlayer.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { BuilderHog2 } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import useIsHovering from 'lib/hooks/useIsHovering'
+import { useIsMouseMoving } from 'lib/hooks/useIsMouseMoving'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -36,39 +37,6 @@ import {
     sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
-
-const useIsMouseMoving = (ref: React.RefObject<HTMLElement>, timeAfterWhichToConsiderStopped: number): boolean => {
-    const [isMoving, setIsMoving] = useState(false)
-    const timeoutRef = useRef<NodeJS.Timeout | null>(null)
-
-    useEffect(() => {
-        const handleMouseMove = (): void => {
-            setIsMoving(true)
-            if (timeoutRef.current) {
-                clearTimeout(timeoutRef.current)
-            }
-            timeoutRef.current = setTimeout(() => {
-                setIsMoving(false)
-            }, timeAfterWhichToConsiderStopped)
-        }
-
-        const current = ref.current
-        if (current) {
-            current.addEventListener('mousemove', handleMouseMove)
-        }
-
-        return () => {
-            if (current) {
-                current.removeEventListener('mousemove', handleMouseMove)
-            }
-            if (timeoutRef.current) {
-                clearTimeout(timeoutRef.current)
-            }
-        }
-    }, [ref, timeAfterWhichToConsiderStopped])
-
-    return isMoving
-}
 
 const MAX_PLAYBACK_SPEED = 4
 
