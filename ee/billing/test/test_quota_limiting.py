@@ -29,6 +29,7 @@ from ee.billing.quota_limiting import (
     update_all_orgs_billing_quotas,
     update_org_billing_quotas,
 )
+from ee.clickhouse.materialized_columns.columns import materialize
 
 
 def zero_trust_scores():
@@ -59,6 +60,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_exported")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/llm_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
+        materialize("events", "$exception_values")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
