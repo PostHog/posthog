@@ -6,36 +6,6 @@ import * as v8 from 'v8'
 import { PluginsServerConfig } from '../types'
 import { logger } from './logger'
 
-let memoryMonitoringInterval: NodeJS.Timeout | null = null
-
-export function startMemoryMonitoring(): void {
-    if (memoryMonitoringInterval) {
-        return // Already running
-    }
-
-    memoryMonitoringInterval = setInterval(() => {
-        const m = process.memoryUsage()
-        const h = v8.getHeapStatistics()
-        logger.info('[mem]', {
-            rssMB: Math.round(m.rss / 1e6),
-            heapUsedMB: Math.round(m.heapUsed / 1e6),
-            externalMB: Math.round(m.external / 1e6),
-            arrayBuffersMB: Math.round((m.arrayBuffers || 0) / 1e6),
-            mallocedMB: Math.round((h.malloced_memory || 0) / 1e6),
-        })
-    }, 5000)
-
-    logger.info('Memory monitoring started (5 second intervals)')
-}
-
-export function stopMemoryMonitoring(): void {
-    if (memoryMonitoringInterval) {
-        clearInterval(memoryMonitoringInterval)
-        memoryMonitoringInterval = null
-        logger.info('Memory monitoring stopped')
-    }
-}
-
 /**
  * Simple heap dump utility based on signal handling
  * Inspired by: https://medium.com/@amirilovic/how-to-find-production-memory-leaks-in-node-js-applications-a1b363b4884f
