@@ -28,7 +28,7 @@ import { PlayerController } from './controller/PlayerController'
 import { PlayerMeta } from './player-meta/PlayerMeta'
 import { PlayerMetaTopSettings } from './player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoordinatorLogic'
 import {
     ONE_FRAME_MS,
     PLAYBACK_SPEEDS,
@@ -102,8 +102,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         setIsHovering,
         allowPlayerChromeToHide,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
-    const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataLogic(logicProps))
-    const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
+    const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
+    const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
     const { isFullScreen, explorerMode, isBuffering, isCommenting, quickEmojiIsOpen, showingClipParams, resolution } =
         useValues(sessionRecordingPlayerLogic(logicProps))
     const {
