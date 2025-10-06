@@ -4,16 +4,16 @@ import { useAuth } from '@/lib/auth'
 import Link from 'next/link'
 import { useState } from 'react'
 
-export default function Header() {
+export default function Header(): JSX.Element {
     const { user, logout } = useAuth()
     const [isProfileOpen, setIsProfileOpen] = useState(false)
 
-    const handleLogout = () => {
+    const handleLogout = (): void => {
         logout()
         setIsProfileOpen(false)
     }
 
-    const getAvatarUrl = () =>
+    const getAvatarUrl = (): string =>
         user?.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=${user?.email}&backgroundColor=1e40af`
 
     const navLinks = user
@@ -168,7 +168,7 @@ export default function Header() {
                                         </Link>
                                     </li>
                                 ))}
-                                <div className="divider my-1"></div>
+                                <div className="divider my-1" />
                                 <li>
                                     <button onClick={handleLogout} className="hover:bg-error/10 text-error rounded-lg">
                                         🚪 Log out

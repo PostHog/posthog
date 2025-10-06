@@ -1,5 +1,9 @@
 'use client'
 
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+
 import Header from '@/components/Header'
 import { useAuth } from '@/lib/auth'
 import { sampleFiles } from '@/lib/data'
@@ -7,8 +11,6 @@ import { useAuthRedirect } from '@/lib/hooks'
 import { posthog } from '@/lib/posthog'
 import { formatFileSize, getFileIcon } from '@/lib/utils'
 import { HedgeboxFile } from '@/types'
-import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
 
 interface FilePageProps {
     params: {
@@ -16,7 +18,7 @@ interface FilePageProps {
     }
 }
 
-export default function FilePage({ params }: FilePageProps) {
+export default function FilePage({ params }: FilePageProps): React.JSX.Element | null {
     const { user } = useAuth()
     const [file, setFile] = useState<HedgeboxFile | null>(null)
     const [isLoading, setIsLoading] = useState(true)
@@ -42,7 +44,7 @@ export default function FilePage({ params }: FilePageProps) {
         }
     }, [params.id])
 
-    if (!user) return null
+    if (!user) {return null}
 
     if (isLoading) {
         return (
@@ -50,7 +52,7 @@ export default function FilePage({ params }: FilePageProps) {
                 <Header />
                 <div className="container mx-auto px-4 py-8 max-w-4xl">
                     <div className="flex items-center justify-center py-20">
-                        <span className="loading loading-spinner loading-lg"></span>
+                        <span className="loading loading-spinner loading-lg" />
                     </div>
                 </div>
             </div>
@@ -68,16 +70,16 @@ export default function FilePage({ params }: FilePageProps) {
                         <p className="text-base-content/70 mb-6">
                             The file you're looking for doesn't exist or has been deleted.
                         </p>
-                        <a href="/files" className="btn btn-primary">
+                        <Link href="/files" className="btn btn-primary">
                             ← Back to Files
-                        </a>
+                        </Link>
                     </div>
                 </div>
             </div>
         )
     }
 
-    const handleDownload = () => {
+    const handleDownload = (): void => {
         setIsProcessing(true)
         posthog.capture('downloaded_file', {
             file_id: file.id,
@@ -92,7 +94,7 @@ export default function FilePage({ params }: FilePageProps) {
         }, 2000)
     }
 
-    const handleShare = () => {
+    const handleShare = (): void => {
         posthog.capture('shared_file', {
             file_id: file.id,
             file_type: file.type,
@@ -101,7 +103,7 @@ export default function FilePage({ params }: FilePageProps) {
         setShowShareModal(true)
     }
 
-    const handleDelete = () => {
+    const handleDelete = (): void => {
         if (confirm('Are you sure you want to delete this file? This action cannot be undone.')) {
             posthog.capture('deleted_file', {
                 file_id: file.id,
@@ -112,7 +114,7 @@ export default function FilePage({ params }: FilePageProps) {
         }
     }
 
-    const copyShareLink = () => {
+    const copyShareLink = (): void => {
         const shareLink = file.sharedLink || `https://hedgebox.net/files/${file.id}/shared`
         navigator.clipboard.writeText(shareLink)
         posthog.capture('copied_share_link', {
@@ -120,7 +122,7 @@ export default function FilePage({ params }: FilePageProps) {
         })
     }
 
-    const getPreviewComponent = () => {
+    const getPreviewComponent = (): React.JSX.Element => {
         if (file.type.startsWith('image/')) {
             return (
                 <div className="bg-base-200 rounded-lg p-8 text-center">
@@ -142,14 +144,14 @@ export default function FilePage({ params }: FilePageProps) {
                     <p className="text-base-content/70">Video preview would appear here</p>
                 </div>
             )
-        } else {
+        }
             return (
                 <div className="bg-base-200 rounded-lg p-8 text-center">
                     <div className="text-8xl mb-4">{getFileIcon(file.type)}</div>
                     <p className="text-base-content/70">No preview available for this file type</p>
                 </div>
             )
-        }
+        
     }
 
     return (
@@ -161,9 +163,9 @@ export default function FilePage({ params }: FilePageProps) {
                 <div className="breadcrumbs text-sm mb-6">
                     <ul>
                         <li>
-                            <a href="/files" className="link link-hover">
+                            <Link href="/files" className="link link-hover">
                                 📁 Files
-                            </a>
+                            </Link>
                         </li>
                         <li className="text-base-content/70">{file.name}</li>
                     </ul>
@@ -208,7 +210,7 @@ export default function FilePage({ params }: FilePageProps) {
                                         className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-lg w-40"
                                     >
                                         <li>
-                                            <a href="/files">📁 Back to Files</a>
+                                            <Link href="/files">📁 Back to Files</Link>
                                         </li>
                                         <li>
                                             <button onClick={handleDelete} className="text-error">
@@ -302,7 +304,7 @@ export default function FilePage({ params }: FilePageProps) {
                                     strokeLinejoin="round"
                                     strokeWidth="2"
                                     d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                ></path>
+                                 />
                             </svg>
                             <span>Anyone with this link can view and download this file.</span>
                         </div>

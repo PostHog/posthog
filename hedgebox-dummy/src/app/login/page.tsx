@@ -2,8 +2,8 @@
 
 import Header from '@/components/Header'
 import { useAuth } from '@/lib/auth'
-import { useAuthRedirect } from '@/lib/hooks'
-import { posthog } from '@/lib/posthog'
+
+
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
@@ -98,7 +98,7 @@ export default function LoginPage(): JSX.Element {
 
                                 <button
                                     type="submit"
-                                    className={`btn btn-primary w-full btn-lg hover:scale-105 transition-transform`}
+                                    className="btn btn-primary w-full btn-lg hover:scale-105 transition-transform"
                                     disabled={isLoading}
                                 >
                                     {isLoading ? 'Signing in...' : '🚀 Sign in'}
