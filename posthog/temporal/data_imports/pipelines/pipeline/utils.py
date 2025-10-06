@@ -1,3 +1,4 @@
+import re
 import json
 import math
 import uuid
@@ -687,6 +688,19 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 and not pa.types.is_duration(arrow_schema.field(field_index).type)
             ):
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(col.type))
+
+        # Covert date-like srings to datetimes
+        if issubclass(py_type, str) and isinstance(val, str) and re.match(r"^\d{4}-\d{2}-\d{2}", val):
+            date_array = pa.array(
+                [safe_parse_datetime(s) for s in columnar_table_data[field_name].tolist()],
+                type=pa.timestamp("us"),
+            )
+            columnar_table_data[field_name] = date_array
+            py_type = datetime.date
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(
+                    field_index, arrow_schema.field(field_index).with_type(pa.timestamp("us"))
+                )
 
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):
