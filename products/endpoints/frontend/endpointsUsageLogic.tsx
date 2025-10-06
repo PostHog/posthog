@@ -15,13 +15,13 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import {
-    EmbeddedAnalyticsTileId,
+    EndpointsUsageQueryTile,
+    EndpointsUsageTileId,
     INITIAL_DATE_FROM,
     INITIAL_DATE_TO,
     INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED,
-    UsageQueryTile,
 } from './common'
-import type { embeddedAnalyticsLogicType } from './embeddedAnalyticsLogicType'
+import type { endpointsUsageLogicType } from './endpointsUsageLogicType'
 import {
     createApiCpuSecondsQuery,
     createApiQueriesCountQuery,
@@ -35,13 +35,13 @@ import {
     createLast20QueriesQuery,
 } from './queries'
 
-export interface EmbeddedAnalyticsLogicProps {
+export interface EndpointsUsageLogicProps {
     tabId: string
 }
 
-export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
-    path(['products', 'embedded_analytics', 'frontend', 'embeddedAnalyticsLogic']),
-    props({} as EmbeddedAnalyticsLogicProps),
+export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
+    path(['products', 'endpoints', 'frontend', 'endpointsUsageLogic']),
+    props({} as EndpointsUsageLogicProps),
     key((props) => props.tabId),
     connect(() => ({
         values: [sceneLogic, ['sceneKey']],
@@ -107,16 +107,16 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey: string) => {
-                if (sceneKey === 'embeddedAnalyticsUsage') {
+                if (sceneKey === 'endpointsUsage') {
                     return 'usage'
                 }
-                return 'query-endpoints'
+                return 'endpoints'
             },
         ],
         tiles: [
             (s) => [s.dateFilter, s.requestNameBreakdownEnabled, s.requestNameFilter, s.activeTab],
-            (dateFilter, requestNameBreakdownEnabled, requestNameFilter, activeTab): UsageQueryTile[] => {
-                if (activeTab === 'query-endpoints') {
+            (dateFilter, requestNameBreakdownEnabled, requestNameFilter, activeTab): EndpointsUsageQueryTile[] => {
+                if (activeTab === 'endpoints') {
                     return []
                 }
 
@@ -151,7 +151,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                 return [
                     {
                         kind: 'query',
-                        tileId: EmbeddedAnalyticsTileId.API_QUERIES_COUNT,
+                        tileId: EndpointsUsageTileId.API_QUERIES_COUNT,
                         title: 'Number of API requests per day',
                         layout: {
                             colSpanClassName: 'md:col-span-2',
@@ -184,7 +184,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                     },
                     {
                         kind: 'query',
-                        tileId: EmbeddedAnalyticsTileId.API_READ_TB,
+                        tileId: EndpointsUsageTileId.API_READ_TB,
                         title: 'TB read by API requests per day',
                         layout: {
                             colSpanClassName: 'md:col-span-2',
@@ -217,7 +217,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                     },
                     {
                         kind: 'query',
-                        tileId: EmbeddedAnalyticsTileId.API_CPU_SECONDS,
+                        tileId: EndpointsUsageTileId.API_CPU_SECONDS,
                         title: 'CPU seconds used by API requests per day',
                         layout: {
                             colSpanClassName: 'md:col-span-2',
@@ -250,7 +250,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                     },
                     {
                         kind: 'query',
-                        tileId: EmbeddedAnalyticsTileId.API_QUERIES_PER_KEY,
+                        tileId: EndpointsUsageTileId.API_QUERIES_PER_KEY,
                         title: 'Number of API requests by personal api key per day',
                         layout: {
                             colSpanClassName: 'md:col-span-2',
@@ -283,7 +283,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                     },
                     {
                         kind: 'query',
-                        tileId: EmbeddedAnalyticsTileId.API_LAST_20_QUERIES,
+                        tileId: EndpointsUsageTileId.API_LAST_20_QUERIES,
                         title: 'Last 20 API requests',
                         layout: {
                             colSpanClassName: 'md:col-span-full',
@@ -309,7 +309,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                     },
                     {
                         kind: 'query',
-                        tileId: EmbeddedAnalyticsTileId.API_EXPENSIVE_QUERIES,
+                        tileId: EndpointsUsageTileId.API_EXPENSIVE_QUERIES,
                         title: '25 most expensive API request queries',
                         layout: {
                             colSpanClassName: 'md:col-span-full',
@@ -335,7 +335,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                     },
                     {
                         kind: 'query',
-                        tileId: EmbeddedAnalyticsTileId.API_FAILED_QUERIES,
+                        tileId: EndpointsUsageTileId.API_FAILED_QUERIES,
                         title: 'Recently failed API request queries',
                         layout: {
                             colSpanClassName: 'md:col-span-full',
@@ -367,9 +367,9 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             (s) => [s.activeTab],
             (): Breadcrumb[] => [
                 {
-                    key: 'EmbeddedAnalytics',
-                    name: 'Embedded analytics',
-                    iconType: 'embedded_analytics',
+                    key: 'Endpoints',
+                    name: 'Endpoints',
+                    iconType: 'endpoints',
                 },
             ],
         ],
@@ -430,7 +430,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions }) => ({
-        [urls.embeddedAnalyticsUsage()]: (_, searchParams) => {
+        [urls.endpointsUsage()]: (_, searchParams) => {
             const { dateFrom, dateTo, requestNameBreakdownEnabled, requestNameFilter } = searchParams
             actions.setDates(dateFrom ?? INITIAL_DATE_FROM, dateTo ?? INITIAL_DATE_TO)
             actions.setRequestNameBreakdownEnabled(

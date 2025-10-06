@@ -240,7 +240,7 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
-    EMBEDDED_ANALYTICS = 'embedded_analytics',
+    ENDPOINTS = 'endpoints',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -2110,7 +2110,7 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface QueryEndpointType extends WithAccessControl {
+export interface EndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
