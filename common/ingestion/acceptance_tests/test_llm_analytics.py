@@ -351,3 +351,275 @@ class TestLLMAnalytics:
         finally:
             client.delete_project(project["id"])
             client.delete_organization(org["id"])
+
+    def test_multipart_parsing_with_multiple_blobs(self, test_client):
+        """Test Phase 1.2: Multipart parsing with multiple blob parts."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Multipart parsing with multiple blobs")
+        logger.info("=" * 60)
+
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            time.sleep(5)
+
+            event_data = {
+                "event": "$ai_generation",
+                "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+                "properties": {"$ai_model": "test-multi-blob"},
+            }
+
+            # Create 3 different blobs
+            input_blob = {"messages": [{"role": "user", "content": "Hello"}]}
+            output_blob = {"choices": [{"message": {"content": "Hi there"}}]}
+            metadata_blob = {"model_version": "1.0", "temperature": 0.7}
+
+            fields = {
+                "event": ("event.json", json.dumps(event_data), "application/json"),
+                "event.properties.$ai_input": (
+                    "input.json",
+                    json.dumps(input_blob),
+                    "application/json",
+                ),
+                "event.properties.$ai_output": (
+                    "output.json",
+                    json.dumps(output_blob),
+                    "application/json",
+                ),
+                "event.properties.$ai_metadata": (
+                    "metadata.json",
+                    json.dumps(metadata_blob),
+                    "application/json",
+                ),
+            }
+
+            multipart_data = MultipartEncoder(fields=fields)
+            headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project['api_token']}"}
+
+            response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+
+            # Verify event was processed
+            event = client.wait_for_event(
+                project_id=project["id"], event_name="$ai_generation", distinct_id=event_data["distinct_id"], timeout=30
+            )
+
+            assert event is not None, "Event not found"
+            props = event.get("properties", {})
+
+            # Verify all blob properties were replaced with S3 URLs
+            assert "$ai_input" in props and props["$ai_input"].startswith("s3://")
+            assert "$ai_output" in props and props["$ai_output"].startswith("s3://")
+            assert "$ai_metadata" in props and props["$ai_metadata"].startswith("s3://")
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
+
+    def test_multipart_parsing_with_mixed_content_types(self, test_client):
+        """Test Phase 1.2: Multipart parsing with mixed content types."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Multipart parsing with mixed content types")
+        logger.info("=" * 60)
+
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            time.sleep(5)
+
+            event_data = {
+                "event": "$ai_generation",
+                "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+                "properties": {"$ai_model": "test-mixed-types"},
+            }
+
+            fields = {
+                "event": ("event.json", json.dumps(event_data), "application/json"),
+                "event.properties.$ai_json_blob": (
+                    "data.json",
+                    json.dumps({"type": "json"}),
+                    "application/json",
+                ),
+                "event.properties.$ai_text_blob": (
+                    "data.txt",
+                    "This is plain text content",
+                    "text/plain",
+                ),
+                "event.properties.$ai_binary_blob": (
+                    "data.bin",
+                    b"\x00\x01\x02\x03\x04\x05",
+                    "application/octet-stream",
+                ),
+            }
+
+            multipart_data = MultipartEncoder(fields=fields)
+            headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project['api_token']}"}
+
+            response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
+
+    def test_multipart_parsing_with_custom_boundary(self, test_client):
+        """Test Phase 1.2: Multipart parsing with custom boundary string."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Multipart parsing with custom boundary")
+        logger.info("=" * 60)
+
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            time.sleep(5)
+
+            event_data = {
+                "event": "$ai_generation",
+                "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+                "properties": {"$ai_model": "test-boundary"},
+            }
+
+            # Custom boundary with special characters
+            custom_boundary = f"----CustomBoundary{uuid.uuid4().hex}----"
+
+            fields = {
+                "event": ("event.json", json.dumps(event_data), "application/json"),
+                "event.properties.$ai_data": (
+                    "data.json",
+                    json.dumps({"boundary": "custom"}),
+                    "application/json",
+                ),
+            }
+
+            multipart_data = MultipartEncoder(fields=fields, boundary=custom_boundary)
+            headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project['api_token']}"}
+
+            response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
+
+    def test_multipart_parsing_with_large_blob(self, test_client):
+        """Test Phase 1.2: Multipart parsing with large blob data."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Multipart parsing with large blob")
+        logger.info("=" * 60)
+
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            time.sleep(5)
+
+            event_data = {
+                "event": "$ai_generation",
+                "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+                "properties": {"$ai_model": "test-large"},
+            }
+
+            # Create a large JSON blob (100KB)
+            large_blob = {"messages": [{"role": "user", "content": "x" * 1000} for _ in range(100)]}
+
+            fields = {
+                "event": ("event.json", json.dumps(event_data), "application/json"),
+                "event.properties.$ai_large_input": (
+                    "large.json",
+                    json.dumps(large_blob),
+                    "application/json",
+                ),
+            }
+
+            multipart_data = MultipartEncoder(fields=fields)
+            headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project['api_token']}"}
+
+            response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
+
+    def test_multipart_parsing_with_empty_blob(self, test_client):
+        """Test Phase 1.2: Multipart parsing with empty blob part."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Multipart parsing with empty blob")
+        logger.info("=" * 60)
+
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            time.sleep(5)
+
+            event_data = {
+                "event": "$ai_generation",
+                "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+                "properties": {"$ai_model": "test-empty"},
+            }
+
+            fields = {
+                "event": ("event.json", json.dumps(event_data), "application/json"),
+                "event.properties.$ai_empty": (
+                    "empty.json",
+                    "",  # Empty content
+                    "application/json",
+                ),
+            }
+
+            multipart_data = MultipartEncoder(fields=fields)
+            headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project['api_token']}"}
+
+            response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
+
+    def test_multipart_parsing_blob_with_special_chars_in_name(self, test_client):
+        """Test Phase 1.2: Multipart parsing with special characters in blob names."""
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST: Multipart parsing with special chars in blob names")
+        logger.info("=" * 60)
+
+        client = test_client
+        org = client.create_organization()
+        project = client.create_project(org["id"])
+
+        try:
+            time.sleep(5)
+
+            event_data = {
+                "event": "$ai_generation",
+                "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
+                "properties": {"$ai_model": "test-special-names"},
+            }
+
+            fields = {
+                "event": ("event.json", json.dumps(event_data), "application/json"),
+                "event.properties.$ai_special": (
+                    "file-with-dashes_and_underscores.json",
+                    json.dumps({"test": "special"}),
+                    "application/json",
+                ),
+            }
+
+            multipart_data = MultipartEncoder(fields=fields)
+            headers = {"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {project['api_token']}"}
+
+            response = requests.post(f"{client.base_url}/ai", data=multipart_data, headers=headers)
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+
+        finally:
+            client.delete_project(project["id"])
+            client.delete_organization(org["id"])
