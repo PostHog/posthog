@@ -2327,6 +2327,7 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         experiment = Experiment.objects.get(id=experiment.id)
+        assert experiment.exposure_criteria is not None
         self.assertEqual(experiment.exposure_criteria["filterTestAccounts"], False)
         self.assertEqual(experiment.exposure_criteria["exposure_config"]["kind"], "ActionsNode")
         self.assertEqual(experiment.exposure_criteria["exposure_config"]["id"], action.id)
