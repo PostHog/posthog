@@ -153,7 +153,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         **kwargs,
     ) -> LLMResult:
         project_org_user_variables = self._get_project_org_user_variables()
-        self._enrich_messages(messages, project_org_user_variables)
+        messages = self._enrich_messages(messages, project_org_user_variables)
         return super().generate(messages, *args, **kwargs)
 
     async def agenerate(
@@ -163,5 +163,5 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         **kwargs,
     ) -> LLMResult:
         project_org_user_variables = await self._aget_project_org_user_variables()
-        self._enrich_messages(messages, project_org_user_variables)
+        messages = self._enrich_messages(messages, project_org_user_variables)
         return await super().agenerate(messages, *args, **kwargs)
