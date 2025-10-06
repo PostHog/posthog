@@ -71,7 +71,7 @@
         "@posthog/products-customer-analytics": "workspace:*",
         "@posthog/products-dashboards": "workspace:*",
         "@posthog/products-early-access-features": "workspace:*",
-        "@posthog/products-embedded-analytics": "workspace:*",
+        "@posthog/products-endpoints": "workspace:*",
         "@posthog/products-error-tracking": "workspace:*",
         "@posthog/products-experiments": "workspace:*",
         "@posthog/products-feature-flags": "workspace:*",
