@@ -13,6 +13,7 @@ import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
 
+import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { SceneTabs } from './SceneTabs'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
@@ -70,7 +71,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
     const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
         useActions(sceneLayoutLogic)
     const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
-
+    const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
 
     // Set layout config
@@ -114,6 +115,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                                 hidden: !scenePanelOpen,
                                 'col-start-2 col-span-1 row-start-1 row-span-2':
                                     scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
+                                'z-1': isLayoutPanelVisible && !isLayoutPanelPinned,
                             }
                         )}
                     >
