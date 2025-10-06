@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { confirmUpgradeModalLogic } from 'lib/components/ConfirmUpgradeModal/confirmUpgradeModalLogic'
 import { FEATURE_FLAGS, TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -52,6 +53,7 @@ export const BillingProductAddonActions = ({
 
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
         useActions(billingProductLogic({ product: addon }))
+    const { showConfirmUpgradeModal } = useActions(confirmUpgradeModalLogic)
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const { prorationAmount, isProrated } = useMemo(
         () =>
@@ -255,12 +257,17 @@ export const BillingProductAddonActions = ({
                     type="primary"
                     loading={switchPlanLoading === addon.type}
                     onClick={() =>
-                        switchFlatrateSubscriptionPlan({
-                            from_product_key: String(currentPlatformAddon?.type),
-                            from_plan_key: String(currentPlatformAddon?.plans[0].plan_key),
-                            to_product_key: addon.type,
-                            to_plan_key: String(upgradePlan?.plan_key),
-                        })
+                        showConfirmUpgradeModal(
+                            upgradePlan!,
+                            () =>
+                                switchFlatrateSubscriptionPlan({
+                                    from_product_key: String(currentPlatformAddon?.type),
+                                    from_plan_key: String(currentPlatformAddon?.plans[0].plan_key),
+                                    to_product_key: addon.type,
+                                    to_plan_key: String(upgradePlan?.plan_key),
+                                }),
+                            () => {}
+                        )
                     }
                 >
                     Upgrade
