@@ -314,7 +314,6 @@ interface UserBaseType {
     first_name: string
     last_name?: string
     email: string
-    role_at_organization?: string | null
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -322,6 +321,7 @@ export interface UserBasicType extends UserBaseType {
     is_email_verified?: any
     id: number
     hedgehog_config?: MinimalHedgehogConfig
+    role_at_organization?: string | null
 }
 
 /**
