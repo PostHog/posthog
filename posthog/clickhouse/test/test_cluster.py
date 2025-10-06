@@ -25,6 +25,8 @@ from posthog.clickhouse.cluster import (
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
+pytestmark = pytest.mark.xdist_group(name="clickhouse_mutations")
+
 
 @pytest.fixture
 def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
