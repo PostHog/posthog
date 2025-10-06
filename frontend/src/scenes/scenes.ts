@@ -200,11 +200,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
     [Scene.Notebook]: {
         projectBased: true,
-        hideProjectNotice: true,
         name: 'Notebook',
-        layout: 'app-raw',
         activityScope: ActivityScope.NOTEBOOK,
         defaultDocsPath: '/blog/introducing-notebooks',
+        canvasBackground: true,
     },
     [Scene.Notebooks]: {
         projectBased: true,
