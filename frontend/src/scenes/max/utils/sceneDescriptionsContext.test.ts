@@ -134,7 +134,7 @@ describe('buildSceneDescriptionsContext', () => {
         }
     })
 
-    it('only includes URL keys that are in AssistantNavigateUrls', () => {
+    it('only includes URL keys that are in AssistantNavigateUrl', () => {
         const result = buildSceneDescriptionsContext()
         const lines = result.split('\n').filter((l) => l.trim())
 
@@ -149,7 +149,7 @@ describe('buildSceneDescriptionsContext', () => {
         }
     })
 
-    it('all returned URL keys are valid entries in AssistantNavigateUrls', () => {
+    it('all returned URL keys are valid entries in AssistantNavigateUrl', () => {
         const result = buildSceneDescriptionsContext()
         const lines = result.split('\n').filter((l) => l.trim())
 
