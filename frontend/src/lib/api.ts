@@ -29,6 +29,7 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    NamedQueryLastExecutionTimesRequest,
     NamedQueryRequest,
     Node,
     NodeKind,
@@ -41,7 +42,7 @@ import {
     SourceConfig,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -1006,6 +1007,10 @@ export class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('assign')
     }
 
+    public errorTrackingSimilarIssues(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent(`${issueId}/similar_issues`)
+    }
+
     public errorTrackingExternalReference(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('external_references')
     }
@@ -1274,6 +1279,10 @@ export class ApiRequest {
 
     public queryEndpointDetail(name: string): ApiRequest {
         return this.queryEndpoint().addPathComponent(name)
+    }
+
+    public lastExecutionTimes(): ApiRequest {
+        return this.addPathComponent('last_execution_times')
     }
 
     // Conversations
@@ -1617,29 +1626,24 @@ const api = {
         async update(name: string, data: NamedQueryRequest): Promise<QueryEndpointType> {
             return await new ApiRequest().queryEndpointDetail(name).update({ data })
         },
-        async getLastExecutionTimes(names: string[]): Promise<Record<string, string>> {
-            if (names.length === 0) {
+        async getLastExecutionTimes(data: NamedQueryLastExecutionTimesRequest): Promise<Record<string, string>> {
+            if (data.names.length === 0) {
                 return {}
             }
 
-            const query = hogql`
-                SELECT
-                    name,
-                    max(query_start_time) as last_executed_at
-                FROM query_log
-                WHERE name in (${hogql.raw(names.map((name) => `'${name}'`).join(','))})
-                GROUP BY name
-            `
-
-            const response = await api.queryHogQL(query, {
-                refresh: 'force_blocking',
-            })
-
+            const response: QueryStatusResponse = await new ApiRequest()
+                .queryEndpoint()
+                .lastExecutionTimes()
+                .create({ data })
             const result: Record<string, string> = {}
-            for (const row of response.results) {
-                const [name, lastExecutedAt] = row
-                if (name && lastExecutedAt) {
-                    result[name] = lastExecutedAt
+            if (response.query_status?.results) {
+                for (const row of response.query_status.results) {
+                    if (row && row.length >= 2) {
+                        const [name, timestamp] = row
+                        if (name && timestamp) {
+                            result[name] = timestamp
+                        }
+                    }
                 }
             }
 
@@ -2942,6 +2946,12 @@ const api = {
             return await new ApiRequest()
                 .errorTrackingExternalReference()
                 .create({ data: { integration_id: integrationId, issue: issueId, config } })
+        },
+
+        async getSimilarIssues(
+            issueId: ErrorTrackingIssue['id']
+        ): Promise<Array<{ id: string; title: string; description: string }>> {
+            return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
         },
     },
 

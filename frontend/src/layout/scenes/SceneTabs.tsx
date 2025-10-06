@@ -65,7 +65,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             {/* rounded corner on the left to make scene curve into tab line */}
             {!isLayoutPanelVisible && (
                 <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
-                    <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-primary" />
+                    <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-[var(--scene-layout-background)]" />
                 </div>
             )}
 
@@ -177,15 +177,11 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
 
     useEffect(() => {
         if (isEditing && inputRef.current) {
-            // bring the tab into focus
-            // oxlint-disable-next-line exhaustive-deps
-            clickOnTab(tab)
-            // focus the input with delay to ensure the tab input is rendered
             setTimeout(() => {
                 inputRef.current?.focus()
             }, 100)
         }
-    }, [isEditing, tab, clickOnTab])
+    }, [isEditing])
 
     return (
         <Link
@@ -216,7 +212,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 'w-full',
                 'relative h-[37px] p-0.5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent bottom-[-2px]',
                 tab.active
-                    ? 'cursor-default text-primary bg-primary border-primary border-b-transparent'
+                    ? 'cursor-default text-primary border-primary border-b-transparent bg-[var(--scene-layout-background)]'
                     : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover',
                 canRemoveTab ? 'pl-2 pr-1' : 'px-3',
                 'focus:outline-none',
@@ -250,6 +246,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                             endTabEdit()
                         }
                     }}
+                    autoComplete="off"
                     autoFocus
                     onFocus={(e) => e.target.select()}
                 />

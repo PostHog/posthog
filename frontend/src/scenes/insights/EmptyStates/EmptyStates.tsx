@@ -66,11 +66,11 @@ export function InsightEmptyState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center"
+            className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center text-center text-balance"
         >
             <IconArchive className="text-5xl mb-2 text-tertiary" />
             <h2 className="text-xl leading-tight">{heading}</h2>
-            <p className="text-sm text-center text-balance text-tertiary">{detail}</p>
+            <p className="text-sm text-tertiary">{detail}</p>
         </div>
     )
 }
@@ -501,7 +501,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
 
     return (
         <div data-attr="insight-empty-state" className="rounded p-4 h-full w-full">
-            <h2 className="text-xl leading-tight mb-6">
+            <h2 className="text-xl leading-tight mb-6 text-center text-balance">
                 <IconWarning className="text-xl shrink-0 mr-2" />
                 Your query took too long to complete
             </h2>
@@ -534,7 +534,7 @@ export function InsightValidationError({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full"
+            className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full text-center text-balance"
         >
             <IconWarning className="text-4xl shrink-0 text-muted" />
 
@@ -550,7 +550,7 @@ export function InsightValidationError({
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-center text-balance text-muted max-w-120">{detail}</p>
+            <p className="text-sm text-muted max-w-120">{detail}</p>
             <QueryDebuggerButton query={query} />
 
             {detail.includes('Exclusion') && (
@@ -570,19 +570,21 @@ export function InsightValidationError({
 }
 
 export interface InsightErrorStateProps {
-    excludeDetail?: boolean
     title?: string | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
+    excludeDetail?: boolean
+    excludeActions?: boolean
     fixWithAIComponent?: JSX.Element
     onRetry?: () => void
 }
 
 export function InsightErrorState({
-    excludeDetail,
     title,
     query,
     queryId,
+    excludeDetail = false,
+    excludeActions = false,
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
@@ -600,16 +602,10 @@ export function InsightErrorState({
         >
             <IconErrorOutline className="text-5xl shrink-0" />
 
-            <h2
-                className="text-xl leading-tight mb-6"
-                // TODO: Use an actual `text-danger` color once @adamleithp changes are live
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ color: 'var(--danger)' }}
-                data-attr="insight-loading-too-long"
-            >
-                {title || <span>There was a problem completing this query</span>}
-                {/* Note that this default phrasing above signals the issue is intermittent, */}
+            <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
+                {/* Note that this default phrasing signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
+                {title || <span>There was a problem completing this query</span>}
             </h2>
 
             {!excludeDetail && (
@@ -633,10 +629,12 @@ export function InsightErrorState({
                 </div>
             )}
 
-            <div className="flex gap-2 mt-4">
-                {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
-                {fixWithAIComponent ?? null}
-            </div>
+            {!excludeActions && (
+                <div className="flex gap-2 mt-4">
+                    {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
+                    {fixWithAIComponent ?? null}
+                </div>
+            )}
             <QueryIdDisplay queryId={queryId} />
         </div>
     )
@@ -659,12 +657,15 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
-        <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center">
+        <div
+            data-attr="insight-empty-state"
+            className="flex flex-col flex-1 items-center justify-center text-center text-balance"
+        >
             <div className="text-5xl text-muted mb-2">
                 <IconPlusSquare />
             </div>
             <h2 className="text-xl leading-tight font-medium">Add another step!</h2>
-            <p className="mb-0 text-sm text-center text-balance text-muted">
+            <p className="mb-0 text-sm text-muted">
                 <span>You're almost there! Funnels require at least two steps before calculating.</span>
                 {actionable && (
                     <>

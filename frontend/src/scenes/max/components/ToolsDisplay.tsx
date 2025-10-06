@@ -54,8 +54,8 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
                     className={clsx(
                         'relative flex items-center text-xs font-medium justify-between gap-1 overflow-hidden',
                         !isFloating
-                            ? 'w-[calc(100%-1rem)] px-1.5 py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                            : `w-full px-2 pb-1`
+                            ? 'w-[calc(100%-1rem)] px-1.5 pt-2 pb-1 -m-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                            : `w-full px-2 pb-1 pt-0.5`
                     )}
                 >
                     <TruncatedHorizontalCollection>

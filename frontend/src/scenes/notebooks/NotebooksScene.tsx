@@ -1,5 +1,3 @@
-import './NotebookScene.scss'
-
 import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
