@@ -521,9 +521,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     : searchParams.activities?.split(',') || []
             }
             if (searchParams.item_ids) {
-                urlFilters.item_ids = Array.isArray(searchParams.item_ids)
-                    ? searchParams.item_ids
-                    : searchParams.item_ids?.split(',') || []
+                urlFilters.item_ids = searchParams.item_ids.split?.(',') || [searchParams.item_ids]
             }
             if (searchParams.was_impersonated !== undefined) {
                 urlFilters.was_impersonated =
