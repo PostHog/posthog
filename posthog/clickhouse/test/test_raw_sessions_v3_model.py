@@ -1,6 +1,12 @@
 import datetime
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
@@ -22,6 +28,7 @@ def create_session_id():
     return str(uuid7(random=session_id_counter))
 
 
+@snapshot_clickhouse_queries
 class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
     def select_by_session_id(self, session_id):
         flush_persons_and_events()

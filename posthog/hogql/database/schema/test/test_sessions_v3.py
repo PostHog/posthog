@@ -2,7 +2,13 @@ import uuid
 from time import time_ns
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 
 from posthog.schema import FilterLogicalOperator, HogQLQueryModifiers, SessionTableVersion
 
@@ -18,6 +24,7 @@ from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
 
 
+@snapshot_clickhouse_queries
 class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
     def __execute(
         self,
