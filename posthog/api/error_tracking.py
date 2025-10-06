@@ -424,6 +424,17 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 issue_to_library[issue_id] = fingerprint_to_library[fingerprint]
         return issue_to_library
 
+    def _get_timestamp_range(self, issues) -> tuple[Optional[datetime], Optional[datetime]]:
+        """Calculate timestamp range from issues for query optimization."""
+        issue_timestamps = [issue.created_at for issue in issues if issue.created_at is not None]
+        if issue_timestamps:
+            earliest_timestamp = min(issue_timestamps)
+            latest_timestamp = max(issue_timestamps)
+        else:
+            earliest_timestamp = None
+            latest_timestamp = None
+        return earliest_timestamp, latest_timestamp
+
     def _serialize_issues_to_similar_issues(self, issues, library_data: dict[str, str]):
         """Serialize ErrorTrackingIssue objects to similar issues format."""
 
@@ -532,13 +543,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             return Response([])
 
         # Calculate timestamp range from the issues to optimize the ClickHouse query
-        issue_timestamps = [issue.created_at for issue in issues if issue.created_at is not None]
-        if issue_timestamps:
-            earliest_timestamp = min(issue_timestamps)
-            latest_timestamp = max(issue_timestamps)
-        else:
-            earliest_timestamp = None
-            latest_timestamp = None
+        earliest_timestamp, latest_timestamp = self._get_timestamp_range(issues)
 
         # Get library data for the similar fingerprints with timestamp range filter for performance
         fingerprint_to_library = self._get_issues_library_data(
