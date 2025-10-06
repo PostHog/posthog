@@ -21,6 +21,26 @@ logger = structlog.get_logger(__name__)
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 DEFAULT_MAX_ASSET_COUNT = 6
 
+
+def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscription, SharingConfiguration]) -> dict:
+    failed_assets = [a for a in assets if not a.content and not a.content_location]
+    failed_insight_ids = [a.insight_id for a in failed_assets if a.insight_id]
+    failed_insight_urls = [
+        f"/project/{resource.team_id}/insights/{a.insight.short_id}"
+        for a in failed_assets
+        if a.insight and hasattr(a.insight, "short_id")
+    ]
+
+    dashboard_url = f"/project/{resource.team_id}/dashboard/{resource.dashboard_id}" if resource.dashboard else None
+
+    return {
+        "failed_asset_count": len(failed_assets),
+        "failed_insight_ids": failed_insight_ids,
+        "failed_insight_urls": failed_insight_urls,
+        "dashboard_url": dashboard_url,
+    }
+
+
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     "subscription_asset_generation_duration_seconds",
     "Time spent generating assets for a subscription",
@@ -184,30 +204,16 @@ async def generate_assets_async(
         except TimeoutError:
             SUBSCRIPTION_ASSET_GENERATION_TIMEOUT_COUNTER.labels(execution_path="temporal").inc()
 
-            # Identify which assets failed (no content)
-            failed_assets = [a for a in assets if not a.content and not a.content_location]
-            failed_insight_ids = [a.insight_id for a in failed_assets if a.insight_id]
-            failed_insight_urls = [
-                f"/project/{resource.team_id}/insights/{a.insight.short_id}"
-                for a in failed_assets
-                if a.insight and hasattr(a.insight, "short_id")
-            ]
-
-            # Build dashboard URL if applicable
-            dashboard_url = (
-                f"/project/{resource.team_id}/dashboard/{resource.dashboard_id}" if resource.dashboard else None
-            )
+            # Get failure info for logging
+            failure_info = _get_failed_asset_info(assets, resource)
 
             logger.warning(
                 "generate_assets_async.exports_timeout",
                 asset_count=len(assets),
-                failed_asset_count=len(failed_assets),
                 subscription_id=subscription_id,
                 dashboard_id=resource.dashboard_id if resource.dashboard else None,
-                dashboard_url=dashboard_url,
-                failed_insight_ids=failed_insight_ids,
-                failed_insight_urls=failed_insight_urls,
                 team_id=resource.team_id,
+                **failure_info,
             )
             # Continue with partial results - some assets may not have content
 
