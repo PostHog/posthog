@@ -16,7 +16,7 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { DetectiveHog, FilmCameraHog } from 'lib/components/hedgehogs'
+import { DetectiveHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -104,12 +104,25 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                 <div className="flex gap-2 flex-1 min-w-0">
                     <div className="flex-1">
                         {hasValidReplayIframeData ? (
-                            <LemonInput
-                                value={replayIframeData?.url}
-                                onChange={(s) => setReplayIframeDataURL(s)}
-                                className="truncate"
-                                size="small"
-                            />
+                            <>
+                                <LemonLabel>Display URL</LemonLabel>
+                                <div className="text-xs text-muted mb-1">
+                                    You're using session recording data as the background for this heatmap.
+                                </div>
+                                <div className="mt-2">
+                                    <LemonLabel>Heatmap data URL</LemonLabel>
+                                    <div className="text-xs text-muted mb-1">
+                                        Same as display URL by default - add * for wildcards to aggregate data from
+                                        multiple pages
+                                    </div>
+                                    <LemonInput
+                                        value={replayIframeData?.url}
+                                        onChange={(s) => setReplayIframeDataURL(s)}
+                                        className="truncate"
+                                        size="small"
+                                    />
+                                </div>
+                            </>
                         ) : (
                             <>
                                 <div className="relative">
@@ -198,6 +211,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                                 setBrowserUrl(value || null)
                                             }}
                                             className={`truncate flex-1 ${!isBrowserUrlValid ? 'border-red-500' : ''}`}
+                                            disabledReason={!displayUrl ? 'Set a valid Display URL first' : undefined}
                                         />
                                         <ExportButton iframeRef={iframeRef} />
                                     </div>
@@ -332,23 +346,6 @@ function Warnings(): JSX.Element | null {
     ) : null
 }
 
-function ReplayIframeDataIntro(): JSX.Element | null {
-    const { hasValidReplayIframeData } = useValues(heatmapsBrowserLogic)
-
-    return hasValidReplayIframeData ? (
-        <LemonBanner type="info" dismissKey="heatmaps-replay-iframe-data-intro">
-            <div className="flex flex-row gap-2 items-center">
-                <FilmCameraHog className="w-30 h-30" />
-                <div>
-                    You're using session recording data as the background for this heatmap.{' '}
-                    <p>You can change the URL that the heatmap data loads below, for example to add wildcards.</p>
-                    And use the filters below to slice and dice the data.
-                </div>
-            </div>
-        </LemonBanner>
-    ) : null
-}
-
 export function HeatmapsBrowser(): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
@@ -362,7 +359,6 @@ export function HeatmapsBrowser(): JSX.Element {
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <SceneContent>
                 <Warnings />
-                <ReplayIframeDataIntro />
                 <div className="overflow-hidden w-full h-screen">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />

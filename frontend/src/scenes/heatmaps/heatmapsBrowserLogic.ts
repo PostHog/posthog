@@ -50,6 +50,15 @@ const isUrlPattern = (url: string): boolean => {
     return /[*+?^${}()|[\]\\]/.test(url)
 }
 
+// Helper function to ensure trailing slash on paths (unless it's a file)
+const normalizeUrlPath = (urlObj: URL): string => {
+    const hasFileExtension = /\.[a-zA-Z0-9]+$/.test(urlObj.pathname)
+    if (!hasFileExtension && !urlObj.pathname.endsWith('/')) {
+        urlObj.pathname += '/'
+    }
+    return urlObj.toString()
+}
+
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
@@ -367,13 +376,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (url?.trim().length) {
                 actions.startTrackingLoading()
 
-                let normalizedUrl = url.trim()
-
-                const urlObj = new URL(normalizedUrl)
-                // If it's just the domain with no path, add trailing slash
-                if (urlObj.pathname === '') {
-                    normalizedUrl = `${urlObj.origin}/`
-                }
+                const urlObj = new URL(url.trim())
+                const normalizedUrl = normalizeUrlPath(urlObj)
 
                 actions.setHref(normalizedUrl)
 
