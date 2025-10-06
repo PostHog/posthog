@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from asgiref.sync import sync_to_async
+
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
@@ -97,8 +99,6 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
 @pytest.mark.django_db(transaction=True)
 @patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct")
 async def test_async_generate_assets_basic(mock_export: MagicMock, team, user) -> None:
-    from asgiref.sync import sync_to_async
-
     def export_success(asset: ExportedAsset) -> None:
         asset.content = b"fake image data"
         asset.save()
@@ -136,8 +136,6 @@ async def test_async_generate_assets_basic(mock_export: MagicMock, team, user) -
 async def test_async_generate_assets_timeout_continues_with_partial_results(
     mock_export: MagicMock, mock_wait_for: MagicMock, team, user
 ) -> None:
-    from asgiref.sync import sync_to_async
-
     mock_export.return_value = None
     # Mock wait_for to immediately raise TimeoutError
     mock_wait_for.side_effect = TimeoutError()
@@ -174,8 +172,6 @@ async def test_async_generate_assets_timeout_continues_with_partial_results(
 @pytest.mark.django_db(transaction=True)
 @patch("posthog.tasks.exporter.export_asset_direct")
 async def test_async_generate_assets_partial_success(mock_export: MagicMock, team, user) -> None:
-    from asgiref.sync import sync_to_async
-
     call_count = 0
 
     def export_with_partial_success(asset: ExportedAsset) -> None:
