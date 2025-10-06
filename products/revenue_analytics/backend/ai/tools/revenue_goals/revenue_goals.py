@@ -140,7 +140,7 @@ class RevenueGoalsToolkit(TaxonomyAgentToolkit):
                 return "No revenue goals found."
 
             goals_text = "\n".join(
-                [f"- {goal.name}: ${goal.goal:,.2f} ({goal.mrr_or_gross.value}) due {goal.due_date}" for goal in goals]
+                [f"- {goal.name}: ${goal.goal:,.2f} ({goal.mrr_or_gross}) due {goal.due_date}" for goal in goals]
             )
             return f"Current revenue goals:\n{goals_text}"
         except Exception as e:

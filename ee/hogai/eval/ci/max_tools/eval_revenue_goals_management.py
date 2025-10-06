@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import pytest
 
@@ -55,7 +56,7 @@ def call_manage_revenue_goals(demo_org_team_user):
             config.goals = [goal.model_dump() for goal in initial_goals]
             await config.asave()
 
-            graph_input = {
+            graph_input: dict[str, Any] = {
                 "change": USER_GOALS_PROMPT.format(change=change),
                 "output": None,
                 "tool_progress_messages": [],
