@@ -14,7 +14,8 @@ import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashbo
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
+import { SceneFavorite } from 'lib/components/Scenes/SceneFavorite'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
@@ -59,7 +60,6 @@ import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeL
 import {
     ScenePanel,
     ScenePanelActionsSection,
-    ScenePanelCommonActions,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
@@ -217,25 +217,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
             <ScenePanel>
                 <>
-                    <ScenePanelCommonActions>
-                        <SceneCommonButtons
-                            dataAttrKey={RESOURCE_TYPE}
-                            duplicate={
-                                hasDashboardItemId
-                                    ? {
-                                          onClick: () => void handleDuplicateInsight(),
-                                      }
-                                    : undefined
-                            }
-                            favorite={{
-                                active: insight.favorited,
-                                onClick: () => {
-                                    setInsightMetadata({ favorited: !insight.favorited })
-                                },
-                            }}
-                        />
-                    </ScenePanelCommonActions>
-                    <ScenePanelDivider />
                     <ScenePanelInfoSection>
                         <SceneTags
                             onSave={(tags) => {
@@ -259,7 +240,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <ScenePanelDivider />
 
                     <ScenePanelActionsSection>
-                        {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
+                        <SceneDuplicate dataAttrKey={RESOURCE_TYPE} onClick={() => void handleDuplicateInsight()} />
+                        <SceneFavorite
+                            dataAttrKey={RESOURCE_TYPE}
+                            onClick={() => {
+                                setInsightMetadata({ favorited: !insight.favorited })
+                            }}
+                            isFavorited={insight.favorited ?? false}
+                        />
 
                         {insight.short_id && (
                             <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
@@ -425,6 +413,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 Save as static cohort
                             </ButtonPrimitive>
                         )}
+                        {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
                     </ScenePanelActionsSection>
                     <ScenePanelDivider />
                     <ScenePanelActionsSection>

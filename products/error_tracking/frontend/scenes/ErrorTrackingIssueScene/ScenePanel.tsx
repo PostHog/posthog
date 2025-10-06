@@ -1,10 +1,11 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
+import { IconComment, IconShare } from '@posthog/icons'
 import { LemonModal, Link, Spinner } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
@@ -22,8 +23,10 @@ import { pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
-import { ScenePanelCommonActions, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { ScenePanelActionsSection, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
@@ -73,23 +76,45 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const hasTasks = useFeatureFlag('TASKS')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
     const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+    const { openSidePanel } = useActions(sidePanelLogic)
 
     return issue ? (
-        <div className="flex flex-col gap-2">
-            <ScenePanelCommonActions>
-                <SceneCommonButtons
-                    comment
-                    share={{
-                        onClick: () => {
+        <div className="flex flex-col gap-2 @container">
+            <ScenePanelActionsSection>
+                <div className="grid grid-cols-1 gap-1 @[200px]:grid-cols-2">
+                    <ButtonPrimitive
+                        onClick={() => {
+                            if (!hasDiscussions) {
+                                posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
+                            }
+                            openSidePanel(SidePanelTab.Discussion)
+                        }}
+                        tooltip="Comment"
+                        menuItem
+                        className="justify-center"
+                    >
+                        <IconComment />
+                        Comment
+                    </ButtonPrimitive>
+
+                    <ButtonPrimitive
+                        onClick={() => {
                             void copyToClipboard(
                                 window.location.origin + urls.errorTrackingIssue(issue.id),
                                 'issue link'
                             )
-                        },
-                    }}
-                    dataAttrKey={RESOURCE_TYPE}
-                />
-            </ScenePanelCommonActions>
+                        }}
+                        tooltip="Share"
+                        data-attr={`${RESOURCE_TYPE}-share`}
+                        menuItem
+                        className="justify-center"
+                    >
+                        <IconShare />
+                        Share
+                    </ButtonPrimitive>
+                </div>
+            </ScenePanelActionsSection>
 
             <ScenePanelDivider />
 
@@ -286,7 +311,7 @@ const IssueFingerprints = (): JSX.Element => {
     return (
         <ScenePanelLabel title="Fingerprints">
             <Link to={issue ? urls.errorTrackingIssueFingerprints(issue.id) : undefined}>
-                <ButtonPrimitive fullWidth>
+                <ButtonPrimitive fullWidth menuItem variant="panel">
                     {issueFingerprintsLoading ? <Spinner /> : `${pluralize(issueFingerprints.length, 'fingerprint')}`}
                 </ButtonPrimitive>
             </Link>
