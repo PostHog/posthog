@@ -1924,8 +1924,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         'Your survey contains an endless cycle. Please revisit your branching rules.'
                     )
                 }
-
-                const payload = sanitizeSurvey(surveyPayload)
+                const payload = sanitizeSurvey(surveyPayload, { keepEmptyConditions: true })
 
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
