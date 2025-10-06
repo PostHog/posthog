@@ -30,6 +30,8 @@ from posthog.schema import (
 
 from posthog.models.organization import OrganizationMembership
 
+from products.replay.backend.max_tools import SearchSessionRecordingsTool
+
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
 from ee.hogai.graph.root.prompts import (
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
@@ -160,7 +162,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             state_1.messages, state_1.root_conversation_start_id, state_1.root_tool_calls_count
         )
         self.assertEqual(
-            result[0],
+            result,
             [
                 LangchainHumanMessage(
                     content=[{"text": "Hello", "type": "text", "cache_control": {"type": "ephemeral"}}]
@@ -180,7 +182,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             state_2.messages, state_2.root_conversation_start_id, state_2.root_tool_calls_count
         )
         self.assertEqual(
-            result2[0],
+            result2,
             [
                 LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]),
                 LangchainAIMessage(content=[{"text": "Welcome!", "type": "text"}]),
@@ -213,7 +215,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         )
         result = node._construct_messages(state.messages, state.root_conversation_start_id, state.root_tool_calls_count)
         self.assertEqual(
-            result[0],
+            result,
             [
                 LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]),
                 LangchainAIMessage(
@@ -347,7 +349,6 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
             # Mock get_contextual_tool_class to return a real tool-like class
             with (
-                patch.object(node, "_has_insight_search_feature_flag", return_value=False),
                 patch.object(node, "_has_session_summarization_feature_flag", return_value=False),
             ):
                 # Create a mock tool class that behaves like a real tool
@@ -412,13 +413,12 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             mock_bind_tools.assert_not_called()
 
     async def test_node_injects_contextual_tool_prompts(self):
-        with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as mock_get_model:
-            # Use FakeChatAnthropic like other tests
-            fake_model = FakeChatAnthropic(
+        with patch(
+            "ee.hogai.graph.root.nodes.RootNode._get_model",
+            return_value=FakeChatAnthropic(
                 responses=[LangchainAIMessage(content=[{"text": "I'll help with recordings", "type": "text"}])]
-            )
-            mock_get_model.return_value = fake_model
-
+            ),
+        ) as mock_get_model:
             node = RootNode(self.team, self.user)
             state = AssistantState(
                 messages=[HumanMessage(content="show me long recordings", id="test-id")], start_id="test-id"
@@ -446,17 +446,19 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             assert isinstance(result.messages[2], AssistantMessage)
             self.assertEqual(result.messages[2].content, "I'll help with recordings")
 
-            # Verify _get_model was called with contextual tools config
+            # Verify _get_model was called with a SearchSessionRecordingsTool instance in the tools arg
             mock_get_model.assert_called()
-            config_arg = mock_get_model.call_args[0][1]
-            self.assertIn("contextual_tools", config_arg["configurable"])
-            self.assertIn("search_session_recordings", config_arg["configurable"]["contextual_tools"])
+            tools_arg = mock_get_model.call_args[0][1]
+            self.assertTrue(
+                any(isinstance(tool, SearchSessionRecordingsTool) for tool in tools_arg),
+                "SearchSessionRecordingsTool instance not found in tools arg",
+            )
 
     async def test_node_includes_project_org_user_context_in_prompt_template(self):
         with (
             patch("os.environ", {"ANTHROPIC_API_KEY": "foo"}),
             patch("langchain_anthropic.chat_models.ChatAnthropic._agenerate") as mock_generate,
-            patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
+            # patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
         ):
             mock_generate.return_value = ChatResult(
                 generations=[ChatGeneration(message=AIMessage(content="Test response"))],
@@ -501,7 +503,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             [OrganizationMembership.Level.MEMBER, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
         ]
     )
-    async def test_has_billing_access(self, membership_level, add_context, expected_prompt):
+    async def test_billing_prompts(self, membership_level, add_context, expected_prompt):
         # Set membership level
         membership = await self.user.organization_memberships.aget(organization=self.team.organization)
         membership.level = membership_level
