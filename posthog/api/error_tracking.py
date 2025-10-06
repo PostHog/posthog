@@ -421,8 +421,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 issue_to_library[issue_id] = fingerprint_to_library[fingerprint]
         return issue_to_library
 
-    def _serialize_issues_to_related_issues(self, issues, library_data: dict[str, str]):
-        """Serialize ErrorTrackingIssue objects to related issues format."""
+    def _serialize_issues_to_similar_issues(self, issues, library_data: dict[str, str]):
+        """Serialize ErrorTrackingIssue objects to similar issues format."""
 
         return [
             {
@@ -481,7 +481,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return all_similar_fingerprints
 
     @action(methods=["GET"], detail=True)
-    def related_issues(self, request: request.Request, **kwargs):
+    def similar_issues(self, request: request.Request, **kwargs):
         issue_id = kwargs.get("pk")
 
         if not issue_id:
@@ -540,8 +540,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         # Build mapping from issue_id to library using existing data
         issue_to_library = self._build_issue_to_library_mapping(issue_id_to_fingerprint, fingerprint_to_library)
 
-        related_issues = self._serialize_issues_to_related_issues(issues, issue_to_library)
-        return Response(related_issues)
+        similar_issues = self._serialize_issues_to_similar_issues(issues, issue_to_library)
+        return Response(similar_issues)
 
     @action(methods=["POST"], detail=True)
     def split(self, request, **kwargs):

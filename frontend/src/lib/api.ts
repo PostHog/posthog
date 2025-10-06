@@ -1007,8 +1007,8 @@ export class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('assign')
     }
 
-    public errorTrackingRelatedIssues(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTrackingIssues(teamId).addPathComponent(`${issueId}/related_issues`)
+    public errorTrackingSimilarIssues(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent(`${issueId}/similar_issues`)
     }
 
     public errorTrackingExternalReference(teamId?: TeamType['id']): ApiRequest {
@@ -2948,10 +2948,10 @@ const api = {
                 .create({ data: { integration_id: integrationId, issue: issueId, config } })
         },
 
-        async getRelatedIssues(
+        async getSimilarIssues(
             issueId: ErrorTrackingIssue['id']
         ): Promise<Array<{ id: string; title: string; description: string }>> {
-            return await new ApiRequest().errorTrackingRelatedIssues(issueId).get()
+            return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
         },
     },
 
