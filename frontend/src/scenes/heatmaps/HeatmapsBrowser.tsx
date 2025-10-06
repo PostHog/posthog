@@ -133,7 +133,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                             icon={<IconOpenInNew />}
                                             to={
                                                 displayUrl || browserUrl
-                                                    ? appEditorUrl(displayUrl || browserUrl, {
+                                                    ? appEditorUrl(displayUrl || browserUrl || '', {
                                                           userIntent: 'heatmaps',
                                                       })
                                                     : hasValidReplayIframeData && replayIframeData?.url
