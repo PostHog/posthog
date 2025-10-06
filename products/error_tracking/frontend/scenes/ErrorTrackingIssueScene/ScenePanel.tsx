@@ -221,10 +221,10 @@ const SimilarIssues = (): JSX.Element => {
     const handleMerge = async (similarIssue: SimilarIssue): Promise<void> => {
         if (issue) {
             await mergeIssues([issue.id, similarIssue.id])
-            posthog.capture('user merged issues', {
+            posthog.capture('user merged similar issues', {
                 original_issue_id: issue.id,
                 similar_issue_id: similarIssue.id,
-                distance: similarIssue?.distance || null,
+                similar_issue_distance: similarIssue?.distance || null,
             })
             loadSimilarIssues()
         }
@@ -251,7 +251,7 @@ const SimilarIssues = (): JSX.Element => {
                                             posthog.capture('user viewed similar issue', {
                                                 original_issue_id: issue.id,
                                                 similar_issue_id: similarIssue.id,
-                                                distance: similarIssue?.distance || null,
+                                                similar_issue_distance: similarIssue?.distance || null,
                                             })
                                         }
                                     }}
