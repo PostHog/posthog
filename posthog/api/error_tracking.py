@@ -367,7 +367,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return min_distance_threshold, model_name, embedding_version
 
     def _get_issues_library_data(
-        self, fingerprints: list[str], earliest_timestamp: datetime, latest_timestamp: datetime
+        self,
+        fingerprints: list[str],
+        earliest_timestamp: Optional[datetime] = None,
+        latest_timestamp: Optional[datetime] = None,
     ) -> dict[str, str]:
         """Get library information for fingerprints from ClickHouse events."""
         params: dict[str, Any] = {}
@@ -529,8 +532,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             return Response([])
 
         # Calculate timestamp range from the issues to optimize the ClickHouse query
-        earliest_timestamp = min(issue.created_at for issue in issues)
-        latest_timestamp = max(issue.created_at for issue in issues)
+        issue_timestamps = [issue.created_at for issue in issues if issue.created_at is not None]
+        if issue_timestamps:
+            earliest_timestamp = min(issue_timestamps)
+            latest_timestamp = max(issue_timestamps)
+        else:
+            earliest_timestamp = None
+            latest_timestamp = None
 
         # Get library data for the similar fingerprints with timestamp range filter for performance
         fingerprint_to_library = self._get_issues_library_data(
