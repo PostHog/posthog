@@ -303,6 +303,7 @@
          "posthog_notebook"."created_by_id",
          "posthog_notebook"."last_modified_at",
          "posthog_notebook"."last_modified_by_id",
+         "posthog_notebook"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -462,7 +463,8 @@
          "posthog_notebook"."created_at",
          "posthog_notebook"."created_by_id",
          "posthog_notebook"."last_modified_at",
-         "posthog_notebook"."last_modified_by_id"
+         "posthog_notebook"."last_modified_by_id",
+         "posthog_notebook"."tags"
   FROM "posthog_notebook"
   WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -482,7 +484,8 @@
          "posthog_notebook"."created_at",
          "posthog_notebook"."created_by_id",
          "posthog_notebook"."last_modified_at",
-         "posthog_notebook"."last_modified_by_id"
+         "posthog_notebook"."last_modified_by_id",
+         "posthog_notebook"."tags"
   FROM "posthog_notebook"
   WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21

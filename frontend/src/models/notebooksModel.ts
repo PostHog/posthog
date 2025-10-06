@@ -66,12 +66,14 @@ export const notebooksModel = kea<notebooksModelType>([
             location: NotebookTarget,
             title?: string,
             content?: JSONContent[],
-            onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void
+            onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void,
+            tags?: string[]
         ) => ({
             title,
             location,
             content,
             onCreate,
+            tags,
         }),
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
@@ -90,11 +92,12 @@ export const notebooksModel = kea<notebooksModelType>([
         notebooks: [
             [] as NotebookListItemType[],
             {
-                createNotebook: async ({ title, location, content, onCreate }) => {
+                createNotebook: async ({ title, location, content, onCreate, tags }) => {
                     const notebook = await api.notebooks.create({
                         title,
                         content: defaultNotebookContent(title, content),
                         _create_in_folder: getLastNewFolder(),
+                        ...(tags && { tags }),
                     })
 
                     await openNotebook(notebook.short_id, location, 'end', (logic) => {

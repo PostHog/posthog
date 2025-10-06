@@ -4,6 +4,7 @@ import { IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -13,8 +14,10 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { notebooksModel } from '~/models/notebooksModel'
+import { AvailableFeature } from '~/types'
 
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
 import { NotebookListItemType } from '../types'
@@ -45,12 +48,24 @@ export function NotebooksTable(): JSX.Element {
         useValues(notebooksTableLogic)
     const { loadNotebooks, setFilters, tableSortingChanged } = useActions(notebooksTableLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     useOnMountEffect(loadNotebooks)
 
     const columns: LemonTableColumns<NotebookListItemType> = [
         titleColumn() as LemonTableColumn<NotebookListItemType, keyof NotebookListItemType | undefined>,
 
+        ...(hasAvailableFeature(AvailableFeature.TAGGING)
+            ? [
+                  {
+                      title: 'Tags',
+                      dataIndex: 'tags' as keyof NotebookListItemType,
+                      render: function Render(tags: NotebookListItemType['tags']) {
+                          return tags && tags.length > 0 ? <ObjectTags tags={tags} staticOnly /> : '—'
+                      },
+                  } as LemonTableColumn<NotebookListItemType, keyof NotebookListItemType | undefined>,
+              ]
+            : []),
         createdByColumn<NotebookListItemType>() as LemonTableColumn<
             NotebookListItemType,
             keyof NotebookListItemType | undefined

@@ -20,6 +20,7 @@ export type NotebookListItemType = {
     short_id: string
     title?: string
     is_template?: boolean
+    tags?: string[] | null
     created_at: string
     created_by: UserBasicType | null
     last_modified_at?: string
