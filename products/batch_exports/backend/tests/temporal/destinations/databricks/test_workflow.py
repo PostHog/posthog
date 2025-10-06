@@ -120,24 +120,6 @@ class DatabricksDestinationTest(BaseDestinationTest):
         )
         return integration
 
-    async def create_invalid_integration(self, team_id: int) -> tuple[Integration, str]:
-        """Create an invalid test integration, and return the expected error message."""
-        server_hostname = "invalid"
-        integration = await Integration.objects.acreate(
-            team_id=team_id,
-            kind=Integration.IntegrationKind.DATABRICKS,
-            integration_id=server_hostname,
-            config={"server_hostname": server_hostname},
-            sensitive_config={
-                "client_id": "invalid",
-                "client_secret": "invalid",
-            },
-        )
-        return (
-            integration,
-            "DatabricksConnectionError: Failed to connect to Databricks. Please check that the server_hostname and http_path are valid.",
-        )
-
     async def get_inserted_records(
         self,
         team_id: int,
@@ -251,12 +233,6 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         yield await destination_test.create_integration(ateam.pk)
 
     @pytest.fixture
-    async def invalid_integration(self, ateam):
-        """Create an invalid test integration (for those destinations that require an integration)"""
-        destination_test = DatabricksDestinationTest()
-        yield await destination_test.create_invalid_integration(ateam.pk)
-
-    @pytest.fixture
     def setup_destination(self, ateam: Team, integration: Integration) -> Generator[None, t.Any, t.Any]:
         """Set up and tear down the Databricks schema for tests."""
         destination_test = DatabricksDestinationTest()
@@ -277,6 +253,18 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             side_effect=RetryableTestException("A useful error message"),
         ):
             yield
+
+    @pytest.fixture
+    def simulate_non_retryable_error(self):
+        """Simulate a non-retryable error by raising a ValueError when calling sql.connect.
+
+        Yields the expected error message.
+        """
+        with unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.sql.connect",
+            side_effect=ValueError("A simulated connection error"),
+        ):
+            yield "DatabricksConnectionError: Failed to connect to Databricks. Please check that your connection details are valid."
 
     # Additional tests specific to Databricks
 

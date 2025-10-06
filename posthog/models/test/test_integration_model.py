@@ -575,24 +575,38 @@ class TestDatabricksIntegrationModel(BaseTest):
         mock_socket.return_value.connect.return_value = None
         integration = DatabricksIntegration.integration_from_config(
             team_id=self.team.pk,
-            server_hostname="databricks.com",
+            server_hostname="my-account.cloud.databricks.com",
             client_id="client_id",
             client_secret="client_secret",
             created_by=self.user,
         )
         assert integration.team == self.team
         assert integration.created_by == self.user
-        assert integration.config == {"server_hostname": "databricks.com"}
+        assert integration.config == {"server_hostname": "my-account.cloud.databricks.com"}
         assert integration.sensitive_config == {"client_id": "client_id", "client_secret": "client_secret"}
 
     @patch("posthog.models.integration.socket.socket")
     def test_integration_from_config_with_invalid_server_hostname(self, mock_socket):
-        # this is the error raised when the server hostname is invalid
+        # this is the error raised when our basic connection test fails
         mock_socket.return_value.connect.side_effect = socket.gaierror(
             8, "nodename nor servname provided, or not known"
         )
         with pytest.raises(
-            DatabricksIntegrationError, match="Databricks integration error: could not connect to hostname 'invalid'"
+            DatabricksIntegrationError,
+            match="Databricks integration error: could not connect to hostname 'invalid.cloud.databricks.com'",
+        ):
+            DatabricksIntegration.integration_from_config(
+                team_id=self.team.pk,
+                server_hostname="invalid.cloud.databricks.com",
+                client_id="client_id",
+                client_secret="client_secret",
+                created_by=self.user,
+            )
+
+    def test_integration_from_config_with_non_databricks_server_hostname(self):
+        with pytest.raises(
+            DatabricksIntegrationError,
+            match="Databricks integration is not valid: 'invalid' is not a valid Databricks hostname",
         ):
             DatabricksIntegration.integration_from_config(
                 team_id=self.team.pk,
