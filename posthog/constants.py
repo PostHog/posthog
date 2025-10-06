@@ -45,6 +45,7 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
+    AUDIT_LOGS = "audit_logs"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -323,6 +324,7 @@ TEST_TASK_QUEUE = "test-task-queue"
 BILLING_TASK_QUEUE = "billing-task-queue"
 VIDEO_EXPORT_TASK_QUEUE = "video-export-task-queue"
 MESSAGING_TASK_QUEUE = "messaging-task-queue"
+SESSION_REPLAY_TASK_QUEUE = "session-replay-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 

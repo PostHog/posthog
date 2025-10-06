@@ -12,10 +12,10 @@ use super::tracker::InFlightTracker;
 
 /// Events sent to the async rebalance worker
 #[derive(Debug, Clone)]
-enum RebalanceEvent {
+pub enum RebalanceEvent {
     /// Partitions are being revoked
     Revoke(Vec<Partition>),
-    /// Partitions have been assigned  
+    /// Partitions have been assigned
     Assign(Vec<Partition>),
 }
 
@@ -232,58 +232,9 @@ impl ConsumerContext for StatefulConsumerContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kafka::test_utils::create_test_consumer;
-    use anyhow::Result;
-    use async_trait::async_trait;
+    use crate::kafka::test_utils::*;
     use rdkafka::Offset;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Mutex;
-
-    // Test implementation of RebalanceHandler that tracks calls
-    #[derive(Default)]
-    struct TestRebalanceHandler {
-        assigned_count: AtomicUsize,
-        revoked_count: AtomicUsize,
-        pre_rebalance_count: AtomicUsize,
-        post_rebalance_count: AtomicUsize,
-        assigned_partitions: Mutex<Vec<Partition>>,
-        revoked_partitions: Mutex<Vec<Partition>>,
-    }
-
-    #[async_trait]
-    impl RebalanceHandler for TestRebalanceHandler {
-        async fn on_partitions_assigned(&self, partitions: &TopicPartitionList) -> Result<()> {
-            self.assigned_count.fetch_add(1, Ordering::SeqCst);
-
-            let mut assigned = self.assigned_partitions.lock().unwrap();
-            for elem in partitions.elements() {
-                assigned.push(Partition::from(elem));
-            }
-
-            Ok(())
-        }
-
-        async fn on_partitions_revoked(&self, partitions: &TopicPartitionList) -> Result<()> {
-            self.revoked_count.fetch_add(1, Ordering::SeqCst);
-
-            let mut revoked = self.revoked_partitions.lock().unwrap();
-            for elem in partitions.elements() {
-                revoked.push(Partition::from(elem));
-            }
-
-            Ok(())
-        }
-
-        async fn on_pre_rebalance(&self) -> Result<()> {
-            self.pre_rebalance_count.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        }
-
-        async fn on_post_rebalance(&self) -> Result<()> {
-            self.post_rebalance_count.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        }
-    }
+    use std::sync::atomic::Ordering;
 
     fn create_test_partition_list() -> TopicPartitionList {
         let mut list = TopicPartitionList::new();
