@@ -435,7 +435,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             latest_timestamp = None
         return earliest_timestamp, latest_timestamp
 
-    def _serialize_issues_to_similar_issues(self, issues, library_data: dict[str, str]):
+    def _serialize_issues_to_similar_issues(
+        self, issues, library_data: dict[str, str], distance_data: dict[str, float]
+    ):
         """Serialize ErrorTrackingIssue objects to similar issues format."""
 
         return [
@@ -444,6 +446,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 "title": issue.name,
                 "description": issue.description,
                 **({} if str(issue.id) not in library_data else {"library": library_data[str(issue.id)]}),
+                **({} if str(issue.id) not in distance_data else {"distance": distance_data[str(issue.id)]}),
             }
             for issue in issues
         ]
@@ -455,8 +458,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         min_distance_threshold: float,
         model_name: str,
         embedding_version: int,
-    ) -> list[str]:
-        """Process all embeddings to find similar fingerprints and return top 10 most similar."""
+    ) -> dict[str, float]:
+        """Process all embeddings to find similar fingerprints and return dict mapping fingerprints to distances."""
         similar_fingerprints = []
 
         # Search for similarities across all embeddings from the current issue
@@ -477,7 +480,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 similar_fingerprints.append((fingerprint, distance))
 
         if not similar_fingerprints or len(similar_fingerprints) == 0:
-            return []
+            return {}
 
         # Remove duplicates by fingerprint, keeping the best (smallest) distance for each
         fingerprint_best_distance: dict[str, float] = {}
@@ -486,13 +489,12 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 fingerprint_best_distance[fingerprint] = distance
 
         if not fingerprint_best_distance or len(fingerprint_best_distance) == 0:
-            return []
+            return {}
 
         # Sort by distance (ascending - smaller distance = more similar) and take top 10
         sorted_fingerprint_best_distance = sorted(fingerprint_best_distance.items(), key=lambda x: x[1])[:10]
-        all_similar_fingerprints = [fingerprint for fingerprint, _ in sorted_fingerprint_best_distance]
 
-        return all_similar_fingerprints
+        return dict(sorted_fingerprint_best_distance)
 
     @action(methods=["GET"], detail=True)
     def similar_issues(self, request: request.Request, **kwargs):
@@ -515,12 +517,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if not issue_embeddings or len(issue_embeddings) == 0:
             return Response([])
 
-        similar_fingerprints = self._process_embeddings_for_similarity(
+        fingerprint_to_distance = self._process_embeddings_for_similarity(
             issue_embeddings, issue_fingerprints, min_distance_threshold, model_name, embedding_version
         )
 
-        if not similar_fingerprints or len(similar_fingerprints) == 0:
+        if not fingerprint_to_distance or len(fingerprint_to_distance) == 0:
             return Response([])
+
+        similar_fingerprints = list(fingerprint_to_distance.keys())
 
         # Get issue IDs that have these fingerprints
         fingerprint_issue_pairs = ErrorTrackingIssueFingerprintV2.objects.filter(
@@ -553,7 +557,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         # Build mapping from issue_id to library using existing data
         issue_to_library = self._build_issue_to_library_mapping(issue_id_to_fingerprint, fingerprint_to_library)
 
-        similar_issues = self._serialize_issues_to_similar_issues(issues, issue_to_library)
+        # Build mapping from issue_id to distance using fingerprints
+        issue_to_distance = {}
+        for issue_id, fingerprint in issue_id_to_fingerprint.items():
+            if fingerprint in fingerprint_to_distance:
+                issue_to_distance[issue_id] = fingerprint_to_distance[fingerprint]
+
+        similar_issues = self._serialize_issues_to_similar_issues(issues, issue_to_library, issue_to_distance)
         return Response(similar_issues)
 
     @action(methods=["POST"], detail=True)
