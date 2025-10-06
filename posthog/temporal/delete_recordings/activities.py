@@ -16,7 +16,11 @@ from posthog.storage import session_recording_v2_object_storage
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.delete_recordings.metrics import get_block_deleted_counter, get_block_loaded_counter
+from posthog.temporal.delete_recordings.metrics import (
+    get_block_deleted_counter,
+    get_block_deleted_error_counter,
+    get_block_loaded_counter,
+)
 from posthog.temporal.delete_recordings.types import (
     DeleteRecordingBlocksInput,
     DeleteRecordingError,
@@ -66,11 +70,11 @@ async def load_recording_blocks(input: RecordingInput) -> list[RecordingBlock]:
             "ttl_days": 365,
         }
 
+        ch_query_id = str(uuid4())
+        logger.info(f"Querying ClickHouse with query_id: {ch_query_id}")
         raw_response: bytes = b""
         async with get_client() as client:
-            async with client.aget_query(
-                query=query, query_parameters=parameters, query_id=str(uuid4())
-            ) as ch_response:
+            async with client.aget_query(query=query, query_parameters=parameters, query_id=ch_query_id) as ch_response:
                 raw_response = await ch_response.content.read()
 
         block_listing: RecordingBlockListing | None = SessionReplayEvents.build_recording_block_listing(
@@ -94,13 +98,21 @@ async def delete_recording_blocks(input: DeleteRecordingBlocksInput) -> None:
         logger = LOGGER.bind()
         logger.info("Deleting recording blocks")
         async with session_recording_v2_object_storage.async_client() as storage:
-            block_deleted_counter = get_block_deleted_counter()
+            block_deleted_counter = 0
+            block_deleted_error_counter = 0
 
             for block in input.blocks:
-                await storage.delete_block(block.url)
-                block_deleted_counter.add(1)
+                try:
+                    await storage.delete_block(block.url)
+                    block_deleted_counter += 1
+                except session_recording_v2_object_storage.BlockDeleteError:
+                    logger.warning(f"Failed to delete block at {block.url}, skipping...")
+                    block_deleted_error_counter += 1
 
-        logger.info(f"Successfully deleted {len(input.blocks)} blocks")
+        get_block_deleted_counter().add(block_deleted_counter)
+        get_block_deleted_error_counter().add(block_deleted_error_counter)
+        logger.info(f"Successfully deleted {block_deleted_counter} blocks")
+        logger.info(f"Skipped {block_deleted_error_counter} blocks")
 
 
 def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
@@ -132,12 +144,11 @@ async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[
             "ttl_days": 365,
         }
 
-        logger.info("Querying ClickHouse")
+        ch_query_id = str(uuid4())
+        logger.info(f"Querying ClickHouse with query_id: {ch_query_id}")
         raw_response: bytes = b""
         async with get_client() as client:
-            async with client.aget_query(
-                query=query, query_parameters=parameters, query_id=str(uuid4())
-            ) as ch_response:
+            async with client.aget_query(query=query, query_parameters=parameters, query_id=ch_query_id) as ch_response:
                 raw_response = await ch_response.content.read()
 
         session_ids: list[str] = _parse_session_recording_list_response(raw_response)

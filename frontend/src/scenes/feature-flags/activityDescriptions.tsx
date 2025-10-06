@@ -306,6 +306,32 @@ const featureFlagActionsMapping: Record<
 
         return { description: changes }
     },
+    evaluation_tags: function onEvaluationTags(change) {
+        const tagsBefore = change?.before as string[]
+        const tagsAfter = change?.after as string[]
+        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
+        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
+
+        const changes: Description[] = []
+        if (addedTags.length) {
+            changes.push(
+                <>
+                    added {pluralize(addedTags.length, 'evaluation tag', 'evaluation tags', false)}{' '}
+                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+        if (removedTags.length) {
+            changes.push(
+                <>
+                    removed {pluralize(removedTags.length, 'evaluation tag', 'evaluation tags', false)}{' '}
+                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+
+        return { description: changes }
+    },
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
