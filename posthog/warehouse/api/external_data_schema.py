@@ -88,7 +88,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         return schema.status
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
-        return schema.is_incremental or schema.is_append
+        return schema.is_incremental
 
     def get_incremental_field(self, schema: ExternalDataSchema) -> str | None:
         return schema.sync_type_config.get("incremental_field")
@@ -300,8 +300,6 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_data(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
         instance.delete_table()
-
-        instance.sync_type_config.update({"reset_pipeline": True})
 
         return Response(status=status.HTTP_200_OK)
 
