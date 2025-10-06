@@ -215,7 +215,7 @@ export const targetingPanelLogic = kea<targetingPanelLogicType>([
         },
         removeConditionSet: ({ index }) => {
             const previousLength = Object.keys(values.affectedUsers).length
-            range(index, previousLength).map((idx) => {
+            range(index, previousLength).forEach((idx) => {
                 const count = previousLength - 1 === idx ? undefined : values.affectedUsers[idx + 1]
                 actions.setAffectedUsers(idx, count)
             })

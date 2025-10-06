@@ -15,6 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { FeatureFlagFilters } from '~/types'
 
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { MetricsReorderModal } from '../MetricsView/MetricsReorderModal'
@@ -135,7 +136,7 @@ export const CreateExperiment = (): JSX.Element => {
                                                     aggregation_group_type_index: null,
                                                 }
                                             }
-                                            onChange={(filters: any) => {
+                                            onChange={(filters: FeatureFlagFilters) => {
                                                 setExperimentValue('feature_flag_filters', filters)
                                             }}
                                         />

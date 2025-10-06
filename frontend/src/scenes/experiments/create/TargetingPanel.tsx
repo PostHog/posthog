@@ -230,11 +230,9 @@ export function TargetingPanel({ id, filters, onChange, readOnly = false }: Targ
                                 of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
                                 {affectedUsers[index] !== undefined ? (
                                     <b>
-                                        {`${
-                                            (computeBlastRadiusPercentage(group.rollout_percentage, index).toPrecision(
-                                                2
-                                            ) as any) * 1
-                                        }% `}
+                                        {`${Number(
+                                            computeBlastRadiusPercentage(group.rollout_percentage, index).toPrecision(2)
+                                        )}% `}
                                     </b>
                                 ) : (
                                     <Spinner className="mr-1" />
