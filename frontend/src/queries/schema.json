@@ -25282,6 +25282,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "personId": {
+                    "description": "Person who performed the event",
+                    "type": "string"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
