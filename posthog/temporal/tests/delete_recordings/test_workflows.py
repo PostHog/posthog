@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 from datetime import datetime, timedelta
 
 import pytest
@@ -144,12 +145,17 @@ async def test_delete_recording_with_person_workflow():
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
+            parent_id = str(uuid.uuid4())
+
             await env.client.execute_workflow(
                 DeleteRecordingsWithPersonWorkflow.run,
                 RecordingsWithPersonInput(distinct_ids=TEST_DISTINCT_IDS, team_id=TEST_TEAM_ID),
-                id=str(uuid.uuid4()),
+                id=parent_id,
                 task_queue=task_queue_name,
             )
+
+            # Wait a short while to let child workflows complete
+            await asyncio.sleep(3)
 
     # Check that all recording blocks were deleted
     assert TEST_SESSIONS == {

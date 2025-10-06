@@ -40,7 +40,7 @@ def extract_cohort_dependencies(cohort: Cohort) -> set[int]:
     return dependencies
 
 
-def get_cohort_dependencies(cohort: Cohort) -> list[int]:
+def get_cohort_dependencies(cohort: Cohort, _warming: bool = False) -> list[int]:
     """
     Get the list of cohort IDs that the given cohort depends on.
     """
@@ -50,10 +50,11 @@ def get_cohort_dependencies(cohort: Cohort) -> list[int]:
     cache_hit = cache.has_key(cache_key)
 
     def compute_dependencies():
-        COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss").inc()
+        if not _warming:
+            COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss").inc()
         return list(extract_cohort_dependencies(cohort))
 
-    if cache_hit:
+    if cache_hit and not _warming:
         COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="hit").inc()
 
     result = cache.get_or_set(
@@ -67,18 +68,34 @@ def get_cohort_dependencies(cohort: Cohort) -> list[int]:
     return result or []
 
 
-def get_cohort_dependents(cohort: Cohort) -> list[int]:
+def get_cohort_dependents(cohort: Cohort | int) -> list[int]:
     """
     Get the list of cohort IDs that depend on the given cohort.
+    Can accept either a Cohort object or a cohort ID. If only an ID is provided
+    and there's a cache miss, the team_id will be queried from the database.
     """
-    cache_key = _cohort_dependents_key(cohort.id)
+    cohort_id = cohort.id if isinstance(cohort, Cohort) else cohort
+    cache_key = _cohort_dependents_key(cohort_id)
 
     # Check if value exists in cache first
     cache_hit = cache.has_key(cache_key)
 
     def compute_or_fallback() -> list[int]:
         COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="miss").inc()
-        warm_team_cohort_dependency_cache(cohort.team_id)
+        # If we only have an ID, query the database for team_id
+        if isinstance(cohort, int):
+            try:
+                team_id = Cohort.objects.filter(pk=cohort_id, deleted=False).values_list("team_id", flat=True).first()
+                if team_id is None:
+                    logger.warning("Cohort not found when computing dependents", cohort_id=cohort_id)
+                    return []
+            except Exception as e:
+                logger.exception("Failed to fetch team_id for cohort", cohort_id=cohort_id, error=str(e))
+                return []
+        else:
+            team_id = cohort.team_id
+
+        warm_team_cohort_dependency_cache(team_id)
         return cache.get(cache_key, [])
 
     if cache_hit:
@@ -86,7 +103,7 @@ def get_cohort_dependents(cohort: Cohort) -> list[int]:
 
     result = cache.get_or_set(cache_key, compute_or_fallback, timeout=DEPENDENCY_CACHE_TIMEOUT)
     if result is None:
-        logger.error("Cohort dependents cache returned None", cohort_id=cohort.id)
+        logger.error("Cohort dependents cache returned None", cohort_id=cohort_id)
     return result or []
 
 
@@ -98,7 +115,7 @@ def warm_team_cohort_dependency_cache(team_id: int, batch_size: int = 1000):
     for cohort in Cohort.objects.filter(team_id=team_id, deleted=False).iterator(chunk_size=batch_size):
         # Any invalidated dependencies cache is rebuilt here
         dependents_map.setdefault(_cohort_dependents_key(cohort.id), [])
-        dependencies = get_cohort_dependencies(cohort)
+        dependencies = get_cohort_dependencies(cohort, _warming=True)
         # Dependency keys aren't fully invalidated; make sure they don't expire.
         cache.touch(_cohort_dependencies_key(cohort.id), timeout=DEPENDENCY_CACHE_TIMEOUT)
         # Build reverse map

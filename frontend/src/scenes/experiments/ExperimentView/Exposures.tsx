@@ -14,6 +14,7 @@ import { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
 import { useChartColors } from '../MetricsView/shared/colors'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
 
 function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
@@ -22,7 +23,8 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
         return 'Default ($feature_flag_called)'
     }
 
-    return `Custom (${exposureConfig.event})`
+    const displayName = getExposureConfigDisplayName(exposureConfig)
+    return `Custom (${displayName})`
 }
 
 export function Exposures(): JSX.Element {
@@ -40,15 +42,17 @@ export function Exposures(): JSX.Element {
     let totalExposures = 0
     const variants: Array<{ variant: string; count: number; percentage: number }> = []
 
-    if (exposures?.total_exposures) {
-        for (const [, count] of Object.entries(exposures.total_exposures)) {
+    if (exposures?.timeseries) {
+        for (const series of exposures.timeseries) {
+            const count = exposures.total_exposures?.[series.variant] || 0
             totalExposures += Number(count)
         }
 
         // Calculate percentages for each variant
-        for (const [variant, count] of Object.entries(exposures.total_exposures)) {
+        for (const series of exposures.timeseries) {
+            const count = exposures.total_exposures?.[series.variant] || 0
             variants.push({
-                variant,
+                variant: series.variant,
                 count: Number(count),
                 percentage: totalExposures ? (Number(count) / totalExposures) * 100 : 0,
             })
@@ -192,7 +196,7 @@ export function Exposures(): JSX.Element {
     const headerContent = {
         style: { backgroundColor: 'var(--color-bg-table)' },
         children: (
-            <div className="flex items-center gap-3 text-xs font-semibold text-text-secondary">
+            <div className="flex items-center gap-3 metric-cell">
                 <span>Exposures</span>
 
                 {!isExperimentDraft && (
@@ -220,12 +224,10 @@ export function Exposures(): JSX.Element {
                                         <div className="flex items-center gap-4">
                                             {variants.map(({ variant, percentage }) => (
                                                 <div key={variant} className="flex items-center gap-2">
-                                                    <div className="text-xs">
+                                                    <div className="metric-cell">
                                                         <VariantTag experimentId={experimentId} variantKey={variant} />
                                                     </div>
-                                                    <span className="text-xs font-medium">
-                                                        {percentage.toFixed(1)}%
-                                                    </span>
+                                                    <span className="metric-cell">{percentage.toFixed(1)}%</span>
                                                 </div>
                                             ))}
                                         </div>
