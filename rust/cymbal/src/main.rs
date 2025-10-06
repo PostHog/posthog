@@ -15,7 +15,7 @@ use cymbal::{
 use metrics::histogram;
 use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -144,6 +144,7 @@ async fn main() {
         metrics::counter!(EVENTS_WRITTEN).increment(to_emit.len() as u64);
 
         let emit_time = common_metrics::timing_guard(EMIT_EVENTS_TIME, &[]);
+        debug!("Emitting {} events", to_emit.len());
         let results = txn
             .send_keyed_iter_to_kafka(
                 &context.config.events_topic,
