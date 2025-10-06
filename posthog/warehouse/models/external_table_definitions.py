@@ -775,6 +775,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
     "stripe_customerpaymentmethod": {
         "id": StringDatabaseField(name="id"),
         "object": StringDatabaseField(name="object"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
             isolate_scope=True,
             expr=ast.Call(
