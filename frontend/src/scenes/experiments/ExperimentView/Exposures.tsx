@@ -42,15 +42,17 @@ export function Exposures(): JSX.Element {
     let totalExposures = 0
     const variants: Array<{ variant: string; count: number; percentage: number }> = []
 
-    if (exposures?.total_exposures) {
-        for (const [, count] of Object.entries(exposures.total_exposures)) {
+    if (exposures?.timeseries) {
+        for (const series of exposures.timeseries) {
+            const count = exposures.total_exposures?.[series.variant] || 0
             totalExposures += Number(count)
         }
 
         // Calculate percentages for each variant
-        for (const [variant, count] of Object.entries(exposures.total_exposures)) {
+        for (const series of exposures.timeseries) {
+            const count = exposures.total_exposures?.[series.variant] || 0
             variants.push({
-                variant,
+                variant: series.variant,
                 count: Number(count),
                 percentage: totalExposures ? (Number(count) / totalExposures) * 100 : 0,
             })
