@@ -15,7 +15,7 @@ use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
-use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres, Row};
+use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -227,16 +227,6 @@ pub struct MockPgClient;
 
 #[async_trait]
 impl Client for MockPgClient {
-    async fn run_query(
-        &self,
-        _query: String,
-        _parameters: Vec<String>,
-        _timeout_ms: Option<u64>,
-    ) -> Result<Vec<PgRow>, CustomDatabaseError> {
-        // Simulate a database connection failure
-        Err(CustomDatabaseError::Other(SqlxError::PoolTimedOut))
-    }
-
     async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
         // Simulate a database connection failure
         Err(CustomDatabaseError::Other(SqlxError::PoolTimedOut))
@@ -260,15 +250,15 @@ pub async fn insert_new_team_in_pg(
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
     // Create new organization from scratch (in non-persons database)
-    non_persons_client.run_query(
-        r#"INSERT INTO posthog_organization
+    let mut conn = non_persons_client.get_connection().await?;
+    sqlx::query(r#"INSERT INTO posthog_organization
         (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources)
         VALUES
         ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true)
-        ON CONFLICT DO NOTHING"#.to_string(),
-        vec![ORG_ID.to_string()],
-        Some(2000),
-    ).await?;
+        ON CONFLICT DO NOTHING"#)
+        .bind(ORG_ID)
+        .execute(&mut *conn)
+        .await?;
 
     // Create team model
     let id = match team_id {
@@ -374,6 +364,7 @@ pub async fn insert_flag_for_team_in_pg(
             }),
             version: None,
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
     };
 
@@ -387,6 +378,49 @@ pub async fn insert_flag_for_team_in_pg(
     assert_eq!(res.rows_affected(), 1);
 
     Ok(payload_flag)
+}
+
+pub async fn insert_evaluation_tags_for_flag_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    flag_id: i32,
+    team_id: i32,
+    tag_names: Vec<&str>,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+
+    for tag_name in tag_names {
+        // First, insert the tag if it doesn't exist
+        let tag_uuid = Uuid::now_v7();
+        let tag_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO posthog_tag (id, name, team_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (name, team_id) DO UPDATE 
+            SET name = EXCLUDED.name
+            RETURNING id
+            "#,
+        )
+        .bind(tag_uuid)
+        .bind(tag_name)
+        .bind(team_id)
+        .fetch_one(&mut *conn)
+        .await?;
+
+        // Then, create the association
+        sqlx::query(
+            r#"
+            INSERT INTO posthog_featureflagevaluationtag (feature_flag_id, tag_id, created_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (feature_flag_id, tag_id) DO NOTHING
+            "#,
+        )
+        .bind(flag_id)
+        .bind(tag_id)
+        .execute(&mut *conn)
+        .await?;
+    }
+
+    Ok(())
 }
 
 pub async fn insert_person_for_team_in_pg(
@@ -618,6 +652,7 @@ pub fn create_test_flag(
         ensure_experience_continuity: Some(ensure_experience_continuity.unwrap_or(false)),
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
     }
 }
 
@@ -799,6 +834,21 @@ impl TestContext {
             name,
             filters,
             is_static,
+        )
+        .await
+    }
+
+    pub async fn insert_evaluation_tags_for_flag(
+        &self,
+        flag_id: i32,
+        team_id: i32,
+        tag_names: Vec<&str>,
+    ) -> Result<(), Error> {
+        insert_evaluation_tags_for_flag_in_pg(
+            self.non_persons_writer.clone(),
+            flag_id,
+            team_id,
+            tag_names,
         )
         .await
     }

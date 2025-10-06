@@ -1,0 +1,17 @@
+name: shellcheck
+
+on: [pull_request]
+
+permissions:
+    contents: read
+
+jobs:
+    shell_check:
+        runs-on: ubuntu-latest
+        name: shellcheck
+        steps:
+            - uses: actions/checkout@v4
+            - name: Install shellcheck
+              run: sudo apt update && sudo apt install -y shellcheck
+            - name: Check secrets scripts
+              run: cd bin && shellcheck deploy-hobby

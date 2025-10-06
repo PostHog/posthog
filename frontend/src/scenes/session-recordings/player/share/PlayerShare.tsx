@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import posthog from 'posthog-js'
 
-import { IconCopy, IconExternal } from '@posthog/icons'
+import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
@@ -131,7 +131,6 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                         type="primary"
                         to={linearUrl}
                         targetBlank={true}
-                        icon={<IconExternal />}
                         disabledReason={linearLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
                     >
                         Create issue

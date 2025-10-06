@@ -7,12 +7,11 @@ import { IconGraph, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
@@ -30,7 +29,6 @@ import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import {
     ScenePanel,
     ScenePanelActionsSection,
-    ScenePanelCommonActions,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
@@ -78,29 +76,22 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
             ) : (
                 <SceneContent>
                     <ScenePanel>
-                        <ScenePanelCommonActions>
-                            {surveyLoading ? (
-                                <WrappingLoadingSkeleton>
-                                    <ButtonPrimitive aria-hidden>X</ButtonPrimitive>
-                                </WrappingLoadingSkeleton>
-                            ) : (
-                                <SceneCommonButtons
-                                    dataAttrKey={RESOURCE_TYPE}
-                                    duplicate={{
-                                        onClick: () => {
-                                            if (hasMultipleProjects) {
-                                                setIsDuplicateToProjectModalOpen(true)
-                                            } else {
-                                                duplicateSurvey()
-                                            }
-                                        },
-                                    }}
-                                />
-                            )}
-                        </ScenePanelCommonActions>
                         <ScenePanelInfoSection>
                             <SceneFile dataAttrKey={RESOURCE_TYPE} />
                         </ScenePanelInfoSection>
+                        <ScenePanelDivider />
+                        <ScenePanelActionsSection>
+                            <SceneDuplicate
+                                dataAttrKey={RESOURCE_TYPE}
+                                onClick={() => {
+                                    if (hasMultipleProjects) {
+                                        setIsDuplicateToProjectModalOpen(true)
+                                    } else {
+                                        duplicateSurvey()
+                                    }
+                                }}
+                            />
+                        </ScenePanelActionsSection>
                         <ScenePanelDivider />
                         <ScenePanelActionsSection>
                             <ButtonPrimitive
