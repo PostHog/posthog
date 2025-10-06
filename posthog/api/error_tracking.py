@@ -517,14 +517,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if not issue_embeddings or len(issue_embeddings) == 0:
             return Response([])
 
-        fingerprint_distance_map = self._process_embeddings_for_similarity(
+        fingerprint_to_distance = self._process_embeddings_for_similarity(
             issue_embeddings, issue_fingerprints, min_distance_threshold, model_name, embedding_version
         )
 
-        if not fingerprint_distance_map:
+        if not fingerprint_to_distance or len(fingerprint_to_distance) == 0:
             return Response([])
 
-        similar_fingerprints = list(fingerprint_distance_map.keys())
+        similar_fingerprints = list(fingerprint_to_distance.keys())
 
         # Get issue IDs that have these fingerprints
         fingerprint_issue_pairs = ErrorTrackingIssueFingerprintV2.objects.filter(
@@ -560,8 +560,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         # Build mapping from issue_id to distance using fingerprints
         issue_to_distance = {}
         for issue_id, fingerprint in issue_id_to_fingerprint.items():
-            if fingerprint in fingerprint_distance_map:
-                issue_to_distance[issue_id] = fingerprint_distance_map[fingerprint]
+            if fingerprint in fingerprint_to_distance:
+                issue_to_distance[issue_id] = fingerprint_to_distance[fingerprint]
 
         similar_issues = self._serialize_issues_to_similar_issues(issues, issue_to_library, issue_to_distance)
         return Response(similar_issues)
