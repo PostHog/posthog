@@ -209,7 +209,7 @@ export const BillingProductAddonActions = ({
     }
 
     const renderDowngradeActions = (): JSX.Element | null => {
-        if (!upgradePlan) {
+        if (!upgradePlan || !currentPlatformAddon) {
             return null
         }
 
@@ -237,7 +237,7 @@ export const BillingProductAddonActions = ({
     }
 
     const renderUpgradeActions = (): JSX.Element | null => {
-        if (!upgradePlan) {
+        if (!upgradePlan || !currentPlatformAddon) {
             return null
         }
 
