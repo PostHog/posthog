@@ -41,16 +41,6 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
 class TestRootNode(ClickhouseTestMixin, BaseTest):
-    def _create_billing_context(self):
-        """Helper to create test billing context"""
-        return MaxBillingContext(
-            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
-            has_active_subscription=True,
-            products=[],
-            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=0),
-            trial=MaxBillingContextTrial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
-        )
-
     async def test_node_handles_plain_chat_response(self):
         with patch(
             "ee.hogai.graph.root.nodes.RootNode._get_model",
@@ -311,7 +301,6 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             content=[{"text": "I can't help with that anymore.", "type": "text"}], id="1"
         )
         mock_with_tokens.ainvoke = ainvoke_mock
-        mock_with_tokens.get_num_tokens_from_messages = MagicMock(return_value=1)
 
         with patch(
             "ee.hogai.graph.root.nodes.MaxChatAnthropic",
@@ -320,7 +309,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             node = RootNode(self.team, self.user)
 
             # Create a state that has hit the hard limit (4 tool calls)
-            state = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=4)
+            state = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=node.MAX_TOOL_CALLS)
 
             # Run the node
             next_state = await node.arun(state, {})
@@ -352,7 +341,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             config = RunnableConfig(
                 configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}}
             )
-            node.config = config
+            node._config = config
             # Clear any cached context manager to force recreation with new config
             node._context_manager = None
 
@@ -440,7 +429,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}}
             )
             # Set config before calling arun
-            node.config = config
+            node._config = config
             result = await node.arun(state, config)
 
             # Verify the node ran successfully and returned a message
@@ -477,7 +466,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             node = RootNode(self.team, self.user)
             # Set config before calling arun
             config = RunnableConfig(configurable={})
-            node.config = config
+            node._config = config
 
             await node.arun(AssistantState(messages=[HumanMessage(content="Foo?")]), config)
 
@@ -503,18 +492,16 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # (membership_level, has_billing_context, should_add_billing_tool, has_access, expected_prompt)
-            [OrganizationMembership.Level.ADMIN, True, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
-            [OrganizationMembership.Level.ADMIN, False, False, True, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
-            [OrganizationMembership.Level.OWNER, True, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
-            [OrganizationMembership.Level.OWNER, False, False, True, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
-            [OrganizationMembership.Level.MEMBER, True, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
-            [OrganizationMembership.Level.MEMBER, False, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
+            # (membership_level, add_context, expected_prompt)
+            [OrganizationMembership.Level.ADMIN, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.ADMIN, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
+            [OrganizationMembership.Level.OWNER, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.OWNER, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
+            [OrganizationMembership.Level.MEMBER, True, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
+            [OrganizationMembership.Level.MEMBER, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
         ]
     )
-    async def test_has_billing_access(
-        self, membership_level, has_billing_context, should_add_billing_tool, expected_prompt
-    ):
+    async def test_has_billing_access(self, membership_level, add_context, expected_prompt):
         # Set membership level
         membership = await self.user.organization_memberships.aget(organization=self.team.organization)
         membership.level = membership_level
@@ -523,13 +510,19 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         node = RootNode(self.team, self.user)
 
         # Configure billing context if needed
-        if has_billing_context:
-            billing_context = self._create_billing_context()
-            config = RunnableConfig(configurable={"billing_context": billing_context.model_dump()})
+        if add_context:
+            billing_context = MaxBillingContext(
+                subscription_level=MaxBillingContextSubscriptionLevel.PAID,
+                has_active_subscription=True,
+                products=[],
+                settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=0),
+                trial=MaxBillingContextTrial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
+            )
+            node._config = RunnableConfig(configurable={"billing_context": billing_context.model_dump()})
         else:
-            config = RunnableConfig(configurable={})
+            node._config = RunnableConfig(configurable={})
 
-        self.assertEqual(await node._get_billing_prompt(config), (should_add_billing_tool, expected_prompt))
+        self.assertEqual(await node._get_billing_prompt(node._config), expected_prompt)
 
     def test_is_first_turn_true(self):
         """Test _is_first_turn returns True when last message is the start message"""

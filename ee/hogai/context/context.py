@@ -25,8 +25,10 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_variables_to_dict,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
@@ -61,12 +63,17 @@ class AssistantContextManager(AssistantContextMixin):
         self._user = user
         self._config = config or {}
 
-    async def aget_state_messages_with_context(self, state: BaseStateWithMessages) -> Sequence[AssistantMessageUnion]:
+    async def get_state_messages_with_context(
+        self, state: BaseStateWithMessages
+    ) -> Sequence[AssistantMessageUnion] | None:
+        """
+        Returns the state messages with context messages injected. If no context prompts should be added, returns None.
+        """
         if context_prompts := await self._get_context_prompts(state):
             # Insert context messages BEFORE the start human message, so they're properly cached and the context is retained.
             updated_messages = self._inject_context_messages(state, context_prompts)
             return updated_messages
-        return state.messages
+        return None
 
     def get_ui_context(self, state: BaseStateWithMessages) -> MaxUIContext | None:
         """
@@ -101,6 +108,16 @@ class AssistantContextManager(AssistantContextMixin):
         if not billing_context:
             return None
         return MaxBillingContext.model_validate(billing_context)
+
+    @database_sync_to_async
+    def check_user_has_billing_access(self) -> bool:
+        """
+        Check if the user has access to the billing tool.
+        """
+        return self._user.organization_memberships.get(organization=self._team.organization).level in (
+            OrganizationMembership.Level.ADMIN,
+            OrganizationMembership.Level.OWNER,
+        )
 
     def get_groups(self):
         """

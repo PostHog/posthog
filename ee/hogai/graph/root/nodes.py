@@ -27,8 +27,6 @@ from posthog.schema import (
 )
 
 from posthog.models import Team, User
-from posthog.models.organization import OrganizationMembership
-from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
@@ -122,9 +120,8 @@ class RootNode(AssistantNode):
         # Add context messages on start of the conversation.
         messages_to_replace: Sequence[AssistantMessageUnion] = []
         if self._is_first_turn(state) and (
-            updated_messages := await self.context_manager.aget_state_messages_with_context(state)
+            updated_messages := await self.context_manager.get_state_messages_with_context(state)
         ):
-            # Check if context was actually added by comparing lengths
             messages_to_replace = updated_messages
 
         # Calculate the initial window.
@@ -202,26 +199,13 @@ class RootNode(AssistantNode):
             send_feature_flag_events=False,
         )
 
-    @database_sync_to_async
-    def _check_user_has_billing_access(self) -> bool:
-        """
-        Check if the user has access to the billing tool.
-        """
-        return self._user.organization_memberships.get(organization=self._team.organization).level in (
-            OrganizationMembership.Level.ADMIN,
-            OrganizationMembership.Level.OWNER,
-        )
-
-    def _check_user_has_billing_context(self, config: RunnableConfig) -> bool:
-        return self.context_manager.get_billing_context() is not None
-
     async def _get_billing_prompt(self, config: RunnableConfig) -> str:
         """Get billing information including whether to include the billing tool and the prompt.
         Returns:
             str: prompt
         """
-        has_billing_context = self._check_user_has_billing_context(config)
-        has_access = await self._check_user_has_billing_access()
+        has_billing_context = self.context_manager.get_billing_context() is not None
+        has_access = await self.context_manager.check_user_has_billing_access()
 
         if has_access and not has_billing_context:
             return ROOT_BILLING_CONTEXT_ERROR_PROMPT

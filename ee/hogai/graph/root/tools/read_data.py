@@ -3,9 +3,9 @@ from typing import Any, Literal, Self
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
-from posthog.models import OrganizationMembership, Team, User
-from posthog.sync import database_sync_to_async
+from posthog.models import Team, User
 
+from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.prompt import format_prompt_string
@@ -73,8 +73,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         Override this factory to add additional args schemas or descriptions.
         """
         args: type[BaseModel] = ReadDataToolArgs
+        context_manager = AssistantContextManager(team, user, config)
         billing_prompt = ""
-        if await cls._check_user_has_billing_access(team, user):
+        if await context_manager.check_user_has_billing_access():
             args = ReadDataAdminAccessToolArgs
             billing_prompt = READ_DATA_BILLING_PROMPT
         description = format_prompt_string(READ_DATA_PROMPT, billing_prompt=billing_prompt)
@@ -83,21 +84,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     async def _arun_impl(self, kind: ReadDataAdminAccessKind | ReadDataKind) -> tuple[str, dict[str, Any] | None]:
         match kind:
             case "billing_info":
-                has_access = await self._check_user_has_billing_access(self._team, self._user)
+                has_access = await self._context_manager.check_user_has_billing_access()
                 if not has_access:
                     return BILLING_INSUFFICIENT_ACCESS_PROMPT, None
                 # used for routing
                 return "", self.args_schema(kind=kind).model_dump()
             case "datawarehouse_schema":
                 return await self._serialize_database_schema(), None
-
-    @classmethod
-    @database_sync_to_async
-    def _check_user_has_billing_access(cls, team: Team, user: User) -> bool:
-        """
-        Check if the user has access to the billing tool.
-        """
-        return user.organization_memberships.get(organization=team.organization).level in (
-            OrganizationMembership.Level.ADMIN,
-            OrganizationMembership.Level.OWNER,
-        )

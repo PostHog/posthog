@@ -181,4 +181,4 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         result = await self.window_manager._get_token_count(mock_model, messages, thinking_config=thinking_config)
 
         self.assertEqual(result, 1234)
-        mock_model.get_num_tokens_from_messages.assert_called_once_with(messages, thinking=thinking_config)
+        mock_model.get_num_tokens_from_messages.assert_called_once_with(messages, thinking=thinking_config, tools=None)
