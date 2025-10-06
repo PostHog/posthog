@@ -136,7 +136,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
                         [RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]
                     ),
                     ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
+                        op=ast.CompareOperationOp.Gt,
                         left=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
                         right=ZERO_DECIMAL,
                     ),
