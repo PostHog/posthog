@@ -241,7 +241,7 @@ function SceneName({
     const [isEditing, setIsEditing] = useState(forceEdit)
 
     const textClasses =
-        'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-base)] h-auto py-0 leading-[1.4] select-auto'
+        'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-base)] group-data-[editable=false]:py-0 leading-[1.4] select-auto'
 
     useEffect(() => {
         if (!isLoading) {
@@ -373,7 +373,7 @@ function SceneDescription({
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
 
-    const textClasses = 'text-sm my-0 select-auto group-data-[editable=false]:p-0'
+    const textClasses = 'text-sm my-0 select-auto group-data-[editable=false]:py-0'
 
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
 
