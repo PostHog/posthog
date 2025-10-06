@@ -150,8 +150,9 @@ class Cluster(ABC):
                     effect.callback(target)
 
     @property
-    def people(self) -> set[SimPerson]:
-        return {person for row in self.people_matrix for person in row}
+    def people(self) -> list[SimPerson]:
+        # Return deterministically ordered list to ensure consistent random number sequence consumption.
+        return [person for row in self.people_matrix for person in row]
 
     @property
     def kernel(self) -> SimPerson:

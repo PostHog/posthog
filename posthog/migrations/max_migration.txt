@@ -1,1 +1,1 @@
-0864_create_feature_flag_evaluation_tag_table
+0867_add_updated_at_to_feature_flags

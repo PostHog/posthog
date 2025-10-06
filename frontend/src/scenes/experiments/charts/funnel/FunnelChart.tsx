@@ -27,7 +27,6 @@ export interface FunnelChartProps extends ChartParams {
 }
 
 export interface FunnelChartDataContext {
-    visibleStepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
     stepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
     steps: FunnelStepWithNestedBreakdown[]
     hasFunnelResults: boolean
@@ -69,7 +68,6 @@ export function FunnelChart({
 
     const contextValue: FunnelChartDataContext = useMemo(
         () => ({
-            visibleStepsWithConversionMetrics: processedData.visibleStepsWithConversionMetrics,
             stepsWithConversionMetrics: processedData.stepsWithConversionMetrics,
             steps: processedData.steps,
             hasFunnelResults: processedData.hasFunnelResults,
