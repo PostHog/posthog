@@ -109,7 +109,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "posthog",
@@ -135,7 +135,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "ingestion",
@@ -161,7 +161,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker",
@@ -182,7 +182,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-batch-exports",
@@ -208,7 +208,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-max-ai",
@@ -234,7 +234,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-tasks-agent",
@@ -275,7 +275,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-billing",
@@ -296,7 +296,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-video-export",
@@ -317,7 +317,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-general-purpose",
@@ -338,7 +338,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-messaging",
@@ -364,7 +364,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-warehouse",
@@ -385,7 +385,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-warehouse-compaction",
@@ -406,7 +406,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-modeling",
