@@ -12,34 +12,34 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
-import { QueryEndpointType } from '~/types'
+import { EndpointType } from '~/types'
 
-import { queryEndpointLogic } from './queryEndpointLogic'
-import { queryEndpointsLogic } from './queryEndpointsLogic'
+import { endpointLogic } from './endpointLogic'
+import { endpointsLogic } from './endpointsLogic'
 
-interface QueryEndpointsProps {
+interface EndpointsProps {
     tabId: string
 }
 
-interface QueryEndpointsTableProps {
+interface EndpointsTableProps {
     tabId: string
 }
 
-export function QueryEndpoints({ tabId }: QueryEndpointsProps): JSX.Element {
+export function Endpoints({ tabId }: EndpointsProps): JSX.Element {
     return (
         <>
-            <QueryEndpointsTable tabId={tabId} />
+            <EndpointsTable tabId={tabId} />
         </>
     )
 }
 
-export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.Element => {
-    const { setFilters } = useActions(queryEndpointsLogic({ tabId }))
-    const { queryEndpoints, allQueryEndpointsLoading, filters } = useValues(queryEndpointsLogic({ tabId }))
+export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
+    const { setFilters } = useActions(endpointsLogic({ tabId }))
+    const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic({ tabId }))
 
-    const { deleteQueryEndpoint, deactivateQueryEndpoint } = useActions(queryEndpointLogic({ tabId }))
+    const { deleteEndpoint, deactivateEndpoint } = useActions(endpointLogic({ tabId }))
 
-    const columns: LemonTableColumns<QueryEndpointType> = [
+    const columns: LemonTableColumns<EndpointType> = [
         {
             title: 'Name',
             key: 'name',
@@ -49,25 +49,19 @@ export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.El
                 return (
                     <LemonTableLink
                         // TODO: Add link to endpoint modal
-                        // to={urls.embeddedAnalyticsQueryEndpoint(record.name)}
+                        // to={urls.endpointsEndpoint(record.name)}
                         title={record.name}
                         description={record.description}
                     />
                 )
             },
-            sorter: (a: QueryEndpointType, b: QueryEndpointType) => a.name.localeCompare(b.name),
+            sorter: (a: EndpointType, b: EndpointType) => a.name.localeCompare(b.name),
         },
-        createdAtColumn<QueryEndpointType>() as LemonTableColumn<
-            QueryEndpointType,
-            keyof QueryEndpointType | undefined
-        >,
-        createdByColumn<QueryEndpointType>() as LemonTableColumn<
-            QueryEndpointType,
-            keyof QueryEndpointType | undefined
-        >,
-        atColumn<QueryEndpointType>('last_executed_at', 'Last executed at') as LemonTableColumn<
-            QueryEndpointType,
-            keyof QueryEndpointType | undefined
+        createdAtColumn<EndpointType>() as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
+        createdByColumn<EndpointType>() as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
+        atColumn<EndpointType>('last_executed_at', 'Last executed at') as LemonTableColumn<
+            EndpointType,
+            keyof EndpointType | undefined
         >,
         {
             title: 'Endpoint path',
@@ -101,7 +95,7 @@ export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.El
                     )}
                 </span>
             ),
-            sorter: (a: QueryEndpointType, b: QueryEndpointType) => Number(b.is_active) - Number(a.is_active),
+            sorter: (a: EndpointType, b: EndpointType) => Number(b.is_active) - Number(a.is_active),
         },
         {
             key: 'actions',
@@ -112,9 +106,7 @@ export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.El
                         <>
                             <LemonButton
                                 onClick={() => {
-                                    router.actions.push(
-                                        urls.embeddedAnalyticsUsage({ requestNameFilter: [record.name] })
-                                    )
+                                    router.actions.push(urls.endpointsUsage({ requestNameFilter: [record.name] }))
                                 }}
                                 fullWidth
                             >
@@ -124,21 +116,21 @@ export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.El
                             <LemonDivider />
                             <LemonButton
                                 onClick={() => {
-                                    deactivateQueryEndpoint(record.name)
+                                    deactivateEndpoint(record.name)
                                 }}
                                 fullWidth
                                 status="alt"
                             >
-                                Deactivate query endpoint
+                                Deactivate endpoint
                             </LemonButton>
                             <LemonButton
                                 onClick={() => {
-                                    deleteQueryEndpoint(record.name)
+                                    deleteEndpoint(record.name)
                                 }}
                                 fullWidth
                                 status="danger"
                             >
-                                Delete query endpoint
+                                Delete endpoint
                             </LemonButton>
                         </>
                     }
@@ -153,22 +145,25 @@ export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.El
                 <LemonInput
                     type="search"
                     className="w-1/3"
-                    placeholder="Search for query endpoints"
+                    placeholder="Search for endpoints"
                     onChange={(x) => setFilters({ search: x })}
                     value={filters.search}
                 />
             </div>
             <LemonTable
-                data-attr="query-endpoints-table"
+                data-attr="endpoints-table"
                 pagination={{ pageSize: 20 }}
-                dataSource={queryEndpoints as QueryEndpointType[]}
+                dataSource={endpoints as EndpointType[]}
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 columns={columns}
-                loading={allQueryEndpointsLoading}
-                // TODO: defaultSorting & onSort
-                emptyState="No query endpoints matching your filters!"
-                nouns={['query endpoint', 'query endpoints']}
+                loading={allEndpointsLoading}
+                defaultSorting={{
+                    columnKey: 'last_executed_at',
+                    order: -1,
+                }}
+                emptyState="No endpoints matching your filters!"
+                nouns={['endpoint', 'endpoints']}
             />
         </>
     )

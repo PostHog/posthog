@@ -20,7 +20,7 @@ import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Var
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { CodeExampleTab, queryEndpointLogic } from 'products/embedded_analytics/frontend/queryEndpointLogic'
+import { CodeExampleTab, endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 
@@ -92,16 +92,16 @@ function generateVariablesJson(variables: Variable[]): string {
         .join('\n')
 }
 
-function getNamedQueryEndpointUrl(projectId: number | undefined, queryEndpointName: string | null): string {
-    return `${window.location.origin}/${projectId}/named_query/d/${queryEndpointName || 'your-query-name'}`
+function getNamedQueryEndpointUrl(projectId: number | undefined, endpointName: string | null): string {
+    return `${window.location.origin}/api/projects/${projectId}/named_query/d/${endpointName || 'your-query-name'}`
 }
 
 function generateTerminalExample(
-    queryEndpointName: string | null,
+    ndpointName: string | null,
     variables: Variable[],
     projectId: number | undefined
 ): string {
-    return `curl -X POST ${getNamedQueryEndpointUrl(projectId, queryEndpointName)} \\
+    return `curl -X POST ${getNamedQueryEndpointUrl(projectId, ndpointName)} \\
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -112,14 +112,14 @@ ${generateVariablesJson(variables)}
 }
 
 function generatePythonExample(
-    queryEndpointName: string | null,
+    endpointName: string | null,
     variables: Variable[],
     projectId: number | undefined
 ): string {
     return `import requests
 import json
 
-url = "${getNamedQueryEndpointUrl(projectId, queryEndpointName)}"
+url = "${getNamedQueryEndpointUrl(projectId, endpointName)}"
 
 headers = {
     'Content-Type': 'application/json',
@@ -137,13 +137,13 @@ print(response.json())`
 }
 
 function generateNodeExample(
-    queryEndpointName: string | null,
+    endpointName: string | null,
     variables: Variable[],
     projectId: number | undefined
 ): string {
     return `const fetch = require('node-fetch');
 
-const url = '${getNamedQueryEndpointUrl(projectId, queryEndpointName)}';
+const url = '${getNamedQueryEndpointUrl(projectId, endpointName)}';
 
 const headers = {
     'Content-Type': 'application/json',
@@ -167,30 +167,30 @@ fetch(url, {
 }
 
 interface CodeExamplesProps {
-    queryEndpointName: string | null
+    endpointName: string | null
     variables: Variable[]
     projectId: number | undefined
     tabId: string
 }
 
-interface QueryEndpointProps {
+interface EndpointProps {
     tabId: string
 }
 
-function CodeExamples({ queryEndpointName, variables, projectId, tabId }: CodeExamplesProps): JSX.Element {
-    const { setActiveCodeExampleTab } = useActions(queryEndpointLogic({ tabId }))
-    const { activeCodeExampleTab } = useValues(queryEndpointLogic({ tabId }))
+function CodeExamples({ endpointName, variables, projectId, tabId }: CodeExamplesProps): JSX.Element {
+    const { setActiveCodeExampleTab } = useActions(endpointLogic({ tabId }))
+    const { activeCodeExampleTab } = useValues(endpointLogic({ tabId }))
 
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
             case 'terminal':
-                return generateTerminalExample(queryEndpointName, variables, projectId)
+                return generateTerminalExample(endpointName, variables, projectId)
             case 'python':
-                return generatePythonExample(queryEndpointName, variables, projectId)
+                return generatePythonExample(endpointName, variables, projectId)
             case 'nodejs':
-                return generateNodeExample(queryEndpointName, variables, projectId)
+                return generateNodeExample(endpointName, variables, projectId)
             default:
-                return generateTerminalExample(queryEndpointName, variables, projectId)
+                return generateTerminalExample(endpointName, variables, projectId)
         }
     }
 
@@ -239,25 +239,23 @@ function CodeExamples({ queryEndpointName, variables, projectId, tabId }: CodeEx
     )
 }
 
-export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
-    const { setQueryEndpointName, setQueryEndpointDescription, createQueryEndpoint } = useActions(
-        queryEndpointLogic({ tabId })
-    )
-    const { queryEndpointName, queryEndpointDescription } = useValues(queryEndpointLogic({ tabId }))
+export function Endpoint({ tabId }: EndpointProps): JSX.Element {
+    const { setEndpointName, setEndpointDescription, createEndpoint } = useActions(endpointLogic({ tabId }))
+    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
 
     const { currentProject } = useValues(projectLogic)
     const { variablesForInsight } = useValues(variablesLogic)
     const { queryInput } = useValues(multitabEditorLogic)
 
-    const handleCreateQueryEndpoint = (): void => {
+    const handleCreateEndpoint = (): void => {
         const sqlQuery = queryInput || ''
         if (!sqlQuery.trim()) {
             lemonToast.error('You are missing a HogQL query.')
             return
         }
 
-        if (!queryEndpointName?.trim()) {
-            lemonToast.error('You need to name your query endpoint.')
+        if (!endpointName?.trim()) {
+            lemonToast.error('You need to name your endpoint.')
             return
         }
 
@@ -276,9 +274,9 @@ export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
                   )
                 : {}
 
-        createQueryEndpoint({
-            name: queryEndpointName,
-            description: queryEndpointDescription || '',
+        createEndpoint({
+            name: endpointName,
+            description: endpointDescription || '',
             query: {
                 kind: NodeKind.HogQLQuery,
                 query: sqlQuery,
@@ -290,38 +288,38 @@ export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex flex-row items-center gap-2">
-                <h3 className="mb-0">Query endpoint</h3>
+                <h3 className="mb-0">Endpoint</h3>
                 <LemonTag type="completion">ALPHA</LemonTag>
             </div>
             <div className="space-y-2">
                 <p className="text-xs">
-                    Query endpoints are a way of pre-defining queries that you can query via the API, with additional
+                    Endpoints are a way of pre-defining queries that you can query via the API, with additional
                     performance improvements and the benefits of monitoring cost and usage.
                     <br />
                     Once created, you will get a URL that you can make an API request to from your own code.
                 </p>
-                <LemonField.Pure label="Query name">
+                <LemonField.Pure label="Endpoint name">
                     <LemonInput
                         id={`query-endpoint-name-${tabId}`}
                         type="text"
-                        onChange={setQueryEndpointName}
-                        value={queryEndpointName || ''}
+                        onChange={setEndpointName}
+                        value={endpointName || ''}
                         className="w-1/3"
                     />
                 </LemonField.Pure>
 
-                <LemonField.Pure label="Query description">
+                <LemonField.Pure label="Endpoint description">
                     <LemonTextArea
                         minRows={1}
                         maxRows={3}
-                        onChange={setQueryEndpointDescription}
-                        value={queryEndpointDescription || ''}
+                        onChange={setEndpointDescription}
+                        value={endpointDescription || ''}
                         className="w-1/3"
                     />
                 </LemonField.Pure>
 
-                <LemonButton type="primary" onClick={handleCreateQueryEndpoint} icon={<IconCode2 />} size="medium">
-                    Create query endpoint
+                <LemonButton type="primary" onClick={handleCreateEndpoint} icon={<IconCode2 />} size="medium">
+                    Create endpoint
                 </LemonButton>
             </div>
 
@@ -335,7 +333,7 @@ export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
             </div>
 
             <CodeExamples
-                queryEndpointName={queryEndpointName}
+                endpointName={endpointName}
                 variables={variablesForInsight}
                 projectId={currentProject?.id}
                 tabId={tabId}
