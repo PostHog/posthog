@@ -1,10 +1,10 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs, objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
@@ -40,6 +40,72 @@ export type AppMetricsTimeSeriesResponse = {
         name: string
         values: number[]
     }[]
+}
+
+export type AppMetricsTotalsRequest = Omit<AppMetricsCommonParams, 'interval' | 'breakdownBy'> & {
+    breakdownBy: ('metric_name' | 'metric_kind' | 'app_source_id' | 'instance_id')[]
+}
+
+export type AppMetricsTotalsResponse = Record<
+    string,
+    {
+        total: number
+        breakdowns: string[]
+    }
+>
+
+export const loadAppMetricsTotals = async (
+    request: AppMetricsTotalsRequest,
+    timezone: string
+): Promise<AppMetricsTotalsResponse> => {
+    const breakdownBy = request.breakdownBy || ['metric_name']
+
+    let query = hogql`
+        SELECT
+            sum(count) AS total,
+            ${hogql.raw(breakdownBy.join(', '))}
+        FROM app_metrics
+        WHERE app_source = ${request.appSource}
+    `
+
+    if (request.appSourceId) {
+        query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
+    }
+    if (typeof request.instanceId === 'string') {
+        query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
+    }
+    if (request.metricName) {
+        const metricNames = Array.isArray(request.metricName) ? request.metricName : [request.metricName]
+        query = (query + hogql`\nAND metric_name IN ${metricNames}`) as HogQLQueryString
+    }
+    if (request.metricKind) {
+        const metricKinds = Array.isArray(request.metricKind) ? request.metricKind : [request.metricKind]
+        query = (query + hogql`\nAND metric_kind IN ${metricKinds}`) as HogQLQueryString
+    }
+
+    query = (query +
+        hogql`
+            AND toTimeZone(timestamp, ${timezone}) >= toDateTime(${request.dateFrom}, ${timezone})
+            AND toTimeZone(timestamp, ${timezone}) < toDateTime(${request.dateTo}, ${timezone})
+            GROUP BY ${hogql.raw(breakdownBy.join(', '))}
+        `) as HogQLQueryString
+
+    const response = await api.queryHogQL(query, {
+        refresh: 'async',
+    })
+
+    const res: AppMetricsTotalsResponse = {}
+
+    response.results?.forEach((result) => {
+        const total = result[0] as number
+        const groups = result.slice(1)
+
+        // Create a key that combines instanceId and metricName
+        const key = groups.join('_')
+        res[key] = { total, breakdowns: groups }
+    })
+
+    return res
 }
 
 const loadAppMetricsTimeSeries = async (
@@ -106,7 +172,7 @@ const loadAppMetricsTimeSeries = async (
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
     }
-    if (request.instanceId) {
+    if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
     }
     if (request.metricName) {
@@ -137,7 +203,7 @@ const loadAppMetricsTimeSeries = async (
         `) as HogQLQueryString
 
     const response = await api.queryHogQL(query, {
-        refresh: 'force_blocking',
+        refresh: 'async',
     })
 
     const labels = response.results?.[0]?.[0].map((label: string) => {
@@ -175,6 +241,8 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
     })),
     actions({
         setParams: (params: Partial<AppMetricsCommonParams>) => ({ params }),
+        loadAppMetricsTrends: true,
+        loadAppMetricsTrendsPreviousPeriod: true,
     }),
     reducers(({ props }) => ({
         params: [
@@ -189,11 +257,12 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             },
         ],
     })),
-    loaders(({ values }) => ({
+    lazyLoaders(({ values }) => ({
         appMetricsTrends: [
             null as AppMetricsTimeSeriesResponse | null,
             {
-                loadAppMetricsTrends: async () => {
+                loadAppMetricsTrends: async (_, breakpoint) => {
+                    await breakpoint(10)
                     const dateRange = values.getDateRangeAbsolute()
                     const params: AppMetricsTimeSeriesRequest = {
                         ...values.params,
@@ -201,14 +270,18 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.toISOString(),
                     }
 
-                    return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    await breakpoint(10)
+
+                    return result
                 },
             },
         ],
         appMetricsTrendsPreviousPeriod: [
             null as AppMetricsTimeSeriesResponse | null,
             {
-                loadAppMetricsTrendsPreviousPeriod: async () => {
+                loadAppMetricsTrendsPreviousPeriod: async (_, breakpoint) => {
+                    await breakpoint(10)
                     const dateRange = values.getDateRangeAbsolute()
                     const params: AppMetricsTimeSeriesRequest = {
                         ...values.params,
@@ -216,7 +289,10 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.subtract(dateRange.diffMs).toISOString(),
                     }
 
-                    return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    await breakpoint(10)
+
+                    return result
                 },
             },
         ],
@@ -286,6 +362,12 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             }
         },
     })),
+
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.forceParams && !objectsEqual(props.forceParams, oldProps.forceParams)) {
+            actions.setParams({ ...props.forceParams })
+        }
+    }),
 
     listeners(({ actions, values, props }) => ({
         setParams: async (_, breakpoint) => {

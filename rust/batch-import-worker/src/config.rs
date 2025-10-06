@@ -59,19 +59,17 @@ pub struct Config {
     #[envconfig(from = "BACKOFF_MAX_ATTEMPTS", default = "0")]
     pub backoff_max_attempts: u32,
 
-    // Redis URL for caching
-    #[envconfig(from = "REDIS_URL", default = "")]
-    pub redis_url: String,
-
-    // TTL for identify cache keys in Redis (default: 24 hours)
-    #[envconfig(from = "IDENTIFY_REDIS_CACHE_TTL_SECONDS", default = "86400")]
-    pub identify_redis_cache_ttl_seconds: u64,
-
     // In-memory cache configuration
     #[envconfig(from = "IDENTIFY_MEMORY_CACHE_CAPACITY", default = "1000000")]
     pub identify_memory_cache_capacity: u64,
     #[envconfig(from = "IDENTIFY_MEMORY_CACHE_TTL_SECONDS", default = "3600")]
     pub identify_memory_cache_ttl_seconds: u64,
+
+    // Group cache configuration
+    #[envconfig(from = "GROUP_MEMORY_CACHE_CAPACITY", default = "1000000")]
+    pub group_memory_cache_capacity: u64,
+    #[envconfig(from = "GROUP_MEMORY_CACHE_TTL_SECONDS", default = "3600")]
+    pub group_memory_cache_ttl_seconds: u64,
 }
 
 impl Config {

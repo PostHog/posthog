@@ -1,12 +1,14 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -20,6 +22,7 @@ import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
     BaseMathType,
+    Breadcrumb,
     ChartDisplayType,
     EventDefinitionType,
     HogQLMathType,
@@ -47,9 +50,28 @@ export interface QueryTile {
     }
 }
 
+export interface LLMAnalyticsLogicProps {
+    personId?: string
+    tabId?: string
+}
+
+/**
+ * Helper function to get date range for a specific day.
+ * @param day - The day string from the chart (e.g., "2024-01-15")
+ * @returns Object with date_from and date_to formatted strings
+ */
+function getDayDateRange(day: string): { date_from: string; date_to: string } {
+    const dayStart = dayjs(day).startOf('day')
+    return {
+        date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
+        date_to: dayStart.add(1, 'day').subtract(1, 'second').format('YYYY-MM-DD[T]HH:mm:ss'),
+    }
+}
+
 export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
-
+    props({} as LLMAnalyticsLogicProps),
+    key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
     connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
 
     actions({
@@ -171,6 +193,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'users'
                 } else if (sceneKey === 'llmAnalyticsPlayground') {
                     return 'playground'
+                } else if (sceneKey === 'llmAnalyticsDatasets') {
+                    return 'datasets'
+                } else if (sceneKey === 'llmAnalyticsEvaluations') {
+                    return 'evaluations'
                 }
                 return 'dashboard'
             },
@@ -203,14 +229,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         onDataPointClick: (series) => {
                             if (typeof series.day === 'string') {
                                 // NOTE: This assumes the chart is day-by-day
-                                const dayStart = dayjs(series.day).startOf('day')
+                                const { date_from, date_to } = getDayDateRange(series.day)
                                 router.actions.push(urls.llmAnalyticsTraces(), {
                                     ...router.values.searchParams,
-                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
-                                    date_to: dayStart
-                                        .add(1, 'day')
-                                        .subtract(1, 'second')
-                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_from,
+                                    date_to,
                                 })
                             }
                         },
@@ -242,15 +265,12 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         },
                         onDataPointClick: (series) => {
                             if (typeof series.day === 'string') {
-                                const dayStart = dayjs(series.day).startOf('day')
+                                const { date_from, date_to } = getDayDateRange(series.day)
 
                                 router.actions.push(urls.llmAnalyticsUsers(), {
                                     ...router.values.searchParams,
-                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
-                                    date_to: dayStart
-                                        .add(1, 'day')
-                                        .subtract(1, 'second')
-                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_from,
+                                    date_to,
                                 })
                             }
                         },
@@ -274,7 +294,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                             decimalPlaces: 4,
                             display: ChartDisplayType.BoldNumber,
                         },
-                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
+                        dateRange: {
+                            date_from: dashboardDateFilter.dateFrom,
+                            date_to: dashboardDateFilter.dateTo,
+                            explicitDate: true,
+                        },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -328,15 +352,12 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         },
                         onDataPointClick: (series) => {
                             if (typeof series.day === 'string') {
-                                const dayStart = dayjs(series.day).startOf('day')
+                                const { date_from, date_to } = getDayDateRange(series.day)
 
                                 router.actions.push(urls.llmAnalyticsUsers(), {
                                     ...router.values.searchParams,
-                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
-                                    date_to: dayStart
-                                        .add(1, 'day')
-                                        .subtract(1, 'second')
-                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_from,
+                                    date_to,
                                 })
                             }
                         },
@@ -365,7 +386,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                             display: ChartDisplayType.ActionsBarValue,
                             showValuesOnSeries: true,
                         },
-                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
+                        dateRange: {
+                            date_from: dashboardDateFilter.dateFrom,
+                            date_to: dashboardDateFilter.dateTo,
+                            explicitDate: true,
+                        },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -412,14 +437,58 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         },
                         onDataPointClick: (series) => {
                             if (typeof series.day === 'string') {
-                                const dayStart = dayjs(series.day).startOf('day')
+                                const { date_from, date_to } = getDayDateRange(series.day)
                                 router.actions.push(urls.llmAnalyticsGenerations(), {
                                     ...router.values.searchParams,
-                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
-                                    date_to: dayStart
-                                        .add(1, 'day')
-                                        .subtract(1, 'second')
-                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_from,
+                                    date_to,
+                                })
+                            }
+                        },
+                    },
+                },
+                {
+                    title: 'AI Errors',
+                    description: 'Failed AI generation calls',
+                    query: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                event: '$ai_generation',
+                                name: '$ai_generation',
+                                kind: NodeKind.EventsNode,
+                            },
+                        ],
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
+                        properties: propertyFilters.concat({
+                            type: PropertyFilterType.Event,
+                            key: '$ai_is_error',
+                            operator: PropertyOperator.Exact,
+                            value: true,
+                        }),
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'errors',
+                        insightProps: {
+                            dashboardItemId: `new-ai-errors-query`,
+                        },
+                        onDataPointClick: (series) => {
+                            if (typeof series.day === 'string') {
+                                const { date_from, date_to } = getDayDateRange(series.day)
+                                router.actions.push(urls.llmAnalyticsGenerations(), {
+                                    ...router.values.searchParams,
+                                    date_from,
+                                    date_to,
+                                    filters: [
+                                        ...(router.values.searchParams.filters || []),
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: '$ai_is_error',
+                                            operator: PropertyOperator.Exact,
+                                            value: true,
+                                        },
+                                    ] as AnyPropertyFilter[],
                                 })
                             }
                         },
@@ -456,14 +525,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         },
                         onDataPointClick: (series) => {
                             if (typeof series.day === 'string') {
-                                const dayStart = dayjs(series.day).startOf('day')
+                                const { date_from, date_to } = getDayDateRange(series.day)
                                 router.actions.push(urls.llmAnalyticsGenerations(), {
                                     ...router.values.searchParams,
-                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
-                                    date_to: dayStart
-                                        .add(1, 'day')
-                                        .subtract(1, 'second')
-                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_from,
+                                    date_to,
                                     filters: [
                                         ...(router.values.searchParams.filters || []),
                                         {
@@ -495,7 +561,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         trendsFilter: {
                             display: ChartDisplayType.ActionsBarValue,
                         },
-                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
+                        dateRange: {
+                            date_from: dashboardDateFilter.dateFrom,
+                            date_to: dashboardDateFilter.dateTo,
+                            explicitDate: true,
+                        },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -532,6 +602,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
+                (_, props) => props.personId,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
             ],
@@ -539,6 +610,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 dateFilter,
                 shouldFilterTestAccounts,
                 propertyFilters,
+                personId,
                 groupsTaxonomicTypes,
                 featureFlags
             ): DataTableNode => ({
@@ -551,6 +623,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
+                    ...(personId ? { personId } : {}),
                 },
                 columns: [
                     'id',
@@ -660,7 +733,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
                 FROM (
-                    SELECT 
+                    SELECT
                         distinct_id,
                         timestamp,
                         JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
@@ -706,21 +779,35 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             (s) => [s.refreshStatus],
             (refreshStatus) => Object.values(refreshStatus).some((status) => status.loading),
         ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        key: 'llm_analytics',
+                        name: 'LLM Analytics',
+                        iconType: 'llm_analytics',
+                    },
+                ]
+            },
+        ],
     }),
 
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
-            // Reusing logic and naming from webAnalyticsLogic
+            // Normal parameter handling
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
             if (!objectsEqual(parsedFilters, values.propertyFilters)) {
                 actions.setPropertyFilters(parsedFilters)
             }
+
             if (
                 (date_from || INITIAL_EVENTS_DATE_FROM) !== values.dateFilter.dateFrom ||
                 (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
             ) {
                 actions.setDates(date_from || INITIAL_EVENTS_DATE_FROM, date_to || INITIAL_DATE_TO)
             }
+
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(filter_test_accounts)
             if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts(filterTestAccountsValue)
@@ -736,7 +823,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         }
     }),
 
-    actionToUrl(() => ({
+    tabAwareActionToUrl(() => ({
         setPropertyFilters: ({ propertyFilters }) => [
             router.values.location.pathname,
             {

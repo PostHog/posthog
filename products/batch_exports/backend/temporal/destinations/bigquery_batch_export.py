@@ -27,10 +27,11 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
+    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
@@ -82,7 +83,7 @@ NON_RETRYABLE_ERROR_TYPES = (
 )
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -783,7 +784,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> BatchEx
                 update_key = ["end_timestamp"]
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
+        attempt = activity.info().attempt
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
         with bigquery_client(inputs) as bq_client:
             async with bq_client.managed_table(
@@ -1068,7 +1070,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         merge_settings = _get_merge_settings(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
+        attempt = activity.info().attempt
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
         with bigquery_client(inputs) as bq_client:
             async with bq_client.managed_table(
@@ -1163,17 +1166,20 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
-        run_id = await workflow.execute_activity(
-            start_batch_export_run,
-            start_batch_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-            ),
-        )
+        try:
+            run_id = await workflow.execute_activity(
+                start_batch_export_run,
+                start_batch_export_run_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
+                ),
+            )
+        except OverBillingLimitError:
+            return
 
         finish_inputs = FinishBatchExportRunInputs(
             id=run_id,

@@ -17,7 +17,7 @@ from posthog.schema import (
     DateRange,
     HogQLQueryModifiers,
     PropertyOperator,
-    RevenueAnalyticsGroupBy,
+    RevenueAnalyticsBreakdown,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMRRQueryResponse,
     RevenueAnalyticsPropertyFilter,
@@ -269,22 +269,22 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self,
         date_range: DateRange | None = None,
         interval: SimpleIntervalType | None = None,
-        group_by: list[RevenueAnalyticsGroupBy] | None = None,
+        breakdown: list[RevenueAnalyticsBreakdown] | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
             date_range = DateRange(date_from="-6m")
         if interval is None:
             interval = SimpleIntervalType.MONTH
-        if group_by is None:
-            group_by = []
+        if breakdown is None:
+            breakdown = []
         if properties is None:
             properties = []
 
         return RevenueAnalyticsMRRQuery(
             dateRange=date_range,
             interval=interval,
-            groupBy=group_by,
+            breakdown=breakdown,
             properties=properties,
             modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
         )
@@ -293,11 +293,11 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self,
         date_range: DateRange | None = None,
         interval: SimpleIntervalType | None = None,
-        group_by: list[RevenueAnalyticsGroupBy] | None = None,
+        breakdown: list[RevenueAnalyticsBreakdown] | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = self._build_query(date_range, interval, group_by, properties)
+            query = self._build_query(date_range, interval, breakdown, properties)
             runner = RevenueAnalyticsMRRQueryRunner(
                 team=self.team,
                 query=query,
@@ -322,7 +322,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["non-existent-source"],
                 )
@@ -348,24 +348,25 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "data": [
                     0,
                     0,
-                    Decimal("640.5050649999"),
-                    Decimal("1668.2285949999"),
-                    Decimal("2031.2461549999"),
-                    Decimal("2337.7643849999"),
-                    Decimal("1716.3394999999"),
-                    Decimal("24.5077499999"),
-                    Decimal("24.5077499999"),
-                    Decimal("24.5077499999"),
-                    Decimal("24.5077499999"),
-                    Decimal("24.5077499999"),
-                    Decimal("24.5077499999"),
-                    Decimal("24.5077499999"),
+                    Decimal("637.5387520099"),
+                    Decimal("1665.2622820099"),
+                    Decimal("2028.2798420099"),
+                    Decimal("2334.7980720099"),
+                    Decimal("1621.2065970672"),
+                    Decimal("21.5414370099"),
+                    Decimal("21.5414370099"),
+                    Decimal("21.5414370099"),
+                    Decimal("21.5414370099"),
+                    Decimal("21.5414370099"),
+                    Decimal("21.5414370099"),
+                    Decimal("21.5414370099"),
                     0,
                     0,
                     0,
                     0,
                     0,
                 ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": None},
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
                     "id": "stripe.posthog_test",
@@ -383,7 +384,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "data": [
                     0,
                     0,
-                    Decimal("640.5050649999"),
+                    Decimal("637.5387520099"),
                     Decimal("1027.72353"),
                     0,
                     0,
@@ -401,6 +402,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                 ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": "New"},
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
                     "id": "New | stripe.posthog_test",
@@ -422,7 +424,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     Decimal("363.01756"),
                     Decimal("790.34505"),
-                    Decimal("1000.454175"),
+                    Decimal("908.2875850573"),
                     0,
                     0,
                     0,
@@ -436,6 +438,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                 ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": "Expansion"},
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
                     "id": "Expansion | stripe.posthog_test",
@@ -450,7 +453,28 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "label": "Contraction | stripe.posthog_test",
                 "days": ALL_MONTHS_DAYS,
                 "labels": ALL_MONTHS_LABELS,
-                "data": [0, 0, 0, 0, 0, Decimal("-483.82682"), 0, Decimal("-135.49"), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                "data": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    Decimal("-483.82682"),
+                    0,
+                    Decimal("-43.3234100573"),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": "Contraction"},
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
                     "id": "Contraction | stripe.posthog_test",
@@ -480,12 +504,13 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                     0,
-                    Decimal("-24.5077499999"),
+                    Decimal("-21.5414370099"),
                     0,
                     0,
                     0,
                     0,
                 ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": "Churn"},
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
                     "id": "Churn | stripe.posthog_test",
@@ -526,11 +551,12 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
                 # This is an important test, see how MRR is included for the first month, because there's previous data from January 30 days prior to February 1st
                 "data": [
-                    Decimal("1668.2285949999"),
-                    Decimal("2031.2461549999"),
-                    Decimal("2337.7643849999"),
-                    Decimal("2337.7643849999"),
+                    Decimal("1665.2622820099"),
+                    Decimal("2028.2798420099"),
+                    Decimal("2334.7980720099"),
+                    Decimal("2334.7980720099"),
                 ],
+                "breakdown": {"property": "stripe.posthog_test", "kind": None},
                 "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
             },
         )
@@ -552,6 +578,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": a_lot_of_anys,
                 "labels": a_lot_of_anys,
                 "data": a_lot_of_anys,
+                "breakdown": {"property": "stripe.posthog_test", "kind": None},
                 "action": {"days": a_lot_of_anys, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
             },
         )
@@ -559,10 +586,10 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Asserting on the actual values would make this file humongous, so let's just assert on some aggregates!
         # Check sum of all MRR values and also a hash of the values
         total_mrr = sum(results[0].total["data"])
-        self.assertEqual(total_mrr, Decimal("144810.0223599910"))
+        self.assertEqual(total_mrr, Decimal("144543.0541908910"))
         self.assertEqual(
             hashlib.sha256(",".join(str(x) for x in results[0].total["data"]).encode()).hexdigest(),
-            "0d5101b8cad97613a058cdac02fae20e3c2ed4bef7ed3d2e63669b8764e2794b",
+            "26df39b8c38f7382ecfa4165ae4ad07be4a39ef5c74aaba70a5f607da0babda4",
         )
 
         new_mrr = sum(results[0].new["data"])
@@ -617,7 +644,9 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results, [])
 
     def test_with_data_and_product_grouping(self):
-        results = self._run_revenue_analytics_mrr_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
+        results = self._run_revenue_analytics_mrr_query(
+            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")]
+        ).results
 
         self.assertEqual(len(results), 6)
 
@@ -637,11 +666,11 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [
                     0,
                     0,
-                    Decimal("8.2024583333"),
-                    Decimal("93.6807083333"),
-                    Decimal("309.0301083333"),
-                    Decimal("91.3694083333"),
-                    Decimal("207.3329083333"),
+                    Decimal("5.2361453433"),
+                    Decimal("90.7143953433"),
+                    Decimal("306.0637953433"),
+                    Decimal("88.4030953433"),
+                    Decimal("107.2265054006"),
                 ],
                 [
                     0,
@@ -650,7 +679,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("289.8755416666"),
                     Decimal("362.1634416666"),
                     Decimal("95.9973216666"),
-                    Decimal("115.5238216666"),
+                    Decimal("120.4973216666"),
                 ],
                 [
                     0,
@@ -693,7 +722,10 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_with_data_and_double_grouping(self):
         results = self._run_revenue_analytics_mrr_query(
-            group_by=[RevenueAnalyticsGroupBy.COHORT, RevenueAnalyticsGroupBy.PRODUCT]
+            breakdown=[
+                RevenueAnalyticsBreakdown(property="revenue_analytics_customer.cohort"),
+                RevenueAnalyticsBreakdown(property="revenue_analytics_product.name"),
+            ]
         ).results
 
         # 12 comes from the 6 products * 2 cohorts
@@ -721,11 +753,11 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [
                     0,
                     0,
-                    Decimal("8.2024583333"),
-                    Decimal("8.2024583333"),
-                    Decimal("223.5518583333"),
-                    Decimal("8.2024583333"),
-                    Decimal("124.1659583333"),
+                    Decimal("5.2361453433"),
+                    Decimal("5.2361453433"),
+                    Decimal("220.5855453433"),
+                    Decimal("5.2361453433"),
+                    Decimal("24.0595554006"),
                 ],
                 [
                     0,
@@ -734,7 +766,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("16.3052916666"),
                     Decimal("88.5931916666"),
                     Decimal("16.3052916666"),
-                    Decimal("35.8317916666"),
+                    Decimal("40.8052916666"),
                 ],
                 [
                     0,
@@ -772,60 +804,12 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("496.38754"),
                     Decimal("1159.34808"),
                 ],
-                [
-                    0,
-                    0,
-                    0,
-                    Decimal("85.47825"),
-                    Decimal("85.47825"),
-                    Decimal("83.16695"),
-                    Decimal("83.16695"),
-                ],
-                [
-                    0,
-                    0,
-                    0,
-                    Decimal("273.57025"),
-                    Decimal("273.57025"),
-                    Decimal("79.69203"),
-                    Decimal("79.69203"),
-                ],
-                [
-                    0,
-                    0,
-                    0,
-                    Decimal("18.59401"),
-                    Decimal("18.59401"),
-                    Decimal("0.09564"),
-                    Decimal("0.09564"),
-                ],
-                [
-                    0,
-                    0,
-                    0,
-                    Decimal("193.451825"),
-                    Decimal("193.451825"),
-                    Decimal("386.90365"),
-                    Decimal("386.90365"),
-                ],
-                [
-                    0,
-                    0,
-                    0,
-                    Decimal("0.171355"),
-                    Decimal("0.171355"),
-                    Decimal("0.34271"),
-                    Decimal("0.34271"),
-                ],
-                [
-                    0,
-                    0,
-                    0,
-                    Decimal("456.45784"),
-                    Decimal("456.45784"),
-                    Decimal("1071.67808"),
-                    0,
-                ],
+                [0, 0, 0, Decimal("85.47825"), Decimal("85.47825"), Decimal("83.16695"), Decimal("83.16695")],
+                [0, 0, 0, Decimal("273.57025"), Decimal("273.57025"), Decimal("79.69203"), Decimal("79.69203")],
+                [0, 0, 0, Decimal("18.59401"), Decimal("18.59401"), Decimal("0.09564"), Decimal("0.09564")],
+                [0, 0, 0, Decimal("193.451825"), Decimal("193.451825"), Decimal("386.90365"), Decimal("386.90365")],
+                [0, 0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.34271"), Decimal("0.34271")],
+                [0, 0, 0, Decimal("456.45784"), Decimal("456.45784"), Decimal("1071.67808"), 0],
             ],
         )
 
@@ -845,7 +829,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
                 )
@@ -858,10 +842,10 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # When grouping results should be exactly the same, just the label changes
         results = self._run_revenue_analytics_mrr_query(
-            group_by=[RevenueAnalyticsGroupBy.PRODUCT],
+            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
                 )
@@ -876,7 +860,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="country",
+                    key="revenue_analytics_customer.country",
                     operator=PropertyOperator.EXACT,
                     value=["US"],
                 )
@@ -889,13 +873,13 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [result.total["data"] for result in results],
             [
                 [
-                    Decimal("0"),
-                    Decimal("0"),
-                    Decimal("24.5077499999"),
-                    Decimal("24.5077499999"),
-                    Decimal("312.1450499999"),
-                    Decimal("24.5077499999"),
-                    Decimal("159.9977499999"),
+                    0,
+                    0,
+                    Decimal("21.5414370099"),
+                    Decimal("21.5414370099"),
+                    Decimal("309.1787370099"),
+                    Decimal("21.5414370099"),
+                    Decimal("64.8648470672"),
                 ]
             ],
         )
@@ -937,7 +921,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
@@ -953,6 +937,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, Decimal("33.474"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0],
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": None},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "revenue_analytics.events.purchase",
@@ -968,6 +953,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, Decimal("33.474"), Decimal("5.5629321819"), 0, 0, 0],
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "New"},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "New | revenue_analytics.events.purchase",
@@ -983,6 +969,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, 0, 0, Decimal("31.4370353536"), 0, 0],
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Expansion"},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "Expansion | revenue_analytics.events.purchase",
@@ -998,6 +985,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, 0, Decimal("-13.549"), 0, 0, 0],
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Contraction"},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "Contraction | revenue_analytics.events.purchase",
@@ -1013,6 +1001,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, 0, 0, Decimal("-19.925"), Decimal("-36.9999675355"), 0],
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": "Churn"},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "Churn | revenue_analytics.events.purchase",
@@ -1039,7 +1028,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
@@ -1054,6 +1043,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
                 "data": [0, 0, 0, 0, 0, 0, 0],  # No MRR data because events aren"t recurring/got no subscription
+                "breakdown": {"property": "revenue_analytics.events.purchase", "kind": None},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "revenue_analytics.events.purchase",
@@ -1084,14 +1074,14 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
             ],
-            group_by=[
-                RevenueAnalyticsGroupBy.PRODUCT,
-                RevenueAnalyticsGroupBy.COUPON,
+            breakdown=[
+                RevenueAnalyticsBreakdown(property="revenue_analytics_product.name"),
+                RevenueAnalyticsBreakdown(property="revenue_analytics_coupon.name"),
             ],
         ).results
 

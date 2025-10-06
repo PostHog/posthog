@@ -4,6 +4,7 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { Team } from '../../../types'
+import { MergeMode } from './person-merge-types'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
 /**
@@ -23,7 +24,7 @@ export class PersonContext {
         public readonly kafkaProducer: KafkaProducerWrapper,
         public readonly personStore: PersonsStoreForBatch,
         public readonly measurePersonJsonbSize: number = 0,
-        public readonly personMergeMoveDistinctIdLimit: number | undefined = undefined
+        public readonly mergeMode: MergeMode
     ) {
         this.eventProperties = event.properties!
     }

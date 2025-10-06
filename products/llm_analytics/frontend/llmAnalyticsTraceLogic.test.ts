@@ -56,7 +56,21 @@ describe('llmAnalyticsTraceLogic', () => {
         await expectLogic(logic).toMatchValues({
             traceId: traceIdWithColon,
             eventId: eventId,
-            dateFrom: timestamp,
+            dateRange: { dateFrom: timestamp, dateTo: null },
+        })
+    })
+
+    it('handles trace ID with event and exception_ts parameters', async () => {
+        const traceIdWithColon = 'session-summary:group:16-16:81008d53ff0a708b:da6c0390-409f-485c-aab3-5e910bcf8b33'
+        const eventId = 'event123'
+        const exception_ts = '2024-01-02T00:00:00Z'
+        const traceUrl = combineUrl(urls.llmAnalyticsTrace(traceIdWithColon, { event: eventId, exception_ts }))
+
+        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
+        await expectLogic(logic).toMatchValues({
+            traceId: traceIdWithColon,
+            eventId: eventId,
+            dateRange: { dateFrom: '2024-01-01T23:40:00.000Z', dateTo: '2024-01-02T00:20:00.000Z' },
         })
     })
 
@@ -328,7 +342,7 @@ describe('llmAnalyticsTraceLogic', () => {
         it('updates URL when search query changes and includes event and timestamp in URL update', async () => {
             logic.actions.setTraceId('test-trace-123')
             logic.actions.setEventId('event-456')
-            logic.actions.setDateFrom('2024-01-01T00:00:00Z')
+            logic.actions.setDateRange('2024-01-01T00:00:00Z')
             await expectLogic(logic).toFinishAllListeners()
 
             logic.actions.setSearchQuery('search with params')

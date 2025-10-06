@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
@@ -27,20 +27,24 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
 import { HogQLQueryString } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
     Breadcrumb,
     ChoiceQuestionProcessedResponses,
+    ChoiceQuestionResponseData,
     ConsolidatedSurveyResults,
     EventPropertyFilter,
     FeatureFlagFilters,
     IntervalType,
     MultipleSurveyQuestion,
     OpenQuestionProcessedResponses,
+    OpenQuestionResponseData,
     ProductKey,
     ProjectTreeRef,
     PropertyFilterType,
@@ -193,7 +197,7 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
             id: undefined,
         })),
         id: NEW_SURVEY.id,
-        name: `${survey.name} (copy)`,
+        name: `${survey.name} (duplicated at ${dayjs().format('YYYY-MM-DD HH:mm:ss')})`,
         archived: false,
         start_date: null,
         end_date: null,
@@ -221,18 +225,19 @@ function extractPersonData(row: SurveyResponseRow): {
 } {
     const distinctId = row.at(-2) as string
     const timestamp = row.at(-1) as string
-    const unparsedPersonProperties = row.at(-3)
-    let personProperties: Record<string, any> | undefined
-
-    if (unparsedPersonProperties && unparsedPersonProperties !== null) {
-        try {
-            personProperties = JSON.parse(unparsedPersonProperties as string)
-        } catch {
-            // Ignore parsing errors for person properties
+    // now, we're querying for all PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES, starting from the third last value, so build our person properties object
+    // from those values. We use them to have a display name for the person
+    const personProperties: Record<string, any> = {}
+    const personDisplayProperties = PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+    let hasAnyProperties = false
+    for (let i = 0; i < personDisplayProperties.length; i++) {
+        const value = row.at(-3 - i) as string
+        if (value && value !== null && value !== '') {
+            personProperties[personDisplayProperties[i]] = value
+            hasAnyProperties = true
         }
     }
-
-    return { distinctId, personProperties, timestamp }
+    return { distinctId, personProperties: hasAnyProperties ? personProperties : undefined, timestamp }
 }
 
 // Helper to count a choice and store person data for latest occurrence
@@ -472,30 +477,40 @@ export const surveyLogic = kea<surveyLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-        values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data'], userLogic, ['user']],
+        values: [
+            enabledFlagLogic,
+            ['featureFlags as enabledFlags'],
+            surveysLogic,
+            ['data'],
+            userLogic,
+            ['user'],
+            teamLogic,
+            ['currentTeam'],
+            propertyDefinitionsModel,
+            ['propertyDefinitionsByType'],
+        ],
     })),
     actions({
         setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
-        setDefaultForQuestionType: (
-            idx: number,
-            surveyQuestion: SurveyQuestion,
-            type: SurveyQuestionType,
-            isEditingQuestion: boolean,
-            isEditingDescription: boolean,
-            isEditingThankYouMessage: boolean
-        ) => ({
+        setDefaultForQuestionType: (idx: number, surveyQuestion: SurveyQuestion, type: SurveyQuestionType) => ({
             idx,
             surveyQuestion,
             type,
-            isEditingQuestion,
-            isEditingDescription,
-            isEditingThankYouMessage,
         }),
         setQuestionBranchingType: (questionIndex, type, specificQuestionIndex) => ({
             questionIndex,
             type,
             specificQuestionIndex,
+        }),
+        setMultipleSurveyQuestion: (
+            questionIndex: number,
+            question: MultipleSurveyQuestion,
+            type: SurveyQuestionType.MultipleChoice | SurveyQuestionType.SingleChoice
+        ) => ({
+            questionIndex,
+            question,
+            type,
         }),
         setResponseBasedBranchingForQuestion: (questionIndex, responseValue, nextStep, specificQuestionIndex) => ({
             questionIndex,
@@ -680,6 +695,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         },
                     })
 
+                    actions.setIsDuplicateToProjectModalOpen(false)
                     actions.reportSurveyCreated(createdSurvey, true)
                     actions.addProductIntent({
                         product_type: ProductKey.SURVEYS,
@@ -846,7 +862,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     -- QUERYING ALL SURVEY RESPONSES IN ONE GO
                     SELECT
                         ${questionFields.join(',\n')},
-                        person.properties,
+                        ${PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.map((property) => `person.properties.${property}`).join(',\n')},
                         events.distinct_id,
                         events.timestamp
                     FROM events
@@ -1029,19 +1045,21 @@ export const surveyLogic = kea<surveyLogicType>([
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
             {
-                setDefaultForQuestionType: (
-                    state,
-                    { idx, type, surveyQuestion, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
-                ) => {
-                    const question = isEditingQuestion
-                        ? surveyQuestion.question
-                        : defaultSurveyFieldValues[type].questions[0].question
-                    const description = isEditingDescription
-                        ? surveyQuestion.description
-                        : defaultSurveyFieldValues[type].questions[0].description
-                    const thankYouMessageHeader = isEditingThankYouMessage
-                        ? state.appearance?.thankYouMessageHeader
-                        : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
+                setDefaultForQuestionType: (state, { idx, type, surveyQuestion }) => {
+                    const question =
+                        defaultSurveyFieldValues[surveyQuestion.type].questions[0].question !== surveyQuestion.question
+                            ? surveyQuestion.question
+                            : defaultSurveyFieldValues[type].questions[0].question
+                    const description =
+                        defaultSurveyFieldValues[surveyQuestion.type].questions[0].description !==
+                        surveyQuestion.description
+                            ? surveyQuestion.description
+                            : defaultSurveyFieldValues[type].questions[0].description
+                    const thankYouMessageHeader =
+                        defaultSurveyFieldValues[surveyQuestion.type].appearance.thankYouMessageHeader !==
+                        state.appearance?.thankYouMessageHeader
+                            ? state.appearance?.thankYouMessageHeader
+                            : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
 
                     const q = {
@@ -1158,6 +1176,18 @@ export const surveyLogic = kea<surveyLogicType>([
                         questions: newQuestions,
                     }
                 },
+                setMultipleSurveyQuestion: (state, { questionIndex, question, type }) => {
+                    const newQuestions = [...state.questions]
+                    const newQuestion: MultipleSurveyQuestion = {
+                        ...question,
+                        type,
+                    }
+                    newQuestions[questionIndex] = newQuestion
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
             },
         ],
         selectedPageIndex: [
@@ -1248,6 +1278,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
                             OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
                         )`
+            },
+        ],
+        isSurveyAnalysisMaxToolEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.SURVEY_ANALYSIS_MAX_TOOL]
             },
         ],
         isExternalSurveyFFEnabled: [
@@ -1347,10 +1383,12 @@ export const surveyLogic = kea<surveyLogicType>([
                     key: Scene.Surveys,
                     name: 'Surveys',
                     path: urls.surveys(),
+                    iconType: 'survey',
                 },
                 {
                     key: [Scene.Survey, survey?.id || 'new'],
                     name: survey.name,
+                    iconType: 'survey',
                 },
             ],
         ],
@@ -1726,6 +1764,79 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey | NewSurvey): SurveyDemoData => {
                 return getDemoDataForSurvey(survey)
+            },
+        ],
+        formattedOpenEndedResponses: [
+            (s) => [s.consolidatedSurveyResults, s.survey],
+            (
+                consolidatedResults: ConsolidatedSurveyResults,
+                survey: Survey | NewSurvey
+            ): SurveyAnalysisQuestionGroup[] => {
+                if (!consolidatedResults?.responsesByQuestion || !survey.questions) {
+                    return []
+                }
+
+                // Helper function to extract response info
+                const extractResponseInfo = (
+                    response: OpenQuestionResponseData | ChoiceQuestionResponseData
+                ): { timestamp: string } => ({
+                    timestamp: response.timestamp ?? '',
+                })
+
+                const responsesByQuestion: SurveyAnalysisQuestionGroup[] = []
+
+                Object.entries(consolidatedResults.responsesByQuestion).forEach(([questionId, processedData]) => {
+                    const question = survey.questions.find((q) => q.id === questionId)
+                    if (!question) {
+                        return
+                    }
+
+                    const questionResponses: SurveyAnalysisResponseItem[] = []
+
+                    if (processedData.type === SurveyQuestionType.Open) {
+                        // Pure open questions
+                        const openData = processedData as OpenQuestionProcessedResponses
+
+                        openData.data.forEach((response) => {
+                            if (response.response?.trim()) {
+                                const responseInfo = extractResponseInfo(response)
+                                questionResponses.push({
+                                    responseText: response.response.trim(),
+                                    ...responseInfo,
+                                    isOpenEnded: true,
+                                })
+                            }
+                        })
+                    } else if (
+                        processedData.type === SurveyQuestionType.SingleChoice ||
+                        processedData.type === SurveyQuestionType.MultipleChoice
+                    ) {
+                        // Choice questions with open input (isPredefined = false)
+                        const choiceData = processedData as ChoiceQuestionProcessedResponses
+
+                        choiceData.data.forEach((item) => {
+                            if (!item.isPredefined && item.label?.trim()) {
+                                const responseInfo = extractResponseInfo(item)
+                                questionResponses.push({
+                                    responseText: item.label.trim(),
+                                    ...responseInfo,
+                                    isOpenEnded: true,
+                                })
+                            }
+                        })
+                    }
+
+                    // Only add question if it has open-ended responses
+                    if (questionResponses.length > 0) {
+                        responsesByQuestion.push({
+                            questionName: question.question,
+                            questionId,
+                            responses: questionResponses,
+                        })
+                    }
+                })
+
+                return responsesByQuestion
             },
         ],
     }),

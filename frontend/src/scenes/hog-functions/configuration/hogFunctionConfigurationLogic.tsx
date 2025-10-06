@@ -1,6 +1,6 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
@@ -10,14 +10,11 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { LiquidRenderer } from 'lib/utils/liquid'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -49,20 +46,18 @@ import {
     HogFunctionTypeType,
     HogWatcherState,
     PersonType,
-    PipelineNodeTab,
-    PipelineStage,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
 } from '~/types'
 
-import { EmailTemplate } from '../email-templater/emailTemplaterLogic'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
     templateId?: string | null
+    subTemplateId?: string | null
     id?: string | null
 }
 
@@ -97,41 +92,43 @@ export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'des
 export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
-export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
-    function sanitizeInputs(data: HogFunctionMappingType): Record<string, CyclotronJobInputType> {
-        const sanitizedInputs: Record<string, CyclotronJobInputType> = {}
-        data.inputs_schema?.forEach((inputSchema) => {
-            const templatingEnabled = inputSchema.templating ?? true
-            const input = data.inputs?.[inputSchema.key]
-            const secret = input?.secret
-            let value = input?.value
+export function sanitizeInputs(
+    data: Pick<HogFunctionMappingType, 'inputs_schema' | 'inputs'>
+): Record<string, CyclotronJobInputType> {
+    const sanitizedInputs: Record<string, CyclotronJobInputType> = {}
+    data.inputs_schema?.forEach((inputSchema) => {
+        const templatingEnabled = inputSchema.templating ?? true
+        const input = data.inputs?.[inputSchema.key]
+        const secret = input?.secret
+        let value = input?.value
 
-            if (secret) {
-                // If set this means we haven't changed the value
-                sanitizedInputs[inputSchema.key] = {
-                    value: '********', // Don't send the actual value
-                    secret: true,
-                }
-                return
-            }
-
-            if (inputSchema.type === 'json' && typeof value === 'string') {
-                try {
-                    value = JSON.parse(value)
-                } catch {
-                    // Ignore
-                }
-            }
-
+        if (secret) {
+            // If set this means we haven't changed the value
             sanitizedInputs[inputSchema.key] = {
-                value: value,
-                templating: templatingEnabled ? (input?.templating ?? 'hog') : undefined,
+                value: '********', // Don't send the actual value
+                secret: true,
             }
-        })
+            return
+        }
 
-        return sanitizedInputs
-    }
+        if (inputSchema.type === 'json' && typeof value === 'string') {
+            try {
+                value = JSON.parse(value)
+            } catch {
+                // Ignore
+            }
+        }
 
+        sanitizedInputs[inputSchema.key] = {
+            value: value,
+            templating: templatingEnabled ? (input?.templating ?? 'hog') : undefined,
+        }
+    })
+
+    return sanitizedInputs
+}
+
+export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     const filters = data.filters ?? {}
     filters.source = filters.source ?? 'events'
 
@@ -284,11 +281,14 @@ export function mightDropEvents(code: string): boolean {
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId, logicKey }: HogFunctionConfigurationLogicProps) => {
-        const baseKey = id ?? templateId ?? 'new'
+    key(({ id, templateId, subTemplateId, logicKey }: HogFunctionConfigurationLogicProps) => {
+        let baseKey = id ?? templateId ?? 'new'
+        if (subTemplateId) {
+            baseKey = `${subTemplateId}_${baseKey}`
+        }
         return logicKey ? `${logicKey}_${baseKey}` : baseKey
     }),
-    connect(({ id }: HogFunctionConfigurationLogicProps) => ({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProjectId', 'currentProject'],
@@ -296,10 +296,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             ['groupTypes'],
             userLogic,
             ['hasAvailableFeature'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
-        actions: [pipelineNodeLogic({ id: `hog-${id}`, stage: PipelineStage.Destination }), ['setBreadcrumbTitle']],
     })),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
@@ -309,7 +306,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicateFromTemplate: true,
         resetToTemplate: true,
         deleteHogFunction: true,
-        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery }) as { sparklineQuery: TrendsQuery },
+        sparklineQueryChanged: (sparklineQuery: TrendsQuery) =>
+            ({
+                sparklineQuery,
+            }) as { sparklineQuery: TrendsQuery },
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
@@ -627,9 +627,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
-                    mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data),
-                    filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data),
-                    ...(values.inputFormErrors as any),
+                    mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data) as unknown as DeepPartialMap<
+                        HogFunctionMappingType[],
+                        ValidationErrorType
+                    >,
+                    filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data) as unknown as DeepPartialMap<
+                        HogFunctionConfigurationType['filters'],
+                        ValidationErrorType
+                    >,
+                    inputs: (values.inputFormErrors ?? {}) as DeepPartialMap<
+                        HogFunctionConfigurationType['inputs'],
+                        ValidationErrorType
+                    >,
                 }
             },
             submit: async (data) => {
@@ -649,11 +658,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 const payload: Record<string, any> = sanitizeConfiguration(data)
                 // Only sent on create
                 payload.template_id = props.templateId || values.hogFunction?.template?.id
-
-                if (!values.hasAddon && values.type !== 'transformation') {
-                    // Remove the source field if the user doesn't have the addon (except for transformations)
-                    delete payload.hog
-                }
 
                 if (!props.id || props.id === 'new') {
                     const type = values.type
@@ -677,27 +681,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
         ],
-        hasAddon: [
-            (s) => [s.hasAvailableFeature, s.featureFlags],
-            (hasAvailableFeature, featureFlags) => {
-                // Simple hack - we always turn the addon on if the new pricing is enabled
-                // Once we have fully rolled it out we can just completely remove all addon related code
-                return (
-                    hasAvailableFeature(AvailableFeature.DATA_PIPELINES) ||
-                    !!featureFlags[FEATURE_FLAGS.CDP_NEW_PRICING]
-                )
-            },
-        ],
         hasGroupsAddon: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
                 return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
-            },
-        ],
-        showPaygate: [
-            (s) => [s.template, s.hasAddon],
-            (template, hasAddon) => {
-                return template && !template.free && !hasAddon
             },
         ],
         useMapping: [
@@ -735,88 +722,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         inputFormErrors: [
             (s) => [s.configuration],
-            (configuration) => {
-                const inputs = configuration.inputs ?? {}
-                const inputErrors: Record<string, string> = {}
+            (configuration): Record<string, string> | null => {
+                const result = CyclotronJobInputsValidation.validate(
+                    configuration.inputs ?? {},
+                    configuration.inputs_schema ?? []
+                )
 
-                configuration.inputs_schema?.forEach((inputSchema) => {
-                    const key = inputSchema.key
-                    const input = inputs[key]
-                    const language = input?.templating ?? 'hog'
-                    const value = input?.value
-                    if (input?.secret) {
-                        // We leave unmodified secret values alone
-                        return
-                    }
-
-                    const getTemplatingError = (value: string): string | undefined => {
-                        if (language === 'liquid' && typeof value === 'string') {
-                            try {
-                                LiquidRenderer.parse(value)
-                            } catch (e: any) {
-                                return `Liquid template error: ${e.message}`
-                            }
-                        }
-                    }
-
-                    const addTemplatingError = (value: string): void => {
-                        const templatingError = getTemplatingError(value)
-                        if (templatingError) {
-                            inputErrors[key] = templatingError
-                        }
-                    }
-
-                    const missing = value === undefined || value === null || value === ''
-                    if (inputSchema.required && missing) {
-                        inputErrors[key] = 'This field is required'
-                    }
-
-                    if (inputSchema.type === 'json' && typeof value === 'string') {
-                        try {
-                            JSON.parse(value)
-                        } catch {
-                            inputErrors[key] = 'Invalid JSON'
-                        }
-
-                        addTemplatingError(value)
-                    }
-
-                    if (inputSchema.type === 'email' && value) {
-                        const emailTemplateErrors: Partial<EmailTemplate> = {
-                            html: !value.html ? 'HTML is required' : getTemplatingError(value.html),
-                            subject: !value.subject ? 'Subject is required' : getTemplatingError(value.subject),
-                            // text: !value.text ? 'Text is required' : getTemplatingError(value.text),
-                            from: !value.from ? 'From is required' : getTemplatingError(value.from),
-                            to: !value.to ? 'To is required' : getTemplatingError(value.to),
-                        }
-
-                        const combinedErrors = Object.values(emailTemplateErrors)
-                            .filter((v) => !!v)
-                            .join(', ')
-
-                        if (combinedErrors) {
-                            inputErrors[key] = combinedErrors
-                        }
-                    }
-
-                    if (inputSchema.type === 'string' && typeof value === 'string') {
-                        addTemplatingError(value)
-                    }
-
-                    if (inputSchema.type === 'dictionary') {
-                        for (const val of Object.values(value ?? {})) {
-                            if (typeof val === 'string') {
-                                addTemplatingError(val)
-                            }
-                        }
-                    }
-                })
-
-                return Object.keys(inputErrors).length > 0
-                    ? {
-                          inputs: inputErrors,
-                      }
-                    : null
+                return result.valid ? null : result.errors
             },
         ],
         willReEnableOnSave: [
@@ -1243,6 +1155,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return ['destination', 'internal_destination', 'transformation'].includes(type)
             },
         ],
+
+        isLegacyPlugin: [
+            (s) => [s.template, s.hogFunction],
+            (template, hogFunction) => {
+                return (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -1285,11 +1204,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {
             actions.resetForm()
-            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
         },
         upsertHogFunctionSuccess: () => {
             actions.resetForm()
-            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
         },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
@@ -1495,15 +1412,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             }
 
-            const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
-            if (
-                !(
-                    possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
-                    possibleMenuIds.includes(oldRoute[newRoute.length - 1])
-                )
-            ) {
-                return true
-            }
+            // TODO: Fix this!!
+            // const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
+            // if (
+            //     !(
+            //         possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
+            //         possibleMenuIds.includes(oldRoute[newRoute.length - 1])
+            //     )
+            // ) {
+            //     return true
+            // }
 
             return false
         },

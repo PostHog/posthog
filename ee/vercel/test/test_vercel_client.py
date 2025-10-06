@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from ee.vercel.client import VercelAPIClient
+from ee.vercel.client import ExperimentationResult, VercelAPIClient
 
 
 class TestVercelAPIClient:
@@ -65,13 +65,20 @@ class TestVercelAPIClient:
         assert client.session.headers["Content-Type"] == "application/json"
         assert client.timeout == 30
 
-    def test_client_requires_token(self):
-        with pytest.raises(ValueError):
-            VercelAPIClient("")
+    def test_client_allows_empty_token_for_sso(self):
+        client = VercelAPIClient("")
+        assert client.bearer_token == ""
+        assert "Authorization" not in client.session.headers
 
-    def test_client_requires_non_empty_token(self):
-        with pytest.raises(ValueError):
-            VercelAPIClient("   ")
+    def test_client_allows_none_token_for_sso(self):
+        client = VercelAPIClient(None)
+        assert client.bearer_token is None
+        assert "Authorization" not in client.session.headers
+
+    def test_client_allows_whitespace_token_for_sso(self):
+        client = VercelAPIClient("   ")
+        assert client.bearer_token == "   "
+        assert "Authorization" not in client.session.headers
 
     def test_client_with_custom_timeout(self):
         client = VercelAPIClient("test_token", timeout=60)
@@ -90,7 +97,7 @@ class TestVercelAPIClient:
             f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/experimentation/items",
             client.create_experimentation_items,
             (test_ids["integration_config_id"], test_ids["resource_id"], items),
-            {"success": True, "item_count": 1},
+            ExperimentationResult(success=True, item_count=1),
             json={"items": items},
         )
 
@@ -103,7 +110,7 @@ class TestVercelAPIClient:
             f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/experimentation/items/{test_ids['item_id']}",
             client.update_experimentation_item,
             (test_ids["integration_config_id"], test_ids["resource_id"], test_ids["item_id"], data),
-            {"success": True, "item_id": test_ids["item_id"]},
+            ExperimentationResult(success=True, item_id=test_ids["item_id"]),
             json=data,
         )
 
@@ -115,7 +122,7 @@ class TestVercelAPIClient:
             f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/experimentation/items/{test_ids['item_id']}",
             client.delete_experimentation_item,
             (test_ids["integration_config_id"], test_ids["resource_id"], test_ids["item_id"]),
-            {"success": True, "item_id": test_ids["item_id"]},
+            ExperimentationResult(success=True, item_id=test_ids["item_id"]),
         )
 
     @pytest.mark.parametrize(
@@ -170,11 +177,11 @@ class TestVercelAPIClient:
         args = args_func(test_ids)
         result = method(*args)
 
-        assert not result["success"]
-        assert result["error"] == expected_error
+        assert not result.success
+        assert result.error == expected_error
         if expected_status:
-            assert result["status_code"] == expected_status
-        assert "error_detail" in result
+            assert result.status_code == expected_status
+        assert result.error_detail is not None
 
     @pytest.mark.parametrize(
         "test_name,kwargs,expected_data",
@@ -270,7 +277,9 @@ class TestVercelAPIClient:
 
         result = client.sso_token_exchange(**kwargs)
 
-        assert result == {"access_token": "test_access_token", "id_token": "test_id_token", "token_type": "Bearer"}
+        assert result.access_token == "test_access_token"
+        assert result.id_token == "test_id_token"
+        assert result.token_type == "Bearer"
         from urllib.parse import urlencode
 
         mock_request.assert_called_once_with(

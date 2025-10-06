@@ -19,12 +19,14 @@ import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
+import { isOkResult } from '../../src/ingestion/pipelines/results'
 import { ClickHouseEvent, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
+import { fetchDistinctIdValues, fetchPersons } from '../../src/worker/ingestion/persons/repositories/test-helpers'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
@@ -109,9 +111,11 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
-        const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
+        const runner = new EventPipelineRunner(hub, pluginEvent, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(pluginEvent, team)
-        await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
+        if (isOkResult(res)) {
+            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.value.ackPromises ?? [])
+        }
         await groupStoreForBatch.flush()
     }
 
@@ -172,14 +176,14 @@ describe('processEvent', () => {
     const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => {
         // Helper function to retrieve events paired with their associated distinct
         // ids
-        const persons = await hub.db.fetchPersons()
+        const persons = await fetchPersons(hub.db.postgres)
         const events = getEventsFromKafka()
 
         return await Promise.all(
             persons
                 .sort((p1, p2) => p1.created_at.diff(p2.created_at).toMillis())
                 .map(async (person) => {
-                    const distinctIds = await hub.db.fetchDistinctIdValues(person)
+                    const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
 
                     return [
                         distinctIds,
@@ -218,9 +222,11 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
-        const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
+        const runner = new EventPipelineRunner(hub, event, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(event, team)
-        await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
+        if (isOkResult(res)) {
+            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.value.ackPromises ?? [])
+        }
         await groupStoreForBatch.flush()
     }
 
@@ -368,7 +374,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
+        expect(await fetchDistinctIdValues(hub.db.postgres, (await fetchPersons(hub.db.postgres))[0])).toEqual([
             'old_distinct_id',
             'new_distinct_id',
         ])
@@ -390,7 +396,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
+        expect(await fetchDistinctIdValues(hub.db.postgres, (await fetchPersons(hub.db.postgres))[0])).toEqual([
             'old_distinct_id',
             'new_distinct_id',
         ])
@@ -412,7 +418,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
+        expect(await fetchDistinctIdValues(hub.db.postgres, (await fetchPersons(hub.db.postgres))[0])).toEqual([
             'old_distinct_id',
             'new_distinct_id',
         ])
@@ -434,14 +440,14 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await hub.db.fetchPersons()).length).toBe(1)
-        expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(1)
+        expect(await fetchDistinctIdValues(hub.db.postgres, (await fetchPersons(hub.db.postgres))[0])).toEqual([
             'old_distinct_id',
             'new_distinct_id',
         ])
 
         await createPerson(hub, team, ['old_distinct_id_2'])
-        expect((await hub.db.fetchPersons()).length).toBe(2)
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(2)
 
         await processEvent(
             'new_distinct_id',
@@ -455,8 +461,8 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-        expect((await hub.db.fetchPersons()).length).toBe(1)
-        expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(1)
+        expect(await fetchDistinctIdValues(hub.db.postgres, (await fetchPersons(hub.db.postgres))[0])).toEqual([
             'old_distinct_id',
             'new_distinct_id',
             'old_distinct_id_2',
@@ -477,8 +483,8 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await hub.db.fetchPersons()).length).toBe(1)
-        expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(1)
+        expect(await fetchDistinctIdValues(hub.db.postgres, (await fetchPersons(hub.db.postgres))[0])).toEqual([
             'new_distinct_id',
             'old_distinct_id',
         ])
@@ -501,7 +507,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
+        expect(await fetchDistinctIdValues(hub.db.postgres, (await fetchPersons(hub.db.postgres))[0])).toEqual([
             'old_distinct_id',
             'new_distinct_id',
         ])
@@ -530,9 +536,12 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await hub.db.fetchPersons()).length).toBe(1)
-        const [person] = await hub.db.fetchPersons()
-        expect((await hub.db.fetchDistinctIdValues(person)).sort()).toEqual(['new_distinct_id', 'old_distinct_id'])
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(1)
+        const [person] = await fetchPersons(hub.db.postgres)
+        expect((await fetchDistinctIdValues(hub.db.postgres, person)).sort()).toEqual([
+            'new_distinct_id',
+            'old_distinct_id',
+        ])
         expect(person.properties).toEqual({
             key_on_both: 'new value both',
             key_on_new: 'new value',
@@ -618,7 +627,7 @@ describe('processEvent', () => {
 
     test('identify with illegal (generic) id', async () => {
         await createPerson(hub, team, ['im an anonymous id'])
-        expect((await hub.db.fetchPersons()).length).toBe(1)
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(1)
 
         const createPersonAndSendIdentify = async (distinctId: string): Promise<void> => {
             await createPerson(hub, team, [distinctId])
@@ -643,34 +652,34 @@ describe('processEvent', () => {
 
         // try to merge, the merge should fail
         await createPersonAndSendIdentify('distinctId')
-        expect((await hub.db.fetchPersons()).length).toBe(2)
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(2)
 
         await createPersonAndSendIdentify('  ')
-        expect((await hub.db.fetchPersons()).length).toBe(3)
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(3)
 
         await createPersonAndSendIdentify('NaN')
-        expect((await hub.db.fetchPersons()).length).toBe(4)
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(4)
 
         await createPersonAndSendIdentify('undefined')
-        expect((await hub.db.fetchPersons()).length).toBe(5)
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(5)
 
         await createPersonAndSendIdentify('None')
-        expect((await hub.db.fetchPersons()).length).toBe(6)
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(6)
 
         await createPersonAndSendIdentify('0')
-        expect((await hub.db.fetchPersons()).length).toBe(7)
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(7)
 
         // 'Nan' is an allowed id, so the merge should work
         // as such, no extra person is created
         await createPersonAndSendIdentify('Nan')
-        expect((await hub.db.fetchPersons()).length).toBe(7)
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(7)
     })
 
     test('Alias with illegal (generic) id', async () => {
         const legal_id = 'user123'
         const illegal_id = 'null'
         await createPerson(hub, team, [legal_id])
-        expect((await hub.db.fetchPersons()).length).toBe(1)
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(1)
 
         await processEvent(
             illegal_id,
@@ -689,7 +698,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
         // person with illegal id got created but not merged
-        expect((await hub.db.fetchPersons()).length).toBe(2)
+        expect((await fetchPersons(hub.db.postgres)).length).toBe(2)
     })
 
     // This case is likely to happen after signup, for example:
@@ -718,8 +727,8 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        const [person] = await hub.db.fetchPersons()
-        expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
+        const [person] = await fetchPersons(hub.db.postgres)
+        expect(await fetchDistinctIdValues(hub.db.postgres, person)).toEqual(['anonymous_id', 'new_distinct_id'])
         expect(person.properties['email']).toEqual('someone@gmail.com')
         expect(person.is_identified).toEqual(true)
     })
@@ -744,8 +753,8 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        const [person] = await hub.db.fetchPersons()
-        expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id'])
+        const [person] = await fetchPersons(hub.db.postgres)
+        expect(await fetchDistinctIdValues(hub.db.postgres, person)).toEqual(['anonymous_id'])
         expect(person.is_identified).toEqual(false)
     })
 
@@ -770,9 +779,9 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        const persons1 = await hub.db.fetchPersons()
+        const persons1 = await fetchPersons(hub.db.postgres)
         expect(persons1.length).toBe(1)
-        expect(await hub.db.fetchDistinctIdValues(persons1[0])).toEqual(['anonymous_id', 'new_distinct_id'])
+        expect(await fetchDistinctIdValues(hub.db.postgres, persons1[0])).toEqual(['anonymous_id', 'new_distinct_id'])
         expect(persons1[0].properties['email']).toEqual('someone@gmail.com')
         expect(persons1[0].is_identified).toEqual(true)
 
@@ -795,9 +804,9 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        const persons2 = await hub.db.fetchPersons()
+        const persons2 = await fetchPersons(hub.db.postgres)
         expect(persons2.length).toBe(1)
-        expect(await hub.db.fetchDistinctIdValues(persons2[0])).toEqual([
+        expect(await fetchDistinctIdValues(hub.db.postgres, persons2[0])).toEqual([
             'anonymous_id',
             'new_distinct_id',
             'anonymous_id_2',
@@ -836,13 +845,13 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        const people = (await hub.db.fetchPersons()).sort((p1, p2) => p2.team_id - p1.team_id)
+        const people = (await fetchPersons(hub.db.postgres)).sort((p1, p2) => p2.team_id - p1.team_id)
         expect(people.length).toEqual(2)
         expect(people[1].team_id).toEqual(team.id)
         expect(people[1].properties).toEqual({})
-        expect(await hub.db.fetchDistinctIdValues(people[1])).toEqual(['1', '2'])
+        expect(await fetchDistinctIdValues(hub.db.postgres, people[1])).toEqual(['1', '2'])
         expect(people[0].team_id).toEqual(team2.id)
-        expect(await hub.db.fetchDistinctIdValues(people[0])).toEqual(['2'])
+        expect(await fetchDistinctIdValues(hub.db.postgres, people[0])).toEqual(['2'])
     })
 
     describe('when handling $identify', () => {
@@ -892,7 +901,7 @@ describe('processEvent', () => {
             ])
 
             // Make sure the persons are identified
-            const persons = await hub.db.fetchPersons()
+            const persons = await fetchPersons(hub.db.postgres)
             expect(persons.map((person) => person.is_identified)).toEqual([true, true])
         })
 
@@ -942,7 +951,7 @@ describe('processEvent', () => {
             ])
 
             // Make sure the persons are identified
-            const persons = await hub.db.fetchPersons()
+            const persons = await fetchPersons(hub.db.postgres)
             expect(persons.map((person) => person.is_identified)).toEqual([true, true])
         })
 
@@ -965,7 +974,7 @@ describe('processEvent', () => {
             //  3. check that the persons remain distinct
 
             // Check the db is empty to start with
-            expect(await hub.db.fetchPersons()).toEqual([])
+            expect(await fetchPersons(hub.db.postgres)).toEqual([])
 
             const anonymousId = 'anonymous_id'
             const initialDistinctId = 'initial-distinct-id'
@@ -1002,7 +1011,7 @@ describe('processEvent', () => {
 
             // Now make sure that we have one person in the db that has been
             // identified
-            const persons = await hub.db.fetchPersons()
+            const persons = await fetchPersons(hub.db.postgres)
             expect(persons.length).toEqual(2)
             expect(persons.map((person) => person.is_identified)).toEqual([true, true])
         })
@@ -1036,7 +1045,7 @@ describe('processEvent', () => {
             ])
 
             // Make sure there is one identified person
-            const persons = await hub.db.fetchPersons()
+            const persons = await fetchPersons(hub.db.postgres)
             expect(persons.map((person) => person.is_identified)).toEqual([true])
         })
 
@@ -1064,7 +1073,7 @@ describe('processEvent', () => {
             ])
 
             // Make sure there is one identified person
-            const persons = await hub.db.fetchPersons()
+            const persons = await fetchPersons(hub.db.postgres)
             expect(persons.map((person) => person.is_identified)).toEqual([true])
         })
 
@@ -1092,7 +1101,7 @@ describe('processEvent', () => {
             ])
 
             // Make sure there is one identified person
-            const persons = await hub.db.fetchPersons()
+            const persons = await fetchPersons(hub.db.postgres)
             expect(persons.map((person) => person.is_identified)).toEqual([true])
         })
 
@@ -1121,7 +1130,7 @@ describe('processEvent', () => {
             ])
 
             // Make sure there is one identified person
-            const persons = await hub.db.fetchPersons()
+            const persons = await fetchPersons(hub.db.postgres)
             expect(persons.map((person) => person.is_identified)).toEqual([true])
         })
 
@@ -1139,7 +1148,7 @@ describe('processEvent', () => {
             // There should just be one person, to which all events are associated
             expect(eventsByPerson).toEqual([[[anonymous1, anonymous2], ['$create_alias']]])
 
-            const persons = await hub.db.fetchPersons()
+            const persons = await fetchPersons(hub.db.postgres)
             expect(persons.map((person) => person.is_identified)).toEqual([true])
         })
     })
@@ -1358,8 +1367,8 @@ describe('processEvent', () => {
         expect(event.properties['$set']).toEqual({ a_prop: 'test-set' })
         expect(event.properties['$set_once']).toEqual({ a_prop: 'test-set_once' })
 
-        const [person] = await hub.db.fetchPersons()
-        expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+        const [person] = await fetchPersons(hub.db.postgres)
+        expect(await fetchDistinctIdValues(hub.db.postgres, person)).toEqual(['distinct_id1'])
         expect(person.properties).toEqual({ a_prop: 'test-set' })
     })
 
@@ -1386,8 +1395,8 @@ describe('processEvent', () => {
         const [event] = getEventsFromKafka()
         expect(event.properties['$unset']).toEqual(['a', 'c'])
 
-        const [person] = await hub.db.fetchPersons()
-        expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+        const [person] = await fetchPersons(hub.db.postgres)
+        expect(await fetchDistinctIdValues(hub.db.postgres, person)).toEqual(['distinct_id1'])
         expect(person.properties).toEqual({ b: 2 })
     })
 
@@ -1414,8 +1423,8 @@ describe('processEvent', () => {
         const [event] = getEventsFromKafka()
         expect(event.properties['$unset']).toEqual({})
 
-        const [person] = await hub.db.fetchPersons()
-        expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+        const [person] = await fetchPersons(hub.db.postgres)
+        expect(await fetchDistinctIdValues(hub.db.postgres, person)).toEqual(['distinct_id1'])
         expect(person.properties).toEqual({ a: 1, b: 2, c: 3 })
     })
 
@@ -1442,8 +1451,8 @@ describe('processEvent', () => {
         })
 
         async function verifyPersonPropertiesSetCorrectly() {
-            const [person] = await hub.db.fetchPersons()
-            expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+            const [person] = await fetchPersons(hub.db.postgres)
+            expect(await fetchDistinctIdValues(hub.db.postgres, person)).toEqual(['distinct_id1'])
             expect(person.properties).toEqual({
                 s0123o0123: 's3a',
                 s02o13: 's2b',

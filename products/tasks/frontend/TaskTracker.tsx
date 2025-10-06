@@ -11,7 +11,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { BacklogView } from './components/BacklogView'
 import { GitHubIntegrationSettings } from './components/GitHubIntegrationSettings'
 import { KanbanView } from './components/KanbanView'
+import { TaskControlPanel } from './components/TaskControlPanel'
 import { tasksLogic } from './tasksLogic'
+import type { TaskTrackerTab } from './types'
 
 export const scene: SceneExport = {
     component: TaskTracker,
@@ -22,21 +24,25 @@ export function TaskTracker(): JSX.Element {
     const { activeTab } = useValues(tasksLogic)
     const { setActiveTab } = useActions(tasksLogic)
     const isEnabled = useFeatureFlag('TASKS')
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (!isEnabled) {
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
     }
 
-    const tabs = [
+    const tabs: { key: TaskTrackerTab; label: string; content: React.ReactNode }[] = [
+        {
+            key: 'dashboard' as const,
+            label: 'Dashboard',
+            content: <TaskControlPanel />,
+        },
         {
             key: 'backlog' as const,
-            label: 'Backlog',
+            label: 'All Tasks',
             content: <BacklogView />,
         },
         {
             key: 'kanban' as const,
-            label: 'Kanban Board',
+            label: 'Workflows',
             content: <KanbanView />,
         },
         {
@@ -49,29 +55,15 @@ export function TaskTracker(): JSX.Element {
     return (
         <div className="TaskTracker">
             <div className="space-y-4">
-                {!newSceneLayout && (
-                    <div>
-                        <h1 className="text-2xl font-bold">Tasks</h1>
-                        <p className="text-muted">Manage and track development tasks across all PostHog products</p>
-                    </div>
-                )}
                 <SceneTitleSection
                     name="Tasks"
-                    description="Manage and track development tasks across all PostHog products"
                     resourceType={{
                         type: 'task',
-                        typePlural: 'tasks',
                     }}
                 />
                 <SceneDivider />
 
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={setActiveTab}
-                    tabs={tabs}
-                    size="medium"
-                    sceneInset={newSceneLayout}
-                />
+                <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} size="medium" sceneInset />
             </div>
         </div>
     )

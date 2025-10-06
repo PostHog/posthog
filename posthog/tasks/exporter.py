@@ -1,12 +1,15 @@
+from time import perf_counter
 from typing import Optional
 
 from django.db import transaction
 
 import structlog
-from celery import shared_task
+import posthoganalytics
+from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.event_usage import groups
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
@@ -63,12 +66,30 @@ def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     # if Celery is lagging then you can end up with an exported asset that has had a TTL added
     # and that TTL has passed, in the exporter we don't care about that.
     # the TTL is for later cleanup.
-    exported_asset: ExportedAsset = ExportedAsset.objects_including_ttl_deleted.get(pk=exported_asset_id)
+    exported_asset: ExportedAsset = ExportedAsset.objects_including_ttl_deleted.select_related(
+        "created_by", "team", "team__organization"
+    ).get(pk=exported_asset_id)
     export_asset_direct(exported_asset, limit)
 
 
 def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
+
+    start_time = perf_counter()
+    team = exported_asset.team
+    distinct_id = exported_asset.created_by.distinct_id if exported_asset.created_by else str(team.uuid)
+    analytics_props = {
+        **exported_asset.get_analytics_metadata(),
+        "task_id": current_task.request.id
+        if current_task and current_task.request and current_task.request.id
+        else None,
+    }
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event="export started",
+        properties=analytics_props,
+        groups=groups(team.organization, team),
+    )
 
     try:
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
@@ -77,8 +98,33 @@ def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = No
         else:
             image_exporter.export_image(exported_asset)
             EXPORT_QUEUED_COUNTER.labels(type="image").inc()
-    except EXCEPTIONS_TO_RETRY:
-        raise
+
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event="export succeeded",
+            properties={
+                **analytics_props,
+                "duration_ms": round((perf_counter() - start_time) * 1000, 2),
+            },
+            groups=groups(team.organization, team),
+        )
     except Exception as e:
+        is_retriable = isinstance(e, EXCEPTIONS_TO_RETRY)
+
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event="export failed",
+            properties={
+                **analytics_props,
+                "error": str(e),
+                "might_retry": is_retriable,
+                "duration_ms": round((perf_counter() - start_time) * 1000, 2),
+            },
+            groups=groups(team.organization, team),
+        )
+
+        if is_retriable:
+            raise
+
         exported_asset.exception = str(e)
         exported_asset.save()

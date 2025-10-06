@@ -29,11 +29,12 @@ AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
-    "products.early_access_features",
-    "products.tasks",
-    "products.links",
-    "products.revenue_analytics",
-    "products.user_interviews",
+    "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
+    "products.tasks.backend.apps.TasksConfig",
+    "products.links.backend.apps.LinksConfig",
+    "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
+    "products.user_interviews.backend.apps.UserInterviewsConfig",
+    "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -89,6 +90,7 @@ MIDDLEWARE = [
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
@@ -180,6 +182,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
     "social_core.pipeline.social_auth.social_uid",
     "social_core.pipeline.social_auth.auth_allowed",
+    "ee.api.authentication.social_auth_allowed",
     "social_core.pipeline.social_auth.social_user",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.api.signup.social_create_user",

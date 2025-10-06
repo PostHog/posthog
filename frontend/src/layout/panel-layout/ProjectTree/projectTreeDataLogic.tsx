@@ -34,10 +34,12 @@ import {
 } from '~/layout/panel-layout/ProjectTree/utils'
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
+import { panelLayoutLogic } from '../panelLayoutLogic'
 import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
+import { getExperimentalProductsTree } from './projectTreeWebAnalyticsExperiment'
 
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
@@ -54,6 +56,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus'],
         ],
+        actions: [panelLayoutLogic, ['setActivePanelIdentifier']],
     })),
     actions({
         loadUnfiledItems: true,
@@ -270,6 +273,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
+                    lemonToast.success('Shortcut created successfully', {
+                        button: {
+                            label: 'View',
+                            dataAttr: 'project-tree-view-shortcuts',
+                            action: () => {
+                                actions.setActivePanelIdentifier('Shortcuts')
+                            },
+                        },
+                    })
                     return [...values.shortcutData, response]
                 },
                 deleteShortcut: async ({ id }) => {
@@ -571,7 +583,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                           {
                               path: 'Groups',
                               category: 'Groups',
-                              iconType: 'cohort',
+                              iconType: 'group',
                               href: urls.groups(0),
                               visualOrder: 30,
                           },
@@ -579,7 +591,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     : Array.from(groupTypes.values()).map((groupType) => ({
                           path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                           category: 'Groups',
-                          iconType: 'cohort',
+                          iconType: 'group',
                           href: urls.groups(groupType.group_type_index),
                           visualOrder: 30 + groupType.group_type_index,
                       }))
@@ -594,7 +606,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                               path: shortcut.path,
                               type: shortcut.type,
                               category: 'Saved Views',
-                              iconType: 'database' as const,
+                              iconType: 'group' as FileSystemIconType,
                               href: shortcut.href || '',
                               visualOrder: 100,
                               shortcut: true,
@@ -709,7 +721,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     })
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const data: [string, FileSystemImport[]][] = [
-                        ['products://', getDefaultTreeProducts()],
+                        ['products://', getExperimentalProductsTree(featureFlags) || getDefaultTreeProducts()],
                         ['data://', getDefaultTreeData()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],
@@ -735,6 +747,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         treeItemsNew: [
             (s) => [s.getStaticTreeItems],
             (getStaticTreeItems) => getStaticTreeItems('', false).find((item) => item.id === 'new://')?.children ?? [],
+        ],
+        shortcutNonFolderPaths: [
+            (s) => [s.shortcutData],
+            (shortcutData) =>
+                new Set(shortcutData.filter((shortcut) => shortcut.type !== 'folder').map((shortcut) => shortcut.path)),
         ],
     }),
     listeners(({ actions, values }) => ({

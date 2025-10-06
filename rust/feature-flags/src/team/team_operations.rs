@@ -136,8 +136,7 @@ mod tests {
 
     use super::*;
     use crate::utils::test_utils::{
-        insert_new_team_in_pg, insert_new_team_in_redis, random_string, setup_pg_reader_client,
-        setup_redis_client,
+        insert_new_team_in_redis, random_string, setup_redis_client, TestContext,
     };
 
     #[tokio::test]
@@ -253,15 +252,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_from_pg() {
-        let client = setup_pg_reader_client(None).await;
-
-        let team = insert_new_team_in_pg(client.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team in pg");
 
         let target_token = team.api_token;
 
-        let team_from_pg = Team::from_pg(client.clone(), target_token.as_str())
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), target_token.as_str())
             .await
             .expect("Failed to fetch team from pg");
 
@@ -275,10 +274,10 @@ mod tests {
         // TODO: Figure out a way such that `run_database_migrations` is called only once, and already called
         // before running these tests.
 
-        let client = setup_pg_reader_client(None).await;
+        let context = TestContext::new(None).await;
         let target_token = "xxxx".to_string();
 
-        match Team::from_pg(client.clone(), target_token.as_str()).await {
+        match Team::from_pg(context.non_persons_reader.clone(), target_token.as_str()).await {
             Err(FlagError::RowNotFound) => (),
             _ => panic!("Expected RowNotFound"),
         };
@@ -286,15 +285,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_with_null_array_elements_from_pg() {
-        let client = setup_pg_reader_client(None).await;
+        let context = TestContext::new(None).await;
 
         // Insert a team with NULL elements in the array
-        let team = insert_new_team_in_pg(client.clone(), None)
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team in pg");
 
         // Manually update the team to have NULL elements in session_recording_event_trigger_config
-        let mut conn = client
+        let mut conn = context
+            .non_persons_reader
             .get_connection()
             .await
             .expect("Failed to get connection");
@@ -315,7 +316,7 @@ mod tests {
         .expect("Failed to update team with NULL array elements");
 
         // Now fetch the team and verify it deserializes correctly
-        let team_from_pg = Team::from_pg(client.clone(), &team.api_token)
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
             .await
             .expect("Failed to fetch team with NULL array elements from pg");
 

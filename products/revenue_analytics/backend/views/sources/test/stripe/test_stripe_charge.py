@@ -32,17 +32,31 @@ class TestChargeStripeBuilder(StripeSourceBaseTest):
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_charge_schema(self):
-        """Test that build returns empty when no charge schema exists."""
+        """Test that build returns view even when no charge schema exists."""
         # Setup without charge schema
         self.setup_stripe_external_data_source(schemas=[])
 
         queries = list(build(self.stripe_handle))
 
-        # Should return no queries
-        self.assertEqual(len(queries), 0)
+        # Should return query anyway
+        self.assertEqual(len(queries), 1)
+
+        charge_query = queries[0]
+
+        # Test the query structure
+        self.assertQueryContainsFields(charge_query.query, CHARGE_SCHEMA)
+        self.assertBuiltQueryStructure(
+            charge_query,
+            f"stripe.{self.external_data_source.prefix}.no_source",
+            f"stripe.{self.external_data_source.prefix}",
+        )
+
+        # Print and snapshot the generated HogQL query
+        query_sql = charge_query.query.to_hogql()
+        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_charge_schema_but_no_table(self):
-        """Test that build returns empty when charge schema exists but has no table."""
+        """Test that build returns view even when charge schema exists but has no table."""
         # Setup with charge schema but no table
         self.setup_stripe_external_data_source_with_specific_schemas(
             [{"name": CHARGE_RESOURCE_NAME, "table_name": None}]
@@ -54,8 +68,21 @@ class TestChargeStripeBuilder(StripeSourceBaseTest):
 
         queries = list(build(self.stripe_handle))
 
-        # Should return no queries
-        self.assertEqual(len(queries), 0)
+        # Should return query anyway
+        self.assertEqual(len(queries), 1)
+        charge_query = queries[0]
+
+        # Test the query structure
+        self.assertQueryContainsFields(charge_query.query, CHARGE_SCHEMA)
+        self.assertBuiltQueryStructure(
+            charge_query,
+            f"stripe.{self.external_data_source.prefix}.no_table",
+            f"stripe.{self.external_data_source.prefix}",
+        )
+
+        # Print and snapshot the generated HogQL query
+        query_sql = charge_query.query.to_hogql()
+        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_source(self):
         """Test that build returns empty when source is None."""

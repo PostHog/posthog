@@ -21,9 +21,12 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.models import Action
 
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
-    AttributionModeOperator,
     ConversionGoalProcessor,
     add_conversion_goal_property_filters,
+)
+from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import (
+    AttributionModeOperator,
+    MarketingAnalyticsConfig,
 )
 
 
@@ -75,6 +78,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.date_range = DateRange(date_from="2023-01-01", date_to="2023-01-31")
+        self.config = MarketingAnalyticsConfig()
         # No shared test data - each test creates its own isolated data
 
     def _create_test_data(self):
@@ -135,7 +139,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test basic getters
         assert processor.get_cte_name() == "signup_goal"
@@ -157,7 +161,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Test various index values
         for index in [0, 1, 5, 10]:
-            processor = ConversionGoalProcessor(goal=goal, index=index, team=self.team)
+            processor = ConversionGoalProcessor(goal=goal, index=index, team=self.team, config=self.config)
             join_clause = processor.generate_join_clause()
             assert join_clause.alias == f"cg_{index}"
 
@@ -176,7 +180,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         assert processor.get_table_name() == "events"
         conditions = processor.get_base_where_conditions()
@@ -195,7 +199,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         assert processor.get_table_name() == "events"
         conditions = processor.get_base_where_conditions()
@@ -221,7 +225,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         assert processor.get_table_name() == "warehouse_table"
         assert processor.get_date_field() == "event_timestamp"
@@ -282,7 +286,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -370,7 +374,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -453,7 +457,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -531,7 +535,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -603,7 +607,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -691,7 +695,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -772,7 +776,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Apply property filters to additional conditions (same pattern as working test)
         additional_conditions = [
@@ -862,7 +866,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Apply property filters to additional conditions (same pattern as working test)
         additional_conditions = [
@@ -912,7 +916,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         utm_campaign, utm_source = processor.get_utm_expressions()
         assert utm_campaign.chain == ["events", "properties", "utm_campaign"]
@@ -938,7 +942,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         utm_campaign, utm_source = processor.get_utm_expressions()
         assert utm_campaign.chain == ["campaign_field"]
@@ -955,7 +959,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "custom_campaign_field", "utm_source_name": "custom_source_field"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         utm_campaign, utm_source = processor.get_utm_expressions()
         assert utm_campaign.chain == ["events", "properties", "custom_campaign_field"]
@@ -972,7 +976,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={},  # Empty schema map
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Should handle missing schema gracefully and fallback to defaults
         utm_campaign, utm_source = processor.get_utm_expressions()
@@ -1026,7 +1030,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "my_campaign_field", "utm_source_name": "my_source_field"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1077,7 +1081,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         join_clause = processor.generate_join_clause()
         assert join_clause.join_type == "LEFT JOIN"
@@ -1096,7 +1100,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         select_columns = processor.generate_select_columns()
         assert len(select_columns) == 2
@@ -1124,7 +1128,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         with pytest.raises(Action.DoesNotExist):
             processor.get_base_where_conditions()
@@ -1141,7 +1145,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Should handle gracefully by ignoring irrelevant math_property for DAU
         select_field = processor.get_select_field()
@@ -1192,7 +1196,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1240,7 +1244,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test that query executes successfully with very long goal name
         additional_conditions = [
@@ -1304,7 +1308,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test that query correctly matches only the event with special characters
         additional_conditions = [
@@ -1372,7 +1376,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "营销活动", "utm_source_name": "来源"},  # Chinese property names
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test that query executes successfully with Unicode property names
         additional_conditions = [
@@ -1437,7 +1441,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test that query executes and finds the conversion despite complex timeline
         additional_conditions = [
@@ -1482,7 +1486,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1511,7 +1515,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1539,7 +1543,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1565,7 +1569,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test all major components can be generated without errors
         assert processor.get_select_field() is not None
@@ -1614,7 +1618,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Execute query and verify attribution
         additional_conditions = [
@@ -1669,7 +1673,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1740,11 +1744,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1812,11 +1812,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1903,7 +1899,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1973,11 +1969,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2045,7 +2037,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2114,9 +2106,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
-        # Set attribution mode to first touch
-        processor.attribution_mode = AttributionModeOperator.FIRST_TOUCH.value
+        # Create config with first-touch attribution mode
+        first_touch_config = MarketingAnalyticsConfig()
+        first_touch_config.default_attribution_mode = AttributionModeOperator.FIRST_TOUCH.value
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=first_touch_config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2210,7 +2204,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2274,11 +2268,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2367,11 +2357,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         # Test April conversion attribution (should use spring_sale)
-        processor_april = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_april = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_april = [
             ast.CompareOperation(
@@ -2405,11 +2391,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert count == 1, f"Expected 1 conversion attributed to spring_sale, got {count}"
 
         # Test May conversion attribution (should use mothers_day)
-        processor_may = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_may = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_may = [
             ast.CompareOperation(
@@ -2442,11 +2424,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert may_count == 2, f"Expected 2 conversions attributed to mothers_day, got {may_count}"
 
         # Test June conversion attribution (should still use mothers_day - no new ads)
-        processor_june = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_june = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_june = [
             ast.CompareOperation(
@@ -2523,7 +2501,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2582,7 +2560,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2640,7 +2618,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2697,7 +2675,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2768,7 +2746,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2839,11 +2817,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2949,11 +2923,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3024,11 +2994,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3098,11 +3064,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3191,11 +3153,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3295,11 +3253,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3370,11 +3324,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         # Note: Query range EXCLUDES the March UTM touchpoint
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [  # May only!
             ast.CompareOperation(
@@ -3451,12 +3401,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         # Test conversion within 30-day attribution window (should attribute)
-        processor_within = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
-        processor_within.attribution_window_days = 30
+        processor_within = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor_within.config.max_attribution_window_days = 30
 
         additional_conditions_within = [
             ast.CompareOperation(
@@ -3484,11 +3430,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert within_count == 1, f"Expected 1 conversion within window, got {within_count}"
 
         # Test conversion beyond 30-day attribution window (should not attribute)
-        processor_beyond = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_beyond = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_beyond = [
             ast.CompareOperation(
@@ -3497,7 +3439,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 right=ast.Call(name="toDate", args=[ast.Constant(value="2023-02-01")]),
             ),
         ]
-        processor_beyond.attribution_window_days = 30
+        processor_beyond.config.max_attribution_window_days = 30
 
         cte_query_beyond = processor_beyond.generate_cte_query(additional_conditions_beyond)
         response_beyond = execute_hogql_query(query=cte_query_beyond, team=self.team)
@@ -3552,12 +3494,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
-        processor.attribution_window_days = 10
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.max_attribution_window_days = 10
         additional_conditions = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
@@ -3639,11 +3577,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3713,7 +3647,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3784,7 +3718,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3850,11 +3784,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3914,11 +3844,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3997,11 +3923,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4079,11 +4001,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4171,11 +4089,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4304,11 +4218,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         # Test first purchase attribution (February 17)
-        processor_first = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_first = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_first = [
             ast.CompareOperation(
@@ -4340,11 +4250,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1, f"Expected 1 conversion for first purchase, got {conversion_count}"
 
         # Test both purchases together (full timeline attribution)
-        processor_full = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_full = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_full = [
             ast.CompareOperation(
@@ -4435,11 +4341,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4542,11 +4444,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4622,12 +4520,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
-        processor.attribution_window_days = 180  # 6 month attribution window
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.max_attribution_window_days = 180  # 6 month attribution window
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4705,12 +4599,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
-        processor.attribution_window_days = 180  # 6 month attribution window
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.max_attribution_window_days = 180  # 6 month attribution window
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4805,12 +4695,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
-        processor.attribution_window_days = 30  # 30-day attribution window
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.max_attribution_window_days = 30  # 30-day attribution window
 
         # Query range: June 2 to July 2 (includes both conversions)
         additional_conditions = [
@@ -4905,7 +4791,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -5010,7 +4896,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor_total = ConversionGoalProcessor(goal=goal_total, index=0, team=self.team)
+        processor_total = ConversionGoalProcessor(goal=goal_total, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -5039,7 +4925,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor_dau = ConversionGoalProcessor(goal=goal_dau, index=0, team=self.team)
+        processor_dau = ConversionGoalProcessor(goal=goal_dau, index=0, team=self.team, config=self.config)
         cte_query_dau = processor_dau.generate_cte_query(additional_conditions)
         response_dau = execute_hogql_query(query=cte_query_dau, team=self.team)
 
@@ -5136,7 +5022,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -5200,7 +5086,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -5261,7 +5147,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
         additional_conditions = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
@@ -5352,8 +5238,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         ]
 
         # Execute queries
-        events_processor = ConversionGoalProcessor(goal=events_goal, index=0, team=self.team)
-        actions_processor = ConversionGoalProcessor(goal=actions_goal, index=1, team=self.team)
+        events_processor = ConversionGoalProcessor(goal=events_goal, index=0, team=self.team, config=self.config)
+        actions_processor = ConversionGoalProcessor(goal=actions_goal, index=1, team=self.team, config=self.config)
 
         events_query = events_processor.generate_cte_query(date_conditions)
         actions_query = actions_processor.generate_cte_query(date_conditions)
@@ -5418,7 +5304,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         date_conditions = [
             ast.CompareOperation(

@@ -1,324 +1,202 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconInfo, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { IconGear, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { AccessControlAction, userHasAccess } from 'lib/components/AccessControlAction'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { cn } from 'lib/utils/css-classes'
-import { teamLogic } from 'scenes/teamLogic'
+import { CURRENCY_SYMBOL_TO_EMOJI_MAP, getCurrencySymbol } from 'lib/utils/geography/currency'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { RevenueAnalyticsEventItem, SubscriptionDropoffMode } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
+import { AccessControlResourceType } from '~/types'
 
+import { EventConfigurationModal } from './EventConfigurationModal'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {
-    const { baseCurrency } = useValues(teamLogic)
-    const { events, saveEventsDisabledReason, changesMadeToEvents } = useValues(revenueAnalyticsSettingsLogic)
-    const {
-        addEvent,
-        deleteEvent,
-        updateEventCouponProperty,
-        updateEventCurrencyAwareDecimalProperty,
-        updateEventCurrencyProperty,
-        updateEventProductProperty,
-        updateEventRevenueProperty,
-        updateEventSubscriptionProperty,
-        updateEventSubscriptionDropoffDays,
-        updateEventSubscriptionDropoffMode,
-        save,
-    } = useActions(revenueAnalyticsSettingsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+    const { events } = useValues(revenueAnalyticsSettingsLogic)
+    const { deleteEvent, save } = useActions(revenueAnalyticsSettingsLogic)
+
+    const [modalState, setModalState] = useState<{
+        isOpen: boolean
+        event?: RevenueAnalyticsEventItem
+    }>({ isOpen: false })
+
     return (
         <SceneSection
-            hideTitleAndDescription={!newSceneLayout}
-            className={cn(!newSceneLayout && 'gap-y-0')}
             title="Event Configuration"
             description="PostHog can display revenue data in our Revenue Analytics product from any event. You can configure as many events as you want, and specify the revenue property and currency for each event individually."
         >
-            {!newSceneLayout && (
-                <>
-                    <h3 className="mb-2">Event Configuration</h3>
-                    <p className="mb-4">
-                        PostHog can display revenue data in our Revenue Analytics product from any event. You can
-                        configure as many events as you want, and specify the revenue property and currency for each
-                        event individually.
-                        <br />
-                        <br />
-                        You can also configure several properties for each event, such as the product property (to break
-                        down revenue by product), the coupon property (to break down revenue by coupon), and the
-                        subscription property (to properly calculate ARPU and LTV).
-                    </p>
-                </>
-            )}
             <div className="flex flex-col mb-1 items-end w-full">
                 <div className="flex flex-row w-full gap-1 justify-end my-2">
-                    <TaxonomicPopover
-                        type="primary"
-                        groupType={TaxonomicFilterGroupType.CustomEvents}
-                        onChange={(eventName) => addEvent(eventName as string, baseCurrency)}
-                        value={undefined}
-                        placeholder="Create revenue event"
-                        placeholderClass=""
-                        excludedProperties={{
-                            [TaxonomicFilterGroupType.CustomEvents]: [null, ...events.map((item) => item.eventName)],
-                        }}
-                        id="data-management-revenue-settings-add-event"
-                        ref={buttonRef}
-                    />
-
-                    {changesMadeToEvents && (
-                        <LemonButton type="primary" onClick={save} disabledReason={saveEventsDisabledReason}>
-                            Save
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.RevenueAnalytics}
+                        minAccessLevel="editor"
+                    >
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            onClick={() => setModalState({ isOpen: true })}
+                            ref={buttonRef}
+                        >
+                            Add Revenue Event
                         </LemonButton>
-                    )}
+                    </AccessControlAction>
                 </div>
-                {changesMadeToEvents && (
-                    <span className="text-xs text-error normal-case font-normal">
-                        Remember to save your changes to take effect
-                    </span>
-                )}
             </div>
             <LemonTable<RevenueAnalyticsEventItem>
                 dataSource={events}
                 rowKey={(item) => item.eventName}
                 emptyState="No event sources configured yet"
                 columns={[
-                    { key: 'eventName', title: 'Event name˟', dataIndex: 'eventName' },
+                    {
+                        key: 'eventName',
+                        title: 'Event Name',
+                        dataIndex: 'eventName',
+                        render: (_, item) => (
+                            <div className="flex items-center gap-2">
+                                <code className="text-sm font-mono bg-bg-lighter py-1 rounded">{item.eventName}</code>
+                            </div>
+                        ),
+                    },
                     {
                         key: 'revenueProperty',
+                        title: 'Revenue Property',
                         dataIndex: 'revenueProperty',
-                        title: 'Revenue property˟',
-                        tooltip:
-                            'The property that tracks the amount of revenue generated by the event. This could be a different property for each event.',
-
-                        render: (_, item: RevenueAnalyticsEventItem) => {
-                            return (
-                                <div className="flex flex-row w-full my-1">
-                                    <TaxonomicPopover
-                                        showNumericalPropsOnly
-                                        size="small"
-                                        groupType={TaxonomicFilterGroupType.EventProperties}
-                                        onChange={(newPropertyName) =>
-                                            updateEventRevenueProperty(item.eventName, newPropertyName)
-                                        }
-                                        value={item.revenueProperty}
-                                        placeholder="Choose property"
-                                        disabledReason={
-                                            item.eventName === '$pageview' || item.eventName === '$autocapture'
-                                                ? 'Built-in events must use revenue'
-                                                : undefined
-                                        }
-                                    />
-                                </div>
-                            )
-                        },
+                        render: (_, item) => (
+                            <div className="text-sm">
+                                {item.revenueProperty ? (
+                                    <code className="bg-bg-lighter py-1 rounded text-xs">{item.revenueProperty}</code>
+                                ) : (
+                                    <span className="text-muted-alt">Not set</span>
+                                )}
+                            </div>
+                        ),
                     },
                     {
-                        key: 'revenueCurrencyProperty',
-                        dataIndex: 'revenueCurrencyProperty',
-                        title: 'Currency property˟',
-                        tooltip:
-                            'The currency of the revenue event. You can choose between a property on your event OR a fixed currency for all events.',
-                        render: (_, item: RevenueAnalyticsEventItem) => {
-                            return (
-                                <div className="flex flex-col w-full gap-3 my-1 whitespace-nowrap">
-                                    <div className="flex flex-row gap-1">
-                                        <span className="font-bold">Dynamic property: </span>
-                                        <TaxonomicPopover
-                                            size="small"
-                                            groupType={TaxonomicFilterGroupType.EventProperties}
-                                            onChange={(newPropertyName) =>
-                                                updateEventCurrencyProperty(item.eventName, {
-                                                    property: newPropertyName,
-                                                })
-                                            }
-                                            value={item.revenueCurrencyProperty.property ?? null}
-                                            placeholder="Choose property"
-                                        />
+                        key: 'currency',
+                        title: 'Currency',
+                        render: (_, item) => (
+                            <div className="text-sm space-y-1">
+                                {item.revenueCurrencyProperty.property && (
+                                    <div>
+                                        <span className="text-muted-alt">Property: </span>
+                                        <code className="bg-bg-lighter px-1 rounded text-xs">
+                                            {item.revenueCurrencyProperty.property}
+                                        </code>
                                     </div>
-                                    <div className="flex flex-row gap-1">
-                                        or <span className="font-bold">Static currency: </span>
-                                        <CurrencyDropdown
-                                            size="small"
-                                            onChange={(currency) =>
-                                                updateEventCurrencyProperty(item.eventName, {
-                                                    static: currency,
-                                                })
-                                            }
-                                            value={item.revenueCurrencyProperty.static ?? null}
-                                        />
+                                )}
+                                {item.revenueCurrencyProperty.static && (
+                                    <div>
+                                        <span className="text-muted-alt">Static: </span>
+                                        <span className="font-medium">
+                                            {CURRENCY_SYMBOL_TO_EMOJI_MAP[item.revenueCurrencyProperty.static]}
+                                            &nbsp;{item.revenueCurrencyProperty.static}&nbsp;(
+                                            {getCurrencySymbol(item.revenueCurrencyProperty.static).symbol})
+                                        </span>
                                     </div>
-                                    <div className="flex flex-row gap-1">
-                                        <Tooltip title="Whether you are sending revenue in the smallest unit of currency (e.g. cents for USD, yen for JPY) or on the normal denomination (e.g. dollars for USD, yen for JPY). If enabled, we divide the property value by the smallest unit of currency (e.g. 100 for USD, 1 for JPY).">
-                                            <span className="font-bold">In cents? </span>
-                                            <IconInfo />
-                                        </Tooltip>
-                                        <LemonSwitch
-                                            checked={item.currencyAwareDecimal}
-                                            onChange={(checked) =>
-                                                updateEventCurrencyAwareDecimalProperty(item.eventName, checked)
-                                            }
-                                        />
-                                    </div>
-                                </div>
-                            )
-                        },
+                                )}
+                                {item.currencyAwareDecimal && <div className="text-xs text-muted-alt">In cents</div>}
+                                {!item.revenueCurrencyProperty.property && !item.revenueCurrencyProperty.static && (
+                                    <span className="text-muted-alt">Not configured</span>
+                                )}
+                            </div>
+                        ),
                     },
                     {
-                        key: 'productProperty',
-                        dataIndex: 'productProperty',
-                        title: 'Product property',
-                        tooltip:
-                            'The property that tracks which product generated this revenue event. Useful if you wanna break revenue down by individual products.',
-                        render: (_, item: RevenueAnalyticsEventItem) => {
-                            return (
-                                <div className="flex flex-row w-full my-1">
-                                    <TaxonomicPopover
-                                        size="small"
-                                        className="my-1"
-                                        groupType={TaxonomicFilterGroupType.EventProperties}
-                                        onChange={(newPropertyName) =>
-                                            updateEventProductProperty(item.eventName, newPropertyName)
-                                        }
-                                        value={item.productProperty}
-                                        placeholder="Choose property"
-                                    />
-                                </div>
-                            )
-                        },
-                    },
-                    {
-                        key: 'couponProperty',
-                        dataIndex: 'couponProperty',
-                        title: 'Coupon property',
-                        tooltip:
-                            'The property that tracks which coupon generated this revenue event. Useful if you wanna break revenue down by individual coupons.',
-                        render: (_, item: RevenueAnalyticsEventItem) => {
-                            return (
-                                <div className="flex flex-row w-full my-1">
-                                    <TaxonomicPopover
-                                        size="small"
-                                        className="my-1"
-                                        groupType={TaxonomicFilterGroupType.EventProperties}
-                                        onChange={(newPropertyName) =>
-                                            updateEventCouponProperty(item.eventName, newPropertyName)
-                                        }
-                                        value={item.couponProperty}
-                                        placeholder="Choose property"
-                                    />
-                                </div>
-                            )
-                        },
-                    },
-                    {
-                        key: 'subscriptionProperty',
-                        dataIndex: 'subscriptionProperty',
-                        title: 'Subscription property',
-                        tooltip:
-                            'The property that tracks which subscription generated this revenue event. Useful if you wanna be able to track ARPU and LTV.',
-                        render: (_, item: RevenueAnalyticsEventItem) => {
-                            return (
-                                <div className="flex flex-row w-full my-1">
-                                    <TaxonomicPopover
-                                        size="small"
-                                        className="my-1"
-                                        groupType={TaxonomicFilterGroupType.EventProperties}
-                                        onChange={(newPropertyName) =>
-                                            updateEventSubscriptionProperty(item.eventName, newPropertyName)
-                                        }
-                                        value={item.subscriptionProperty}
-                                        placeholder="Choose property"
-                                    />
-                                </div>
-                            )
-                        },
-                    },
-
-                    {
-                        key: 'subscriptionDropoffDays',
-                        dataIndex: 'subscriptionDropoffDays',
-                        title: 'Subscription dropoff in days',
-                        tooltip:
-                            "The number of days we still consider a subscription to be active after the last event. This is useful to avoid the current month's data to look as if most of the subscriptions have churned since we might not have an event for the current month.",
-                        fullWidth: true,
-                        render: (_, item: RevenueAnalyticsEventItem) => {
-                            return (
-                                <div className="flex flex-col w-full whitespace-nowrap my-1 gap-3">
-                                    <div className="flex flex-row items-center w-full gap-2">
-                                        <LemonInput
-                                            type="number"
-                                            size="small"
-                                            className="min-w-16"
-                                            min={1}
-                                            max={365}
-                                            value={item.subscriptionProperty ? item.subscriptionDropoffDays : undefined}
-                                            onChange={(value) => {
-                                                if (Number.isNaN(value) || !value || value < 1 || value > 365) {
-                                                    value = 45
-                                                }
-
-                                                updateEventSubscriptionDropoffDays(item.eventName, Number(value))
-                                            }}
-                                            disabledReason={
-                                                !item.subscriptionProperty
-                                                    ? 'Only available when subscription property is set'
-                                                    : undefined
-                                            }
-                                        />
-                                        <span>days</span>
+                        key: 'properties',
+                        title: 'Additional Properties',
+                        render: (_, item) => (
+                            <div className="text-sm space-y-1">
+                                {item.productProperty && (
+                                    <div>
+                                        <span className="text-muted-alt">Product: </span>
+                                        <code className="bg-bg-lighter px-1 rounded text-xs">
+                                            {item.productProperty}
+                                        </code>
                                     </div>
-                                    <div className="flex flex-row items-center w-full gap-2">
-                                        <span className="text-nowrap">Subscription ends</span>
-                                        <LemonSelect<SubscriptionDropoffMode>
-                                            size="small"
-                                            options={[
-                                                {
-                                                    label: 'on the date of the last event',
-                                                    value: 'last_event' as SubscriptionDropoffMode,
-                                                    tooltip: `The subscription will be considered active for ${item.subscriptionDropoffDays} and then will be considered to have ended on the day of the last event (i.e. it will backfill the subscription to the last event altering history). This is useful if you want to keep accurate ARPU calculations, but it might change metrics from past months (users will churn in the past).`,
-                                                },
-                                                {
-                                                    label: 'after the dropoff period',
-                                                    value: 'after_dropoff_period' as SubscriptionDropoffMode,
-                                                    tooltip: `The subscription will be considered to have ended on the day of the last event plus the dropoff period (i.e. ${item.subscriptionDropoffDays} days after the last event). This is useful if you want to make sure past months calculations won't change, but it might decrease ARPU since users will be considered active for longer but without paying.`,
-                                                },
-                                            ]}
-                                            value={item.subscriptionDropoffMode}
-                                            onChange={(value) =>
-                                                updateEventSubscriptionDropoffMode(item.eventName, value)
-                                            }
-                                            disabledReason={
-                                                !item.subscriptionProperty
-                                                    ? 'Only available when subscription property is set'
-                                                    : undefined
-                                            }
-                                        />
+                                )}
+                                {item.couponProperty && (
+                                    <div>
+                                        <span className="text-muted-alt">Coupon: </span>
+                                        <code className="bg-bg-lighter px-1 rounded text-xs">
+                                            {item.couponProperty}
+                                        </code>
                                     </div>
-                                </div>
-                            )
-                        },
+                                )}
+                                {item.subscriptionProperty && (
+                                    <div>
+                                        <span className="text-muted-alt">Subscription: </span>
+                                        <code className="bg-bg-lighter px-1 rounded text-xs">
+                                            {item.subscriptionProperty}
+                                        </code>
+                                        <div className="text-xs text-muted-alt">
+                                            Drop subscription after {item.subscriptionDropoffDays} days
+                                        </div>
+                                        <div className="text-xs text-muted-alt">
+                                            Subscription ends on the day{' '}
+                                            {item.subscriptionDropoffMode === 'last_event'
+                                                ? 'of the last event'
+                                                : 'the dropoff period ends'}
+                                        </div>
+                                    </div>
+                                )}
+                                {!item.productProperty && !item.couponProperty && !item.subscriptionProperty && (
+                                    <span className="text-muted-alt">None configured</span>
+                                )}
+                            </div>
+                        ),
                     },
                     {
                         key: 'actions',
+                        title: '',
                         render: (_, item) => (
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                onClick={() => deleteEvent(item.eventName)}
-                                icon={<IconTrash />}
-                            >
-                                Remove
-                            </LemonButton>
+                            <div className="flex items-center gap-1">
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.RevenueAnalytics}
+                                    minAccessLevel="editor"
+                                >
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        icon={<IconGear />}
+                                        onClick={() => setModalState({ isOpen: true, event: item })}
+                                        tooltip="Edit event configuration"
+                                    />
+                                </AccessControlAction>
+
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.RevenueAnalytics}
+                                    minAccessLevel="editor"
+                                >
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        status="danger"
+                                        icon={<IconTrash />}
+                                        onClick={() => {
+                                            if (confirm('Are you sure you want to remove this event?')) {
+                                                deleteEvent(item.eventName)
+                                                save()
+                                            }
+                                        }}
+                                        tooltip="Remove event"
+                                    />
+                                </AccessControlAction>
+                            </div>
                         ),
                     },
                 ]}
             />
+
+            {modalState.isOpen && userHasAccess(AccessControlResourceType.RevenueAnalytics, 'editor') && (
+                <EventConfigurationModal
+                    event={modalState.event}
+                    onClose={() => setModalState({ isOpen: false, event: undefined })}
+                />
+            )}
         </SceneSection>
     )
 }

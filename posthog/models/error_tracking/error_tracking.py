@@ -51,12 +51,13 @@ class ErrorTrackingIssue(UUIDTModel):
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
-    def split(self, fingerprints: list[str]) -> None:
+    def split(self, fingerprints: list[str], exclusive: bool) -> None:
         overrides: list[ErrorTrackingIssueFingerprintV2] = []
 
-        for fingerprint in fingerprints:
-            with transaction.atomic():
-                new_issue = ErrorTrackingIssue.objects.create(team=self.team)
+        with transaction.atomic():
+            common_issue = ErrorTrackingIssue.objects.create(team=self.team) if not exclusive else None
+            for fingerprint in fingerprints:
+                new_issue = common_issue if common_issue else ErrorTrackingIssue.objects.create(team=self.team)
                 overrides.extend(
                     update_error_tracking_issue_fingerprints(
                         team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fingerprint]

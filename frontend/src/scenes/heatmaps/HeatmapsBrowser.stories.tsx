@@ -37,6 +37,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
         pageUrl: urls.heatmaps(),
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
     },
     decorators: [
         mswDecorator({
@@ -70,12 +73,12 @@ export function HeatmapsBrowserNoPageSelected(): JSX.Element {
 
 export const HeatmapsBrowserWithUnauthorizedPageSelected: Story = {
     parameters: {
-        pageUrl: urls.heatmaps('pageURL=https://example.com'),
+        pageUrl: urls.heatmaps('pageURL=https://random.example.com'),
     },
 }
 
 export const HeatmapsBrowserWithPageSelected: Story = {
     parameters: {
-        pageUrl: urls.heatmaps('pageURL=https://posthog.com&heatmapPalette=red&heatmapFilters={"type"%3A"mousemove"}'),
+        pageUrl: urls.heatmaps('pageURL=https://example.com&heatmapPalette=red&heatmapFilters={"type"%3A"mousemove"}'),
     },
 }

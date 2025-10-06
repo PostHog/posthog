@@ -30,7 +30,7 @@ async def execute_batch_export_using_internal_stage(
     interval: str,
     heartbeat_timeout_seconds: int | None = 180,
     maximum_attempts: int = 0,
-    initial_retry_interval_seconds: int = 30,
+    initial_retry_interval_seconds: int = 5,
     maximum_retry_interval_seconds: int = 120,
 ) -> None:
     """

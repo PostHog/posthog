@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconInfo, IconUser } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,6 +16,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { openInAdminPanel } from 'lib/utils/person-actions'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -27,7 +27,11 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { ActivityScope, PersonType, PersonsTabType, ProductKey, PropertyDefinitionType } from '~/types'
 
@@ -120,6 +124,7 @@ export function PersonScene(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { user } = useValues(userLogic)
 
     if (personError) {
         throw new Error(personError)
@@ -128,29 +133,32 @@ export function PersonScene(): JSX.Element | null {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
     }
 
-    const url = urls.personByDistinctId(urlId || person.distinct_ids[0] || String(person.id))
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <>
-            <PageHeader
-                caption={<PersonCaption person={person} />}
-                notebookProps={
-                    url
-                        ? {
-                              href: url,
-                          }
-                        : undefined
-                }
-                buttons={
-                    <div className="flex gap-2">
+        <SceneContent>
+            <SceneTitleSection
+                name="Person"
+                resourceType={{
+                    type: 'person',
+                    forceIcon: <IconUser />,
+                }}
+                forceBackTo={{
+                    name: 'People',
+                    path: urls.persons(),
+                    key: 'people',
+                }}
+                actions={
+                    <>
                         <NotebookSelectButton
                             resource={{
                                 type: NotebookNodeType.Person,
                                 attrs: { id: person?.distinct_ids[0] },
                             }}
                             type="secondary"
+                            size="small"
                         />
+                        {user?.is_staff && <OpenInAdminPanelButton />}
                         <LemonButton
                             onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
@@ -158,6 +166,7 @@ export function PersonScene(): JSX.Element | null {
                             type="secondary"
                             status="danger"
                             data-attr="delete-person"
+                            size="small"
                         >
                             Delete person
                         </LemonButton>
@@ -167,14 +176,19 @@ export function PersonScene(): JSX.Element | null {
                                 onClick={() => setSplitMergeModalShown(true)}
                                 data-attr="merge-person-button"
                                 type="secondary"
+                                size="small"
                             >
                                 Split IDs
                             </LemonButton>
                         )}
-                    </div>
+                    </>
                 }
             />
+            <SceneDivider />
 
+            <PersonCaption person={person} />
+
+            <SceneDivider />
             <PersonDeleteModal />
 
             <LemonTabs
@@ -343,6 +357,21 @@ export function PersonScene(): JSX.Element | null {
             />
 
             {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
-        </>
+        </SceneContent>
+    )
+}
+
+function OpenInAdminPanelButton(): JSX.Element {
+    const { person } = useValues(personsLogic)
+    const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
+
+    return (
+        <LemonButton
+            type="secondary"
+            onClick={() => openInAdminPanel(person?.properties.email)}
+            disabledReason={disabledReason}
+        >
+            Open in Admin Panel
+        </LemonButton>
     )
 }

@@ -59,6 +59,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def create_issue(self, issue_id, fingerprint, name=None, status=ErrorTrackingIssue.Status.ACTIVE):
         issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status, name=name)
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+
         return issue
 
     def create_events_and_issue(
@@ -71,7 +72,11 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         additional_properties=None,
         issue_name=None,
     ):
-        self.create_issue(issue_id, fingerprint, name=issue_name)
+        if timestamp:
+            with freeze_time(timestamp):
+                self.create_issue(issue_id, fingerprint, name=issue_name)
+        else:
+            self.create_issue(issue_id, fingerprint, name=issue_name)
 
         event_properties = {"$exception_issue_id": issue_id, "$exception_fingerprint": fingerprint}
         if exception_list:
@@ -505,6 +510,47 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )["results"]
         self.assertEqual(len(results), 1)
+
+    @freeze_time("2020-01-10T12:11:00")
+    @snapshot_clickhouse_queries
+    def test_first_seen_filters(self):
+        cutoff_time = now() - relativedelta(hours=2)
+
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="first_seen", value=cutoff_time.isoformat(), operator=PropertyOperator.GTE
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+        self.assertEqual(len(results), 2)
+        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two])
+
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="first_seen", value=cutoff_time.isoformat(), operator=PropertyOperator.LT
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual([r["id"] for r in results], [self.issue_id_one])
 
     @freeze_time("2020-01-12")
     @snapshot_clickhouse_queries

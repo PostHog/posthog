@@ -1,6 +1,7 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
@@ -25,6 +26,7 @@ export function RevenueAnalyticsTopCustomersNode(props: {
     query: RevenueAnalyticsTopCustomersQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { dateFilter } = useValues(revenueAnalyticsLogic)
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
@@ -37,6 +39,8 @@ export function RevenueAnalyticsTopCustomersNode(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
+
+    useAttachedLogic(logic, props.attachTo)
 
     const { baseCurrency } = useValues(teamLogic)
     const { response, responseLoading, queryId } = useValues(logic)
@@ -67,9 +71,9 @@ export function RevenueAnalyticsTopCustomersNode(props: {
         return {
             id: idx + 1, // Make them start at 1, for good measure
 
-            // Name is in first column, grab from any result
-            // Fallback to second column if first is undefined, that's the customer_id
-            label: results[key][0] ?? results[key][1],
+            // Name is in the second column, grab from any result
+            // Fallback to first column if second is undefined, that's the customer_id
+            label: results[key][1] ?? results[key][0],
 
             // In the same order as the labels get the revenue
             // assuming it was 0 if not present in the dataset

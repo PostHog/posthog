@@ -13,7 +13,7 @@ import secrets
 import datetime
 import datetime as dt
 import dataclasses
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache, wraps
@@ -59,7 +59,7 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Dashboard, InsightVariable, Team, User
+    from posthog.models import Dashboard, DashboardTile, InsightVariable, Team, User
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -308,6 +308,14 @@ def relative_date_parse(
     )[0]
 
 
+def human_list(items: Sequence[str]) -> str:
+    """Join iterable of strings into a human-readable list ("a, b, and c").
+    Uses the Oxford comma only when there are at least 3 items."""
+    if len(items) < 3:
+        return " and ".join(items)
+    return ", ".join(items[:-1]) + f", and {items[-1]}"
+
+
 def get_js_url(request: HttpRequest) -> str:
     """
     As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
@@ -337,9 +345,8 @@ def get_context_for_template(
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_branch"] = get_git_branch()
-        # Add vite dev scripts for development only when explicitly using Vite
-        if not settings.E2E_TESTING and os.environ.get("POSTHOG_USE_VITE"):
-            context["vite_dev_scripts"] = """
+        # Add vite dev scripts for development
+        context["vite_dev_scripts"] = """
         <script type="module">
             import RefreshRuntime from 'http://localhost:8234/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
@@ -370,6 +377,7 @@ def get_context_for_template(
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
+    context["js_app_state_logging_sample_rate"] = settings.APP_STATE_LOGGING_SAMPLE_RATE
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
@@ -1201,6 +1209,26 @@ def variables_override_requested_by_client(
         raise serializers.ValidationError({"variables_override": "Invalid JSON passed in variables_override parameter"})
 
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
+
+
+def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
+    from posthog.auth import SharingAccessTokenAuthentication
+
+    tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
+    raw_override = request.query_params.get("tile_filters_override")
+
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+        return tile_filters
+
+    try:
+        request_filters = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError(
+            {"tile_filters_override": "Invalid JSON passed in tile_filters_override parameter"}
+        )
+
+    return {**tile_filters, **request_filters}
 
 
 def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:

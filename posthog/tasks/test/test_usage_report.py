@@ -32,7 +32,7 @@ from posthog.schema import EventsQuery
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.batch_exports.models import BatchExport, BatchExportDestination
+from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -73,6 +73,7 @@ from posthog.warehouse.models import (
 from posthog.warehouse.types import ExternalDataSourceType
 
 from ee.api.test.base import LicensedTestMixin
+from ee.clickhouse.materialized_columns.columns import materialize
 from ee.models.license import License
 
 logger = structlog.get_logger(__name__)
@@ -181,6 +182,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
         sync_execute("TRUNCATE TABLE events")
         sync_execute("TRUNCATE TABLE person")
         sync_execute("TRUNCATE TABLE person_distinct_id")
+
+        materialize("events", "$exception_values")
 
         self.expected_properties: dict = {}
 
@@ -613,6 +616,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
+                    "rows_exported_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -678,6 +682,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
+                            "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 1,
                         },
                         str(self.org_1_team_2.id): {
@@ -738,6 +743,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
+                            "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
                         },
                     },
@@ -821,6 +827,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
+                    "rows_exported_in_period": 0,
                     "ai_event_count_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
@@ -889,6 +896,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
+                            "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
                         }
                     },
@@ -955,7 +963,11 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
 @freeze_time("2022-01-09T00:01:00Z")
 class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
-    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    def setUp(self) -> None:
+        super().setUp()
+        materialize("events", "$exception_values")
+
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
 
@@ -976,7 +988,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
 
-    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_zero_duration(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False, include_zero_duration=True)
 
@@ -998,7 +1010,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].zero_duration_recording_count_in_period == 1
 
-    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_mobile(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
 
@@ -1019,7 +1031,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 1
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
 
-    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_billable_mobile(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
 
@@ -1074,7 +1086,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
 
 
 class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
-    # @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    # @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     @pytest.mark.skip(reason="Skipping due to flakiness")
     def test_usage_report_hogql_queries(self) -> None:
         for _ in range(0, 100):
@@ -1116,7 +1128,7 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
             assert report.query_api_rows_read == 0
             assert report.event_explorer_api_rows_read == 0
 
-    # @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    # @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     @pytest.mark.skip(reason="Skipping due to flakiness")
     def test_usage_report_api_queries(self) -> None:
         for _ in range(0, 100):
@@ -1177,6 +1189,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+        materialize("events", "$exception_values")
 
     @snapshot_clickhouse_queries
     @patch("posthog.tasks.usage_report.get_ph_client")
@@ -1409,6 +1422,7 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -1544,6 +1558,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -1599,6 +1614,76 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 50
         assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 50
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["rows_synced_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_external_data_free_historical_rows_synced_response(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        # Free historical rows
+        free_source = ExternalDataSource.objects.create(
+            team=self.analytics_team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+
+        for _ in range(5):
+            ExternalDataJob.objects.create(
+                team_id=3,
+                finished_at=now(),
+                rows_synced=10,
+                status=ExternalDataJob.Status.COMPLETED,
+                pipeline=free_source,
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
+            )
+
+        # Non-free-historical rows
+        non_free_source = ExternalDataSource.objects.create(
+            team=self.analytics_team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        non_free_source.created_at = now() - timedelta(days=21)
+        non_free_source.save()
+
+        for _ in range(5):
+            ExternalDataJob.objects.create(
+                team_id=3,
+                finished_at=now(),
+                rows_synced=10,
+                status=ExternalDataJob.Status.COMPLETED,
+                pipeline=non_free_source,
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
+            )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["rows_synced_in_period"] == 100
+
+        assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 100
+        assert org_1_report["teams"]["3"]["free_historical_rows_synced_in_period"] == 50
 
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["rows_synced_in_period"] == 0
@@ -1682,6 +1767,48 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["active_batch_exports_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_batch_export_rows_exported_in_period(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "test_bucket"}
+        )
+        batch_export = BatchExport.objects.create(
+            team_id=3,
+            name="Test export",
+            destination=batch_export_destination,
+            paused=False,
+            model=BatchExport.Model.EVENTS,
+        )
+
+        for i in range(3):
+            BatchExportRun.objects.create(
+                batch_export=batch_export,
+                data_interval_end=now() - timedelta(hours=i),
+                data_interval_start=now() - timedelta(hours=i + 1),
+                finished_at=now(),
+                status=BatchExportRun.Status.COMPLETED,
+                records_completed=100 * (i + 1),  # 100, 200, 300
+            )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["rows_exported_in_period"] == 600
+        assert org_1_report["teams"]["3"]["rows_exported_in_period"] == 600
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -1817,6 +1944,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2002,6 +2130,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self.org_1 = Organization.objects.create(name="Org 1")
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2055,6 +2184,7 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2092,6 +2222,15 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
                 timestamp=now() - relativedelta(hours=i),
                 team=self.org_2_team_3,
             )
+
+        # not captured because it was a bug in our own SDK
+        _create_event(
+            distinct_id="4",
+            event="$exception",
+            properties={"$exception_values": ["persistence.isDisabled is not a function"]},
+            timestamp=now() - relativedelta(hours=1),
+            team=self.org_1_team_1,
+        )
 
         # some out of range events
         _create_event(
@@ -2136,6 +2275,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
     def _setup_teams(self) -> None:
         self.org_1 = Organization.objects.create(name="Org 1")
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+        materialize("events", "$exception_values")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2277,6 +2417,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         )
         flush_persons_and_events()
         TEST_clear_instance_license_cache()
+        materialize("events", "$exception_values")
 
     def _usage_report_response(self) -> Any:
         # A roughly correct billing response
@@ -2443,6 +2584,10 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
 
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        materialize("events", "$exception_values")
+
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
@@ -2456,6 +2601,10 @@ class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTe
 
 
 class TestSendUsageNoLicense(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        materialize("events", "$exception_values")
+
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
@@ -2518,6 +2667,7 @@ class TestSendUsageNoLicense(APIBaseTest):
 class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
     def setUp(self) -> None:
         super().setUp()
+        materialize("events", "$exception_values")
 
         # Clear existing Django data
         Team.objects.all().delete()

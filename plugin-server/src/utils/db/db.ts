@@ -12,12 +12,10 @@ import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
     Cohort,
-    CohortPeople,
     GroupKey,
     GroupTypeIndex,
     InternalPerson,
     OrganizationMembershipLevel,
-    PersonDistinctId,
     Plugin,
     PluginConfig,
     PluginLogEntrySource,
@@ -434,29 +432,6 @@ export class DB {
         }
     }
 
-    public async fetchPersons(): Promise<InternalPerson[]> {
-        return await this.postgres
-            .query<RawPerson>(PostgresUse.PERSONS_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
-            .then(({ rows }) => rows.map(this.toPerson))
-    }
-
-    // PersonDistinctId
-    // testutil
-    public async fetchDistinctIds(person: InternalPerson): Promise<PersonDistinctId[]> {
-        const result = await this.postgres.query(
-            PostgresUse.PERSONS_WRITE, // used in tests only
-            'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
-            [person.id, person.team_id],
-            'fetchDistinctIds'
-        )
-        return result.rows as PersonDistinctId[]
-    }
-
-    public async fetchDistinctIdValues(person: InternalPerson): Promise<string[]> {
-        const personDistinctIds = await this.fetchDistinctIds(person)
-        return personDistinctIds.map((pdi) => pdi.distinct_id)
-    }
-
     // Cohort & CohortPeople
     // testutil
     public async createCohort(cohort: Partial<Cohort>): Promise<Cohort> {
@@ -484,20 +459,6 @@ export class DB {
                 cohort.pending_version ?? cohort.version ?? 0,
             ],
             'createCohort'
-        )
-        return insertResult.rows[0]
-    }
-
-    public async addPersonToCohort(
-        cohortId: number,
-        personId: InternalPerson['id'],
-        version: number | null
-    ): Promise<CohortPeople> {
-        const insertResult = await this.postgres.query(
-            PostgresUse.PERSONS_WRITE,
-            `INSERT INTO posthog_cohortpeople (cohort_id, person_id, version) VALUES ($1, $2, $3) RETURNING *;`,
-            [cohortId, personId, version],
-            'addPersonToCohort'
         )
         return insertResult.rows[0]
     }

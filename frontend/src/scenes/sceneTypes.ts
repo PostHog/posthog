@@ -1,5 +1,6 @@
 import { LogicWrapper } from 'kea'
 
+import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SettingSectionId } from './settings/types'
@@ -10,6 +11,7 @@ import { SettingSectionId } from './settings/types'
 export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
+    AdvancedActivityLogs = 'AdvancedActivityLogs',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
@@ -20,6 +22,7 @@ export enum Scene {
     Cohort = 'Cohort',
     Cohorts = 'Cohorts',
     CustomCss = 'CustomCss',
+    CustomerAnalytics = 'CustomerAnalytics',
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
@@ -39,8 +42,8 @@ export enum Scene {
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
-    ErrorTrackingImpact = 'ErrorTrackingImpact',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
+    ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
     EventDefinitionEdit = 'EventDefinitionEdit',
     Experiment = 'Experiment',
@@ -115,12 +118,15 @@ export enum Scene {
     WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    EmbeddedAnalytics = 'EmbeddedAnalytics',
+    QueryEndpoints = 'QueryEndpoints',
     Wizard = 'Wizard',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
+export type SceneProps = Record<string, any>
 
-export interface SceneExport<T = {}> {
+export interface SceneExport<T = SceneProps> {
     /** component to render for this scene */
     component: SceneComponent<T>
     /** logic to mount for this scene */
@@ -132,8 +138,6 @@ export interface SceneExport<T = {}> {
     /** when was the scene last touched, unix timestamp for sortability */
     lastTouch?: number
 }
-
-type SceneProps = Record<string, any>
 
 // KLUDGE: LoadedScene is used in a logic and therefore cannot accept generics
 // we use an untyped SceneProps to satisfy the types
@@ -151,6 +155,7 @@ export interface SceneTab {
     title: string
     active: boolean
     customTitle?: string
+    iconType: FileSystemIconType | 'loading' | 'blank'
 
     sceneId?: string
     sceneKey?: string
@@ -176,12 +181,13 @@ export interface SceneConfig {
     allowUnauthenticated?: boolean
     /**
      * If `app`, navigation is shown, and the scene has default padding.
+     * If `app-full-scene-height`, navigation is shown, and the scene has default padding and wrapper takes full screen height.
      * If `app-raw`, navigation is shown, but the scene has no padding.
      * If `app-container`, navigation is shown, and the scene is centered with a max width.
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain' | 'app-full-scene-height'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Hides billing notice (BillingAlertsV2.tsx). */
@@ -196,10 +202,12 @@ export interface SceneConfig {
     projectBased?: boolean
     /** Set the scope of the activity (affects activity and discussion panel) */
     activityScope?: ActivityScope | string
-    /** Default docs path - what the docs side panel will open by default if this scene is active  */
-    defaultDocsPath?: string
+    /** Default docs path - what the docs side panel will open by default when this scene is active  */
+    defaultDocsPath?: string | (() => string) | (() => Promise<string>)
     /** Component import, used only in manifests */
     import?: () => Promise<any>
+    /** Custom icon for the tabs */
+    iconType?: FileSystemIconType
 }
 
 // Map scenes to their access control resource types
@@ -219,4 +227,16 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Notebooks
     [Scene.Notebook]: AccessControlResourceType.Notebook,
     [Scene.Notebooks]: AccessControlResourceType.Notebook,
+
+    // Session recording
+    [Scene.Replay]: AccessControlResourceType.SessionRecording,
+    [Scene.ReplaySingle]: AccessControlResourceType.SessionRecording,
+    [Scene.ReplayPlaylist]: AccessControlResourceType.SessionRecording,
+
+    // Revenue analytics
+    [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
+
+    // Experiments
+    [Scene.Experiment]: AccessControlResourceType.Experiment,
+    [Scene.Experiments]: AccessControlResourceType.Experiment,
 }

@@ -1,0 +1,132 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`HogFlowManager returns the hog flow 1`] = `
+[
+  {
+    "abort_action": null,
+    "actions": [
+      {
+        "config": {
+          "filters": {
+            "actions": [],
+            "bytecode": [
+              "_h",
+              29,
+            ],
+            "events": [],
+          },
+          "type": "event",
+        },
+        "created_at": "CREATED_AT",
+        "description": "trigger",
+        "id": "trigger",
+        "name": "trigger",
+        "on_error": "continue",
+        "type": "trigger",
+        "updated_at": "UPDATED_AT",
+      },
+      {
+        "config": {},
+        "created_at": "CREATED_AT",
+        "description": "exit",
+        "id": "exit",
+        "name": "exit",
+        "on_error": "continue",
+        "type": "exit",
+        "updated_at": "UPDATED_AT",
+      },
+    ],
+    "conversion": null,
+    "created_at": "CREATED_AT",
+    "description": "",
+    "edges": [
+      {
+        "from": "trigger",
+        "to": "exit",
+        "type": "continue",
+      },
+    ],
+    "exit_condition": "exit_on_conversion",
+    "id": "<REPLACED-UUID-0>",
+    "name": "Test Hog Flow team 1",
+    "status": "active",
+    "team_id": "TEAM_ID",
+    "trigger": {
+      "filters": {
+        "actions": [],
+        "bytecode": [
+          "_h",
+          29,
+        ],
+        "events": [],
+      },
+      "type": "event",
+    },
+    "updated_at": "UPDATED_AT",
+    "version": 1,
+  },
+  {
+    "abort_action": null,
+    "actions": [
+      {
+        "config": {
+          "filters": {
+            "actions": [],
+            "bytecode": [
+              "_h",
+              29,
+            ],
+            "events": [],
+          },
+          "type": "event",
+        },
+        "created_at": "CREATED_AT",
+        "description": "trigger",
+        "id": "trigger",
+        "name": "trigger",
+        "on_error": "continue",
+        "type": "trigger",
+        "updated_at": "UPDATED_AT",
+      },
+      {
+        "config": {},
+        "created_at": "CREATED_AT",
+        "description": "exit",
+        "id": "exit",
+        "name": "exit",
+        "on_error": "continue",
+        "type": "exit",
+        "updated_at": "UPDATED_AT",
+      },
+    ],
+    "conversion": null,
+    "created_at": "CREATED_AT",
+    "description": "",
+    "edges": [
+      {
+        "from": "trigger",
+        "to": "exit",
+        "type": "continue",
+      },
+    ],
+    "exit_condition": "exit_on_conversion",
+    "id": "<REPLACED-UUID-1>",
+    "name": "Test Hog Flow team 1 - other",
+    "status": "active",
+    "team_id": "TEAM_ID",
+    "trigger": {
+      "filters": {
+        "actions": [],
+        "bytecode": [
+          "_h",
+          29,
+        ],
+        "events": [],
+      },
+      "type": "event",
+    },
+    "updated_at": "UPDATED_AT",
+    "version": 1,
+  },
+]
+`;

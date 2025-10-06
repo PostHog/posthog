@@ -1,14 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
+import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
-import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 import {
+    CommentOnRecordingButton,
+    EmojiCommentOnRecordingButton,
+} from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import {
+    ModesWithInteractions,
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -17,6 +21,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SessionPlayerState } from '~/types'
 
 import { playerSettingsLogic } from '../playerSettingsLogic'
+import { ClipRecording } from './ClipRecording'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
@@ -39,11 +44,11 @@ function PlayPauseButton(): JSX.Element {
             }
         >
             {showPause ? (
-                <IconPause className="text-2xl" />
+                <IconPause className="text-3xl" />
             ) : endReached ? (
-                <IconRewindPlay className="text-2xl" />
+                <IconRewindPlay className="text-3xl" />
             ) : (
-                <IconPlay className="text-2xl" />
+                <IconPlay className="text-3xl" />
             )}
         </LemonButton>
     )
@@ -61,7 +66,7 @@ function FullScreen(): JSX.Element {
                     <span>{!isFullScreen ? 'Go' : 'Exit'}</span> full screen <KeyboardShortcut f />
                 </>
             }
-            icon={<IconFullScreen className="text-2xl" />}
+            icon={<IconFullScreen className="text-xl" />}
             data-attr={isFullScreen ? 'exit-full-screen' : 'full-screen'}
         />
     )
@@ -86,19 +91,41 @@ function CinemaMode(): JSX.Element {
                 onClick={handleCinemaMode}
                 tooltip={
                     <>
-                        <span>{!isCinemaMode ? 'Enter' : 'Exit'}</span> cinema mode
+                        <span>{!isCinemaMode ? 'Enter' : 'Exit'}</span> cinema mode <KeyboardShortcut t />
                     </>
                 }
                 status={isCinemaMode ? 'danger' : 'default'}
-                icon={<IconVideoCamera className="text-2xl" />}
+                icon={<IconVideoCamera className="text-xl" />}
                 data-attr={isCinemaMode ? 'exit-cinema-mode' : 'cinema-mode'}
             />
         </>
     )
 }
 
+export function Screenshot({ className }: { className?: string }): JSX.Element {
+    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+
+    return (
+        <LemonButton
+            size="xsmall"
+            onClick={(e) => {
+                e.stopPropagation()
+                takeScreenshot()
+            }}
+            tooltip={
+                <>
+                    Take a screenshot of this point in the recording <KeyboardShortcut s />
+                </>
+            }
+            icon={<IconCamera className={cn('text-xl', className)} />}
+            data-attr="replay-screenshot-png"
+            tooltipPlacement="top"
+        />
+    )
+}
+
 export function PlayerController(): JSX.Element {
-    const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { playlistLogic, logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
@@ -109,7 +136,17 @@ export function PlayerController(): JSX.Element {
     })
 
     return (
-        <div className="bg-surface-primary flex flex-col select-none">
+        <div
+            className={cn(
+                'flex flex-col select-none',
+                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-25 ease-in-out' : '',
+                hoverModeIsEnabled && showPlayerChrome
+                    ? 'opacity-100 bg-surface-primary pointer-events-auto'
+                    : hoverModeIsEnabled
+                      ? 'opacity-0 pointer-events-none'
+                      : 'bg-surface-primary'
+            )}
+        >
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
                 <Timestamp size={size} />
@@ -119,13 +156,18 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                 </div>
                 <div className="flex justify-end items-center">
-                    {!isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && (
+                    {!isCinemaMode && ModesWithInteractions.includes(playerMode) && (
                         <>
                             <CommentOnRecordingButton />
-                            {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
+                            <EmojiCommentOnRecordingButton />
+                            <Screenshot />
+                            <ClipRecording />
                         </>
                     )}
-                    <CinemaMode />
+                    {playlistLogic && ModesWithInteractions.includes(playerMode) ? (
+                        <PlayerUpNext playlistLogic={playlistLogic} />
+                    ) : undefined}
+                    {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
                     <FullScreen />
                 </div>
             </div>

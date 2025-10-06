@@ -177,7 +177,6 @@ def test_slice_record_batch_in_half():
     assert all(slice.num_rows == 3 for slice in slices)
 
 
-@pytest.mark.skip(reason="Flaky, needs to be fixed")
 def test_slice_large_record_batch():
     """Test we can slice a record batch with plenty of elements and data.
 

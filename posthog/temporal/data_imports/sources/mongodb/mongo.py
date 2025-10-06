@@ -6,6 +6,7 @@ import collections
 from collections.abc import Iterator
 from typing import Any, Optional
 
+import certifi
 from bson import ObjectId
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymongo import MongoClient
@@ -99,7 +100,9 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
     """Yield a MongoDB client with the given parameters."""
     # For SRV connections, use the full connection string
     if connection_params["is_srv"]:
-        client: MongoClient = MongoClient(connection_string, serverSelectionTimeoutMS=10000)
+        client: MongoClient = MongoClient(
+            connection_string, serverSelectionTimeoutMS=10000, tls=True, tlsCAFile=certifi.where()
+        )
         try:
             yield client
         finally:
@@ -124,6 +127,7 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
 
     if connection_params["tls"]:
         connection_kwargs["tls"] = True
+        connection_kwargs["tlsCAFile"] = certifi.where()
 
     client = MongoClient(**connection_kwargs)
 

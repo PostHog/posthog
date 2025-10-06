@@ -1,6 +1,5 @@
 import { IconPieChart } from '@posthog/icons'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { WebAnalyticsDashboard } from 'scenes/web-analytics/WebAnalyticsDashboard'
 import { WebAnalyticsHeaderButtons } from 'scenes/web-analytics/WebAnalyticsHeaderButtons'
@@ -13,22 +12,23 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 export function WebAnalyticsScene(): JSX.Element {
     return (
         <>
-            <PageHeader buttons={<WebAnalyticsHeaderButtons />} />
             <SceneContent>
-                <SceneTitleSection
-                    name="Web analytics"
-                    description="Analyze your web analytics data to understand website performance and user behavior."
-                    resourceType={{
-                        type: 'web',
-                        typePlural: 'Web analytics',
-                        forceIcon: <IconPieChart />,
-                        forceIconColorOverride: [
-                            'var(--color-product-web-analytics-light)',
-                            'var(--color-product-web-analytics-dark)',
-                        ],
-                    }}
-                />
-                <SceneDivider />
+                <div className="flex flex-col gap-4">
+                    <SceneTitleSection
+                        name="Web analytics"
+                        description="Analyze your web analytics data to understand website performance and user behavior."
+                        resourceType={{
+                            type: 'web',
+                            forceIcon: <IconPieChart />,
+                            forceIconColorOverride: [
+                                'var(--color-product-web-analytics-light)',
+                                'var(--color-product-web-analytics-dark)',
+                            ],
+                        }}
+                        actions={<WebAnalyticsHeaderButtons />}
+                    />
+                    <SceneDivider />
+                </div>
                 <WebAnalyticsDashboard />
             </SceneContent>
         </>

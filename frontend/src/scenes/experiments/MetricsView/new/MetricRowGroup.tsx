@@ -1,8 +1,10 @@
+import { useValues } from 'kea'
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 
@@ -13,6 +15,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
 
+import { experimentLogic } from '../../experimentLogic'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { MetricHeader } from '../shared/MetricHeader'
@@ -26,12 +29,14 @@ import {
     getNiceTickValues,
     isDeltaPositive,
     isSignificant,
+    isWinning,
 } from '../shared/utils'
 import { ChartCell } from './ChartCell'
 import { DetailsButton } from './DetailsButton'
 import { DetailsModal } from './DetailsModal'
 import { GridLines } from './GridLines'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
+import { TimeseriesModal } from './TimeseriesModal'
 import {
     CELL_HEIGHT,
     CHART_CELL_VIEW_BOX_HEIGHT,
@@ -55,6 +60,7 @@ interface MetricRowGroupProps {
     error?: any
     isLoading?: boolean
     hasMinimumExposureForResults?: boolean
+    exposuresLoading?: boolean
     showDetailsModal: boolean
 }
 
@@ -72,9 +78,17 @@ export function MetricRowGroup({
     error,
     isLoading,
     hasMinimumExposureForResults = true,
+    exposuresLoading = false,
     showDetailsModal,
 }: MetricRowGroupProps): JSX.Element {
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const [timeseriesModalState, setTimeseriesModalState] = useState<{
+        isOpen: boolean
+        variantResult: ExperimentVariantResult | null
+    }>({
+        isOpen: false,
+        variantResult: null,
+    })
     const [tooltipState, setTooltipState] = useState<{
         isVisible: boolean
         variantResult: ExperimentVariantResult | null
@@ -89,6 +103,9 @@ export function MetricRowGroup({
     const tooltipRef = useRef<HTMLDivElement>(null)
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+
+    const { featureFlags } = useValues(experimentLogic)
+    const timeseriesEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES]
 
     // Calculate total rows for loading/error states
     const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
@@ -168,6 +185,20 @@ export function MetricRowGroup({
         }
     }
 
+    const handleTimeseriesClick = (variantResult: ExperimentVariantResult): void => {
+        setTimeseriesModalState({
+            isOpen: true,
+            variantResult,
+        })
+    }
+
+    const handleTimeseriesModalClose = (): void => {
+        setTimeseriesModalState({
+            isOpen: false,
+            variantResult: null,
+        })
+    }
+
     // Handle loading or error states
     if (isLoading || error || !result || !hasMinimumExposureForResults) {
         return (
@@ -190,6 +221,7 @@ export function MetricRowGroup({
                         metric={metric}
                         metricType={metricType}
                         isPrimaryMetric={!isSecondary}
+                        experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
                     />
                 </td>
@@ -202,7 +234,7 @@ export function MetricRowGroup({
                     }`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    {isLoading ? (
+                    {isLoading || exposuresLoading ? (
                         <ChartLoadingState height={CELL_HEIGHT} />
                     ) : (
                         <ChartEmptyState
@@ -252,7 +284,7 @@ export function MetricRowGroup({
                             visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
                         }}
                     >
-                        {renderTooltipContent(tooltipState.variantResult)}
+                        {renderTooltipContent(tooltipState.variantResult, metric)}
                     </div>,
                     document.body
                 )}
@@ -278,6 +310,7 @@ export function MetricRowGroup({
                         metric={metric}
                         metricType={metricType}
                         isPrimaryMetric={!isSecondary}
+                        experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
                     />
                 </td>
@@ -381,6 +414,7 @@ export function MetricRowGroup({
                 const isLastRow = index === variantResults.length - 1
                 const significant = isSignificant(variant)
                 const deltaPositive = isDeltaPositive(variant)
+                const winning = isWinning(variant, metric.goal)
                 const deltaText = formatDeltaPercent(variant)
 
                 return (
@@ -426,7 +460,7 @@ export function MetricRowGroup({
                                 <span
                                     className={`${
                                         significant
-                                            ? deltaPositive
+                                            ? winning
                                                 ? 'text-success font-semibold'
                                                 : 'text-danger font-semibold'
                                             : 'text-text-primary'
@@ -435,7 +469,7 @@ export function MetricRowGroup({
                                     {deltaText}
                                 </span>
                                 {significant && deltaPositive !== undefined && (
-                                    <span className={`flex-shrink-0 ${deltaPositive ? 'text-success' : 'text-danger'}`}>
+                                    <span className={`flex-shrink-0 ${winning ? 'text-success' : 'text-danger'}`}>
                                         {deltaPositive ? (
                                             <IconTrending className="w-4 h-4" />
                                         ) : (
@@ -449,15 +483,26 @@ export function MetricRowGroup({
                         {/* Chart */}
                         <ChartCell
                             variantResult={variant}
+                            metric={metric}
                             axisRange={axisRange}
                             metricUuid={metric.uuid}
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
                             isSecondary={isSecondary}
+                            onTimeseriesClick={timeseriesEnabled ? () => handleTimeseriesClick(variant) : undefined}
                         />
                     </tr>
                 )
             })}
+            {timeseriesModalState.variantResult && (
+                <TimeseriesModal
+                    isOpen={timeseriesModalState.isOpen}
+                    onClose={handleTimeseriesModalClose}
+                    metric={metric}
+                    variantResult={timeseriesModalState.variantResult}
+                    experiment={experiment}
+                />
+            )}
         </>
     )
 }

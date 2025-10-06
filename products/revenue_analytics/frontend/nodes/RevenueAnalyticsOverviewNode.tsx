@@ -1,9 +1,10 @@
-import { useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber, range } from 'lib/utils'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
@@ -19,16 +20,27 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-
-const NUM_SKELETONS = 3
 const HEIGHT_CLASS = 'h-30'
+
+const LABEL_FROM_KEY: Record<RevenueAnalyticsOverviewItemKey, string> = {
+    revenue: 'Revenue',
+    paying_customer_count: 'Distinct paying customers',
+    avg_revenue_per_customer: 'Avg. Revenue per paying customer',
+}
+
+type Item = {
+    key: RevenueAnalyticsOverviewItemKey
+    label: string
+    loading: boolean
+    item?: RevenueAnalyticsOverviewItem
+}
 
 let uniqueNode = 0
 export function RevenueAnalyticsOverviewNode(props: {
     query: RevenueAnalyticsOverviewQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsOverview.${uniqueNode++}`)
@@ -41,10 +53,25 @@ export function RevenueAnalyticsOverviewNode(props: {
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
 
+    useAttachedLogic(logic, props.attachTo)
+
     const { response, responseLoading } = useValues(logic)
     const queryResponse = response as RevenueAnalyticsOverviewQueryResponse | undefined
 
-    const results = responseLoading ? range(NUM_SKELETONS).map(() => undefined) : (queryResponse?.results ?? [])
+    const responseByKey = (queryResponse?.results?.reduce(
+        (acc, item) => {
+            acc[item.key] = item
+            return acc
+        },
+        {} as Record<RevenueAnalyticsOverviewItemKey, RevenueAnalyticsOverviewItem>
+    ) ?? {}) as Record<RevenueAnalyticsOverviewItemKey, RevenueAnalyticsOverviewItem>
+
+    const results: Item[] = Object.entries(LABEL_FROM_KEY).map(([key, label]) => ({
+        key: key as RevenueAnalyticsOverviewItemKey,
+        label,
+        loading: responseLoading,
+        item: responseByKey[key as RevenueAnalyticsOverviewItemKey],
+    }))
 
     return (
         <div className="flex flex-row flex-wrap md:flex-nowrap w-full gap-2">
@@ -62,33 +89,29 @@ export function RevenueAnalyticsOverviewNode(props: {
     )
 }
 
-const ItemCell = ({ item }: { item?: RevenueAnalyticsOverviewItem }): JSX.Element => {
+const ItemCell = ({ item }: { item: Item }): JSX.Element => {
     const { baseCurrency } = useValues(teamLogic)
-    const {
-        dateFilter: { dateFrom, dateTo },
-    } = useValues(revenueAnalyticsLogic)
 
-    const label: React.ReactNode = item ? (
-        <div className="font-bold uppercase text-xs py-1">{labelFromKey(item.key, dateFrom, dateTo)}</div>
+    const value: React.ReactNode = item.loading ? (
+        <LemonSkeleton className="w-1/3 h-8" />
     ) : (
-        <LemonSkeleton className="w-1/2 h-4" />
-    )
-    const value: React.ReactNode = item ? (
         <div
             className={cn(
                 'w-full flex-1 flex items-center justify-center',
                 item.key === 'revenue' ? 'text-4xl' : 'text-2xl'
             )}
         >
-            {formatItem(item, baseCurrency)}
+            {item.item ? (
+                formatItem(item.item, baseCurrency)
+            ) : (
+                <span className="text-danger text-xs">Error loading data</span>
+            )}
         </div>
-    ) : (
-        <LemonSkeleton className="w-1/3 h-8" />
     )
 
     return (
         <div className="flex flex-col items-center text-center justify-around w-full h-full border p-2 bg-surface-primary rounded">
-            {label}
+            <div className="font-bold uppercase text-xs py-1">{item.label}</div>
             {value}
         </div>
     )
@@ -101,24 +124,4 @@ const formatItem = (item: RevenueAnalyticsOverviewItem, currency: CurrencyCode):
 
     const { symbol, isPrefix } = getCurrencySymbol(currency)
     return `${isPrefix ? symbol : ''}${humanFriendlyNumber(item.value, 2, 2)}${isPrefix ? '' : ' ' + symbol}`
-}
-
-const LABEL_FROM_KEY: Record<RevenueAnalyticsOverviewItemKey, string> = {
-    revenue: 'Revenue',
-    paying_customer_count: 'Distinct paying customers',
-    avg_revenue_per_customer: 'Avg. revenue per customer',
-}
-
-const labelFromKey = (key: RevenueAnalyticsOverviewItemKey, dateFrom: string | null, dateTo: string | null): string => {
-    // If it's a monthly period, then show the MRR label
-    if (key === 'revenue' && dateFrom?.match(/^(-?\d+mStart)$/) && dateTo?.match(/^(-?\d+mEnd)$/)) {
-        return 'MRR'
-    }
-
-    // If we're looking at an "all" (All time) period, then show LTV for revenue per customer
-    if (key === 'avg_revenue_per_customer' && dateFrom === 'all') {
-        return 'LTV'
-    }
-
-    return LABEL_FROM_KEY[key]
 }

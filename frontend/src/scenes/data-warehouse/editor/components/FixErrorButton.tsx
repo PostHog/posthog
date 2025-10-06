@@ -70,7 +70,7 @@ export function FixErrorButton({ type, size, contentOverride, source }: FixError
             disabledReason={disabledReason}
             icon={icon}
             onClick={() => {
-                fixHogQLErrors(queryInput, queryError)
+                fixHogQLErrors(queryInput ?? '', queryError)
                 posthog.capture(`sql-editor-fix-error-click`, { source })
             }}
         >

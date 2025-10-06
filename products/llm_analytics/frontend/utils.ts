@@ -11,6 +11,8 @@ import {
     AnthropicToolResultMessage,
     CompatMessage,
     CompatToolCall,
+    LiteLLMChoice,
+    LiteLLMResponse,
     OpenAICompletionMessage,
     OpenAIToolCall,
     VercelSDKImageMessage,
@@ -93,6 +95,22 @@ export function getSessionID(event: LLMTrace | LLMTraceEvent): string | null {
     return event.events.find((e) => e.properties.$session_id !== null)?.properties.$session_id || null
 }
 
+export function getEventType(event: LLMTrace | LLMTraceEvent): string {
+    if (isLLMTraceEvent(event)) {
+        switch (event.event) {
+            case '$ai_generation':
+                return 'generation'
+            case '$ai_embedding':
+                return 'embedding'
+            case '$ai_trace':
+                return 'trace'
+            default:
+                return 'span'
+        }
+    }
+    return 'trace'
+}
+
 export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | null {
     if (isLLMTraceEvent(event)) {
         return event.properties.$recording_status || null
@@ -128,16 +146,27 @@ export function isOpenAICompatMessage(output: unknown): output is OpenAICompleti
 }
 
 export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCall[] {
-    const toolsWithParsedArguments = toolCalls.map((toolCall) => ({
-        ...toolCall,
-        function: {
-            ...toolCall.function,
-            arguments:
-                typeof toolCall.function.arguments === 'string'
-                    ? JSON.parse(toolCall.function.arguments)
-                    : toolCall.function.arguments,
-        },
-    }))
+    const toolsWithParsedArguments = toolCalls.map((toolCall) => {
+        let parsedArguments = toolCall.function.arguments
+
+        if (typeof toolCall.function.arguments === 'string') {
+            try {
+                parsedArguments = JSON.parse(toolCall.function.arguments)
+            } catch (e) {
+                console.warn('Failed to parse tool call arguments as JSON:', toolCall.function.arguments, e)
+                // Keep the original string if parsing fails
+                parsedArguments = toolCall.function.arguments
+            }
+        }
+
+        return {
+            ...toolCall,
+            function: {
+                ...toolCall.function,
+                arguments: parsedArguments,
+            },
+        }
+    })
 
     return toolsWithParsedArguments
 }
@@ -214,16 +243,58 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
         typeof input.text === 'string'
     )
 }
+
+export function isLiteLLMChoice(input: unknown): input is LiteLLMChoice {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'finish_reason' in input &&
+        'index' in input &&
+        'message' in input &&
+        typeof input.message === 'object' &&
+        input.message !== null
+    )
+}
+
+export function isLiteLLMResponse(input: unknown): input is LiteLLMResponse {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'choices' in input &&
+        Array.isArray(input.choices) &&
+        input.choices.every(isLiteLLMChoice)
+    )
+}
+
+export const roleMap: Record<string, string> = {
+    user: 'user',
+    human: 'user',
+
+    assistant: 'assistant',
+    model: 'assistant',
+    ai: 'assistant',
+    bot: 'assistant',
+
+    system: 'system',
+    instructions: 'system',
+}
+
+export function normalizeRole(rawRole: unknown, fallback: string): string {
+    if (typeof rawRole !== 'string') {
+        return fallback
+    }
+    const lowercased = rawRole.toLowerCase()
+    return roleMap[lowercased] || lowercased
+}
+
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Analytics schema.
  *
  * @param output - Original message from an LLM provider.
- * @param defaultRole - Optional default role to use if the message doesn't have one.
+ * @param defaultRole - The default role to use if the message doesn't have one.
  * @returns The normalized message.
  */
-export function normalizeMessage(output: unknown, defaultRole?: string): CompatMessage[] {
-    const role = defaultRole || 'user'
-
+export function normalizeMessage(output: unknown, defaultRole: string): CompatMessage[] {
     // Handle new array-based content format (unified format with structured objects)
     // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
     if (
@@ -244,17 +315,21 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     ) {
         return [
             {
-                role: output.role === 'user' ? 'user' : 'assistant',
+                role: normalizeRole(output.role, defaultRole),
                 content: output.content,
             },
         ]
+    }
+
+    if (isLiteLLMChoice(output)) {
+        return normalizeMessage(output.message, defaultRole)
     }
 
     // Vercel SDK
     if (isVercelSDKTextMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.content,
             },
         ]
@@ -264,7 +339,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isVercelSDKInputImageMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: [
                     {
                         type: 'image',
@@ -279,7 +354,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isVercelSDKInputTextMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.text,
             },
         ]
@@ -290,7 +365,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         return [
             {
                 ...output,
-                role: output.role,
+                role: normalizeRole(output.role, defaultRole),
                 content: output.content,
                 tool_calls: isOpenAICompatToolCallsArray(output.tool_calls)
                     ? parseOpenAIToolCalls(output.tool_calls)
@@ -305,7 +380,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicTextMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.text,
             },
         ]
@@ -314,7 +389,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicToolCallMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: '',
                 tool_calls: [
                     {
@@ -333,7 +408,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicThinkingMessage(output)) {
         return [
             {
-                role: 'assistant (thinking)',
+                role: normalizeRole('assistant (thinking)', defaultRole),
                 content: output.thinking,
             },
         ]
@@ -342,7 +417,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicToolResultMessage(output)) {
         if (Array.isArray(output.content)) {
             return output.content
-                .map((content) => normalizeMessage(content, role))
+                .map((content) => normalizeMessage(content, defaultRole))
                 .flat()
                 .map((message) => ({
                     ...message,
@@ -351,7 +426,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         }
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.content,
                 tool_call_id: output.tool_use_id,
             },
@@ -362,12 +437,12 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicRoleBasedMessage(output)) {
         // Content is a nested array (tool responses, etc.)
         if (Array.isArray(output.content)) {
-            return output.content.map((content) => normalizeMessage(content, output.role)).flat()
+            return output.content.map((content) => normalizeMessage(content, defaultRole)).flat()
         }
 
         return [
             {
-                role: output.role,
+                role: normalizeRole(output.role, defaultRole),
                 content: output.content,
             },
         ]
@@ -387,10 +462,10 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     } else {
         cajoledContent = JSON.stringify(output)
     }
-    return [{ role, content: cajoledContent }]
+    return [{ role: defaultRole, content: cajoledContent }]
 }
 
-export function normalizeMessages(messages: unknown, defaultRole?: string, tools?: unknown): CompatMessage[] {
+export function normalizeMessages(messages: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
     const normalizedMessages: CompatMessage[] = []
 
     if (tools) {
@@ -403,11 +478,15 @@ export function normalizeMessages(messages: unknown, defaultRole?: string, tools
 
     if (Array.isArray(messages)) {
         normalizedMessages.push(...messages.map((message) => normalizeMessage(message, defaultRole)).flat())
+    } else if (isLiteLLMResponse(messages)) {
+        normalizedMessages.push(
+            ...(messages.choices || []).map((choice) => normalizeMessage(choice, defaultRole)).flat()
+        )
     } else if (typeof messages === 'object' && messages && 'choices' in messages && Array.isArray(messages.choices)) {
         normalizedMessages.push(...messages.choices.map((message) => normalizeMessage(message, defaultRole)).flat())
     } else if (typeof messages === 'string') {
         normalizedMessages.push({
-            role: defaultRole || 'user',
+            role: defaultRole,
             content: messages,
         })
     } else if (typeof messages === 'object' && messages !== null) {
@@ -480,4 +559,24 @@ export function looksLikeXml(input: unknown): boolean {
     const isNameStart =
         !!next && ((next >= 'A' && next <= 'Z') || (next >= 'a' && next <= 'z') || next === '_' || next === ':')
     return isNameStart
+}
+
+/**
+ * Formats an ID for display by truncating it to the first and last 4 characters:
+ * `1234567890` -> `1234...7890`
+ * @param value - The string to format.
+ * @returns The formatted string.
+ */
+export function truncateValue(value: unknown): string {
+    if (value === null || value === undefined) {
+        return '-'
+    }
+
+    const stringValue = String(value)
+
+    if (stringValue.length <= 12) {
+        return stringValue
+    }
+
+    return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
 }

@@ -1,5 +1,6 @@
 use crate::{
     api::types::FlagsResponse,
+    database::PostgresRouter,
     flags::{flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher},
 };
 use uuid::Uuid;
@@ -13,12 +14,19 @@ pub async fn evaluate_feature_flags(
 ) -> FlagsResponse {
     let group_type_mapping_cache = GroupTypeMappingCache::new(context.project_id);
 
+    // Create router from the context
+    let router = PostgresRouter::new(
+        context.persons_reader,
+        context.persons_writer,
+        context.non_persons_reader,
+        context.non_persons_writer,
+    );
+
     let mut matcher = FeatureFlagMatcher::new(
         context.distinct_id,
         context.team_id,
         context.project_id,
-        context.reader,
-        context.writer,
+        router,
         context.cohort_cache,
         Some(group_type_mapping_cache),
         context.groups,
@@ -29,7 +37,7 @@ pub async fn evaluate_feature_flags(
             context.feature_flags,
             context.person_property_overrides,
             context.group_property_overrides,
-            context.hash_key_override,
+            context.hash_key_override, // Aka $anon_distinct_id
             request_id,
             context.flag_keys,
         )

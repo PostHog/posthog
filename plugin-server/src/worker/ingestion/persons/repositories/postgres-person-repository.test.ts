@@ -788,6 +788,126 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
+    describe('fetchPersonsByDistinctIds()', () => {
+        it('should return empty array when no team persons provided', async () => {
+            const result = await repository.fetchPersonsByDistinctIds([])
+            expect(result).toEqual([])
+        })
+
+        it('should fetch persons by distinct IDs from multiple teams', async () => {
+            const team1 = await getFirstTeam(hub)
+            const team2Id = await createTeam(postgres, team1.organization_id)
+
+            // Create persons in different teams
+            const person1 = await createTestPerson(team1.id, 'distinct-1', { name: 'Person 1' })
+            const person2 = await createTestPerson(team1.id, 'distinct-2', { name: 'Person 2' })
+            const person3 = await createTestPerson(team2Id, 'distinct-3', { name: 'Person 3' })
+
+            const teamPersons = [
+                { teamId: team1.id, distinctId: 'distinct-1' },
+                { teamId: team1.id, distinctId: 'distinct-2' },
+                { teamId: team2Id, distinctId: 'distinct-3' },
+            ]
+
+            const result = await repository.fetchPersonsByDistinctIds(teamPersons)
+
+            expect(result).toHaveLength(3)
+
+            // Check that we got the right persons with distinct_id included
+            const person1Result = result.find((p) => p.distinct_id === 'distinct-1')
+            expect(person1Result).toBeDefined()
+            expect(person1Result!.uuid).toBe(person1.uuid)
+            expect(person1Result!.team_id).toBe(team1.id)
+            expect(person1Result!.properties.name).toBe('Person 1')
+
+            const person2Result = result.find((p) => p.distinct_id === 'distinct-2')
+            expect(person2Result).toBeDefined()
+            expect(person2Result!.uuid).toBe(person2.uuid)
+            expect(person2Result!.team_id).toBe(team1.id)
+            expect(person2Result!.properties.name).toBe('Person 2')
+
+            const person3Result = result.find((p) => p.distinct_id === 'distinct-3')
+            expect(person3Result).toBeDefined()
+            expect(person3Result!.uuid).toBe(person3.uuid)
+            expect(person3Result!.team_id).toBe(team2Id)
+            expect(person3Result!.properties.name).toBe('Person 3')
+        })
+
+        it('should handle non-existent distinct IDs gracefully', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'existing-distinct', { name: 'Existing Person' })
+
+            const teamPersons = [
+                { teamId: team.id as any, distinctId: 'existing-distinct' },
+                { teamId: team.id as any, distinctId: 'non-existent-distinct' },
+            ]
+
+            const result = await repository.fetchPersonsByDistinctIds(teamPersons)
+
+            // Should only return the existing person
+            expect(result).toHaveLength(1)
+            expect(result[0].distinct_id).toBe('existing-distinct')
+            expect(result[0].uuid).toBe(person.uuid)
+        })
+
+        it('should handle single team person lookup', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'single-distinct', { name: 'Single Person' })
+
+            const teamPersons = [{ teamId: team.id as any, distinctId: 'single-distinct' }]
+
+            const result = await repository.fetchPersonsByDistinctIds(teamPersons)
+
+            expect(result).toHaveLength(1)
+            expect(result[0].distinct_id).toBe('single-distinct')
+            expect(result[0].uuid).toBe(person.uuid)
+            expect(result[0].team_id).toBe(team.id)
+            expect(result[0].properties.name).toBe('Single Person')
+        })
+
+        it('should handle duplicate team/distinctId pairs', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'duplicate-distinct', { name: 'Duplicate Person' })
+
+            const teamPersons = [
+                { teamId: team.id as any, distinctId: 'duplicate-distinct' },
+                { teamId: team.id as any, distinctId: 'duplicate-distinct' }, // Same pair
+            ]
+
+            const result = await repository.fetchPersonsByDistinctIds(teamPersons)
+
+            // Should only return one result even though we queried twice
+            expect(result).toHaveLength(1)
+            expect(result[0].distinct_id).toBe('duplicate-distinct')
+            expect(result[0].uuid).toBe(person.uuid)
+        })
+
+        it('should include all required fields in InternalPersonWithDistinctId', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'fields-test', { name: 'Fields Test', age: 25 })
+
+            const teamPersons = [{ teamId: team.id as any, distinctId: 'fields-test' }]
+
+            const result = await repository.fetchPersonsByDistinctIds(teamPersons)
+
+            expect(result).toHaveLength(1)
+            const personResult = result[0]
+
+            // Check all InternalPerson fields are present
+            expect(personResult.id).toBe(person.id)
+            expect(personResult.uuid).toBe(person.uuid)
+            expect(personResult.properties).toEqual({ name: 'Fields Test', age: 25 })
+            expect(personResult.created_at).toEqual(person.created_at)
+            expect(personResult.version).toBe(person.version)
+            expect(personResult.is_user_id).toBe(person.is_user_id)
+            expect(personResult.is_identified).toBe(person.is_identified)
+            expect(personResult.team_id).toBe(person.team_id)
+
+            // Check the additional distinct_id field
+            expect(personResult.distinct_id).toBe('fields-test')
+        })
+    })
+
     describe('addPersonlessDistinctId', () => {
         it('should insert personless distinct ID successfully', async () => {
             const team = await getFirstTeam(hub)

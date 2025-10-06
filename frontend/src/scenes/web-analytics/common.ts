@@ -386,3 +386,12 @@ export const checkCustomEventConversionGoalHasSessionIdsHelper = async (
         setConversionGoalWarning(null)
     }
 }
+
+export const eventPropertiesToPathClean = new Set(['$pathname', '$current_url', '$prev_pageview_pathname'])
+export const sessionPropertiesToPathClean = new Set([
+    '$entry_pathname',
+    '$end_pathname',
+    '$entry_current_url',
+    '$end_current_url',
+])
+export const personPropertiesToPathClean = new Set(['$initial_pathname', '$initial_current_url'])

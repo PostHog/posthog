@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { managedMigrationLogicType } from './managedMigrationLogicType'
@@ -27,6 +28,10 @@ export interface ManagedMigrationForm {
     end_date?: string
     // EU region support for amplitude/mixpanel
     is_eu_region?: boolean
+    // Amplitude-specific options
+    import_events?: boolean
+    generate_identify_events?: boolean
+    generate_group_identify_events?: boolean
 }
 
 const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
@@ -40,6 +45,9 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     start_date: '',
     end_date: '',
     is_eu_region: false,
+    import_events: true,
+    generate_identify_events: true,
+    generate_group_identify_events: true,
 }
 
 export const managedMigrationLogic = kea<managedMigrationLogicType>([
@@ -79,6 +87,9 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 s3_bucket,
                 start_date,
                 end_date,
+                import_events,
+                generate_identify_events,
+                generate_group_identify_events,
             }: ManagedMigrationForm) => {
                 const errors: Record<string, string | null> = {
                     access_key: !access_key ? 'Access key is required' : null,
@@ -101,6 +112,14 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         } else if (endDateParsed.diff(startDateParsed, 'year', true) > 1) {
                             errors.end_date =
                                 'Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods.'
+                        }
+                    }
+
+                    // For Amplitude, ensure at least one of import_events, generate_identify_events, or generate_group_identify_events is enabled
+                    if (source_type === 'amplitude') {
+                        if (!import_events && !generate_identify_events && !generate_group_identify_events) {
+                            errors.import_events =
+                                'At least one of "Import events", "Generate identify events", or "Generate group identify events" must be enabled'
                         }
                     }
                 }
@@ -127,6 +146,13 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         start_date: values.start_date,
                         end_date: values.end_date,
                         is_eu_region: values.is_eu_region,
+                    }
+
+                    // Only include Amplitude-specific options for Amplitude migrations
+                    if (values.source_type === 'amplitude') {
+                        payload.import_events = values.import_events
+                        payload.generate_identify_events = values.generate_identify_events
+                        payload.generate_group_identify_events = values.generate_group_identify_events
                     }
                 }
                 try {
@@ -189,6 +215,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     key: 'managed-migrations',
                     name: 'Managed Migrations',
                     path: urls.managedMigration(),
+                    iconType: 'data_pipeline_metadata',
                 },
                 ...(managedMigrationId
                     ? [
@@ -196,6 +223,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                               key: 'edit-migration',
                               name: 'Manage migration',
                               path: urls.managedMigration(),
+                              iconType: 'data_pipeline_metadata' as FileSystemIconType,
                           },
                       ]
                     : []),

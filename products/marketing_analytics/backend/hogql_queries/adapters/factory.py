@@ -10,6 +10,10 @@ from posthog.hogql.database.database import create_hogql_database
 
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
 
+from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
+
 from ..constants import (
     FALLBACK_EMPTY_QUERY,
     TABLE_PATTERNS,
@@ -17,7 +21,15 @@ from ..constants import (
     VALID_NON_NATIVE_MARKETING_SOURCES,
 )
 from ..utils import map_url_to_provider
-from .base import ExternalConfig, GoogleAdsConfig, MarketingSourceAdapter, QueryContext
+from .base import (
+    ExternalConfig,
+    GoogleAdsConfig,
+    LinkedinAdsConfig,
+    MarketingSourceAdapter,
+    MetaAdsConfig,
+    QueryContext,
+    RedditAdsConfig,
+)
 from .bigquery import BigQueryAdapter
 from .google_ads import GoogleAdsAdapter
 from .self_managed import AWSAdapter, AzureAdapter, CloudflareR2Adapter, GoogleCloudAdapter
@@ -32,6 +44,9 @@ class MarketingSourceFactory:
     _adapter_registry: dict[str, type[MarketingSourceAdapter]] = {
         # Native adapters
         "GoogleAds": GoogleAdsAdapter,
+        "LinkedinAds": LinkedinAdsAdapter,
+        "RedditAds": RedditAdsAdapter,
+        "MetaAds": MetaAdsAdapter,
         # Non-native adapters
         "BigQuery": BigQueryAdapter,
         # Self-managed adapters
@@ -44,6 +59,9 @@ class MarketingSourceFactory:
     # Config builders for native sources
     _config_builders = {
         "GoogleAds": "_create_googleads_config",
+        "LinkedinAds": "_create_linkedinads_config",
+        "RedditAds": "_create_redditads_config",
+        "MetaAds": "_create_metaads_config",
     }
 
     def __init__(self, context: QueryContext):
@@ -128,6 +146,102 @@ class MarketingSourceFactory:
             return None
 
         config = GoogleAdsConfig(
+            source_type=source.source_type,
+            campaign_table=campaign_table,
+            stats_table=campaign_stats_table,
+            source_id=str(source.id),
+        )
+
+        return config
+
+    def _create_linkedinads_config(
+        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
+    ) -> Optional[LinkedinAdsConfig]:
+        """Create LinkedIn Ads adapter config with campaign and stats tables"""
+        patterns = TABLE_PATTERNS["LinkedinAds"]
+        campaign_table = None
+        campaign_stats_table = None
+
+        for table in tables:
+            table_suffix = table.name.split(".")[-1].lower()
+
+            # Check for campaign table
+            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
+                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+            ):
+                campaign_table = table
+            # Check for stats table
+            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
+                campaign_stats_table = table
+
+        if not (campaign_table and campaign_stats_table):
+            return None
+
+        config = LinkedinAdsConfig(
+            source_type=source.source_type,
+            campaign_table=campaign_table,
+            stats_table=campaign_stats_table,
+            source_id=str(source.id),
+        )
+
+        return config
+
+    def _create_redditads_config(
+        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
+    ) -> Optional[RedditAdsConfig]:
+        """Create Reddit Ads adapter config with campaign and stats tables"""
+        patterns = TABLE_PATTERNS["RedditAds"]
+        campaign_table = None
+        campaign_stats_table = None
+
+        for table in tables:
+            table_suffix = table.name.split(".")[-1].lower()
+
+            # Check for campaign table
+            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
+                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+            ):
+                campaign_table = table
+            # Check for stats table
+            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
+                campaign_stats_table = table
+
+        if not (campaign_table and campaign_stats_table):
+            return None
+
+        config = RedditAdsConfig(
+            source_type=source.source_type,
+            campaign_table=campaign_table,
+            stats_table=campaign_stats_table,
+            source_id=str(source.id),
+        )
+
+        return config
+
+    def _create_metaads_config(
+        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
+    ) -> Optional[MetaAdsConfig]:
+        """Create Meta Ads adapter config with campaign and stats tables"""
+        patterns = TABLE_PATTERNS["MetaAds"]
+        campaign_table = None
+        campaign_stats_table = None
+
+        for table in tables:
+            table_suffix = table.name.split(".")[-1].lower()
+
+            # Check for campaign table
+            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
+                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+            ):
+                campaign_table = table
+            # Check for stats table
+            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
+                campaign_stats_table = table
+
+        if not (campaign_table and campaign_stats_table):
+            return None
+
+        config = MetaAdsConfig(
             source_type=source.source_type,
             campaign_table=campaign_table,
             stats_table=campaign_stats_table,
@@ -240,8 +354,12 @@ class MarketingSourceFactory:
 
     def build_union_query(self, adapters: list[MarketingSourceAdapter]) -> str:
         """Build union query from all valid adapters"""
+        # Sort adapters by source_id to ensure deterministic UNION ALL ordering
+        # This prevents flaky tests where query optimizer reorders UNION ALL clauses
+        sorted_adapters = sorted(adapters, key=lambda adapter: adapter.config.source_id)
+
         queries = []
-        for adapter in adapters:
+        for adapter in sorted_adapters:
             try:
                 query = adapter.build_query_string()
                 if query:

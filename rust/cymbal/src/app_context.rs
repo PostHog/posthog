@@ -23,6 +23,7 @@ use crate::{
         caching::{Caching, SymbolSetCache},
         chunk_id::ChunkIdFetcher,
         concurrency,
+        hermesmap::HermesMapProvider,
         saving::Saving,
         sourcemap::SourcemapProvider,
         Catalog, S3Client,
@@ -107,34 +108,42 @@ impl AppContext {
         )));
 
         let smp = SourcemapProvider::new(config);
-
-        let chunk_layer = ChunkIdFetcher::new(
+        let smp_chunk = ChunkIdFetcher::new(
             smp,
             s3_client.clone(),
             pool.clone(),
             config.object_storage_bucket.clone(),
         );
-
-        let saving_layer = Saving::new(
-            chunk_layer,
+        let smp_saving = Saving::new(
+            smp_chunk,
             pool.clone(),
             s3_client.clone(),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
-        let caching_layer = Caching::new(saving_layer, ss_cache.clone());
+        let smp_caching = Caching::new(smp_saving, ss_cache.clone());
         // We want to fetch each sourcemap from the outside world
         // exactly once, and if it isn't in the cache, load/parse
         // it from s3 exactly once too. Limiting the per symbol set
         // reference concurrency to 1 ensures this.
-        let limited_layer = concurrency::AtMostOne::new(caching_layer);
+        let smp_atmostonce = concurrency::AtMostOne::new(smp_caching);
+
+        let hmp = HermesMapProvider {};
+        let hmp_chunk = ChunkIdFetcher::new(
+            hmp,
+            s3_client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+        let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
+        // We skip the saving layer for HermesMapProvider, since it'll never fetch something from the outside world.
 
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Catalog::new(limited_layer);
+        let catalog = Catalog::new(smp_atmostonce, hmp_caching);
         let resolver = Resolver::new(config);
 
         let team_manager = TeamManager::new(config);

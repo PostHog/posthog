@@ -40,7 +40,7 @@ jobs:
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
                         - 'plugin-server/**'
-                        - 'posthog/clickhouse/migrations/**'
+                        - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
@@ -230,7 +230,6 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-                  COUNTERS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/counters'
               run: pnpm --filter=@posthog/plugin-server setup:test
 
             - name: Test with Jest
@@ -239,7 +238,6 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
-                  COUNTERS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_counters'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}

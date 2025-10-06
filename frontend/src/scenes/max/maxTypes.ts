@@ -2,6 +2,8 @@ import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/sc
 import { integer } from '~/queries/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
+
 export enum MaxContextType {
     DASHBOARD = 'dashboard',
     INSIGHT = 'insight',
@@ -17,6 +19,8 @@ export interface MaxInsightContext {
     name?: string | null
     description?: string | null
     query: QuerySchema // The actual query node, e.g., TrendsQuery, HogQLQuery
+    filtersOverride?: DashboardFilter
+    variablesOverride?: Record<string, HogQLVariable>
 }
 
 export interface MaxDashboardContext {
@@ -48,8 +52,6 @@ export interface MaxUIContext {
     insights?: MaxInsightContext[]
     events?: MaxEventContext[]
     actions?: MaxActionContext[]
-    filters_override?: DashboardFilter
-    variables_override?: Record<string, HogQLVariable>
 }
 
 // Taxonomic filter options
@@ -67,6 +69,9 @@ export type MaxContextItem = MaxInsightContext | MaxDashboardContext | MaxEventC
 type MaxInsightContextInput = {
     type: MaxContextType.INSIGHT
     data: InsightWithQuery
+    filtersOverride?: DashboardFilter
+    variablesOverride?: Record<string, HogQLVariable>
+    revenueAnalyticsQuery?: RevenueAnalyticsQuery
 }
 type MaxDashboardContextInput = {
     type: MaxContextType.DASHBOARD
@@ -96,9 +101,23 @@ export const createMaxContextHelpers = {
         data: dashboard,
     }),
 
-    insight: (insight: InsightWithQuery): MaxInsightContextInput => ({
+    insight: (
+        insight: InsightWithQuery,
+        {
+            filtersOverride,
+            variablesOverride,
+            revenueAnalyticsQuery,
+        }: {
+            filtersOverride?: DashboardFilter
+            variablesOverride?: Record<string, HogQLVariable>
+            revenueAnalyticsQuery?: RevenueAnalyticsQuery
+        } = {}
+    ): MaxInsightContextInput => ({
         type: MaxContextType.INSIGHT,
         data: insight,
+        filtersOverride,
+        variablesOverride,
+        revenueAnalyticsQuery,
     }),
 
     event: (event: EventDefinition): MaxEventContextInput => ({

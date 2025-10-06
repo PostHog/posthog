@@ -37,6 +37,7 @@ from posthog.models.utils import (
     sane_repr,
     validate_rate_limit,
 )
+from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -222,7 +223,6 @@ class CookielessServerHashMode(models.IntegerChoices):
 
 
 class SessionRecordingRetentionPeriod(models.TextChoices):
-    LEGACY = "legacy", "Legacy Retention"
     THIRTY_DAYS = "30d", "30 Days"
     NINETY_DAYS = "90d", "90 Days"
     ONE_YEAR = "1y", "1 Year"
@@ -301,38 +301,60 @@ class Team(UUIDTClassicModel):
         null=True,
         blank=True,
     )
-    session_recording_opt_in = models.BooleanField(default=False)
-    session_recording_sample_rate = models.DecimalField(
-        # will store a decimal between 0 and 1 allowing up to 2 decimal places
-        null=True,
-        blank=True,
-        max_digits=3,
-        decimal_places=2,
-        validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
+    session_recording_opt_in = field_access_control(models.BooleanField(default=False), "session_recording", "editor")
+    session_recording_sample_rate = field_access_control(
+        models.DecimalField(
+            # will store a decimal between 0 and 1 allowing up to 2 decimal places
+            null=True,
+            blank=True,
+            max_digits=3,
+            decimal_places=2,
+            validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
+        ),
+        "session_recording",
+        "editor",
     )
-    session_recording_minimum_duration_milliseconds = models.IntegerField(
-        null=True,
-        blank=True,
-        validators=[MinValueValidator(0), MaxValueValidator(30000)],
+    session_recording_minimum_duration_milliseconds = field_access_control(
+        models.IntegerField(
+            null=True,
+            blank=True,
+            validators=[MinValueValidator(0), MaxValueValidator(30000)],
+        ),
+        "session_recording",
+        "editor",
     )
-    session_recording_linked_flag = models.JSONField(null=True, blank=True)
-    session_recording_network_payload_capture_config = models.JSONField(null=True, blank=True)
-    session_recording_masking_config = models.JSONField(null=True, blank=True)
-    session_recording_url_trigger_config = ArrayField(
-        models.JSONField(null=True, blank=True), default=list, blank=True, null=True
+    session_recording_linked_flag = field_access_control(
+        models.JSONField(null=True, blank=True), "session_recording", "editor"
     )
-    session_recording_url_blocklist_config = ArrayField(
-        models.JSONField(null=True, blank=True), default=list, blank=True, null=True
+    session_recording_network_payload_capture_config = field_access_control(
+        models.JSONField(null=True, blank=True), "session_recording", "editor"
     )
-    session_recording_event_trigger_config = ArrayField(
-        models.TextField(null=True, blank=True), default=list, blank=True, null=True
+    session_recording_masking_config = field_access_control(
+        models.JSONField(null=True, blank=True), "session_recording", "editor"
     )
-    session_recording_trigger_match_type_config = models.CharField(null=True, blank=True, max_length=24)
-    session_replay_config = models.JSONField(null=True, blank=True)
+    session_recording_url_trigger_config = field_access_control(
+        ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True),
+        "session_recording",
+        "editor",
+    )
+    session_recording_url_blocklist_config = field_access_control(
+        ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True),
+        "session_recording",
+        "editor",
+    )
+    session_recording_event_trigger_config = field_access_control(
+        ArrayField(models.TextField(null=True, blank=True), default=list, blank=True, null=True),
+        "session_recording",
+        "editor",
+    )
+    session_recording_trigger_match_type_config = field_access_control(
+        models.CharField(null=True, blank=True, max_length=24), "session_recording", "editor"
+    )
+    session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "session_recording", "editor")
     session_recording_retention_period = models.CharField(
-        max_length=6,
+        max_length=3,
         choices=SessionRecordingRetentionPeriod.choices,
-        default=SessionRecordingRetentionPeriod.LEGACY,
+        default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
     survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
@@ -341,6 +363,9 @@ class Team(UUIDTClassicModel):
     surveys_opt_in = models.BooleanField(null=True, blank=True)
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
     web_analytics_pre_aggregated_tables_enabled = models.BooleanField(default=False, null=True)
+    web_analytics_pre_aggregated_tables_version = models.CharField(
+        max_length=10, default="v2", null=True, choices=[("v1", "v1"), ("v2", "v2")]
+    )
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_message = models.TextField(null=True, blank=True)
@@ -723,26 +748,8 @@ class Team(UUIDTClassicModel):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
-        from ee.models.explicit_team_membership import ExplicitTeamMembership
         from ee.models.rbac.access_control import AccessControl
         from ee.models.rbac.role import RoleMembership
-
-        # This path is deprecated, and will be removed soon
-        if self.access_control:
-            user_ids_queryset = (
-                OrganizationMembership.objects.filter(
-                    organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
-                )
-                .values_list("user_id", flat=True)
-                .union(
-                    ExplicitTeamMembership.objects.filter(team_id=self.id).values_list(
-                        "parent_membership__user_id", flat=True
-                    )
-                )
-            )
-            return User.objects.filter(is_active=True, id__in=user_ids_queryset)
-
-        # New access control checks
 
         # First, check if the team is private
         team_is_private = AccessControl.objects.filter(

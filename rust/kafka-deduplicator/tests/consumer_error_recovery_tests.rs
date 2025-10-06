@@ -6,6 +6,7 @@ use kafka_deduplicator::kafka::{
     stateful_consumer::StatefulKafkaConsumer,
     ConsumerConfigBuilder,
 };
+use kafka_deduplicator::processor_pool::ProcessorPool;
 use rdkafka::{
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     config::ClientConfig,
@@ -185,7 +186,7 @@ async fn test_consumer_error_recovery() -> Result<()> {
     produce_test_messages(&test_topic, 20).await?;
 
     // Create mock processor with 20% failure rate
-    let processor = Arc::new(MockMessageProcessor::new());
+    let processor = MockMessageProcessor::new();
     processor.set_failure_rate(20);
 
     // Create consumer
@@ -195,10 +196,14 @@ async fn test_consumer_error_recovery() -> Result<()> {
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
+    // Create processor pool
+    let (message_sender, processor_pool) = ProcessorPool::new(processor.clone(), 1);
+    let _pool_handles = processor_pool.start();
+
     let consumer = StatefulKafkaConsumer::from_config(
         &consumer_config,
         Arc::new(EmptyRebalanceHandler),
-        processor.clone(),
+        message_sender,
         10,
         Duration::from_secs(5),
         shutdown_rx,
@@ -243,7 +248,7 @@ async fn test_consumer_processing_delay_resilience() -> Result<()> {
     produce_test_messages(&test_topic, 50).await?;
 
     // Create mock processor with 100ms delay per message
-    let processor = Arc::new(MockMessageProcessor::new());
+    let processor = MockMessageProcessor::new();
     processor.set_processing_delay(100);
 
     // Create consumer with high concurrency
@@ -253,10 +258,14 @@ async fn test_consumer_processing_delay_resilience() -> Result<()> {
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
+    // Create processor pool with more workers for concurrent processing
+    let (message_sender, processor_pool) = ProcessorPool::new(processor.clone(), 4);
+    let _pool_handles = processor_pool.start();
+
     let consumer = StatefulKafkaConsumer::from_config(
         &consumer_config,
         Arc::new(EmptyRebalanceHandler),
-        processor.clone(),
+        message_sender,
         20, // Higher concurrency to handle slow processing
         Duration::from_secs(5),
         shutdown_rx,
@@ -304,7 +313,7 @@ async fn test_consumer_failure_notification() -> Result<()> {
     let (failure_tx, mut failure_rx) = mpsc::unbounded_channel();
 
     // Create mock processor that fails every other message
-    let processor = Arc::new(MockMessageProcessor::new());
+    let processor = MockMessageProcessor::new();
     processor.set_failure_rate(50);
     processor.set_failure_sender(failure_tx);
 
@@ -315,10 +324,14 @@ async fn test_consumer_failure_notification() -> Result<()> {
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
+    // Create processor pool
+    let (message_sender, processor_pool) = ProcessorPool::new(processor.clone(), 1);
+    let _pool_handles = processor_pool.start();
+
     let consumer = StatefulKafkaConsumer::from_config(
         &consumer_config,
         Arc::new(EmptyRebalanceHandler),
-        processor.clone(),
+        message_sender,
         10,
         Duration::from_secs(5),
         shutdown_rx,

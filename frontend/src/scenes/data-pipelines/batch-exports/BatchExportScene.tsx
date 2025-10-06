@@ -1,19 +1,35 @@
-import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { BindLogic, actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
-import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
-import { PipelineNodeMetrics } from 'scenes/pipeline/PipelineNodeMetrics'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { HogFunctionSkeleton } from 'scenes/hog-functions/misc/HogFunctionSkeleton'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BatchExportService, Breadcrumb, PipelineStage } from '~/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
 
+import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
+import { PipelineNodeMetrics } from '../legacy-plugins/PipelineNodeMetrics'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
+import {
+    BatchExportConfigurationClearChangesButton,
+    BatchExportConfigurationSaveButton,
+} from './BatchExportConfigurationButtons'
+import { RenderBatchExportIcon } from './BatchExportIcon'
 import type { batchExportSceneLogicType } from './BatchExportSceneType'
-import { BatchExportConfigurationLogicProps } from './batchExportConfigurationLogic'
+import { BatchExportsMetrics } from './BatchExportsMetrics'
+import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { normalizeBatchExportService } from './utils'
 
 const BATCH_EXPORT_SCENE_TABS = ['configuration', 'metrics', 'logs', 'runs', 'backfills'] as const
 export type BatchExportSceneTab = (typeof BATCH_EXPORT_SCENE_TABS)[number]
@@ -43,16 +59,18 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
                         path: urls.dataPipelines(),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: [Scene.DataPipelines, 'destinations'],
                         name: 'Destinations',
                         path: urls.dataPipelines('destinations'),
+                        iconType: 'data_pipeline',
                     },
-
                     {
                         key: Scene.BatchExport,
                         name: 'Batch export',
+                        iconType: 'data_pipeline',
                     },
                 ]
             },
@@ -92,34 +110,101 @@ export const scene: SceneExport = {
     logic: batchExportSceneLogic,
     paramsToProps: ({ params: { id, service } }): (typeof batchExportSceneLogic)['props'] => ({
         id: id === 'new' ? null : id,
-        service: service as BatchExportService['type'] | null,
+        service: service ? normalizeBatchExportService(service) : null,
     }),
 }
 
+function BatchExportSceneHeader(): JSX.Element {
+    const { configuration, batchExportConfigLoading } = useValues(batchExportConfigurationLogic)
+    const { setConfigurationValue } = useActions(batchExportConfigurationLogic)
+
+    return (
+        <>
+            <SceneTitleSection
+                name={configuration.name}
+                description={null}
+                // TODO: follow up at some point and add description support
+                // description={configuration.description || ''}
+                resourceType={{
+                    type: 'data_pipelines',
+                    forceIcon: configuration.destination ? (
+                        <RenderBatchExportIcon size="medium" type={configuration.destination} />
+                    ) : undefined,
+                }}
+                isLoading={batchExportConfigLoading}
+                onNameChange={(value) => setConfigurationValue('name', value)}
+                onDescriptionChange={(value) => setConfigurationValue('description', value)}
+                canEdit
+                actions={
+                    <>
+                        <BatchExportConfigurationClearChangesButton />
+                        <BatchExportConfigurationSaveButton />
+                    </>
+                }
+            />
+        </>
+    )
+}
+
 export function BatchExportScene(): JSX.Element {
+    const { logicProps } = useValues(batchExportSceneLogic)
+    return (
+        <BindLogic logic={batchExportConfigurationLogic} props={logicProps}>
+            <BatchExportSceneContent />
+        </BindLogic>
+    )
+}
+
+export function BatchExportSceneContent(): JSX.Element {
     const { currentTab, logicProps } = useValues(batchExportSceneLogic)
     const { setCurrentTab } = useActions(batchExportSceneLogic)
-
     const { id, service } = logicProps
+
+    const { batchExportConfig, loading } = useValues(batchExportConfigurationLogic)
+
+    if (loading && !batchExportConfig) {
+        return (
+            <div className="flex flex-col gap-4">
+                <LemonSkeleton className="w-full h-12" />
+                <HogFunctionSkeleton />
+            </div>
+        )
+    }
+
+    if (id && !batchExportConfig) {
+        return <NotFound object="Batch export" />
+    }
+
+    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as BatchExportService['type'])) {
+        return <NotFound object={`batch export service ${service}`} />
+    }
 
     const tabs: (LemonTab<BatchExportSceneTab> | null)[] = [
         {
             label: 'Configuration',
             key: 'configuration',
-            content: <BatchExportConfiguration id={id} service={service} />,
+            content: <BatchExportConfiguration />,
         },
         id
             ? {
                   label: 'Metrics',
                   key: 'metrics',
-                  content: <PipelineNodeMetrics id={id} />,
+                  content: (
+                      <FlaggedFeature flag="batch-export-new-metrics" fallback={<PipelineNodeMetrics id={id} />}>
+                          <BatchExportsMetrics id={id} />
+                      </FlaggedFeature>
+                  ),
               }
             : null,
         id
             ? {
                   label: 'Logs',
                   key: 'logs',
-                  content: <PipelineNodeLogs id={id} stage={PipelineStage.Destination} />,
+                  content: (
+                      <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
+                          <LogsViewer sourceType="batch_export" sourceId={id} instanceLabel="run" />
+                      </FlaggedFeature>
+                  ),
               }
             : null,
         id
@@ -138,5 +223,11 @@ export function BatchExportScene(): JSX.Element {
             : null,
     ]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return (
+        <SceneContent>
+            <BatchExportSceneHeader />
+            <SceneDivider />
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+        </SceneContent>
+    )
 }

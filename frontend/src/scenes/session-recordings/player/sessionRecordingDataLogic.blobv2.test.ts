@@ -13,6 +13,7 @@ import { AvailableFeature, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
+import { snapshotDataLogic } from './snapshotDataLogic'
 
 const pathForKeyZero = join(__dirname, './__mocks__/blob_key_0.jsonl')
 const pathForKeyOne = join(__dirname, './__mocks__/blob_key_1.jsonl')
@@ -47,6 +48,7 @@ const BLOB_V2_SOURCE_ONE: SessionRecordingSnapshotSource = {
 
 describe('sessionRecordingDataLogic blobby v2', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
+    let snapshotLogic: ReturnType<typeof snapshotDataLogic.build>
 
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
@@ -93,12 +95,12 @@ describe('sessionRecordingDataLogic blobby v2', () => {
             },
         })
         initKeaTests()
-        logic = sessionRecordingDataLogic({
+        const props = {
             sessionRecordingId: '2',
-            // we don't want to wait for the default real-time polling interval in tests
-            realTimePollingIntervalMilliseconds: 10,
             blobV2PollingDisabled: true,
-        })
+        }
+        logic = sessionRecordingDataLogic(props)
+        snapshotLogic = snapshotDataLogic(props)
         logic.mount()
         // Most of these tests assume the metadata is being loaded upfront which is the typical case
         logic.actions.loadRecordingMeta()
@@ -115,9 +117,9 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                     'loadSnapshots',
                     'loadSnapshotSources',
                     'loadRecordingMetaSuccess',
-                    'loadSnapshotSourcesSuccess',
+                    snapshotLogic.actionTypes.loadSnapshotSourcesSuccess,
+                    snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess,
                     // loads the first and second blob v2 source at once
-                    'loadSnapshotsForSourceSuccess',
                     'reportUsageIfFullyLoaded',
                 ])
                 .toFinishAllListeners()
@@ -148,18 +150,17 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                     start_timestamp: '2025-05-18T03:51:54.816000Z',
                 },
             ])
-            expect(Object.keys(logic.cache.snapshotsBySource)).toEqual(['blob_v2-0', 'blob_v2-1', 'processed'])
-            expect(logic.cache.snapshotsBySource['blob_v2-0'].snapshots).toHaveLength(11)
+            expect(Object.keys(logic.values.snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1'])
+            expect(logic.values.snapshotsBySources['blob_v2-0'].snapshots).toHaveLength(11)
             // but blob key 1 is marked empty because its snapshots are on key 0 when loading multi blocks
-            expect(logic.cache.snapshotsBySource['blob_v2-1']).toEqual({
-                snapshots: [],
-                processed: true,
+            expect(logic.values.snapshotsBySources['blob_v2-1']).toEqual({
                 sourceLoaded: true,
             })
-            // the processed key holds all of the data, in this case that means it matches the v2-0 key
-            expect(logic.cache.snapshotsBySource['processed'].snapshots).toEqual(
-                logic.cache.snapshotsBySource['blob_v2-0'].snapshots
+            expect(logic.cache.processingCache['blob_v2-0']).toHaveLength(11)
+            expect(logic.cache.processingCache['blob_v2-0']).toEqual(
+                logic.values.snapshotsBySources['blob_v2-0'].snapshots
             )
+            expect(logic.cache.processingCache['blob_v2-1']).toHaveLength(0)
         })
     })
 })

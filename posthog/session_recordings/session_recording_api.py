@@ -54,6 +54,8 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
@@ -213,7 +215,7 @@ class SurrogatePairSafeJSONRenderer(JSONRenderer):
     encoder_class = SurrogatePairSafeJSONEncoder
 
 
-class SessionRecordingSerializer(serializers.ModelSerializer):
+class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
     person = MinimalPersonSerializer(required=False)
@@ -258,6 +260,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "person",
             "storage",
+            "retention_period_days",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -280,6 +283,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "storage",
+            "retention_period_days",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -322,7 +326,6 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
     viewed = serializers.BooleanField(required=False)
     analyzed = serializers.BooleanField(required=False)
     player_metadata = serializers.JSONField(required=False)
-    durations = serializers.JSONField(required=False)
 
     def validate(self, data):
         if not data.get("viewed") and not data.get("analyzed"):
@@ -450,44 +453,12 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
-    source: str | None = None
-    # these are defined in init in the SimpleRateThrottle
-    # but we define them here to avoid mypy errors
-    num_requests: int | None = None
-    duration: int | None = None
-
-    def _get_rate(self):
-        num_requests, duration = self.parse_rate(self.rate)
-
-        divisors = {
-            "realtime": 64,
-            "blob": 4,
-            "blob_v2": 1,
-        }
-
-        divisor: int = divisors.get(self.source if self.source else "", 1)
-        return None if num_requests is None else num_requests / divisor, duration
-
-    def allow_request(self, request, view):
-        """
-        num_requests is set on __init__ of the parent and not checked again
-        so we need to override it on every request
-        """
-        self.source = request.GET.get("source", None)
-        rates = self._get_rate()
-        self.num_requests = rates[0] if rates else self.num_requests
-        self.duration = rates[1] if rates else self.duration
-
-        return super().allow_request(request, view)
-
-
-class SnapshotsBurstRateThrottle(SourceVaryingSnapshotThrottle):
+class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_burst"
     rate = "120/minute"
 
 
-class SnapshotsSustainedRateThrottle(SourceVaryingSnapshotThrottle):
+class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_sustained"
     rate = "600/hour"
 
@@ -544,7 +515,9 @@ def clean_referer_url(current_url: str | None) -> str:
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
-class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin):
+class SessionRecordingViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
+):
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -588,8 +561,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         e, distinct_id=user_distinct_id or "unknown", properties={"while": "setting tracing attributes"}
                     )
 
+                # we don't want to pass add_events_to_property_queries into the model validation
+                params = request.GET.dict()
+                allow_event_property_expansion = params.pop("add_events_to_property_queries", "0") == "1"
                 with tracer.start_as_current_span("convert_filters"):
-                    query = filter_from_params_to_query(request.GET.dict())
+                    query = filter_from_params_to_query(params)
 
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
@@ -598,7 +574,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 self._maybe_report_recording_list_filters_changed(request, team=self.team)
                 with tracer.start_as_current_span("query_for_recordings"):
-                    query_results = list_recordings_from_query(query, cast(User, request.user), team=self.team)
+                    query_results = list_recordings_from_query(
+                        query,
+                        cast(User, request.user),
+                        team=self.team,
+                        allow_event_property_expansion=allow_event_property_expansion,
+                    )
 
                 with tracer.start_as_current_span("make_response"):
                     response = list_recordings_response(
@@ -619,9 +600,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             posthoganalytics.capture_exception(
                 e,
                 distinct_id=user_distinct_id,
-                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
+                properties={
+                    "replay_feature": "listing_recordings",
+                    "unfiltered_query": request.GET.dict(),
+                    "error_should_alert": True,
+                },
             )
-            return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
+            return Response({"error": "An internal server error occurred. Please try again later."}, status=500)
 
     @extend_schema(
         exclude=True,
@@ -719,31 +704,21 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
-        durations = serializer.validated_data.get("durations", {})
         player_metadata = serializer.validated_data.get("player_metadata", {})
 
         event_properties = {
             "$current_url": current_url,
             "cleaned_replay_path": clean_referer_url(current_url),
             "$session_id": session_id,
-            "snapshots_load_time": durations.get("snapshots"),
-            "metadata_load_time": durations.get("metadata"),
-            "events_load_time": durations.get("events"),
-            "first_paint_load_time": durations.get("firstPaint"),
-            "duration": player_metadata.get("duration"),
-            "recording_id": player_metadata.get("sessionRecordingId"),
-            "start_time": player_metadata.get("start"),
-            "end_time": player_metadata.get("end"),
-            "page_change_events_length": player_metadata.get("pageChangeEventsLength"),
-            "recording_width": player_metadata.get("recordingWidth"),
-            "load_time": durations.get(
-                "firstPaint", 0
-            ),  # TODO: DEPRECATED field. Keep around so dashboards don't break
+            "duration": player_metadata.get("recording_duration"),
+            "recording_id": player_metadata.get("id"),
+            "start_time": player_metadata.get("start_time"),
+            "end_time": player_metadata.get("end_time"),
             # older recordings did not store this and so "null" is equivalent to web
             # but for reporting we want to distinguish between not loaded and no value to load
-            "snapshot_source": player_metadata.get("snapshotSource", "unknown"),
+            "snapshot_source": player_metadata.get("snapshot_source", "unknown"),
         }
-        user: User | None | AnonymousUser = request.user
+        user: User | AnonymousUser = cast(User | AnonymousUser, request.user)
 
         if isinstance(user, User) and not user.is_anonymous:
             if "viewed" in serializer.validated_data:
@@ -792,7 +767,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             )
 
         # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
-        # Create minimal query with only session_ids
+        # Create minimal query with only session_ids - pass None for user to bypass access control filtering
         query_data = {
             "session_ids": session_recording_ids,
             "date_from": None,
@@ -800,10 +775,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             "kind": "RecordingsQuery",
         }
         query = RecordingsQuery.model_validate(query_data)
-        recordings, _, _ = list_recordings_from_query(query, cast(User, request.user), self.team)
+        recordings, _, _ = list_recordings_from_query(query, None, self.team)
+
+        # Filter recordings based on access control - only allow deletion of recordings user has editor access to
+        user_access_control = self.user_access_control
+        accessible_recordings = []
+        for recording in recordings:
+            if user_access_control.check_access_level_for_object(recording, required_level="editor"):
+                accessible_recordings.append(recording)
 
         # Filter out recordings that are already deleted
-        non_deleted_recordings = [recording for recording in recordings if not recording.deleted]
+        non_deleted_recordings = [recording for recording in accessible_recordings if not recording.deleted]
 
         # First, bulk create any missing records
         session_recordings_to_create = [
@@ -1001,9 +983,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
         # blob v1 API has been deprecated for a while now,
-        # we'll cut off access for new teams to give older teams time to migrate
-        # this defaults to True, and then is only maybe set to False for usage of personal api keys
-        blob_v1_sources_are_allowed = True
+        # we now only allow blob v1 on self-hosted installs
+        # before we can have a release that officially deprecates it for self-hosted
+        blob_v1_sources_are_allowed = False if is_cloud() or settings.DEBUG else True
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
             used_key = personal_api_authenticator.personal_api_key
@@ -1023,10 +1005,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 },
             )
 
-            blob_v1_sources_are_allowed = self.team.created_at <= datetime.fromisoformat(
-                settings.API_V1_DEPRECATION_DATE
-            )
-
         try:
             response: Response | HttpResponse
             if not source:
@@ -1039,10 +1017,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 with timer("send_realtime_snapshots_to_client"):
                     response = self._send_realtime_snapshots_to_client(recording)
             elif source == "blob":
-                if not blob_v1_sources_are_allowed:
-                    raise exceptions.ValidationError(
-                        "blob snapshots are not available for teams created after v1 of the API was deprecated. See https://posthog.com/docs/session-replay/snapshot-api"
-                    )
+                is_likely_v1_lts = recording.object_storage_path and not recording.full_recording_v2_path
+                if not blob_v1_sources_are_allowed and not is_likely_v1_lts:
+                    raise exceptions.ValidationError("blob snapshots are no longer supported")
                 with timer("stream_blob_to_client"):
                     response = self._stream_blob_to_client(
                         recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
@@ -1208,7 +1185,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                             }
                         )
                 if sources:
-                    sources = sorted(sources, key=lambda x: x.get("start_timestamp", None))
+                    sources = sorted(sources, key=lambda x: x.get("start_timestamp", -1))
 
                     if might_have_realtime and not is_v2_enabled:
                         oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
@@ -1518,51 +1495,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         return Response(response_data)
 
-    @extend_schema(
-        exclude=True,
-        description="Find recordings with similar event sequences to the given recording. This is in development and likely to change, you should not depend on this API.",
-    )
-    @action(methods=["GET"], detail=True, url_path="analyze/similar")
-    def similar_recordings(self, request: request.Request, **kwargs) -> Response:
-        """Find recordings with similar event sequences to the given recording."""
-        timer = ServerTimingsGathered()
-        tag_queries(product=Product.REPLAY)
-        recording = self.get_object()
-
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
-
-        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
-            raise exceptions.NotFound("Recording not found")
-
-        # Find recordings with similar event sequences using ClickHouse
-        with timer("get_similar_recordings"):
-            similar_recordings = SessionReplayEvents().get_similar_recordings(
-                session_id=str(recording.session_id), team=self.team, limit=10, similarity_range=0.9
-            )
-
-        recordings = []
-        recording_ids = []
-        for rec in similar_recordings:
-            recording_instance = SessionRecording.get_or_build(session_id=rec["session_id"], team=self.team)
-            recordings.append(recording_instance)
-            recording_ids.append(recording_instance.session_id)
-
-        # Filter out recordings that have been viewed by the current user
-        with timer("filter_viewed_recordings"):
-            viewed_recordings = current_user_viewed(recording_ids, cast(User, request.user), self.team)
-            unviewed_recordings = [rec for rec in recordings if rec.session_id not in viewed_recordings]
-
-        response = Response(
-            {"count": len(unviewed_recordings), "results": [rec.session_id for rec in unviewed_recordings]}
-        )
-        response.headers["Server-Timing"] = timer.to_header_string()
-        return response
-
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
-    query: RecordingsQuery, user: User | None, team: Team
+    query: RecordingsQuery, user: User | None, team: Team, allow_event_property_expansion: bool = False
 ) -> tuple[list[SessionRecording], bool, str]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
@@ -1609,6 +1545,7 @@ def list_recordings_from_query(
                 query=query,
                 team=team,
                 hogql_query_modifiers=None,
+                allow_event_property_expansion=allow_event_property_expansion,
             ).run()
 
         with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):

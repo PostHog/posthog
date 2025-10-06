@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use common_types::{CapturedEvent, RawEvent};
-use dashmap::DashMap;
 use rdkafka::message::OwnedHeaders;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
@@ -9,13 +8,12 @@ use rdkafka::{ClientConfig, Message};
 use serde_json;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
-use crate::checkpoint_manager::CheckpointManager;
 use crate::kafka::message::{AckableMessage, MessageProcessor};
-use crate::kafka::types::Partition;
-use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
-use tokio::sync::Mutex as TokioMutex;
+use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
+use crate::store_manager::StoreManager;
+use crate::utils::timestamp;
 
 /// Context for a Kafka message being processed
 struct MessageContext<'a> {
@@ -42,78 +40,32 @@ pub struct DeduplicationProcessor {
     config: DeduplicationConfig,
 
     /// Kafka producer for publishing non-duplicate events
-    producer: Option<FutureProducer>,
+    producer: Option<Arc<FutureProducer>>,
 
-    /// Per-partition deduplication stores using DashMap for better concurrent performance
-    /// Key: (topic, partition)
-    stores: Arc<DashMap<Partition, DeduplicationStore>>,
-
-    /// Checkpoint manager for periodic flushing and checkpointing
-    checkpoint_manager: Arc<TokioMutex<CheckpointManager>>,
+    /// Store manager that handles concurrent store creation and access
+    store_manager: Arc<StoreManager>,
 }
 
 impl DeduplicationProcessor {
-    /// Create a new deduplication processor
-    pub fn new(config: DeduplicationConfig) -> Result<Arc<Self>> {
-        let producer: Option<FutureProducer> = match &config.output_topic {
-            Some(topic) => Some(config.producer_config.create().with_context(|| {
-                format!("Failed to create Kafka producer for output topic '{topic}'")
-            })?),
+    /// Create a new deduplication processor with a store manager
+    pub fn new(config: DeduplicationConfig, store_manager: Arc<StoreManager>) -> Result<Self> {
+        let producer: Option<Arc<FutureProducer>> = match &config.output_topic {
+            Some(topic) => Some(Arc::new(config.producer_config.create().with_context(
+                || format!("Failed to create Kafka producer for output topic '{topic}'"),
+            )?)),
             None => None,
         };
 
-        let stores = Arc::new(DashMap::new());
-
-        // Create checkpoint manager with the stores
-        let mut checkpoint_manager = CheckpointManager::new(stores.clone(), config.flush_interval);
-
-        // Start the periodic flush task
-        checkpoint_manager.start();
-        info!(
-            "Started checkpoint manager with flush interval: {:?}",
-            config.flush_interval
-        );
-
-        Ok(Arc::new(Self {
+        Ok(Self {
             config,
             producer,
-            stores,
-            checkpoint_manager: Arc::new(TokioMutex::new(checkpoint_manager)),
-        }))
+            store_manager,
+        })
     }
 
     /// Get or create a deduplication store for a specific partition
     async fn get_or_create_store(&self, topic: &str, partition: i32) -> Result<DeduplicationStore> {
-        let partition_key = Partition::new(topic.to_string(), partition);
-
-        // Use DashMap's entry API for atomic get-or-create operation
-        let store = self
-            .stores
-            .entry(partition_key)
-            .or_try_insert_with(|| {
-                // Create new store for this partition
-                let store_path = format!(
-                    "{}/{}_{}",
-                    self.config.store_config.path.display(),
-                    topic.replace('/', "_"),
-                    partition
-                );
-
-                info!(
-                    "Creating new deduplication store for partition {}:{} at path: {}",
-                    topic, partition, store_path
-                );
-
-                let mut partition_config = self.config.store_config.clone();
-                let store_path_str = store_path.clone();
-                partition_config.path = store_path.into();
-
-                DeduplicationStore::new(partition_config, topic.to_string(), partition)
-                    .with_context(|| format!("Failed to create deduplication store for {topic}:{partition} at path {store_path_str}"))
-            })?
-            .clone();
-
-        Ok(store)
+        self.store_manager.get_or_create(topic, partition).await
     }
 
     /// Process a raw event through deduplication and publish if not duplicate
@@ -224,7 +176,7 @@ impl MessageProcessor for DeduplicationProcessor {
         let partition = message.kafka_message().partition();
         let offset = message.kafka_message().offset();
 
-        info!(
+        debug!(
             "Processing message from topic {} partition {} offset {}",
             topic, partition, offset
         );
@@ -245,9 +197,53 @@ impl MessageProcessor for DeduplicationProcessor {
         // Parse the captured event and extract the raw event from it
         let raw_event = match serde_json::from_slice::<CapturedEvent>(payload) {
             Ok(captured_event) => {
+                // extract well-validated values from the CapturedEvent that
+                // may or may not be present in the wrapped RawEvent
+                let now = captured_event.now.clone();
+                let extracted_distinct_id = captured_event.distinct_id.clone();
+                let extracted_token = captured_event.token.clone();
+                let extracted_uuid = captured_event.uuid;
+
                 // The RawEvent is serialized in the data field
                 match serde_json::from_str::<RawEvent>(&captured_event.data) {
-                    Ok(raw_event) => raw_event,
+                    Ok(mut raw_event) => {
+                        // Validate timestamp: if it's None or unparseable, use CapturedEvent.now
+                        // This ensures we always have a valid timestamp for deduplication
+                        match raw_event.timestamp {
+                            None => {
+                                debug!("No timestamp in RawEvent, using CapturedEvent.now");
+                                raw_event.timestamp = Some(now);
+                            }
+                            Some(ref ts) if !timestamp::is_valid_timestamp(ts) => {
+                                // Don't log the invalid timestamp directly as it may contain
+                                // non-ASCII characters that could cause issues with logging
+                                debug!(
+                                    "Invalid timestamp detected at {}:{} offset {}, replacing with CapturedEvent.now",
+                                    topic, partition, offset
+                                );
+                                raw_event.timestamp = Some(now);
+                            }
+                            _ => {
+                                // Timestamp exists and is valid, keep it
+                            }
+                        }
+
+                        // if RawEvent is missing any of the core values
+                        // extracted by capture into the CapturedEvent
+                        // wrapper, use those values for downstream analysis
+                        if raw_event.uuid.is_none() {
+                            raw_event.uuid = Some(extracted_uuid);
+                        }
+                        if raw_event.distinct_id.is_none() && !extracted_distinct_id.is_empty() {
+                            raw_event.distinct_id =
+                                Some(serde_json::Value::String(extracted_distinct_id));
+                        }
+                        if raw_event.token.is_none() && !extracted_token.is_empty() {
+                            raw_event.token = Some(extracted_token);
+                        }
+
+                        raw_event
+                    }
                     Err(e) => {
                         error!(
                             "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
@@ -267,21 +263,32 @@ impl MessageProcessor for DeduplicationProcessor {
                 }
             }
             Err(e) => {
-                error!(
-                    "Failed to parse CapturedEvent from {}:{} offset {}: {}",
+                // TODO: When DLQ is implemented, send unparseable messages there
+                // For now, we just log and skip messages we can't parse (e.g., those with null ip field)
+                warn!(
+                    "Failed to parse CapturedEvent from {}:{} offset {}: {}. Skipping message.",
                     topic, partition, offset, e
                 );
-                // Nack the message so it can be handled by error recovery/DLQ
-                message
-                    .nack(format!("Failed to parse CapturedEvent JSON: {e}"))
-                    .await;
-                return Err(anyhow::anyhow!(
-                    "Failed to parse CapturedEvent from {}:{} offset {}: {}",
-                    topic,
-                    partition,
-                    offset,
-                    e
-                ));
+                // Ack the message to continue processing
+                message.ack().await;
+                return Ok(());
+
+                // Original error handling - keeping for reference when DLQ is implemented:
+                // error!(
+                //     "Failed to parse CapturedEvent from {}:{} offset {}: {}",
+                //     topic, partition, offset, e
+                // );
+                // // Nack the message so it can be handled by error recovery/DLQ
+                // message
+                //     .nack(format!("Failed to parse CapturedEvent JSON: {e}"))
+                //     .await;
+                // return Err(anyhow::anyhow!(
+                //     "Failed to parse CapturedEvent from {}:{} offset {}: {}",
+                //     topic,
+                //     partition,
+                //     offset,
+                //     e
+                // ));
             }
         };
 
@@ -355,31 +362,7 @@ impl MessageProcessor for DeduplicationProcessor {
 impl DeduplicationProcessor {
     /// Get the number of active stores
     pub async fn get_active_store_count(&self) -> usize {
-        self.stores.len()
-    }
-
-    /// Clean up stores for revoked partitions
-    pub async fn cleanup_stores(&self, revoked_partitions: &[Partition]) {
-        for partition in revoked_partitions {
-            if let Some(_store) = self.stores.remove(partition) {
-                info!(
-                    "Cleaned up deduplication store for revoked partition {}:{}",
-                    partition.topic(),
-                    partition.partition_number()
-                );
-                // Store will be dropped when Arc goes out of scope
-            }
-        }
-    }
-
-    /// Stop the checkpoint manager (called during shutdown)
-    pub async fn shutdown(&self) {
-        info!("Shutting down deduplication processor");
-
-        let mut manager = self.checkpoint_manager.lock().await;
-        manager.stop().await;
-
-        info!("Deduplication processor shut down");
+        self.store_manager.get_active_store_count()
     }
 }
 
@@ -442,6 +425,9 @@ mod tests {
 
         // We can't easily test the full processor without Kafka running,
         // but we can test the store management logic separately
+        use crate::kafka::types::Partition;
+        use dashmap::DashMap;
+
         let stores: Arc<DashMap<Partition, DeduplicationStore>> = Arc::new(DashMap::new());
 
         // Test that stores map starts empty

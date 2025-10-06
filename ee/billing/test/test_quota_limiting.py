@@ -29,6 +29,7 @@ from ee.billing.quota_limiting import (
     update_all_orgs_billing_quotas,
     update_org_billing_quotas,
 )
+from ee.clickhouse.materialized_columns.columns import materialize
 
 
 def zero_trust_scores():
@@ -46,17 +47,20 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limits/recordings")
         self.redis_client.delete(f"@posthog/quota-limits/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limits/api_queries_read_bytes")
-        self.redis_client.delete(f"@posthog/quota-limits/surveys")
+        self.redis_client.delete(f"@posthog/quota-limits/survey_responses")
+        self.redis_client.delete(f"@posthog/quota-limits/rows_exported")
         self.redis_client.delete(f"@posthog/quota-limits/llm_events")
-        self.redis_client.delete(f"@posthog/quota-limits/cdp_invocations")
+        self.redis_client.delete(f"@posthog/quota-limits/cdp_trigger_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/exceptions")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/recordings")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/api_queries_read_bytes")
-        self.redis_client.delete(f"@posthog/quota-limiting-suspended/surveys")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/survey_responses")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_exported")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/llm_events")
-        self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_invocations")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
+        materialize("events", "$exception_values")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -71,7 +75,7 @@ class TestQuotaLimiting(BaseTest):
                 "feature_flag_requests": {"usage": 5, "limit": 100},
                 "api_queries_read_bytes": {"usage": 10, "limit": 100},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100},
+                "survey_responses": {"usage": 10, "limit": 100},
             }
             self.organization.save()
 
@@ -120,21 +124,24 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limited_orgs["rows_synced"] == {}
         assert quota_limited_orgs["feature_flag_requests"] == {}
         assert quota_limited_orgs["api_queries_read_bytes"] == {}
-        assert quota_limited_orgs["surveys"] == {}
+        assert quota_limited_orgs["survey_responses"] == {}
+        assert quota_limited_orgs["rows_exported"] == {}
         assert quota_limiting_suspended_orgs["events"] == {}
         assert quota_limiting_suspended_orgs["exceptions"] == {}
         assert quota_limiting_suspended_orgs["recordings"] == {}
         assert quota_limiting_suspended_orgs["rows_synced"] == {}
         assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
         assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-        assert quota_limiting_suspended_orgs["surveys"] == {}
+        assert quota_limiting_suspended_orgs["survey_responses"] == {}
+        assert quota_limiting_suspended_orgs["rows_exported"] == {}
         assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-        assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/survey_responses", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
         patch_capture.reset_mock()
         # Add this org to the redis cache.
@@ -178,21 +185,24 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limited_orgs["rows_synced"] == {}
         assert quota_limited_orgs["feature_flag_requests"] == {}
         assert quota_limited_orgs["api_queries_read_bytes"] == {}
-        assert quota_limited_orgs["surveys"] == {}
+        assert quota_limited_orgs["survey_responses"] == {}
+        assert quota_limited_orgs["rows_exported"] == {}
         assert quota_limiting_suspended_orgs["events"] == {}
         assert quota_limiting_suspended_orgs["exceptions"] == {}
         assert quota_limiting_suspended_orgs["recordings"] == {}
         assert quota_limiting_suspended_orgs["rows_synced"] == {}
         assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
         assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-        assert quota_limiting_suspended_orgs["surveys"] == {}
+        assert quota_limiting_suspended_orgs["survey_responses"] == {}
+        assert quota_limiting_suspended_orgs["rows_exported"] == {}
         assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [self.team.api_token.encode("UTF-8")]
         assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-        assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/survey_responses", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -206,13 +216,13 @@ class TestQuotaLimiting(BaseTest):
             "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 0},
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 0},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100, "todays_usage": 0},
+            "survey_responses": {"usage": 10, "limit": 100, "todays_usage": 0},
         }
         self.organization.customer_trust_scores = zero_trust_scores()
         self.organization.save()
 
         time.sleep(1)
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
         # Shouldn't be called due to lazy evaluation of the conditional
         patch_feature_enabled.assert_not_called()
@@ -223,14 +233,16 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limited_orgs["rows_synced"] == {}
         assert quota_limited_orgs["feature_flag_requests"] == {}
         assert quota_limited_orgs["api_queries_read_bytes"] == {}
-        assert quota_limited_orgs["surveys"] == {}
+        assert quota_limited_orgs["survey_responses"] == {}
+        assert quota_limited_orgs["rows_exported"] == {}
         assert quota_limiting_suspended_orgs["events"] == {}
         assert quota_limiting_suspended_orgs["exceptions"] == {}
         assert quota_limiting_suspended_orgs["recordings"] == {}
         assert quota_limiting_suspended_orgs["rows_synced"] == {}
         assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
         assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-        assert quota_limiting_suspended_orgs["surveys"] == {}
+        assert quota_limiting_suspended_orgs["survey_responses"] == {}
+        assert quota_limiting_suspended_orgs["rows_exported"] == {}
 
         assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
@@ -238,7 +250,8 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-        assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/survey_responses", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):
@@ -264,13 +277,13 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limited_orgs["recordings"] == {}
         assert quota_limited_orgs["rows_synced"] == {}
         assert quota_limited_orgs["feature_flag_requests"] == {}
-        assert quota_limited_orgs["surveys"] == {}
+        assert quota_limited_orgs["survey_responses"] == {}
         assert quota_limiting_suspended_orgs["events"] == {}
         assert quota_limiting_suspended_orgs["exceptions"] == {}
         assert quota_limiting_suspended_orgs["recordings"] == {}
         assert quota_limiting_suspended_orgs["rows_synced"] == {}
         assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
-        assert quota_limiting_suspended_orgs["surveys"] == {}
+        assert quota_limiting_suspended_orgs["survey_responses"] == {}
 
         assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
@@ -278,7 +291,8 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-        assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/survey_responses", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
     @patch("posthoganalytics.capture")
     def test_billing_rate_limit(self, patch_capture) -> None:
@@ -342,9 +356,10 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_api_queries": None,
                 "quota_limited_rows_synced": None,
                 "quota_limited_feature_flags": None,
-                "quota_limited_surveys": None,
+                "quota_limited_survey_responses": None,
                 "quota_limited_llm_events": None,
-                "quota_limited_cdp_invocations": None,
+                "quota_limited_cdp_trigger_events": None,
+                "quota_limited_rows_exported": None,
             }
             assert org_action_call.kwargs.get("groups") == {
                 "instance": "http://localhost:8010",
@@ -372,7 +387,8 @@ class TestQuotaLimiting(BaseTest):
                 "rows_synced": 0,
                 "feature_flags": 0,
                 TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
-                "surveys": 0,
+                "survey_responses": 0,
+                "rows_exported": 0,
             }
             self.organization.save()
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
@@ -449,7 +465,7 @@ class TestQuotaLimiting(BaseTest):
                 "rows_synced": 0,
                 "feature_flags": 0,
                 TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
-                "surveys": 0,
+                "survey_responses": 0,
             }
             self.organization.usage = create_usage_summary(
                 events={"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
@@ -472,7 +488,7 @@ class TestQuotaLimiting(BaseTest):
                 "rows_synced": 0,
                 "feature_flags": 0,
                 TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
-                "surveys": 0,
+                "survey_responses": 0,
             }
             self.organization.usage = create_usage_summary(
                 events={"usage": 109, "limit": 100},
@@ -513,7 +529,7 @@ class TestQuotaLimiting(BaseTest):
                 "rows_synced": 0,
                 "feature_flags": 0,
                 TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
-                "surveys": 0,
+                "survey_responses": 0,
             }
             self.organization.usage = create_usage_summary(
                 events={"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
@@ -538,7 +554,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 5, "limit": 100},
             "feature_flag_requests": {"usage": 5, "limit": 100},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100},
+            "survey_responses": {"usage": 10, "limit": 100},
         }
         self.organization.save()
 
@@ -552,7 +568,7 @@ class TestQuotaLimiting(BaseTest):
                 "2021-01-01T00:00:00Z",
                 "2021-01-31T23:59:59Z",
             ],
-            "surveys": {"usage": 20, "limit": 100},
+            "survey_responses": {"usage": 20, "limit": 100},
         }
 
         assert set_org_usage_summary(self.organization, new_usage=new_usage)
@@ -564,7 +580,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 6, "limit": 100, "todays_usage": 0},
             "feature_flag_requests": {"usage": 6, "limit": 100, "todays_usage": 0},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 20, "limit": 100, "todays_usage": 0},
+            "survey_responses": {"usage": 20, "limit": 100, "todays_usage": 0},
         }
 
     def test_set_org_usage_summary_does_nothing_if_the_same(self):
@@ -575,7 +591,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 11},
             "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 11},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100, "todays_usage": 50},
+            "survey_responses": {"usage": 10, "limit": 100, "todays_usage": 50},
         }
         self.organization.save()
 
@@ -589,7 +605,7 @@ class TestQuotaLimiting(BaseTest):
                 "2021-01-01T00:00:00Z",
                 "2021-01-31T23:59:59Z",
             ],
-            "surveys": {"usage": 10, "limit": 100},
+            "survey_responses": {"usage": 10, "limit": 100},
         }
 
         assert not set_org_usage_summary(self.organization, new_usage=new_usage)
@@ -601,7 +617,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 11},
             "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 11},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100, "todays_usage": 50},
+            "survey_responses": {"usage": 10, "limit": 100, "todays_usage": 50},
         }
 
     def test_set_org_usage_summary_updates_todays_usage(self):
@@ -612,7 +628,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 11},
             "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 11},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100, "todays_usage": 50},
+            "survey_responses": {"usage": 10, "limit": 100, "todays_usage": 50},
         }
         self.organization.save()
 
@@ -624,7 +640,7 @@ class TestQuotaLimiting(BaseTest):
                 "recordings": 21,
                 "rows_synced": 21,
                 "feature_flag_requests": 21,
-                "surveys": 21,
+                "survey_responses": 21,
             },
         )
 
@@ -635,7 +651,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 21},
             "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 21},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100, "todays_usage": 21},
+            "survey_responses": {"usage": 10, "limit": 100, "todays_usage": 21},
         }
 
     def test_org_quota_limited_until(self):
@@ -654,7 +670,7 @@ class TestQuotaLimiting(BaseTest):
             QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
         previously_quota_limited_team_tokens_surveys = list_limited_team_attributes(
-            QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
         assert (
             org_quota_limited_until(
@@ -671,7 +687,7 @@ class TestQuotaLimiting(BaseTest):
             "feature_flag_requests": {"usage": 99, "limit": 100},
             "api_queries_read_bytes": {"usage": 99, "limit": 100},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100},
+            "survey_responses": {"usage": 10, "limit": 100},
         }
 
         # Not over quota
@@ -764,18 +780,18 @@ class TestQuotaLimiting(BaseTest):
         }
 
         # Not over quota
-        self.organization.usage["surveys"]["usage"] = 99
+        self.organization.usage["survey_responses"]["usage"] = 99
         assert (
             org_quota_limited_until(
-                self.organization, QuotaResource.SURVEYS, previously_quota_limited_team_tokens_surveys
+                self.organization, QuotaResource.SURVEY_RESPONSES, previously_quota_limited_team_tokens_surveys
             )
             is None
         )
 
         # Over quota
-        self.organization.usage["surveys"]["usage"] = 101
+        self.organization.usage["survey_responses"]["usage"] = 101
         assert org_quota_limited_until(
-            self.organization, QuotaResource.SURVEYS, previously_quota_limited_team_tokens_surveys
+            self.organization, QuotaResource.SURVEY_RESPONSES, previously_quota_limited_team_tokens_surveys
         ) == {
             "quota_limited_until": 1612137599,
             "quota_limiting_suspended_until": None,
@@ -789,7 +805,7 @@ class TestQuotaLimiting(BaseTest):
                 TRUST_SCORE_KEYS[QuotaResource.ROWS_SYNCED]: 10,
                 TRUST_SCORE_KEYS[QuotaResource.FEATURE_FLAG_REQUESTS]: 10,
                 TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 10,
-                TRUST_SCORE_KEYS[QuotaResource.SURVEYS]: 7,
+                TRUST_SCORE_KEYS[QuotaResource.SURVEY_RESPONSES]: 7,
             }
 
             # Update to be over quota on all resources
@@ -801,7 +817,7 @@ class TestQuotaLimiting(BaseTest):
                 "feature_flag_requests": {"usage": 101, "limit": 100},
                 "api_queries_read_bytes": {"usage": 101, "limit": 100},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 101, "limit": 100},
+                "survey_responses": {"usage": 101, "limit": 100},
             }
 
             # All resources over quota
@@ -836,7 +852,7 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limiting_suspended_until": 1611878400,  # grace period 3 days
             }
             assert org_quota_limited_until(
-                self.organization, QuotaResource.SURVEYS, previously_quota_limited_team_tokens_surveys
+                self.organization, QuotaResource.SURVEY_RESPONSES, previously_quota_limited_team_tokens_surveys
             ) == {
                 "quota_limited_until": None,
                 "quota_limiting_suspended_until": 1611705600,  # grace period 1 day
@@ -857,7 +873,7 @@ class TestQuotaLimiting(BaseTest):
             QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
         previously_quota_limited_team_tokens_surveys = list_limited_team_attributes(
-            QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
         assert (
             org_quota_limited_until(
@@ -873,7 +889,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 100, "limit": 90},
             "feature_flag_requests": {"usage": 100, "limit": 90},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100},
+            "survey_responses": {"usage": 10, "limit": 100},
         }
         self.organization.never_drop_data = True
 
@@ -903,7 +919,7 @@ class TestQuotaLimiting(BaseTest):
         )
         assert (
             org_quota_limited_until(
-                self.organization, QuotaResource.SURVEYS, previously_quota_limited_team_tokens_surveys
+                self.organization, QuotaResource.SURVEY_RESPONSES, previously_quota_limited_team_tokens_surveys
             )
             is None
         )
@@ -927,7 +943,7 @@ class TestQuotaLimiting(BaseTest):
                 QuotaResource.ROWS_SYNCED, {"1337": now + 10000}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
             )
             replace_limited_team_tokens(
-                QuotaResource.SURVEYS, {"5678": now + 10000}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                QuotaResource.SURVEY_RESPONSES, {"5678": now + 10000}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
             )
             self.organization.usage = {
                 "events": {"usage": 99, "limit": 100},
@@ -936,7 +952,7 @@ class TestQuotaLimiting(BaseTest):
                 "rows_synced": {"usage": 35, "limit": 100},
                 "feature_flag_requests": {"usage": 5, "limit": 100},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100},
+                "survey_responses": {"usage": 10, "limit": 100},
             }
 
             update_org_billing_quotas(self.organization)
@@ -949,14 +965,14 @@ class TestQuotaLimiting(BaseTest):
             assert list_limited_team_attributes(
                 QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
             ) == ["1337"]
-            assert list_limited_team_attributes(QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY) == [
-                "5678"
-            ]
+            assert list_limited_team_attributes(
+                QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            ) == ["5678"]
 
             self.organization.usage["events"]["usage"] = 120
             self.organization.usage["exceptions"]["usage"] = 120
             self.organization.usage["rows_synced"]["usage"] = 120
-            self.organization.usage["surveys"]["usage"] = 120
+            self.organization.usage["survey_responses"]["usage"] = 120
             update_org_billing_quotas(self.organization)
             assert sorted(
                 list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
@@ -970,13 +986,15 @@ class TestQuotaLimiting(BaseTest):
                 list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
             ) == sorted(["1337", str(self.team.api_token), str(other_team.api_token)])
             assert sorted(
-                list_limited_team_attributes(QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+                list_limited_team_attributes(
+                    QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
             ) == sorted(["5678", self.team.api_token, other_team.api_token])
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["exceptions"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36
-            self.organization.usage["surveys"]["usage"] = 80
+            self.organization.usage["survey_responses"]["usage"] = 80
             update_org_billing_quotas(self.organization)
             assert sorted(
                 list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
@@ -988,7 +1006,9 @@ class TestQuotaLimiting(BaseTest):
                 list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
             ) == sorted(["1337"])
             assert sorted(
-                list_limited_team_attributes(QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+                list_limited_team_attributes(
+                    QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
             ) == sorted(["5678"])
 
             self.organization.customer_trust_scores = {
@@ -1005,7 +1025,7 @@ class TestQuotaLimiting(BaseTest):
             self.organization.usage["events"]["usage"] = 120
             self.organization.usage["exceptions"]["usage"] = 120
             self.organization.usage["rows_synced"]["usage"] = 120
-            self.organization.usage["surveys"]["usage"] = 120
+            self.organization.usage["survey_responses"]["usage"] = 120
             update_org_billing_quotas(self.organization)
             assert sorted(
                 list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
@@ -1031,16 +1051,20 @@ class TestQuotaLimiting(BaseTest):
                 )
             ) == sorted([str(self.team.api_token), str(other_team.api_token)])
             assert sorted(
-                list_limited_team_attributes(QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+                list_limited_team_attributes(
+                    QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
             ) == sorted(["5678"])
             assert sorted(
-                list_limited_team_attributes(QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
+                list_limited_team_attributes(
+                    QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+                )
             ) == sorted([str(self.team.api_token), str(other_team.api_token)])
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["exceptions"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36
-            self.organization.usage["surveys"]["usage"] = 80
+            self.organization.usage["survey_responses"]["usage"] = 80
             update_org_billing_quotas(self.organization)
             assert sorted(
                 list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
@@ -1052,7 +1076,9 @@ class TestQuotaLimiting(BaseTest):
                 list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
             ) == sorted(["1337"])
             assert sorted(
-                list_limited_team_attributes(QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+                list_limited_team_attributes(
+                    QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
             ) == sorted(["5678"])
 
     @patch("ee.billing.quota_limiting.capture_exception")
@@ -1077,8 +1103,8 @@ class TestQuotaLimiting(BaseTest):
         mock_capture.assert_called_once()
 
         call_args = mock_capture.call_args
-        self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")  # type: ignore
-        self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})  # type: ignore
+        self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")
+        self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})
 
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
@@ -1090,7 +1116,7 @@ class TestQuotaLimiting(BaseTest):
                 "feature_flag_requests": {"usage": 110, "limit": 100},
                 "api_queries_read_bytes": {"usage": 10, "limit": 100},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100},
+                "survey_responses": {"usage": 10, "limit": 100},
             }
             self.organization.customer_trust_scores = zero_trust_scores()
             self.organization.save()
@@ -1163,7 +1189,7 @@ class TestQuotaLimiting(BaseTest):
                 "feature_flag_requests": {"usage": 110, "limit": 100},
                 "api_queries_read_bytes": {"usage": 10, "limit": 100},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100},
+                "survey_responses": {"usage": 10, "limit": 100},
             }
             org_id = str(self.organization.id)
 
@@ -1347,7 +1373,7 @@ class TestQuotaLimiting(BaseTest):
         with self.settings(USE_TZ=False):
             # Set up usage data with surveys over the limit
             self.organization.usage = {
-                "surveys": {"usage": 95, "limit": 100, "todays_usage": 10},  # 105 total, over limit of 100
+                "survey_responses": {"usage": 95, "limit": 100, "todays_usage": 10},  # 105 total, over limit of 100
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             }
             self.organization.customer_trust_scores = {"surveys": 0}  # Low trust score
@@ -1358,13 +1384,13 @@ class TestQuotaLimiting(BaseTest):
 
             # Verify team token was added to quota limited list
             limited_tokens = list_limited_team_attributes(
-                QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
             )
             assert self.team.api_token in limited_tokens
 
             # Verify org usage was updated with quota_limited_until
             self.organization.refresh_from_db()
-            assert self.organization.usage["surveys"].get("quota_limited_until") is not None
+            assert self.organization.usage["survey_responses"].get("quota_limited_until") is not None
 
             # Verify analytics event was captured
             mock_capture.assert_called()
@@ -1377,7 +1403,7 @@ class TestQuotaLimiting(BaseTest):
                     break
 
             assert org_action_call is not None
-            assert org_action_call[1]["properties"]["resource"] == "surveys"
+            assert org_action_call[1]["properties"]["resource"] == "survey_responses"
             assert org_action_call[1]["properties"]["current_usage"] == 105
             assert org_action_call[1]["properties"]["event"] == "suspended"
 
@@ -1387,7 +1413,7 @@ class TestQuotaLimiting(BaseTest):
         with self.settings(USE_TZ=False):
             # Set up usage data with surveys under the limit
             self.organization.usage = {
-                "surveys": {"usage": 80, "limit": 100, "todays_usage": 5},  # 85 total, under limit
+                "survey_responses": {"usage": 80, "limit": 100, "todays_usage": 5},  # 85 total, under limit
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             }
             self.organization.save()
@@ -1397,13 +1423,13 @@ class TestQuotaLimiting(BaseTest):
 
             # Verify team token was NOT added to quota limited list
             limited_tokens = list_limited_team_attributes(
-                QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
             )
             assert self.team.api_token not in limited_tokens
 
             # Verify org usage does not have quota_limited_until
             self.organization.refresh_from_db()
-            assert self.organization.usage["surveys"].get("quota_limited_until") is None
+            assert self.organization.usage["survey_responses"].get("quota_limited_until") is None
 
     @freeze_time("2021-01-25T23:59:59Z")
     @patch("posthoganalytics.capture")
@@ -1481,7 +1507,7 @@ class TestQuotaLimiting(BaseTest):
                 "rows_synced": 0,
                 "feature_flags": 0,
                 "api_queries": 0,
-                "surveys": 0,
+                "survey_responses": 0,
                 "llm_events": 0,
             }
             self.organization.usage = {
@@ -1568,7 +1594,7 @@ class TestQuotaLimiting(BaseTest):
                 "rows_synced": 0,
                 "feature_flags": 0,
                 "api_queries": 0,
-                "surveys": 0,
+                "survey_responses": 0,
                 "llm_events": 7,  # High trust score
             }
             self.organization.usage = {

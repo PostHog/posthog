@@ -20,6 +20,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog import constants
 from posthog.models import Team
 from posthog.models.user import User
+from posthog.sync import database_sync_to_async
 from posthog.temporal.ai import WORKFLOWS
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
@@ -42,6 +43,7 @@ from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryData, SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
+from ee.models.session_summaries import SingleSessionSummary
 
 pytestmark = pytest.mark.django_db
 
@@ -202,10 +204,20 @@ class TestStreamLlmSummaryActivity:
             redis_input_key,
             redis_output_key,
         )
-        # Run the activity and verify results
+        # Verify summary doesn't exist in DB before the activity
+        summary_before = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
+            team_id=ateam.id,
+            session_id=mock_session_id,
+            extra_summary_context=input_data.extra_summary_context,
+        )
+        assert summary_before is None, "Summary should not exist in DB before the activity"
+        # First run: generate and store summary
         expected_final_summary = json.dumps(mock_enriched_llm_json_response)
+        mock_stream_llm_instance = mock_stream_llm()
         with (
-            patch("ee.hogai.session_summaries.llm.consume.stream_llm", return_value=mock_stream_llm()),
+            patch(
+                "ee.hogai.session_summaries.llm.consume.stream_llm", return_value=mock_stream_llm_instance
+            ) as mock_stream_llm_patch,
             patch("temporalio.activity.heartbeat") as mock_heartbeat,
             patch("temporalio.activity.info") as mock_activity_info,
         ):
@@ -220,6 +232,38 @@ class TestStreamLlmSummaryActivity:
             assert spy_get.call_count == 1  # Get input data
             # Initial setup and number of valid chunks (unparseable chunks are skipped)
             assert spy_setex.call_count == 1 + 8
+            # Verify LLM was called
+            assert mock_stream_llm_patch.call_count == 1
+        # Verify summary was stored in DB after the activity
+        summary_after = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
+            team_id=ateam.id,
+            session_id=mock_session_id,
+            extra_summary_context=input_data.extra_summary_context,
+        )
+        assert summary_after is not None, "Summary should exist in DB after the activity"
+        assert summary_after.session_id == mock_session_id
+        assert summary_after.team_id == ateam.id
+        # Reset call counts for second run
+        spy_get.reset_mock()
+        spy_setex.reset_mock()
+        # Second run: should retrieve from DB without calling LLM
+        with (
+            patch("ee.hogai.session_summaries.llm.consume.stream_llm") as mock_stream_llm_patch_2,
+            patch("temporalio.activity.heartbeat") as mock_heartbeat_2,
+            patch("temporalio.activity.info") as mock_activity_info_2,
+        ):
+            mock_activity_info_2.return_value.workflow_id = "test_workflow_id_2"
+            # Call the activity again - should get from DB
+            result_2 = await stream_llm_single_session_summary_activity(input_data)
+            # Verify the result matches the stored summary (DB returns summary.summary as dict)
+            assert json.loads(result_2) == json.loads(expected_final_summary)
+            # Verify LLM was NOT called
+            assert mock_stream_llm_patch_2.call_count == 0, "LLM should not be called when summary exists in DB"
+            # Verify no Redis operations occurred (DB check happens before Redis)
+            assert spy_get.call_count == 0, "Should not get from Redis when summary exists in DB"
+            assert spy_setex.call_count == 0, "Should not set to Redis when summary exists in DB"
+            # Verify heartbeat was NOT called (no streaming needed)
+            assert mock_heartbeat_2.call_count == 0, "Heartbeat should not be called when retrieving from DB"
 
 
 class TestSummarizeSingleSessionStreamWorkflow:

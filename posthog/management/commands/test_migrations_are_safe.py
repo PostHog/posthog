@@ -48,12 +48,17 @@ def validate_migration_sql(sql) -> bool:
             # Ignore for brand-new tables
             and (table_being_altered not in tables_created_so_far or table_being_altered not in new_tables)
         ):
-            # Check if this is adding a column with a constant default (safe in PostgreSQL 11+)
-            if "ADD COLUMN" in operation_sql and "DEFAULT" in operation_sql:
+            # Check if this is adding/altering a column with a constant default (safe in PostgreSQL 11+)
+            if ("ADD COLUMN" in operation_sql and "DEFAULT" in operation_sql) or (
+                "ALTER COLUMN" in operation_sql and "SET DEFAULT" in operation_sql
+            ):
                 # Extract the default value to check if it's a constant
-                # Match DEFAULT followed by either a quoted string or unquoted value until NOT NULL or end of significant tokens
+                # Match DEFAULT followed by either a quoted string or unquoted value including typecast until NOT NULL or end of significant tokens
+                # regexr.com is your friend when trying to understand this regex
                 default_match = re.search(
-                    r"DEFAULT\s+((?:'[^']*')|(?:[^'\s]+(?:\s+[^'\s]+)*?))\s+(?:NOT\s+NULL|;|$)", operation_sql, re.I
+                    r"DEFAULT\s+((?:'[^']*')|(?:[^'\s]+(?:\s+[^'\s]+)*?))(\s+|::\w+\s+)(?:NOT\s+NULL|;|$)",
+                    operation_sql,
+                    re.I,
                 )
                 if default_match:
                     default_value = default_match.group(1).strip()
@@ -70,7 +75,8 @@ def validate_migration_sql(sql) -> bool:
                             "CURRENT_TIME",
                         ]  # Functions marked as stable in postgres
                     ):
-                        # This is safe - adding a column with a constant default doesn't require table rewrite in PostgreSQL 11+
+                        # This is safe - adding/altering a column with a constant default
+                        # doesn't require table rewrite in PostgreSQL 11+
                         continue
 
             print(
@@ -141,14 +147,34 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         def run_and_check_migration(variable):
             try:
-                results = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", variable)[0]
+                # Handle both posthog/migrations and products/*/backend/migrations paths
+                # For products: products/product_name/backend/migrations/0001_initial.py -> (product_name, 0001_initial)
+                # For posthog: posthog/migrations/0001_initial.py -> (posthog, 0001_initial)
+                products_match = re.findall(r"products/([a-z_]+)/backend/migrations/([a-zA-Z_0-9]+)\.py", variable)
+                if products_match:
+                    results = products_match[0]
+                else:
+                    results = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", variable)[0]
+
                 sql = call_command("sqlmigrate", results[0], results[1])
                 should_fail = validate_migration_sql(sql)
                 if should_fail:
                     sys.exit(1)
 
-            except (IndexError, CommandError):
-                pass
+            except IndexError:
+                print(f"\n\n\033[93m⚠️  WARNING: Could not parse migration path: {variable.strip()}\033[0m")
+                print(
+                    "Expected format: posthog/migrations/NNNN_name.py or products/name/backend/migrations/NNNN_name.py"
+                )
+                if os.getenv("CI"):
+                    print("\033[91mFailing in CI due to unparseable migration path\033[0m")
+                    sys.exit(1)
+            except CommandError as e:
+                print(f"\n\n\033[93m⚠️  WARNING: Failed to run sqlmigrate for {variable.strip()}\033[0m")
+                print(f"Error: {e}")
+                if os.getenv("CI"):
+                    print("\033[91mFailing in CI due to sqlmigrate error\033[0m")
+                    sys.exit(1)
 
         # Wait for stdin with 1 second timeout
         if select.select([sys.stdin], [], [], 1)[0]:
@@ -170,4 +196,18 @@ class Command(BaseCommand):
             sys.exit(1)
 
         for data in migrations:
+            data = data.strip()
+            # Skip empty lines
+            if not data:
+                continue
+            # Validate file extension
+            if not data.endswith(".py"):
+                print(f"\033[93m⚠️  Skipping non-Python file: {data}\033[0m")
+                continue
+            # Prevent path traversal
+            if ".." in data or data.startswith("/"):
+                print(f"\033[91m⚠️  Skipping suspicious path: {data}\033[0m")
+                if os.getenv("CI"):
+                    sys.exit(1)
+                continue
             run_and_check_migration(data)

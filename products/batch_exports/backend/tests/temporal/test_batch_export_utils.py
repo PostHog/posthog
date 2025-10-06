@@ -4,7 +4,6 @@ import datetime as dt
 import pytest
 
 import pyarrow as pa
-import pytest_asyncio
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
@@ -18,7 +17,7 @@ from products.batch_exports.backend.temporal.utils import (
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def s3_batch_export(
     ateam,
     temporal_client,

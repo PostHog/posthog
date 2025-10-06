@@ -1,6 +1,6 @@
 import { BreakPointFunction, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
@@ -10,12 +10,15 @@ import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/qu
 
 import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
+import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import {
+    UnexpectedNeverError,
     getDefaultInterval,
     isNotNil,
     isValidRelativeOrAbsoluteDate,
@@ -100,8 +103,11 @@ import {
     WebAnalyticsStatusCheck,
     WebAnalyticsTile,
     WebVitalsPercentile,
+    eventPropertiesToPathClean,
     getWebAnalyticsBreakdownFilter,
     loadPriorityMap,
+    personPropertiesToPathClean,
+    sessionPropertiesToPathClean,
 } from './common'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
@@ -174,6 +180,109 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
     }),
+    loaders(({ values }) => ({
+        // load the status check query here and pass the response into the component, so the response
+        // is accessible in this logic
+        statusCheck: {
+            __default: null as WebAnalyticsStatusCheck | null,
+            loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
+                const [webVitalsResult, pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
+                    api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$web_vitals',
+                    }),
+                    api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$pageview',
+                    }),
+                    api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$pageleave',
+                    }),
+                    api.propertyDefinitions.list({
+                        event_names: ['$pageleave'],
+                        properties: ['$prev_pageview_max_content_percentage'],
+                    }),
+                ])
+
+                // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
+                // going to add enough reserved event names that match this search term to cause problems
+                const webVitalsEntry =
+                    webVitalsResult.status === 'fulfilled'
+                        ? webVitalsResult.value.results.find((r) => r.name === '$web_vitals')
+                        : undefined
+
+                const pageviewEntry =
+                    pageviewResult.status === 'fulfilled'
+                        ? pageviewResult.value.results.find((r) => r.name === '$pageview')
+                        : undefined
+
+                const pageleaveEntry =
+                    pageleaveResult.status === 'fulfilled'
+                        ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
+                        : undefined
+
+                const pageleaveScrollEntry =
+                    pageleaveScroll.status === 'fulfilled'
+                        ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
+                        : undefined
+
+                const isSendingWebVitals = !!webVitalsEntry && !isDefinitionStale(webVitalsEntry)
+                const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
+                const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
+                const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
+
+                return {
+                    isSendingWebVitals,
+                    isSendingPageViews,
+                    isSendingPageLeaves,
+                    isSendingPageLeavesScroll,
+                    hasAuthorizedUrls: !!values.currentTeam?.app_urls && values.currentTeam.app_urls.length > 0,
+                }
+            },
+        },
+        shouldShowGeoIPQueries: {
+            _default: null as boolean | null,
+            loadShouldShowGeoIPQueries: async (): Promise<boolean> => {
+                // Always display on dev mode, we don't always have events and/or hogQL functions
+                // but we want the map to be there for debugging purposes
+                if (values.isDev) {
+                    return true
+                }
+
+                const [propertiesResponse, hogFunctionsResponse] = await Promise.allSettled([
+                    api.propertyDefinitions.list({
+                        event_names: ['$pageview'],
+                        properties: ['$geoip_country_code'],
+                    }),
+                    api.hogFunctions.list({ types: ['transformation'] }),
+                ])
+
+                const hasNonStaleCountryCodeDefinition =
+                    propertiesResponse.status === 'fulfilled' &&
+                    propertiesResponse.value.results.some(
+                        (property) => property.name === '$geoip_country_code' && !isDefinitionStale(property)
+                    )
+
+                if (!hasNonStaleCountryCodeDefinition) {
+                    return false
+                }
+
+                if (hogFunctionsResponse.status !== 'fulfilled') {
+                    return false
+                }
+
+                const enabledGeoIPHogFunction = hogFunctionsResponse.value.results.find((hogFunction) => {
+                    const isFromTemplate = GEOIP_TEMPLATE_IDS.includes(hogFunction.template?.id ?? '')
+                    const matchesName = hogFunction.name === 'GeoIP' // Failsafe in case someone implements their custom GeoIP function
+
+                    return (isFromTemplate || matchesName) && hogFunction.enabled
+                })
+
+                return Boolean(enabledGeoIPHogFunction)
+            },
+        },
+    })),
     reducers({
         rawWebAnalyticsFilters: [
             INITIAL_WEB_ANALYTICS_FILTER,
@@ -467,7 +576,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
     }),
-    selectors(({ actions, values }) => ({
+    windowValues({
+        isGreaterThanMd: (window: Window) => window.innerWidth > 768,
+    }),
+    selectors({
         preAggregatedEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
@@ -478,41 +590,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.productTab],
-            (productTab: ProductTab): Breadcrumb[] => {
-                const breadcrumbs: Breadcrumb[] = [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
                     {
                         key: Scene.WebAnalytics,
                         name: `Web analytics`,
                         path: urls.webAnalytics(),
+                        iconType: 'web_analytics',
                     },
                 ]
-
-                if (productTab === ProductTab.WEB_VITALS) {
-                    breadcrumbs.push({
-                        key: Scene.WebAnalyticsWebVitals,
-                        name: `Web vitals`,
-                        path: urls.webAnalyticsWebVitals(),
-                    })
-                }
-
-                if (productTab === ProductTab.PAGE_REPORTS) {
-                    breadcrumbs.push({
-                        key: Scene.WebAnalyticsPageReports,
-                        name: `Page reports`,
-                        path: urls.webAnalyticsPageReports(),
-                    })
-                }
-
-                if (productTab === ProductTab.MARKETING) {
-                    breadcrumbs.push({
-                        key: Scene.WebAnalyticsMarketing,
-                        name: `Marketing`,
-                        path: urls.webAnalyticsMarketing(),
-                    })
-                }
-
-                return breadcrumbs
             },
         ],
         graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],
@@ -573,13 +660,32 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 // Translate exact path filters to cleaned path filters
                 if (isPathCleaningEnabled) {
-                    filters = filters.map((filter) => ({
-                        ...filter,
-                        operator:
-                            filter.operator === PropertyOperator.Exact
-                                ? PropertyOperator.IsCleanedPathExact
-                                : filter.operator,
-                    }))
+                    filters = filters.map((filter) => {
+                        if (filter.operator !== PropertyOperator.Exact) {
+                            return filter
+                        }
+                        let propertiesToPathClean: Set<string>
+                        switch (filter.type) {
+                            case PropertyFilterType.Event:
+                                propertiesToPathClean = eventPropertiesToPathClean
+                                break
+                            case PropertyFilterType.Person:
+                                propertiesToPathClean = personPropertiesToPathClean
+                                break
+                            case PropertyFilterType.Session:
+                                propertiesToPathClean = sessionPropertiesToPathClean
+                                break
+                            default:
+                                throw new UnexpectedNeverError(filter)
+                        }
+                        if (propertiesToPathClean.has(filter.key)) {
+                            return {
+                                ...filter,
+                                operator: PropertyOperator.IsCleanedPathExact,
+                            }
+                        }
+                        return filter
+                    })
                 }
 
                 return filters
@@ -593,7 +699,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.pathTab,
                 s.geographyTab,
                 s.activeHoursTab,
-                () => values.shouldShowGeoIPQueries,
+                s.shouldShowGeoIPQueries,
             ],
             (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, activeHoursTab, shouldShowGeoIPQueries) => ({
                 graphsTab,
@@ -622,7 +728,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.webVitalsTab,
                 s.webVitalsPercentile,
                 s.tablesOrderBy,
-                () => values.conversionGoal,
+                s.conversionGoal,
             ],
             (
                 webAnalyticsFilters,
@@ -644,17 +750,164 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 conversionGoal,
             }),
         ],
+        replayFilters: [
+            (s) => [s.webAnalyticsFilters, s.dateFilter, s.shouldFilterTestAccounts, s.conversionGoal],
+            (
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
+                dateFilter,
+                shouldFilterTestAccounts,
+                conversionGoal
+            ): RecordingUniversalFilters => {
+                const filters: UniversalFiltersGroupValue[] = [...webAnalyticsFilters]
+                if (conversionGoal) {
+                    if ('actionId' in conversionGoal) {
+                        filters.push({
+                            id: conversionGoal.actionId,
+                            name: String(conversionGoal.actionId),
+                            type: 'actions',
+                        })
+                    } else if ('customEventName' in conversionGoal) {
+                        filters.push({
+                            id: conversionGoal.customEventName,
+                            name: conversionGoal.customEventName,
+                            type: 'events',
+                        })
+                    }
+                }
+
+                return {
+                    filter_test_accounts: shouldFilterTestAccounts,
+
+                    date_from: dateFilter.dateFrom,
+                    date_to: dateFilter.dateTo,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: filters,
+                            },
+                        ],
+                    },
+                    duration: [
+                        {
+                            type: PropertyFilterType.Recording,
+                            key: 'active_seconds',
+                            operator: PropertyOperator.GreaterThan,
+                            value: 1,
+                        },
+                    ],
+                }
+            },
+        ],
+        hasCountryFilter: [
+            (s) => [s.webAnalyticsFilters],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
+                return webAnalyticsFilters.some((filter) => filter.key === '$geoip_country_code')
+            },
+        ],
+        webVitalsMetricQuery: [
+            (s) => [
+                s.webVitalsPercentile,
+                s.webVitalsTab,
+                s.dateFilter,
+                s.webAnalyticsFilters,
+                s.shouldFilterTestAccounts,
+            ],
+            (
+                webVitalsPercentile,
+                webVitalsTab,
+                { dateFrom, dateTo, interval },
+                webAnalyticsFilters,
+                filterTestAccounts
+            ): InsightVizNode<TrendsQuery> => ({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: {
+                        date_from: dateFrom,
+                        date_to: dateTo,
+                    },
+                    interval,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$web_vitals',
+                            name: '$web_vitals',
+                            custom_name: webVitalsTab,
+                            math: webVitalsPercentile,
+                            math_property: `$web_vitals_${webVitalsTab}_value`,
+                        },
+                    ],
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsLineGraph,
+                        aggregationAxisFormat: webVitalsTab === 'CLS' ? 'numeric' : 'duration_ms',
+                        goalLines: [
+                            {
+                                label: 'Good',
+                                value: WEB_VITALS_THRESHOLDS[webVitalsTab].good,
+                                displayLabel: false,
+                                borderColor: WEB_VITALS_COLORS.good,
+                            },
+                            {
+                                label: 'Poor',
+                                value: WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
+                                displayLabel: false,
+                                borderColor: WEB_VITALS_COLORS.needs_improvements,
+                            },
+                        ],
+                    } as TrendsFilter,
+                    filterTestAccounts,
+                    properties: webAnalyticsFilters,
+                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                },
+                embedded: false,
+            }),
+        ],
+        authorizedDomains: [
+            (s) => [s.authorizedUrls],
+            (authorizedUrls) => {
+                // There are a couple problems with the raw `authorizedUrls` which we need to fix here:
+                // - They are URLs, we want domains
+                // - There might be duplicates, so clean them up
+                // - There might be duplicates across http/https, so clean them up
+
+                // First create URL objects and group them by hostname+port
+                const urlsByDomain = new Map<string, URL[]>()
+
+                for (const urlStr of authorizedUrls) {
+                    try {
+                        const url = new URL(urlStr)
+                        const key = url.host // hostname + port if present
+                        if (!urlsByDomain.has(key)) {
+                            urlsByDomain.set(key, [])
+                        }
+                        urlsByDomain.get(key)!.push(url)
+                    } catch {
+                        // Silently skip URLs that can't be parsed
+                    }
+                }
+
+                // For each domain, prefer https over http
+                return Array.from(urlsByDomain.values()).map((urls) => {
+                    const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
+                    return preferredUrl.origin
+                })
+            },
+        ],
+    }),
+    selectors(({ actions }) => ({
         tiles: [
             (s) => [
                 s.productTab,
                 s.tabs,
                 s.controls,
                 s.filters,
-                () => values.featureFlags,
-                () => values.isGreaterThanMd,
-                () => values.currentTeam,
-                () => values.tileVisualizations,
-                () => values.preAggregatedEnabled,
+                s.featureFlags,
+                s.isGreaterThanMd,
+                s.currentTeam,
+                s.tileVisualizations,
+                s.preAggregatedEnabled,
                 s.marketingTiles,
             ],
             (
@@ -1585,7 +1838,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       dateRange,
                                       filterTestAccounts,
                                       retentionFilter: {
-                                          retentionType: RETENTION_FIRST_TIME,
+                                          retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                                           retentionReference: 'total',
                                           totalIntervals: isGreaterThanMd ? 8 : 5,
                                           period: RetentionPeriod.Week,
@@ -1936,256 +2189,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     )
             },
         ],
-
-        hasCountryFilter: [
-            (s) => [s.webAnalyticsFilters],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
-                return webAnalyticsFilters.some((filter) => filter.key === '$geoip_country_code')
-            },
-        ],
-        replayFilters: [
-            (s) => [s.webAnalyticsFilters, s.dateFilter, s.shouldFilterTestAccounts, s.conversionGoal],
-            (
-                webAnalyticsFilters: WebAnalyticsPropertyFilters,
-                dateFilter,
-                shouldFilterTestAccounts,
-                conversionGoal
-            ): RecordingUniversalFilters => {
-                const filters: UniversalFiltersGroupValue[] = [...webAnalyticsFilters]
-                if (conversionGoal) {
-                    if ('actionId' in conversionGoal) {
-                        filters.push({
-                            id: conversionGoal.actionId,
-                            name: String(conversionGoal.actionId),
-                            type: 'actions',
-                        })
-                    } else if ('customEventName' in conversionGoal) {
-                        filters.push({
-                            id: conversionGoal.customEventName,
-                            name: conversionGoal.customEventName,
-                            type: 'events',
-                        })
-                    }
-                }
-
-                return {
-                    filter_test_accounts: shouldFilterTestAccounts,
-
-                    date_from: dateFilter.dateFrom,
-                    date_to: dateFilter.dateTo,
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: filters,
-                            },
-                        ],
-                    },
-                    duration: [
-                        {
-                            type: PropertyFilterType.Recording,
-                            key: 'active_seconds',
-                            operator: PropertyOperator.GreaterThan,
-                            value: 1,
-                        },
-                    ],
-                }
-            },
-        ],
-        webVitalsMetricQuery: [
-            (s) => [
-                s.webVitalsPercentile,
-                s.webVitalsTab,
-                s.dateFilter,
-                s.webAnalyticsFilters,
-                s.shouldFilterTestAccounts,
-            ],
-            (
-                webVitalsPercentile,
-                webVitalsTab,
-                { dateFrom, dateTo, interval },
-                webAnalyticsFilters,
-                filterTestAccounts
-            ): InsightVizNode<TrendsQuery> => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    dateRange: {
-                        date_from: dateFrom,
-                        date_to: dateTo,
-                    },
-                    interval,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: '$web_vitals',
-                            name: '$web_vitals',
-                            custom_name: webVitalsTab,
-                            math: webVitalsPercentile,
-                            math_property: `$web_vitals_${webVitalsTab}_value`,
-                        },
-                    ],
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
-                        aggregationAxisFormat: webVitalsTab === 'CLS' ? 'numeric' : 'duration_ms',
-                        goalLines: [
-                            {
-                                label: 'Good',
-                                value: WEB_VITALS_THRESHOLDS[webVitalsTab].good,
-                                displayLabel: false,
-                                borderColor: WEB_VITALS_COLORS.good,
-                            },
-                            {
-                                label: 'Poor',
-                                value: WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
-                                displayLabel: false,
-                                borderColor: WEB_VITALS_COLORS.needs_improvements,
-                            },
-                        ],
-                    } as TrendsFilter,
-                    filterTestAccounts,
-                    properties: webAnalyticsFilters,
-                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                },
-                embedded: false,
-            }),
-        ],
         getNewInsightUrl: [(s) => [s.tiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],
-        authorizedDomains: [
-            (s) => [s.authorizedUrls],
-            (authorizedUrls) => {
-                // There are a couple problems with the raw `authorizedUrls` which we need to fix here:
-                // - They are URLs, we want domains
-                // - There might be duplicates, so clean them up
-                // - There might be duplicates across http/https, so clean them up
-
-                // First create URL objects and group them by hostname+port
-                const urlsByDomain = new Map<string, URL[]>()
-
-                for (const urlStr of authorizedUrls) {
-                    try {
-                        const url = new URL(urlStr)
-                        const key = url.host // hostname + port if present
-                        if (!urlsByDomain.has(key)) {
-                            urlsByDomain.set(key, [])
-                        }
-                        urlsByDomain.get(key)!.push(url)
-                    } catch {
-                        // Silently skip URLs that can't be parsed
-                    }
-                }
-
-                // For each domain, prefer https over http
-                return Array.from(urlsByDomain.values()).map((urls) => {
-                    const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
-                    return preferredUrl.origin
-                })
-            },
-        ],
-    })),
-    loaders(({ values }) => ({
-        // load the status check query here and pass the response into the component, so the response
-        // is accessible in this logic
-        statusCheck: {
-            __default: null as WebAnalyticsStatusCheck | null,
-            loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
-                const [webVitalsResult, pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$web_vitals',
-                    }),
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$pageview',
-                    }),
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$pageleave',
-                    }),
-                    api.propertyDefinitions.list({
-                        event_names: ['$pageleave'],
-                        properties: ['$prev_pageview_max_content_percentage'],
-                    }),
-                ])
-
-                // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
-                // going to add enough reserved event names that match this search term to cause problems
-                const webVitalsEntry =
-                    webVitalsResult.status === 'fulfilled'
-                        ? webVitalsResult.value.results.find((r) => r.name === '$web_vitals')
-                        : undefined
-
-                const pageviewEntry =
-                    pageviewResult.status === 'fulfilled'
-                        ? pageviewResult.value.results.find((r) => r.name === '$pageview')
-                        : undefined
-
-                const pageleaveEntry =
-                    pageleaveResult.status === 'fulfilled'
-                        ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
-                        : undefined
-
-                const pageleaveScrollEntry =
-                    pageleaveScroll.status === 'fulfilled'
-                        ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
-                        : undefined
-
-                const isSendingWebVitals = !!webVitalsEntry && !isDefinitionStale(webVitalsEntry)
-                const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
-                const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
-                const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
-
-                return {
-                    isSendingWebVitals,
-                    isSendingPageViews,
-                    isSendingPageLeaves,
-                    isSendingPageLeavesScroll,
-                    hasAuthorizedUrls: !!values.currentTeam?.app_urls && values.currentTeam.app_urls.length > 0,
-                }
-            },
-        },
-        shouldShowGeoIPQueries: {
-            _default: null as boolean | null,
-            loadShouldShowGeoIPQueries: async (): Promise<boolean> => {
-                // Always display on dev mode, we don't always have events and/or hogQL functions
-                // but we want the map to be there for debugging purposes
-                if (values.isDev) {
-                    return true
-                }
-
-                const [propertiesResponse, hogFunctionsResponse] = await Promise.allSettled([
-                    api.propertyDefinitions.list({
-                        event_names: ['$pageview'],
-                        properties: ['$geoip_country_code'],
-                    }),
-                    api.hogFunctions.list({ types: ['transformation'] }),
-                ])
-
-                const hasNonStaleCountryCodeDefinition =
-                    propertiesResponse.status === 'fulfilled' &&
-                    propertiesResponse.value.results.some(
-                        (property) => property.name === '$geoip_country_code' && !isDefinitionStale(property)
-                    )
-
-                if (!hasNonStaleCountryCodeDefinition) {
-                    return false
-                }
-
-                if (hogFunctionsResponse.status !== 'fulfilled') {
-                    return false
-                }
-
-                const enabledGeoIPHogFunction = hogFunctionsResponse.value.results.find((hogFunction) => {
-                    const isFromTemplate = GEOIP_TEMPLATE_IDS.includes(hogFunction.template?.id ?? '')
-                    const matchesName = hogFunction.name === 'GeoIP' // Failsafe in case someone implements their custom GeoIP function
-
-                    return (isFromTemplate || matchesName) && hogFunction.enabled
-                })
-
-                return Boolean(enabledGeoIPHogFunction)
-            },
-        },
     })),
 
     // start the loaders after mounting the logic
@@ -2193,11 +2197,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         actions.loadStatusCheck()
         actions.loadShouldShowGeoIPQueries()
     }),
-    windowValues({
-        isGreaterThanMd: (window: Window) => window.innerWidth > 768,
-    }),
 
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const stateToUrl = (): string => {
             const searchParams = { ...router.values.searchParams }
             const urlParams = new URLSearchParams(searchParams)
@@ -2319,7 +2320,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         const toAction = (
             { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {
@@ -2508,7 +2509,12 @@ const checkCustomEventConversionGoalHasSessionIdsHelper = async (
     // check if we have any conversion events from the last week without sessions ids
 
     const response = await hogqlQuery(
-        hogql`select count() from events where timestamp >= (now() - toIntervalHour(24)) AND ($session_id IS NULL OR $session_id = '') AND event = {event}`,
+        hogql`select count()
+              from events
+              where timestamp >= (now() - toIntervalHour(24))
+                AND ($session_id IS NULL
+                 OR $session_id = '')
+                AND event = {event}`,
         { event: customEventName }
     )
     breakpoint?.()

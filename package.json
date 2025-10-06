@@ -50,6 +50,7 @@
         "@parcel/transformer-typescript-types": "2.13.3",
         "@trivago/prettier-plugin-sort-imports": "^5.2.2",
         "@types/uuid": "^10.0.0",
+        "markdownlint-cli2": "^0.18.1",
         "oxlint": "^1.8.0",
         "prettier": "^3.6.2",
         "stylelint": "^15.11.0",
@@ -65,11 +66,12 @@
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.28.1"
+            "@posthog/icons": "0.30.0"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
-            "dayjs@1.11.11": "patches/dayjs@1.11.11.patch"
+            "dayjs@1.11.11": "patches/dayjs@1.11.11.patch",
+            "chartjs-plugin-crosshair@2.0.0": "patches/chartjs-plugin-crosshair@2.0.0.patch"
         }
     },
     "lint-staged": {
@@ -79,7 +81,7 @@
             "prettier --write"
         ],
         "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
-            "oxlint --fix --fix-suggestions --fix-dangerously --quiet",
+            "oxlint --fix --fix-suggestions --quiet",
             "prettier --write"
         ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [
@@ -90,6 +92,10 @@
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "./bin/ruff.sh check --fix",
             "./bin/ruff.sh format"
+        ],
+        "*.{md,mdx}": [
+            "prettier --write",
+            "pnpm exec markdownlint-cli2 --fix --config .config/.markdownlint-cli2.jsonc"
         ]
     },
     "browserslist": {

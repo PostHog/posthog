@@ -1,6 +1,6 @@
 /* global require, module, process, __dirname */
 const path = require('path')
-const webpack = require('webpack')
+
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 
@@ -205,14 +205,7 @@ function createEntry(entry) {
                       }),
                       new HtmlWebpackHarddiskPlugin(),
                   ]
-                : entry === 'cypress'
-                  ? [
-                        new HtmlWebpackHarddiskPlugin(),
-                        new webpack.ProvidePlugin({
-                            process: 'process/browser',
-                        }),
-                    ]
-                  : []
+                : []
         ),
     }
 }

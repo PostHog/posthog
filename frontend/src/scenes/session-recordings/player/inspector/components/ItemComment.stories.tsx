@@ -48,6 +48,7 @@ function makeNotebookItem(
         type: 'comment',
         source: 'notebook',
         search: '',
+        key: 'id',
         ...itemOverrides,
     }
 }
@@ -63,6 +64,10 @@ function makeCommentItem(
             created_at: now().toISOString(),
             scope: 'recording',
             content: '🪓😍🪓😍🪓😍🪓😍',
+            rich_content: {
+                type: 'doc',
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: '🪓😍🪓😍🪓😍🪓😍' }] }],
+            },
             item_context: {},
             created_by: {
                 id: 1,
@@ -80,6 +85,7 @@ function makeCommentItem(
         type: 'comment',
         source: 'comment',
         search: '',
+        key: 'id',
         ...itemOverrides,
     }
 }

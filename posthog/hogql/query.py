@@ -119,9 +119,11 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
-        if self.query_modifiers.useWebAnalyticsPreAggregatedTables:
+        if self.query_modifiers.usePreaggregatedTableTransforms:
             with self.timings.measure("preaggregated_table_transforms"):
-                transformed_node = do_preaggregated_table_transforms(self.select_query, self.context)
+                assert self.hogql_context is not None
+                assert self.hogql_context.team is not None
+                transformed_node = do_preaggregated_table_transforms(self.select_query, self.hogql_context)
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
                     self.select_query = transformed_node
 
@@ -136,6 +138,8 @@ class HogQLQueryExecutor:
             modifiers=self.query_modifiers,
             limit_context=self.limit_context,
         )
+
+        self._apply_optimizers()
 
         with self.timings.measure("clone"):
             cloned_query = clone_expr(self.select_query, True)
@@ -180,6 +184,7 @@ class HogQLQueryExecutor:
             LimitContext.COHORT_CALCULATION,
             LimitContext.QUERY_ASYNC,
             LimitContext.SAVED_QUERY,
+            LimitContext.RETENTION,
         ):
             settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
 
@@ -275,7 +280,6 @@ class HogQLQueryExecutor:
         self._process_variables()
         self._process_placeholders()
         self._apply_limit()
-        self._apply_optimizers()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
         with self.timings.measure("_generate_clickhouse_sql"):

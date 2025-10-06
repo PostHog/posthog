@@ -220,10 +220,11 @@ export function ActionsTable(): JSX.Element {
                                     sideIcon={<IconPlayCircle />}
                                     fullWidth
                                     data-attr="action-table-view-recordings"
+                                    targetBlank
                                 >
                                     View recordings
                                 </LemonButton>
-                                <LemonButton to={tryInInsightsUrl(action)} fullWidth>
+                                <LemonButton to={tryInInsightsUrl(action)} fullWidth targetBlank>
                                     Try out in Insights
                                 </LemonButton>
                                 <LemonDivider />
@@ -260,7 +261,7 @@ export function ActionsTable(): JSX.Element {
                 description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
                 docsURL="https://posthog.com/docs/data/actions"
                 actionElementOverride={
-                    <NewActionButton onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS, true)} />
+                    <NewActionButton onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS)} />
                 }
             />
             {(shouldShowEmptyState && filterType === 'me') || !shouldShowEmptyState ? (

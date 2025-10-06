@@ -2,7 +2,9 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'LLM Analytics',
@@ -39,6 +41,38 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
         },
+        LLMAnalyticsDatasets: {
+            import: () => import('./frontend/datasets/LLMAnalyticsDatasetsScene'),
+            projectBased: true,
+            name: 'LLM analytics datasets',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/installation',
+        },
+        LLMAnalyticsDataset: {
+            import: () => import('./frontend/datasets/LLMAnalyticsDatasetScene'),
+            projectBased: true,
+            name: 'LLM analytics dataset',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/installation',
+        },
+        LLMAnalyticsEvaluations: {
+            import: () => import('./frontend/LLMAnalyticsScene'),
+            projectBased: true,
+            name: 'LLM analytics evaluations',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/installation',
+        },
+        LLMAnalyticsEvaluation: {
+            import: () => import('./frontend/evaluations/LLMAnalyticsEvaluation'),
+            projectBased: true,
+            name: 'LLM analytics evaluation',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/installation',
+        },
     },
     routes: {
         '/llm-analytics': ['LLMAnalytics', 'llmAnalytics'],
@@ -48,6 +82,10 @@ export const manifest: ProductManifest = {
         '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
+        '/llm-analytics/datasets': ['LLMAnalytics', 'llmAnalyticsDatasets'],
+        '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
+        '/llm-analytics/evaluations': ['LLMAnalytics', 'llmAnalyticsEvaluations'],
+        '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
     },
     redirects: {
         '/llm-observability': (_params, searchParams, hashParams) =>
@@ -74,6 +112,7 @@ export const manifest: ProductManifest = {
             params?: {
                 event?: string
                 timestamp?: string
+                exception_ts?: string
                 search?: string
             }
         ): string => {
@@ -83,6 +122,11 @@ export const manifest: ProductManifest = {
         },
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
+        llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
+        llmAnalyticsDataset: (id: string, params?: { item?: string }): string =>
+            combineUrl(`/llm-analytics/datasets/${id}`, params).url,
+        llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
+        llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -90,7 +134,8 @@ export const manifest: ProductManifest = {
         {
             path: 'LLM analytics',
             category: 'Analytics',
-            iconType: 'ai',
+            iconType: 'llm_analytics' as FileSystemIconType,
+            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsDashboard(),
         },
     ],

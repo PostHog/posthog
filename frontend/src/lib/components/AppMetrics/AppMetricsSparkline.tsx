@@ -13,10 +13,12 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
     const logic = appMetricsLogic(props)
     const { appMetricsTrends, appMetricsTrendsLoading, params } = useValues(logic)
     const { loadAppMetricsTrends } = useActions(logic)
-    const { ref: inViewRef, inView } = useInView()
+    const { ref: inViewRef, inView } = useInView({
+        triggerOnce: true,
+    })
 
     useEffect(() => {
-        if (inStorybookTestRunner() || (inView && !appMetricsTrends && !appMetricsTrendsLoading)) {
+        if (inStorybookTestRunner() || (inView && !appMetricsTrendsLoading)) {
             loadAppMetricsTrends()
         }
     }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps
@@ -47,7 +49,9 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
 
     return (
         <div ref={inViewRef}>
-            {!inView || !appMetricsTrends || appMetricsTrendsLoading ? (
+            {!inView ? (
+                <div className="h-8 max-w-24" />
+            ) : !appMetricsTrends || appMetricsTrendsLoading ? (
                 <LemonSkeleton className="h-8 max-w-24" />
             ) : (
                 <Sparkline labels={labels} data={displayData} className="h-8 max-w-24" maximumIndicator={false} />

@@ -1,3 +1,4 @@
+use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
@@ -87,7 +88,7 @@ impl CustomFrame {
 impl From<&CustomFrame> for Frame {
     fn from(value: &CustomFrame) -> Self {
         Frame {
-            raw_id: String::new(),
+            raw_id: FrameId::placeholder(),
             mangled_name: value.function.clone(),
             line: value.lineno,
             column: value.colno,

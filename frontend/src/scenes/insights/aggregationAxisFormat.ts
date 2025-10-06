@@ -1,10 +1,10 @@
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
-import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { humanFriendlyCurrency, humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 
 import { TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
-const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled'] as const
+const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled', 'currency'] as const
 export type AggregationAxisFormat = (typeof formats)[number]
 
 export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[] = [
@@ -13,6 +13,7 @@ export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[
     { value: 'duration_ms', label: 'Duration (ms)' },
     { value: 'percentage', label: 'Percent (0-100)' },
     { value: 'percentage_scaled', label: 'Percent (0-1)' },
+    { value: 'currency', label: 'Currency ($)' },
 ]
 
 // this function needs to support a trendsFilter as part of an insight query and
@@ -51,6 +52,9 @@ export const formatAggregationAxisValue = (
             case 'percentage_scaled':
                 formattedValue = percentage(value)
                 break
+            case 'currency':
+                formattedValue = humanFriendlyCurrency(value)
+                break
             case 'numeric': // numeric is default
             default:
                 break
@@ -76,6 +80,7 @@ export const axisLabel = (chartDisplayType: ChartDisplayType | null | undefined)
         case ChartDisplayType.ActionsLineGraph:
         case ChartDisplayType.ActionsLineGraphCumulative:
         case ChartDisplayType.ActionsBar:
+        case ChartDisplayType.ActionsUnstackedBar:
         case ChartDisplayType.ActionsAreaGraph:
             return 'Y-axis unit'
         case ChartDisplayType.ActionsBarValue:

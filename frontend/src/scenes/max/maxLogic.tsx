@@ -48,49 +48,13 @@ const HEADLINES = [
     'What do you want to know today?',
 ]
 
-/**
- * Setting the initial prompt from side panel options when clicking the MaxTool button.
- */
-function handleInitialPrompt(
-    actions: {
-        setQuestion: (question: string) => void
-        setAutoRun: (autoRun: boolean) => void
-        setActiveGroup: (group: SuggestionGroup | null) => void
-    },
-    options: string,
-    allSuggestions: readonly SuggestionGroup[]
-): void {
-    try {
-        const parsed = JSON.parse(options)
-        if (parsed.prompt !== undefined) {
-            const cleanedQuestion = parsed.prompt.replace(/^!/, '')
-            actions.setQuestion(cleanedQuestion)
-            if (parsed.prompt.startsWith('!')) {
-                actions.setAutoRun(true)
-            }
-
-            // Handle suggestions (if provided)
-            if (parsed.suggestions && parsed.suggestions.length > 0) {
-                const matchingGroup = allSuggestions.find((group) =>
-                    parsed.suggestions.some((suggestion: string) =>
-                        group.suggestions?.some((groupSuggestion) => groupSuggestion.content === suggestion)
-                    )
-                )
-                if (matchingGroup) {
-                    actions.setActiveGroup(matchingGroup)
-                }
-            }
-            return
-        }
-    } catch {
-        // Fallback
-    }
-
-    // Legacy handling for simple string options
-    const cleanedQuestion = options.replace(/^!/, '')
-    actions.setQuestion(cleanedQuestion)
+function handleCommandString(options: string, actions: maxLogicType['actions']): void {
     if (options.startsWith('!')) {
         actions.setAutoRun(true)
+    }
+    const cleanedQuestion = options.replace(/^!/, '')
+    if (cleanedQuestion.trim() !== '') {
+        actions.setQuestion(cleanedQuestion)
     }
 }
 
@@ -333,30 +297,13 @@ export const maxLogic = kea<maxLogicType>([
                 return frontendConversationId
             },
         ],
-        allSuggestions: [
-            (s) => [s.toolSuggestions],
-            (toolSuggestions: string[]): readonly SuggestionGroup[] => {
-                // If we have MaxTool suggestions, show only those
-                if (toolSuggestions && toolSuggestions.length > 0) {
-                    return [
-                        {
-                            label: 'Suggestions',
-                            icon: <IconGraph />,
-                            suggestions: toolSuggestions.map((content: string) => ({ content })),
-                        },
-                    ]
-                }
-
-                return QUESTION_SUGGESTIONS_DATA
-            },
-        ],
     }),
 
     listeners(({ actions, values }) => ({
-        // Listen for when the side panel state changes and check for initial prompt and suggestions
+        // Listen for when the side panel state changes and check for initial prompt
         [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
             if (tab === SidePanelTab.Max && options && typeof options === 'string') {
-                handleInitialPrompt(actions, options, values.allSuggestions)
+                handleCommandString(options, actions)
             }
         },
         scrollThreadToBottom: ({ behavior }) => {
@@ -375,10 +322,9 @@ export const maxLogic = kea<maxLogicType>([
 
         loadConversationHistorySuccess: ({ payload }) => {
             // Don't update the thread if:
-            // the current chat is not a chat with ID
-            // the current chat is a temp chat
-            // we have explicitly marked
-            // we're in an autorun conversation
+            // - the current chat is not a chat with ID
+            // - the current chat is a temp chat
+            // - we have explicitly marked we're in an autorun conversation
             if (!values.conversationId || values.autoRun || payload?.doNotUpdateCurrentThread) {
                 return
             }
@@ -416,10 +362,11 @@ export const maxLogic = kea<maxLogicType>([
             try {
                 conversation = await api.conversations.get(conversationId)
             } catch (err: any) {
-                // If conversation is not found, reset the thread completely.
                 if (err.status === 404) {
-                    actions.startNewConversation()
-                    lemonToast.error('The chat has not been found.')
+                    // If conversation is not found, do nothing. In the normal case a NotFound will be shown.
+                    // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
+                    // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
+                    // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
                     return
                 }
 
@@ -472,7 +419,7 @@ export const maxLogic = kea<maxLogicType>([
             sidePanelStateLogic.values.selectedTabOptions &&
             typeof sidePanelStateLogic.values.selectedTabOptions === 'string'
         ) {
-            handleInitialPrompt(actions, sidePanelStateLogic.values.selectedTabOptions, values.allSuggestions)
+            handleCommandString(sidePanelStateLogic.values.selectedTabOptions, actions)
         }
 
         // Load conversation history on mount
@@ -537,14 +484,7 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     if (!element) {
         return null
     }
-
     const scrollableEl = element.parentElement // .Navigation3000__scene or .SidePanel3000__content
-
-    // Check if the parent element has overflow-y-auto (for floating input case)
-    if (scrollableEl && scrollableEl.classList.contains('overflow-y-auto')) {
-        return scrollableEl
-    }
-
     if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
         // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
         return scrollableEl.parentElement
@@ -637,6 +577,9 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
             {
                 content: 'Create a survey to measure product market fit',
+            },
+            {
+                content: 'Analyze survey responses to prioritize key features our users are interested in',
             },
         ],
         url: urls.surveys(),

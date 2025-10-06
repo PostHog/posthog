@@ -13,7 +13,7 @@ services:
             file: docker-compose.base.yml
             service: proxy
         ports:
-            - 8010:8000
+            - 127.0.0.1:8010:8000
         extra_hosts:
             - 'web:host-gateway'
             - 'plugins:host-gateway'
@@ -59,7 +59,7 @@ services:
                     }
 
                     handle @flags {
-                        reverse_proxy host.docker.internal:3001
+                        reverse_proxy feature-flags:3001
                     }
 
                     handle @webhooks {
@@ -83,13 +83,6 @@ services:
         # They are only for DEV and should not be used in production.
         command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
 
-    counters_db:
-        extends:
-            file: docker-compose.base.yml
-            service: counters_db
-        ports:
-            - '5433:5432'
-        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
     redis:
         extends:
             file: docker-compose.base.yml
@@ -115,6 +108,9 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         hostname: clickhouse
+        # Development performance optimizations
+        mem_limit: 4g
+        cpus: 2
         environment:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
             - AWS_SECRET_ACCESS_KEY=object_storage_root_password
@@ -130,6 +126,7 @@ services:
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
@@ -255,6 +252,14 @@ services:
             file: docker-compose.base.yml
             service: jaeger
 
+    localstack:
+        extends:
+            file: docker-compose.base.yml
+            service: localstack
+
 networks:
     otel_network:
         driver: bridge
+
+volumes:
+    redpanda-data:

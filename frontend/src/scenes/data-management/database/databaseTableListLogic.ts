@@ -99,6 +99,34 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     )
             },
         ],
+        systemTables: [
+            (s) => [s.database],
+            (database): DatabaseSchemaTable[] => {
+                if (!database || !database.tables) {
+                    return []
+                }
+
+                return Object.values(database.tables).filter((n) => n.type === 'system')
+            },
+        ],
+        systemTablesMap: [
+            (s) => [s.database],
+            (database): Record<string, DatabaseSchemaTable> => {
+                if (!database || !database.tables) {
+                    return {}
+                }
+
+                return Object.values(database.tables)
+                    .filter((n) => n.type === 'system')
+                    .reduce(
+                        (acc, cur) => {
+                            acc[cur.name] = database.tables[cur.name]
+                            return acc
+                        },
+                        {} as Record<string, DatabaseSchemaTable>
+                    )
+            },
+        ],
         dataWarehouseTables: [
             (s) => [s.database],
             (database): DatabaseSchemaDataWarehouseTable[] => {

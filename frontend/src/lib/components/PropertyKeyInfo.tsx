@@ -89,10 +89,15 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
                             </div>
                         </>
                     ) : null}
-                    <LemonDivider className="my-3" />
-                    <div>
-                        Sent as <code>{value}</code>
-                    </div>
+
+                    {!coreDefinition.virtual && (
+                        <>
+                            <LemonDivider className="my-3" />
+                            <div>
+                                Sent as <code>{value}</code>
+                            </div>
+                        </>
+                    )}
                 </div>
             }
             visible={popoverVisible}

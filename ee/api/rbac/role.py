@@ -44,7 +44,6 @@ class RoleSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
-            "feature_flags_access_level",
             "created_at",
             "created_by",
             "members",
@@ -100,9 +99,18 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user_uuid = validated_data.pop("user_uuid")
+
+        try:
+            role = Role.objects.get(id=self.context["role_id"])
+        except Role.DoesNotExist:
+            raise serializers.ValidationError("Role does not exist.")
+
+        if role.organization_id != self.context["organization_id"]:
+            raise serializers.ValidationError("Role does not belong to the specified organization.")
+
         try:
             validated_data["organization_member"] = OrganizationMembership.objects.select_related("user").get(
-                organization_id=self.context["organization_id"], user__uuid=user_uuid, user__is_active=True
+                organization_id=role.organization_id, user__uuid=user_uuid, user__is_active=True
             )
 
             validated_data["user"] = validated_data["organization_member"].user

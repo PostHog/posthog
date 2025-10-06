@@ -7,7 +7,6 @@ import { useMemo } from 'react'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -17,7 +16,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { isValidBreakdown } from '~/queries/utils'
-import { ChartDisplayType, ItemMode } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
@@ -57,6 +56,8 @@ export interface InsightsTableProps {
      * @default false
      */
     isMainInsightView?: boolean
+    /** Whether the insight is in edit mode. */
+    editMode?: boolean
 }
 
 export function InsightsTable({
@@ -67,8 +68,8 @@ export function InsightsTable({
     seriesNameTooltip,
     canCheckUncheckSeries = true,
     isMainInsightView = false,
+    editMode,
 }: InsightsTableProps): JSX.Element {
-    const { insightMode } = useValues(insightSceneLogic)
     const { insightProps, isInDashboardContext, insight, editingDisabledReason } = useValues(insightLogic)
     const {
         insightDataLoading,
@@ -88,7 +89,7 @@ export function InsightsTable({
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
-    const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
+    const { setDetailedResultsAggregationType } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
@@ -250,7 +251,9 @@ export function InsightsTable({
                 <AggregationColumnTitle
                     isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                     aggregation={aggregation}
-                    setAggregationType={(state: CalcColumnState) => setAggregationType(state as AggregationType)}
+                    setAggregationType={(state: CalcColumnState) =>
+                        setDetailedResultsAggregationType(state as AggregationType)
+                    }
                 />
             ),
             render: (_: any, item: IndexedTrendResult) => (
@@ -332,7 +335,7 @@ export function InsightsTable({
             disableTableWhileLoading={false}
             emptyState="No insight results"
             data-attr="insights-table-graph"
-            useURLForSorting={insightMode !== ItemMode.Edit}
+            useURLForSorting={!editMode}
             rowRibbonColor={
                 isLegend
                     ? (item) => {

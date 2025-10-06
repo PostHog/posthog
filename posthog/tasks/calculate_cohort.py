@@ -18,7 +18,11 @@ from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Cohort
 from posthog.models.cohort import CohortOrEmpty
-from posthog.models.cohort.util import get_dependent_cohorts, get_static_cohort_size, sort_cohorts_topologically
+from posthog.models.cohort.util import (
+    get_all_cohort_dependencies,
+    get_all_cohort_dependents,
+    sort_cohorts_topologically,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
@@ -185,15 +189,17 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
-    dependent_cohorts = get_dependent_cohorts(cohort)
-    if dependent_cohorts:
-        logger.info("cohort_has_dependencies", cohort_id=cohort.id, dependent_count=len(dependent_cohorts))
+    dependent_cohorts = get_all_cohort_dependents(cohort)
+    dependency_cohorts = get_all_cohort_dependencies(cohort)
+    related_cohorts = dependent_cohorts + dependency_cohorts
+    if related_cohorts:
+        logger.info("cohort_has_dependencies", cohort_id=cohort.id, related_cohort_count=len(related_cohorts))
 
-        all_cohort_ids = {dep.id for dep in dependent_cohorts}
+        all_cohort_ids = {dep.id for dep in related_cohorts}
         all_cohort_ids.add(cohort.id)
 
         # Sort cohorts (dependencies first)
-        seen_cohorts_cache: dict[int, CohortOrEmpty] = {dep.id: dep for dep in dependent_cohorts}
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {dep.id: dep for dep in related_cohorts}
         seen_cohorts_cache[cohort.id] = cohort
 
         try:
@@ -274,7 +280,9 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def calculate_cohort_from_list(cohort_id: int, items: list[str], team_id: Optional[int] = None) -> None:
+def calculate_cohort_from_list(
+    cohort_id: int, items: list[str], team_id: Optional[int] = None, id_type: str = "distinct_id"
+) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
     All new tasks should pass team_id explicitly.
@@ -284,7 +292,14 @@ def calculate_cohort_from_list(cohort_id: int, items: list[str], team_id: Option
     if team_id is None:
         team_id = cohort.team_id
 
-    batch_count = cohort.insert_users_by_list(items, team_id=team_id)
+    if id_type == "distinct_id":
+        batch_count = cohort.insert_users_by_list(items, team_id=team_id)
+    elif id_type == "person_id":
+        batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id)
+    elif id_type == "email":
+        batch_count = cohort.insert_users_by_email(items, team_id=team_id)
+    else:
+        raise ValueError(f"Unsupported id_type: {id_type}")
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
             cohort.pk, len(items), batch_count, (time.time() - start_time)
@@ -322,6 +337,7 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
     if team_id is None:
         team_id = cohort.team_id
     team = Team.objects.get(pk=team_id)
+    processing_error = None
     try:
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
@@ -329,18 +345,13 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
 
         insert_cohort_query_actors_into_ch(cohort, team=team)
         insert_cohort_people_into_pg(cohort, team_id=team_id)
-        cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
-        cohort.errors_calculating = 0
-        cohort.last_calculation = timezone.now()
-    except:
-        cohort.errors_calculating = F("errors_calculating") + 1
-        cohort.last_error_at = timezone.now()
+    except Exception as err:
+        processing_error = err
         capture_exception()
         if settings.DEBUG:
             raise
     finally:
-        cohort.is_calculating = False
-        cohort.save()
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
 
 
 @shared_task(ignore_result=True, max_retries=1)

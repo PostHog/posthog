@@ -29,17 +29,17 @@ posthog/clickhouse/migrations/** @PostHog/clickhouse
 
 # Web Analytics team owns web analytics code
 
-products/web_analytics/** @PostHog/web-analytics
-frontend/src/scenes/web-analytics/** @PostHog/web-analytics
-posthog/hogql_queries/web_analytics/** @PostHog/web-analytics
-frontend/src/toolbar/web-vitals/** @PostHog/web-analytics
-posthog/hogql/database/schema/sessions_v1.py @PostHog/web-analytics
-posthog/hogql/database/schema/sessions_v2.py @PostHog/web-analytics
-posthog/models/raw_sessions/** @PostHog/web-analytics
-posthog/models/sessions/** @PostHog/web-analytics
-rust/common/cookieless/** @PostHog/web-analytics
-plugin-server/src/ingestion/cookieless/** @PostHog/web-analytics
-dags/locations/web_analytics.py @PostHog/web-analytics
+products/web_analytics/** @PostHog/team-web-analytics
+frontend/src/scenes/web-analytics/** @PostHog/team-web-analytics
+posthog/hogql_queries/web_analytics/** @PostHog/team-web-analytics
+frontend/src/toolbar/web-vitals/** @PostHog/team-web-analytics
+posthog/hogql/database/schema/sessions_v1.py @PostHog/team-web-analytics
+posthog/hogql/database/schema/sessions_v2.py @PostHog/team-web-analytics
+posthog/models/raw_sessions/** @PostHog/team-web-analytics
+posthog/models/sessions/** @PostHog/team-web-analytics
+rust/common/cookieless/** @PostHog/team-web-analytics
+plugin-server/src/ingestion/cookieless/** @PostHog/team-web-analytics
+dags/locations/web_analytics.py @PostHog/team-web-analytics
 
 # Revenue Analytics team owns revenue analytics stuff
 
@@ -84,9 +84,24 @@ posthog/management/commands/generate_source_configs.py @PostHog/team-data-wareho
 posthog/settings/data_warehouse.py @PostHog/team-data-warehouse
 posthog/hogql/** @PostHog/team-data-warehouse
 
+# Team error tracking
+
+products/error_tracking/** @PostHog/team-error-tracking
+posthog/models/error_tracking/ @PostHog/team-error-tracking
+posthog/api/error_tracking.py @PostHog/team-error-tracking
+posthog/hogql_queries/error_tracking/error_tracking_query_runner.py @PostHog/team-error-tracking
+posthog/hogql_queries/error_tracking/error_tracking_issue_correlation_query_runner.py @PostHog/team-error-tracking
+
+# Notebooks
+
+frontend/src/scenes/notebooks/ @daibhin
+frontend/src/lib/components/RichContentEditor/ @daibhin
+
 # Own all .py files under session recordings
+
 posthog/session_recordings/**/*.py @PostHog/team-replay
 ee/session_recordings/**/*.py @PostHog/team-replay
 
 # Own everything in mobile replay (all file types)
+
 ee/frontend/mobile-replay @PostHog/team-replay

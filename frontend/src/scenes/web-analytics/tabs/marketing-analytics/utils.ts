@@ -7,10 +7,10 @@ export const TIMESTAMP_FIELD_SCHEMA_FIELD = 'timestamp_field'
 
 export const MARKETING_ANALYTICS_CONVERSION_GOAL_SCHEMA: Record<string, MarketingAnalyticsSchemaField> = {
     // UTM fields are required for conversion goals to properly track attribution
-    [UTM_CAMPAIGN_NAME_SCHEMA_FIELD]: { type: ['string'], required: true },
-    [UTM_SOURCE_NAME_SCHEMA_FIELD]: { type: ['string'], required: true },
-    [TIMESTAMP_FIELD_SCHEMA_FIELD]: { type: ['datetime', 'date', 'string'], required: true },
-    [DISTINCT_ID_FIELD_SCHEMA_FIELD]: { type: ['string'], required: false },
+    [UTM_CAMPAIGN_NAME_SCHEMA_FIELD]: { type: ['string'], required: true, isCurrency: false },
+    [UTM_SOURCE_NAME_SCHEMA_FIELD]: { type: ['string'], required: true, isCurrency: false },
+    [TIMESTAMP_FIELD_SCHEMA_FIELD]: { type: ['datetime', 'date', 'string'], required: true, isCurrency: false },
+    [DISTINCT_ID_FIELD_SCHEMA_FIELD]: { type: ['string'], required: false, isCurrency: false },
 }
 
 export type ConversionGoalSchema = keyof typeof MARKETING_ANALYTICS_CONVERSION_GOAL_SCHEMA

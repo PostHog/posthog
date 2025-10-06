@@ -1,5 +1,4 @@
 export { RevenueAnalyticsGrossRevenueNode } from './RevenueAnalyticsGrossRevenueNode'
-export { RevenueAnalyticsGrowthRateNode } from './RevenueAnalyticsGrowthRateNode'
 export { RevenueAnalyticsMetricsNode } from './RevenueAnalyticsMetricsNode'
 export { RevenueAnalyticsMRRNode } from './RevenueAnalyticsMRRNode'
 export { RevenueAnalyticsOverviewNode } from './RevenueAnalyticsOverviewNode'

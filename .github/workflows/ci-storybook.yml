@@ -218,7 +218,6 @@ jobs:
                       shard_count: 3
                       shard: 3
         env:
-            CYPRESS_INSTALL_BINARY: '0'
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
         outputs:
@@ -373,8 +372,8 @@ jobs:
               id: pnpm-cache
               with:
                   path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+                  key: ${{ runner.os }}-pnpm-regression-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-regression-
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'

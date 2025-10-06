@@ -57,17 +57,27 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_customer_schema(self):
-        """Test that build returns empty when no customer schema exists."""
+        """Test that build returns view even when no customer schema exists."""
         # Setup without customer schema
         self.setup_stripe_external_data_source(schemas=[INVOICE_RESOURCE_NAME])
 
         queries = list(build(self.stripe_handle))
 
         # Should return no queries
-        self.assertEqual(len(queries), 0)
+        self.assertEqual(len(queries), 1)
+        customer_query = queries[0]
+        self.assertQueryContainsFields(customer_query.query, CUSTOMER_SCHEMA)
+        self.assertBuiltQueryStructure(
+            customer_query,
+            f"stripe.{self.external_data_source.prefix}.no_source",
+            f"stripe.{self.external_data_source.prefix}",
+        )
+
+        # Print and snapshot the generated HogQL query
+        self.assertQueryMatchesSnapshot(customer_query.query.to_hogql(), replace_all_numbers=True)
 
     def test_build_with_customer_schema_but_no_table(self):
-        """Test that build returns empty when customer schema exists but has no table."""
+        """Test that build returns view even when customer schema exists but has no table."""
         # Setup with customer schema but no table
         self.setup_stripe_external_data_source_with_specific_schemas(
             [{"name": CUSTOMER_RESOURCE_NAME, "table_name": None}]
@@ -80,7 +90,20 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
         queries = list(build(self.stripe_handle))
 
         # Should return no queries
-        self.assertEqual(len(queries), 0)
+        self.assertEqual(len(queries), 1)
+        customer_query = queries[0]
+
+        # Test the query structure
+        self.assertQueryContainsFields(customer_query.query, CUSTOMER_SCHEMA)
+        self.assertBuiltQueryStructure(
+            customer_query,
+            f"stripe.{self.external_data_source.prefix}.no_table",
+            f"stripe.{self.external_data_source.prefix}",
+        )
+
+        # Print and snapshot the generated HogQL query
+        query_sql = customer_query.query.to_hogql()
+        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_source(self):
         """Test that build returns empty when source is None."""

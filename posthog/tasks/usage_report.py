@@ -6,12 +6,12 @@ import logging
 import dataclasses
 from collections import Counter
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
 from django.db import connection
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
@@ -25,6 +25,7 @@ from retry import retry
 from posthog.schema import AIEventType
 
 from posthog import version_requirement
+from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tags_context
@@ -136,11 +137,13 @@ class UsageReportCounters:
     survey_responses_count_in_period: int
     # Data Warehouse
     rows_synced_in_period: int
+    free_historical_rows_synced_in_period: int
 
     # Data Warehouse metadata
     active_external_data_schemas_in_period: int
 
     # Batch Exports metadata
+    rows_exported_in_period: int
     active_batch_exports_in_period: int
 
     dwh_total_storage_in_s3_in_mib: float
@@ -932,6 +935,38 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: datetime) -> list:
+    return list(
+        ExternalDataJob.objects.filter(
+            finished_at__gte=begin,
+            finished_at__lte=end,
+            billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
+            pipeline__created_at__gte=end - timedelta(days=7),
+        )
+        .values("team_id")
+        .annotate(total=Sum("rows_synced"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> list:
+    return list(
+        BatchExportRun.objects.filter(
+            finished_at__gte=begin,
+            finished_at__lte=end,
+            status=BatchExportRun.Status.COMPLETED,
+            batch_export__deleted=False,
+        )
+        .exclude(batch_export__destination__type=BatchExportDestination.Destination.HTTP)
+        .values(team_id=F("batch_export__team_id"))
+        .annotate(total=Sum("records_completed"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_external_data_schemas_in_period() -> list:
     # get all external data schemas that are running or completed at run time
     return list(
@@ -993,11 +1028,16 @@ def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    # We are excluding "persistence.isDisabled is not a function" errors because of a bug in our own SDK
+    # Can be eventually removed once we're happy that the usage report for 3rd October 2025 does not need to be rerun
     results = sync_execute(
         """
         SELECT team_id, COUNT() as count
         FROM events
-        WHERE event = '$exception' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE
+            event = '$exception' AND
+            not arrayExists(x -> x != '' AND position(x, 'persistence.isDisabled is not a function') > 0, JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)')) AND
+            timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -1178,7 +1218,10 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
+        or report.cdp_billable_invocations_in_period > 0
+        or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0
+        or report.ai_event_count_in_period > 0
     )
 
 
@@ -1381,6 +1424,10 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
+        "teams_with_free_historical_rows_synced_in_period": get_teams_with_free_historical_rows_synced_in_period(
+            period_start, period_end
+        ),
+        "teams_with_rows_exported_in_period": get_teams_with_rows_exported_in_period(period_start, period_end),
         "teams_with_active_external_data_schemas_in_period": get_teams_with_active_external_data_schemas_in_period(),
         "teams_with_active_batch_exports_in_period": get_teams_with_active_batch_exports_in_period(),
         "teams_with_dwh_tables_storage_in_s3_in_mib": get_teams_with_dwh_tables_storage_in_s3(),
@@ -1480,6 +1527,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
+        free_historical_rows_synced_in_period=all_data["teams_with_free_historical_rows_synced_in_period"].get(
+            team.id, 0
+        ),
+        rows_exported_in_period=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
         active_external_data_schemas_in_period=all_data["teams_with_active_external_data_schemas_in_period"].get(
             team.id, 0
         ),

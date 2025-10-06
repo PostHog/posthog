@@ -40,3 +40,37 @@
   FROM stripe_test_customer AS outer
   '''
 # ---
+# name: TestCustomerStripeBuilder.test_build_with_customer_schema_but_no_table
+  '''
+  SELECT NULL AS id,
+         NULL AS source_label,
+         NULL AS timestamp,
+         NULL AS name,
+         NULL AS email,
+         NULL AS phone,
+         NULL AS address,
+         NULL AS metadata,
+         NULL AS country,
+         NULL AS cohort,
+         NULL AS initial_coupon,
+         NULL AS initial_coupon_id
+  WHERE false
+  '''
+# ---
+# name: TestCustomerStripeBuilder.test_build_with_no_customer_schema
+  '''
+  SELECT NULL AS id,
+         NULL AS source_label,
+         NULL AS timestamp,
+         NULL AS name,
+         NULL AS email,
+         NULL AS phone,
+         NULL AS address,
+         NULL AS metadata,
+         NULL AS country,
+         NULL AS cohort,
+         NULL AS initial_coupon,
+         NULL AS initial_coupon_id
+  WHERE false
+  '''
+# ---

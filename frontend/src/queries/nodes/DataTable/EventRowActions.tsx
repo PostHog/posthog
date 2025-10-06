@@ -50,7 +50,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         sessionId={event.properties.$session_id}
                         recordingStatus={event.properties.$recording_status}
                         timestamp={event.timestamp}
-                        data-attr="events-table-usage"
+                        data-attr="events-table-view-recordings"
                     />
                     {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
                         <LemonButton
@@ -72,14 +72,14 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             data-attr="events-table-trace-link"
                             to={urls.llmAnalyticsTrace(event.properties.$ai_trace_id, {
                                 event: event.id,
-                                timestamp: event.timestamp,
+                                exception_ts: event.timestamp,
                             })}
                         >
                             View LLM Trace
                         </LemonButton>
                     ) : null}
                     {insightUrl && (
-                        <LemonButton to={insightUrl} fullWidth data-attr="events-table-usage">
+                        <LemonButton to={insightUrl} fullWidth data-attr="events-table-usage" targetBlank>
                             Try out in Insights
                         </LemonButton>
                     )}

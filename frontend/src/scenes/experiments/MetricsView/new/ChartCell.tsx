@@ -1,3 +1,5 @@
+import { ExperimentMetric } from '~/queries/schema/schema-general'
+
 import { generateViolinPath } from '../legacy/violinUtils'
 import { useChartColors } from '../shared/colors'
 import {
@@ -23,22 +25,26 @@ import { useAxisScale } from './useAxisScale'
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
+    metric: ExperimentMetric
     axisRange: number
     metricUuid?: string
     showGridLines?: boolean
     isAlternatingRow?: boolean
     isLastRow?: boolean
     isSecondary?: boolean
+    onTimeseriesClick?: () => void
 }
 
 export function ChartCell({
     variantResult,
+    metric,
     axisRange,
     metricUuid,
     showGridLines = true,
     isAlternatingRow = false,
     isLastRow = false,
     isSecondary = false,
+    onTimeseriesClick,
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
@@ -93,6 +99,7 @@ export function ChartCell({
                             <ChartGradients
                                 lower={lower}
                                 upper={upper}
+                                metric={metric}
                                 gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                     variantResult.key
                                 }`}
@@ -106,6 +113,8 @@ export function ChartCell({
                                         variantResult.key
                                     })`}
                                     opacity={CHART_BAR_OPACITY}
+                                    style={{ cursor: onTimeseriesClick ? 'pointer' : 'default' }}
+                                    onClick={onTimeseriesClick}
                                 />
                             ) : (
                                 <rect
@@ -119,6 +128,8 @@ export function ChartCell({
                                     opacity={CHART_BAR_OPACITY}
                                     rx={3}
                                     ry={3}
+                                    style={{ cursor: onTimeseriesClick ? 'pointer' : 'default' }}
+                                    onClick={onTimeseriesClick}
                                 />
                             )}
 

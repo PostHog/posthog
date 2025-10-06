@@ -1,3 +1,4 @@
+import json
 import hashlib
 from typing import Any, Optional, Protocol, TypeVar
 
@@ -7,6 +8,7 @@ from django.db import transaction
 from django.http import JsonResponse
 
 import structlog
+import posthoganalytics
 from loginas.utils import is_impersonated_session
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
@@ -22,6 +24,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.error_tracking import (
@@ -35,9 +38,11 @@ from posthog.models.error_tracking import (
     ErrorTrackingStackFrame,
     ErrorTrackingSuppressionRule,
     ErrorTrackingSymbolSet,
+    resolve_fingerprints_for_issues,
 )
 from posthog.models.error_tracking.hogvm_stl import RUST_HOGVM_STL
 from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
+from posthog.models.plugin import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT, uuid7
 from posthog.storage import object_storage
@@ -49,8 +54,12 @@ ONE_HUNDRED_MEGABYTES = 1024 * 1024 * 100
 JS_DATA_MAGIC = b"posthog_error_tracking"
 JS_DATA_VERSION = 1
 JS_DATA_TYPE_SOURCE_AND_MAP = 2
-PRESIGNED_SINGLE_UPLOAD_TIMEOUT = 60
 PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
+
+# Error tracking embedding configuration defaults
+DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-large"
+DEFAULT_EMBEDDING_VERSION = 1
+DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
 
 logger = structlog.get_logger(__name__)
 
@@ -76,13 +85,15 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
         fields = ["id", "integration", "integration_id", "config", "issue", "external_url"]
         read_only_fields = ["external_url"]
 
-    def get_external_url(self, reference: ErrorTrackingExternalReference):
+    def get_external_url(self, reference: ErrorTrackingExternalReference) -> str:
+        external_context: dict[str, str] = reference.external_context or {}
         if reference.integration.kind == Integration.IntegrationKind.LINEAR:
             url_key = LinearIntegration(reference.integration).url_key()
-            return f"https://linear.app/{url_key}/issue/{reference.external_context['id']}"
+            return f"https://linear.app/{url_key}/issue/{external_context['id']}"
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
             org = GitHubIntegration(reference.integration).organization()
-            return f"https://github.com/{org}/{reference.external_context['repository']}/issues/{reference.external_context['number']}"
+            return f"https://github.com/{org}/{external_context['repository']}/issues/{external_context['number']}"
+        raise ValidationError("Provider not supported")
 
     def validate(self, data):
         issue = data["issue"]
@@ -195,6 +206,25 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
         return updated_instance
 
 
+class ErrorTrackingFingerprintSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingIssueFingerprintV2
+        fields = ["fingerprint", "issue_id"]
+
+
+class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
+    scope_object = "error_tracking"
+    queryset = ErrorTrackingIssueFingerprintV2.objects.all()
+    serializer_class = ErrorTrackingFingerprintSerializer
+
+    def safely_get_queryset(self, queryset):
+        params = self.request.GET.dict()
+        queryset = queryset.filter(team_id=self.team.id)
+        if params.get("issue_id"):
+            queryset = queryset.filter(issue_id=params["issue_id"])
+        return queryset
+
+
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ErrorTrackingIssue.objects.with_first_seen().all()
@@ -237,6 +267,265 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
         ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
+        return Response({"success": True})
+
+    def _get_issue_embeddings(self, issue_fingerprints: list[str], model_name: str, embedding_version: int):
+        """Get embeddings along with model info for given fingerprints."""
+        query = """
+            SELECT DISTINCT embeddings
+            FROM error_tracking_issue_fingerprint_embeddings
+            WHERE team_id = %(team_id)s
+            AND fingerprint IN %(fingerprints)s
+            AND model_name = %(model_name)s
+            AND embedding_version = %(embedding_version)s
+        """
+
+        issue_embeddings = sync_execute(
+            query,
+            {
+                "team_id": self.team.pk,
+                "fingerprints": issue_fingerprints,
+                "model_name": model_name,
+                "embedding_version": embedding_version,
+            },
+        )
+
+        return issue_embeddings
+
+    def _get_similar_embeddings(
+        self,
+        embedding_vector,
+        model_name: str,
+        embedding_version: int,
+        issue_fingerprints: list[str],
+        min_distance_threshold: float,
+    ):
+        """Get similar embeddings using cosine similarity."""
+        query = """
+              WITH %(target_embedding)s as target
+            SELECT fingerprint, MIN(cosineDistance(embeddings, target)) as distance
+              FROM error_tracking_issue_fingerprint_embeddings
+             WHERE team_id = %(team_id)s
+               AND model_name = %(model_name)s
+               AND embedding_version = %(embedding_version)s
+               AND fingerprint NOT IN %(fingerprints)s
+               AND length(embeddings) = length(target)
+             GROUP BY fingerprint
+            HAVING distance <= %(min_distance_threshold)s
+             ORDER BY distance ASC
+             LIMIT 10;
+        """
+
+        similar_embeddings = sync_execute(
+            query,
+            {
+                "team_id": self.team.pk,
+                "target_embedding": embedding_vector,
+                "model_name": model_name,
+                "embedding_version": embedding_version,
+                "fingerprints": issue_fingerprints,
+                "min_distance_threshold": min_distance_threshold,
+            },
+        )
+        return similar_embeddings
+
+    def _get_embedding_configuration(self) -> tuple[float, str, int]:
+        """Get embedding configuration from feature flag or return defaults."""
+        min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+        model_name = DEFAULT_EMBEDDING_MODEL_NAME
+        embedding_version = DEFAULT_EMBEDDING_VERSION
+
+        # Try to get configuration from feature flag, fall back to defaults if not available
+        try:
+            team_id = str(self.team.id)
+            config_json = posthoganalytics.get_feature_flag_payload("error-tracking-embedding-configuration", team_id)
+            if config_json:
+                config_payload = json.loads(config_json)
+
+                # Validate that config_payload is a dict
+                if config_payload and isinstance(config_payload, dict):
+                    min_distance_threshold = config_payload.get(
+                        "min_distance_threshold", DEFAULT_MIN_DISTANCE_THRESHOLD
+                    )
+                    model_name = config_payload.get("model_name", DEFAULT_EMBEDDING_MODEL_NAME)
+                    embedding_version = config_payload.get("embedding_version", DEFAULT_EMBEDDING_VERSION)
+
+                    # Validate types
+                    if not isinstance(min_distance_threshold, (int | float)):
+                        min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+                    if not isinstance(model_name, str):
+                        model_name = DEFAULT_EMBEDDING_MODEL_NAME
+                    if not isinstance(embedding_version, int):
+                        embedding_version = DEFAULT_EMBEDDING_VERSION
+        except Exception:
+            # Fall back to defaults on any error (JSON parsing, network, etc.)
+            min_distance_threshold = DEFAULT_MIN_DISTANCE_THRESHOLD
+            model_name = DEFAULT_EMBEDDING_MODEL_NAME
+            embedding_version = DEFAULT_EMBEDDING_VERSION
+
+        return min_distance_threshold, model_name, embedding_version
+
+    def _get_issues_library_data(self, fingerprints: list[str]) -> dict[str, str]:
+        """Get library information for fingerprints from ClickHouse events."""
+        query = """
+            SELECT mat_$exception_fingerprint, MIN(mat_$lib)
+              FROM events
+             WHERE team_id = %(team_id)s
+               AND event = '$exception'
+               AND mat_$exception_fingerprint IN %(fingerprints)s
+               AND mat_$lib != ''
+             GROUP BY mat_$exception_fingerprint
+        """
+
+        results = sync_execute(
+            query,
+            {
+                "team_id": self.team.pk,
+                "fingerprints": fingerprints,
+            },
+        )
+
+        if not results or len(results) == 0:
+            return {}
+        # Return dict mapping fingerprint to library
+        return dict(results)
+
+    def _build_issue_to_library_mapping(
+        self, issue_id_to_fingerprint: dict[str, str], fingerprint_to_library: dict[str, str]
+    ) -> dict[str, str]:
+        """Build mapping from issue_id to library using existing data."""
+        if not fingerprint_to_library or len(fingerprint_to_library) == 0:
+            return {}
+
+        issue_to_library = {}
+        # Map each issue to library data using fingerprints
+        for issue_id, fingerprint in issue_id_to_fingerprint.items():
+            if fingerprint in fingerprint_to_library:
+                issue_to_library[issue_id] = fingerprint_to_library[fingerprint]
+        return issue_to_library
+
+    def _serialize_issues_to_similar_issues(self, issues, library_data: dict[str, str]):
+        """Serialize ErrorTrackingIssue objects to similar issues format."""
+
+        return [
+            {
+                "id": issue.id,
+                "title": issue.name,
+                "description": issue.description,
+                **({} if str(issue.id) not in library_data else {"library": library_data[str(issue.id)]}),
+            }
+            for issue in issues
+        ]
+
+    def _process_embeddings_for_similarity(
+        self,
+        issue_embeddings,
+        issue_fingerprints: list[str],
+        min_distance_threshold: float,
+        model_name: str,
+        embedding_version: int,
+    ) -> list[str]:
+        """Process all embeddings to find similar fingerprints and return top 10 most similar."""
+        similar_fingerprints = []
+
+        # Search for similarities across all embeddings from the current issue
+        for _, embedding_row in enumerate(issue_embeddings):
+            embedding = embedding_row[0]  # Get the embedding vector
+
+            # Search for similar embeddings using cosine similarity
+            similar_embeddings = self._get_similar_embeddings(
+                embedding, model_name, embedding_version, issue_fingerprints, min_distance_threshold
+            )
+
+            if not similar_embeddings or len(similar_embeddings) == 0:
+                continue
+
+            # Collect both fingerprint and distance
+            for similar_embedding_row in similar_embeddings:
+                fingerprint, distance = similar_embedding_row[0], similar_embedding_row[1]
+                similar_fingerprints.append((fingerprint, distance))
+
+        if not similar_fingerprints or len(similar_fingerprints) == 0:
+            return []
+
+        # Remove duplicates by fingerprint, keeping the best (smallest) distance for each
+        fingerprint_best_distance: dict[str, float] = {}
+        for fingerprint, distance in similar_fingerprints:
+            if fingerprint not in fingerprint_best_distance or distance < fingerprint_best_distance[fingerprint]:
+                fingerprint_best_distance[fingerprint] = distance
+
+        if not fingerprint_best_distance or len(fingerprint_best_distance) == 0:
+            return []
+
+        # Sort by distance (ascending - smaller distance = more similar) and take top 10
+        sorted_fingerprint_best_distance = sorted(fingerprint_best_distance.items(), key=lambda x: x[1])[:10]
+        all_similar_fingerprints = [fingerprint for fingerprint, _ in sorted_fingerprint_best_distance]
+
+        return all_similar_fingerprints
+
+    @action(methods=["GET"], detail=True)
+    def similar_issues(self, request: request.Request, **kwargs):
+        issue_id = kwargs.get("pk")
+
+        if not issue_id:
+            return Response({"error": "issue_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        issue_ids = [issue_id]
+        issue_fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
+
+        if not issue_fingerprints or len(issue_fingerprints) == 0:
+            return Response([])
+
+        # Get model configuration from feature flag
+        min_distance_threshold, model_name, embedding_version = self._get_embedding_configuration()
+
+        issue_embeddings = self._get_issue_embeddings(issue_fingerprints, model_name, embedding_version)
+
+        if not issue_embeddings or len(issue_embeddings) == 0:
+            return Response([])
+
+        similar_fingerprints = self._process_embeddings_for_similarity(
+            issue_embeddings, issue_fingerprints, min_distance_threshold, model_name, embedding_version
+        )
+
+        if not similar_fingerprints or len(similar_fingerprints) == 0:
+            return Response([])
+
+        # Get issue IDs that have these fingerprints
+        fingerprint_issue_pairs = ErrorTrackingIssueFingerprintV2.objects.filter(
+            team_id=self.team.pk, fingerprint__in=similar_fingerprints
+        ).values_list("issue_id", "fingerprint")
+
+        if not fingerprint_issue_pairs or len(fingerprint_issue_pairs) == 0:
+            return Response([])
+
+        # Create dict with issue_id as key and fingerprint as value
+        issue_id_to_fingerprint = {str(issue_id): fingerprint for issue_id, fingerprint in fingerprint_issue_pairs}
+
+        if not issue_id_to_fingerprint or len(issue_id_to_fingerprint) == 0:
+            return Response([])
+
+        # Get the actual issues from PostgreSQL
+        issues = ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_id_to_fingerprint.keys())
+
+        if not issues or len(issues) == 0:
+            return Response([])
+
+        # Get library data for the similar fingerprints
+        fingerprint_to_library = self._get_issues_library_data(similar_fingerprints)
+
+        # Build mapping from issue_id to library using existing data
+        issue_to_library = self._build_issue_to_library_mapping(issue_id_to_fingerprint, fingerprint_to_library)
+
+        similar_issues = self._serialize_issues_to_similar_issues(issues, issue_to_library)
+        return Response(similar_issues)
+
+    @action(methods=["POST"], detail=True)
+    def split(self, request, **kwargs):
+        issue: ErrorTrackingIssue = self.get_object()
+        fingerprints: list[str] = request.data.get("fingerprints", [])
+        exclusive: bool = request.data.get("exclusive", True)
+        issue.split(fingerprints=fingerprints, exclusive=exclusive)
         return Response({"success": True})
 
     @action(methods=["PATCH"], detail=True)
@@ -396,36 +685,6 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
     )
 
 
-class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
-    symbol_set_ref = serializers.CharField(source="symbol_set.ref", default=None)
-
-    class Meta:
-        model = ErrorTrackingStackFrame
-        fields = ["id", "raw_id", "created_at", "contents", "resolved", "context", "symbol_set_ref"]
-
-
-class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
-    scope_object = "INTERNAL"
-    queryset = ErrorTrackingStackFrame.objects.all()
-    serializer_class = ErrorTrackingStackFrameSerializer
-
-    @action(methods=["POST"], detail=False)
-    def batch_get(self, request, **kwargs):
-        raw_ids = request.data.get("raw_ids", [])
-        symbol_set = request.data.get("symbol_set", None)
-
-        queryset = self.queryset.filter(team_id=self.team.id)
-
-        if raw_ids:
-            queryset = queryset.filter(raw_id__in=raw_ids)
-
-        if symbol_set:
-            queryset = queryset.filter(symbol_set=symbol_set)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({"results": serializer.data})
-
-
 class ErrorTrackingReleaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingRelease
@@ -503,6 +762,37 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
+    symbol_set_ref = serializers.CharField(source="symbol_set.ref", default=None)
+    release = ErrorTrackingReleaseSerializer(source="symbol_set.release", read_only=True)
+
+    class Meta:
+        model = ErrorTrackingStackFrame
+        fields = ["id", "raw_id", "created_at", "contents", "resolved", "context", "symbol_set_ref", "release"]
+
+
+class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ErrorTrackingStackFrame.objects.all()
+    serializer_class = ErrorTrackingStackFrameSerializer
+
+    @action(methods=["POST"], detail=False)
+    def batch_get(self, request, **kwargs):
+        raw_ids = request.data.get("raw_ids", [])
+        symbol_set = request.data.get("symbol_set", None)
+
+        queryset = self.queryset.filter(team_id=self.team.id).select_related("symbol_set__release")
+
+        if raw_ids:
+            queryset = queryset.filter(raw_id__in=raw_ids)
+
+        if symbol_set:
+            queryset = queryset.filter(symbol_set=symbol_set)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"results": serializer.data})
+
+
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingSymbolSet
@@ -561,11 +851,18 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
+    # DEPRECATED: newer versions of the CLI use bulk uploads
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
         multipart = request.query_params.get("multipart", False)
         release_id = request.query_params.get("release_id", None)
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_deprecated_endpoint",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id, "endpoint": "create"},
+        )
 
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -585,9 +882,16 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False)
+    # DEPRECATED: we should eventually remove this once everyone is using a new enough version of the CLI
     def start_upload(self, request, **kwargs):
         chunk_id = request.query_params.get("chunk_id", None)
         release_id = request.query_params.get("release_id", None)
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_deprecated_endpoint",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id, "endpoint": "start_upload"},
+        )
 
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
@@ -602,7 +906,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         presigned_url = object_storage.get_presigned_post(
             file_key=file_key,
             conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
-            expiration=PRESIGNED_SINGLE_UPLOAD_TIMEOUT,
         )
 
         symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
@@ -655,9 +958,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request, **kwargs):
         # Extract a list of chunk IDs from the request json
-        chunk_ids = request.data.get("chunk_ids")
+        chunk_ids: list[str] | None = request.data.get("chunk_ids")
         # Grab the release ID from the request json
-        release_id = request.data.get("release_id", None)
+        release_id: str | None = request.data.get("release_id", None)
         if not chunk_ids:
             return Response({"detail": "chunk_ids query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -667,19 +970,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
-        # For each of the chunk IDs, make a new symbol set and presigned URL
-        id_url_map = {}
-        for chunk_id in chunk_ids:
-            file_key = generate_symbol_set_file_key()
-            presigned_url = object_storage.get_presigned_post(
-                file_key=file_key,
-                conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
-                expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
-            )
-            symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
-            id_url_map[chunk_id] = {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}
+        chunk_id_url_map = bulk_create_symbol_sets(chunk_ids, self.team, release_id)
 
-        return Response({"id_map": id_url_map}, status=status.HTTP_201_CREATED)
+        return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_finish_upload(self, request, **kwargs):
@@ -696,9 +989,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
+        symbol_set_ids = content_hashes.keys()
+        symbol_sets = ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=symbol_set_ids)
+
         try:
-            for symbol_set_id, content_hash in content_hashes.items():
-                symbol_set = ErrorTrackingSymbolSet.objects.get(id=symbol_set_id, team=self.team)
+            for symbol_set in symbol_sets:
                 s3_upload = None
                 if symbol_set.storage_ptr:
                     s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
@@ -719,9 +1014,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                         detail="No file has been uploaded for the symbol set.",
                     )
 
-                if not symbol_set.content_hash:
-                    symbol_set.content_hash = content_hash
-                    symbol_set.save()
+                content_hash = content_hashes[str(symbol_set.id)]
+                symbol_set.content_hash = content_hash
+            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
         except Exception:
             for id in content_hashes.keys():
                 # Try to clean up the symbol sets preemptively if the upload fails
@@ -732,6 +1027,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                     pass
 
             raise
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_uploaded",
+            distinct_id=request.user.pk,
+            groups=groups(self.team.organization, self.team),
+        )
 
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 
@@ -975,6 +1276,67 @@ def create_symbol_set(
         return symbol_set
 
 
+def bulk_create_symbol_sets(
+    chunk_ids: list[str],
+    team: Team,
+    release_id: str | None,
+) -> dict[str, dict[str, str]]:
+    release = create_release(team, release_id) if release_id else None
+
+    id_url_map: dict[str, dict[str, str]] = {}
+
+    with transaction.atomic():
+        existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
+        existing_symbol_set_refs = [s.ref for s in existing_symbol_sets]
+        missing_symbol_set_refs = list(set(chunk_ids) - set(existing_symbol_set_refs))
+
+        symbol_sets_to_be_created = []
+        for chunk_id in missing_symbol_set_refs:
+            storage_ptr = generate_symbol_set_file_key()
+            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
+            id_url_map[chunk_id] = {"presigned_url": presigned_url}
+            symbol_sets_to_be_created.append(
+                ErrorTrackingSymbolSet(
+                    team=team,
+                    ref=chunk_id,
+                    release=release,
+                    storage_ptr=storage_ptr,
+                )
+            )
+
+        # create missing symbol sets
+        created_symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
+
+        for symbol_set in created_symbol_sets:
+            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
+
+        # update existing symbol sets
+        for symbol_set in existing_symbol_sets:
+            if symbol_set.release is None:
+                symbol_set.release = release
+            elif symbol_set.release != release:
+                raise ValidationError(f"Symbol set has already been uploaded for a different release")
+
+            storage_ptr = generate_symbol_set_file_key()
+            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
+            id_url_map[symbol_set.ref] = {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.id)}
+            symbol_set.storage_ptr = storage_ptr
+            symbol_set.content_hash = None
+        ErrorTrackingSymbolSet.objects.bulk_update(existing_symbol_sets, ["release", "storage_ptr", "content_hash"])
+
+        # Delete any existing frames associated with this symbol set
+        ErrorTrackingStackFrame.objects.filter(team=team, symbol_set__ref__in=chunk_ids).delete()
+
+    return id_url_map
+
+
+def create_release(team: Team, release_id: str) -> ErrorTrackingRelease | None:
+    objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)
+    if len(objects) < 1:
+        raise ValueError(f"Unknown release: {release_id}")
+    return objects[0]
+
+
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
     js_data = construct_js_data_object(minified.read(), source_map.read())
     return upload_content(js_data)
@@ -1038,6 +1400,14 @@ def validate_bytecode(bytecode: list[Any]) -> None:
 
 def get_suppression_rules(team: Team):
     return list(ErrorTrackingSuppressionRule.objects.filter(team=team).values_list("filters", flat=True))
+
+
+def generate_symbol_set_upload_presigned_url(file_key: str):
+    return object_storage.get_presigned_post(
+        file_key=file_key,
+        conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
+        expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
+    )
 
 
 def generate_symbol_set_file_key():

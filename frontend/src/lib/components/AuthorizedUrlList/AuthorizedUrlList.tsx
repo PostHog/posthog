@@ -123,16 +123,18 @@ export function AuthorizedUrlList({
                                     <LemonButton
                                         icon={<IconOpenInApp />}
                                         to={
-                                            // toolbar urls are sent through the backend to be validated
+                                            // toolbar urls and web analytics urls are sent through the backend to be validated
                                             // and have toolbar auth information added
-                                            type === AuthorizedUrlListType.TOOLBAR_URLS
+                                            type === AuthorizedUrlListType.TOOLBAR_URLS ||
+                                            type === AuthorizedUrlListType.WEB_ANALYTICS
                                                 ? launchUrl(keyedURL.url)
                                                 : // other urls are simply opened directly
                                                   `${keyedURL.url}${query ?? ''}`
                                         }
                                         targetBlank
                                         tooltip={
-                                            type === AuthorizedUrlListType.TOOLBAR_URLS
+                                            type === AuthorizedUrlListType.TOOLBAR_URLS ||
+                                            type === AuthorizedUrlListType.WEB_ANALYTICS
                                                 ? 'Launch toolbar'
                                                 : 'Launch url'
                                         }

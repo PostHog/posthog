@@ -24,7 +24,6 @@ import { QueryContext } from '~/queries/types'
 
 import {
     RevenueAnalyticsGrossRevenueNode,
-    RevenueAnalyticsGrowthRateNode,
     RevenueAnalyticsMRRNode,
     RevenueAnalyticsMetricsNode,
     RevenueAnalyticsOverviewNode,
@@ -40,7 +39,6 @@ import {
     isHogQuery,
     isInsightVizNode,
     isRevenueAnalyticsGrossRevenueQuery,
-    isRevenueAnalyticsGrowthRateQuery,
     isRevenueAnalyticsMRRQuery,
     isRevenueAnalyticsMetricsQuery,
     isRevenueAnalyticsOverviewQuery,
@@ -70,6 +68,8 @@ export interface QueryProps<Q extends Node> {
     embedded?: boolean
     /** Disables modals and other things */
     inSharedMode?: boolean
+    /** Can you edit the insight */
+    editMode?: boolean
     /** Dashboard filters to override the ones in the query */
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
@@ -90,6 +90,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         variablesOverride,
         inSharedMode,
         dataAttr,
+        editMode,
     } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
@@ -144,6 +145,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 context={queryContext}
                 readOnly={readOnly}
+                editMode={!!editMode}
                 variablesOverride={props.variablesOverride}
             />
         )
@@ -154,6 +156,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 context={queryContext}
                 readOnly={readOnly}
+                editMode={!!editMode}
                 embedded={embedded}
             />
         )
@@ -165,6 +168,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 setQuery={setQuery as unknown as (query: InsightVizNode) => void}
                 context={queryContext}
                 readOnly={readOnly}
+                editMode={!!editMode}
                 uniqueKey={uniqueKey}
                 embedded={embedded}
                 inSharedMode={inSharedMode}
@@ -175,41 +179,85 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isRevenueAnalyticsGrossRevenueQuery(query)) {
         component = (
             <RevenueAnalyticsGrossRevenueNode
+                attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
             />
         )
-    } else if (isRevenueAnalyticsGrowthRateQuery(query)) {
-        component = (
-            <RevenueAnalyticsGrowthRateNode query={query} cachedResults={props.cachedResults} context={queryContext} />
-        )
     } else if (isRevenueAnalyticsMetricsQuery(query)) {
         component = (
-            <RevenueAnalyticsMetricsNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+            <RevenueAnalyticsMetricsNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
         )
     } else if (isRevenueAnalyticsMRRQuery(query)) {
-        component = <RevenueAnalyticsMRRNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        component = (
+            <RevenueAnalyticsMRRNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
     } else if (isRevenueAnalyticsOverviewQuery(query)) {
         component = (
-            <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+            <RevenueAnalyticsOverviewNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
         )
     } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
         component = (
             <RevenueAnalyticsTopCustomersNode
+                attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
             />
         )
     } else if (isWebOverviewQuery(query)) {
-        component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
+        component = (
+            <WebOverview
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+                uniqueKey={uniqueKey}
+            />
+        )
     } else if (isWebVitalsQuery(query)) {
-        component = <WebVitals query={query} cachedResults={props.cachedResults} context={queryContext} />
+        component = (
+            <WebVitals
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
     } else if (isWebVitalsPathBreakdownQuery(query)) {
-        component = <WebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
+        component = (
+            <WebVitalsPathBreakdown
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
     } else if (isHogQuery(query)) {
-        component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
+        component = (
+            <HogDebug
+                attachTo={props.attachTo}
+                query={query}
+                setQuery={setQuery as (query: any) => void}
+                queryKey={String(uniqueKey)}
+            />
+        )
     } else {
         component = <DataNode attachTo={props.attachTo} query={query} cachedResults={props.cachedResults} />
     }

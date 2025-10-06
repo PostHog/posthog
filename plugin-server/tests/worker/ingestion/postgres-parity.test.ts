@@ -13,6 +13,11 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { parseJSON } from '../../../src/utils/json-parse'
 import { UUIDT, castTimestampOrNow } from '../../../src/utils/utils'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
+import {
+    fetchDistinctIdValues,
+    fetchDistinctIds,
+    fetchPersons,
+} from '../../../src/worker/ingestion/persons/repositories/test-helpers'
 import { Clickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
@@ -121,7 +126,7 @@ describe('postgres parity', () => {
         const clickHouseDistinctIds = await clickhouse.fetchDistinctIdValues(person)
         expect(clickHouseDistinctIds).toEqual(['distinct1', 'distinct2'])
 
-        const postgresPersons = await hub.db.fetchPersons()
+        const postgresPersons = await fetchPersons(hub.db.postgres)
         expect(postgresPersons).toEqual([
             {
                 id: expect.any(String),
@@ -145,7 +150,7 @@ describe('postgres parity', () => {
                 version: 0,
             },
         ])
-        const postgresDistinctIds = await hub.db.fetchDistinctIdValues(person)
+        const postgresDistinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
         expect(postgresDistinctIds).toEqual(['distinct1', 'distinct2'])
 
         const newClickHouseDistinctIdValues = await clickhouse.fetchDistinctIds(person)
@@ -205,7 +210,7 @@ describe('postgres parity', () => {
         )
 
         const clickHousePersons = await clickhouse.fetchPersons()
-        const postgresPersons = await hub.db.fetchPersons()
+        const postgresPersons = await fetchPersons(hub.db.postgres)
 
         expect(clickHousePersons.filter((p) => p.team_id.toString() === teamId.toString()).length).toEqual(1)
         expect(postgresPersons.filter((p) => p.team_id.toString() === teamId.toString()).length).toEqual(1)
@@ -235,7 +240,7 @@ describe('postgres parity', () => {
         )
 
         const clickHousePersons2 = await clickhouse.fetchPersons()
-        const postgresPersons2 = await hub.db.fetchPersons()
+        const postgresPersons2 = await fetchPersons(hub.db.postgres)
 
         expect(clickHousePersons2.length).toEqual(1)
         expect(postgresPersons2.length).toEqual(1)
@@ -293,18 +298,18 @@ describe('postgres parity', () => {
         await hub.db.kafkaProducer.flush()
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
-        const [postgresPerson] = await hub.db.fetchPersons()
+        const [postgresPerson] = await fetchPersons(hub.db.postgres)
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIds(postgresPerson), 1)
         const clickHouseDistinctIdValues = await clickhouse.fetchDistinctIdValues(postgresPerson)
-        const postgresDistinctIdValues = await hub.db.fetchDistinctIdValues(postgresPerson)
+        const postgresDistinctIdValues = await fetchDistinctIdValues(hub.db.postgres, postgresPerson)
 
         // check that all is in the right format
 
         expect(clickHouseDistinctIdValues).toEqual(['distinct1'])
         expect(postgresDistinctIdValues).toEqual(['distinct1'])
 
-        const postgresDistinctIds = await hub.db.fetchDistinctIds(postgresPerson)
+        const postgresDistinctIds = await fetchDistinctIds(hub.db.postgres, postgresPerson)
         const newClickHouseDistinctIdValues = await clickhouse.fetchDistinctIds(postgresPerson)
 
         expect(postgresDistinctIds).toEqual([
@@ -333,7 +338,7 @@ describe('postgres parity', () => {
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(postgresPerson), 2)
 
         const clickHouseDistinctIdValues2 = await clickhouse.fetchDistinctIdValues(postgresPerson)
-        const postgresDistinctIdValues2 = await hub.db.fetchDistinctIdValues(postgresPerson)
+        const postgresDistinctIdValues2 = await fetchDistinctIdValues(hub.db.postgres, postgresPerson)
 
         expect(clickHouseDistinctIdValues2).toEqual(['distinct1', 'anotherOne'])
         expect(postgresDistinctIdValues2).toEqual(['distinct1', 'anotherOne'])
@@ -341,7 +346,7 @@ describe('postgres parity', () => {
         // check anotherPerson for their initial distinct id
 
         const clickHouseDistinctIdValuesOther = await clickhouse.fetchDistinctIdValues(anotherPerson)
-        const postgresDistinctIdValuesOther = await hub.db.fetchDistinctIdValues(anotherPerson)
+        const postgresDistinctIdValuesOther = await fetchDistinctIdValues(hub.db.postgres, anotherPerson)
 
         expect(clickHouseDistinctIdValuesOther).toEqual(['another_distinct_id'])
         expect(postgresDistinctIdValuesOther).toEqual(['another_distinct_id'])
@@ -389,7 +394,7 @@ describe('postgres parity', () => {
         await hub.db.kafkaProducer.flush()
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
-        const [postgresPerson] = await hub.db.fetchPersons()
+        const [postgresPerson] = await fetchPersons(hub.db.postgres)
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(postgresPerson), 1)
 
@@ -406,7 +411,7 @@ describe('postgres parity', () => {
 
         // :TODO: Update version
         const clickHouseDistinctIdValuesMoved = await clickhouse.fetchDistinctIdValues(anotherPerson)
-        const postgresDistinctIdValuesMoved = await hub.db.fetchDistinctIdValues(anotherPerson)
+        const postgresDistinctIdValuesMoved = await fetchDistinctIdValues(hub.db.postgres, anotherPerson)
         const newClickHouseDistinctIdValues = await clickhouse.delayUntilEventIngested(
             () => clickhouse.fetchDistinctIds(anotherPerson),
             2
@@ -434,7 +439,7 @@ describe('postgres parity', () => {
         // it got removed
 
         const clickHouseDistinctIdValuesRemoved = await clickhouse.fetchDistinctIdValues(postgresPerson)
-        const postgresDistinctIdValuesRemoved = await hub.db.fetchDistinctIdValues(postgresPerson)
+        const postgresDistinctIdValuesRemoved = await fetchDistinctIdValues(hub.db.postgres, postgresPerson)
         const newClickHouseDistinctIdRemoved = await clickhouse.fetchDistinctIds(postgresPerson)
 
         expect(clickHouseDistinctIdValuesRemoved).toEqual([])
@@ -451,7 +456,7 @@ describe('postgres parity', () => {
             (await clickhouse.fetchPersons()).length === 1 ? ['deleted!'] : []
         )
         const clickHousePersons = await clickhouse.fetchPersons()
-        const postgresPersons = await hub.db.fetchPersons()
+        const postgresPersons = await fetchPersons(hub.db.postgres)
 
         expect(clickHousePersons.length).toEqual(1)
         expect(postgresPersons.length).toEqual(1)

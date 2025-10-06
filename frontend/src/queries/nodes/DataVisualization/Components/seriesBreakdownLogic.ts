@@ -1,5 +1,4 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { subscriptions } from 'kea-subscriptions'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
 import { AxisSeries, AxisSeriesSettings, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { seriesBreakdownLogicType } from './seriesBreakdownLogicType'
@@ -56,27 +55,19 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
         addSeriesBreakdown: (columnName: string | null) => ({ columnName, response: values.response }),
         deleteSeriesBreakdown: () => ({}),
     })),
-    reducers(({ values }) => ({
-        showSeriesBreakdown: [
-            false as boolean,
-            {
-                clearAxis: () => false,
-                addSeriesBreakdown: () => true,
-                deleteSeriesBreakdown: () => false,
-            },
-        ],
-        selectedSeriesBreakdownColumn: [
-            values.query?.chartSettings?.seriesBreakdownColumn ?? (null as string | null),
-            {
-                clearAxis: () => null,
-                addSeriesBreakdown: (_, { columnName }) => columnName,
-                deleteSeriesBreakdown: () => null,
-            },
-        ],
-    })),
     selectors({
+        selectedSeriesBreakdownColumn: [
+            (s) => [s.query],
+            (query): string | null | undefined => {
+                return query?.chartSettings?.seriesBreakdownColumn
+            },
+        ],
+        showSeriesBreakdown: [
+            (s) => [s.selectedSeriesBreakdownColumn],
+            (selectedSeriesBreakdownColumn): boolean => selectedSeriesBreakdownColumn !== undefined,
+        ],
         breakdownColumnValues: [
-            (state) => [state.selectedSeriesBreakdownColumn, state.response, state.columns],
+            (s) => [s.selectedSeriesBreakdownColumn, s.response, s.columns],
             (breakdownColumn, response, columns): string[] => {
                 if (!response || breakdownColumn === null) {
                     return []
@@ -94,13 +85,13 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
             },
         ],
         seriesBreakdownData: [
-            (state) => [
-                state.selectedSeriesBreakdownColumn,
-                state.breakdownColumnValues,
-                state.selectedYAxis,
-                state.selectedXAxis,
-                state.response,
-                state.columns,
+            (s) => [
+                s.selectedSeriesBreakdownColumn,
+                s.breakdownColumnValues,
+                s.selectedYAxis,
+                s.selectedXAxis,
+                s.response,
+                s.columns,
             ],
             (
                 selectedBreakdownColumn,
@@ -230,20 +221,40 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
             },
         ],
     }),
-    subscriptions(({ values, actions }) => ({
-        selectedSeriesBreakdownColumn: (value: string | null) => {
-            actions.setQuery({
-                ...values.query,
+    listeners(({ actions }) => ({
+        addSeriesBreakdown: ({ columnName }) => {
+            actions.setQuery((query) => ({
+                ...query,
                 chartSettings: {
-                    ...values.query.chartSettings,
-                    seriesBreakdownColumn: value,
+                    ...query.chartSettings,
+                    seriesBreakdownColumn: columnName,
                 },
+            }))
+        },
+        deleteSeriesBreakdown: () => {
+            actions.setQuery((query) => {
+                return {
+                    ...query,
+                    chartSettings: {
+                        ...query.chartSettings,
+                        seriesBreakdownColumn: undefined,
+                    },
+                }
             })
         },
+        clearAxis: () => {
+            actions.setQuery((query) => ({
+                ...query,
+                chartSettings: {
+                    ...query.chartSettings,
+                    seriesBreakdownColumn: undefined,
+                },
+            }))
+        },
     })),
-    afterMount(({ values, actions }) => {
-        if (values.query?.chartSettings?.seriesBreakdownColumn) {
-            actions.addSeriesBreakdown(values.query.chartSettings.seriesBreakdownColumn)
+    afterMount(({ actions, values }) => {
+        if (values.query.chartSettings?.seriesBreakdownColumn === undefined) {
+            actions.deleteSeriesBreakdown()
         }
     }),
 ])

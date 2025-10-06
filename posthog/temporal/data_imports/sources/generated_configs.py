@@ -30,6 +30,12 @@ class BigQueryTemporaryDatasetConfig(config.Config):
 
 
 @config.config
+class GoogleAdsIsMccAccountConfig(config.Config):
+    mcc_client_id: str
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
     password: str
@@ -74,6 +80,7 @@ class DoItSourceConfig(config.Config):
 class GoogleAdsSourceConfig(config.Config):
     customer_id: str
     google_ads_integration_id: int = config.value(converter=config.str_to_int)
+    is_mcc_account: GoogleAdsIsMccAccountConfig | None = None
 
 
 @config.config
@@ -89,6 +96,12 @@ class HubspotSourceConfig(config.Config):
 @config.config
 class KlaviyoSourceConfig(config.Config):
     pass
+
+
+@config.config
+class LinkedinAdsSourceConfig(config.Config):
+    account_id: str
+    linkedin_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -150,6 +163,12 @@ class PostgresSourceConfig(config.Config):
     port: int = config.value(converter=int)
     connection_string: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
+class RedditAdsSourceConfig(config.Config):
+    account_id: str
+    reddit_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -217,6 +236,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
+        ExternalDataSourceType.LINKEDINADS: LinkedinAdsSourceConfig,
         ExternalDataSourceType.MSSQL: MSSQLSourceConfig,
         ExternalDataSourceType.MAILCHIMP: MailchimpSourceConfig,
         ExternalDataSourceType.MAILJET: MailjetSourceConfig,
@@ -225,6 +245,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.MYSQL: MySQLSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
+        ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,

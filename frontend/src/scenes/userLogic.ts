@@ -31,7 +31,7 @@ export const userLogic = kea<userLogicType>([
         }),
         cancelEmailChangeRequest: true,
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
-        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
+        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean = true) => ({ productKey, value }),
         switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
         deleteUser: true,
     })),

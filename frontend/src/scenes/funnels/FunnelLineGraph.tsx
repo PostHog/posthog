@@ -38,6 +38,7 @@ export function FunnelLineGraph({
         querySource,
         interval,
         insightData,
+        showValuesOnSeries,
     } = useValues(funnelDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
@@ -59,6 +60,7 @@ export function FunnelLineGraph({
                 isInProgress={incompletenessOffsetFromEnd < 0}
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={showPersonsModal}
+                showValuesOnSeries={showValuesOnSeries}
                 goalLines={goalLines ?? []}
                 tooltip={{
                     showHeader: false,

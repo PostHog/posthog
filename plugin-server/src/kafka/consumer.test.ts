@@ -1,9 +1,9 @@
-import { CODES, Message, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
+import { CODES, Message, MessageHeader, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 
 import { defaultConfig } from '~/config/config'
 
 import { delay } from '../utils/utils'
-import { KafkaConsumer } from './consumer'
+import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from './consumer'
 
 jest.mock('./admin', () => ({
     ensureTopicExists: jest.fn().mockResolvedValue(undefined),
@@ -368,6 +368,309 @@ describe('consumer', () => {
             ])
 
             await consumerDisabled.disconnect()
+        })
+    })
+})
+
+describe('parseKafkaHeaders', () => {
+    it('should return empty object when headers is undefined', () => {
+        const result = parseKafkaHeaders(undefined)
+        expect(result).toEqual({})
+    })
+
+    it('should return empty object when headers is empty array', () => {
+        const result = parseKafkaHeaders([])
+        expect(result).toEqual({})
+    })
+
+    it('should parse single header', () => {
+        const headers: MessageHeader[] = [{ token: Buffer.from('test-token') }]
+        const result = parseKafkaHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+        })
+    })
+
+    it('should parse multiple headers in single object', () => {
+        const headers: MessageHeader[] = [
+            {
+                token: Buffer.from('test-token'),
+                distinct_id: Buffer.from('user-123'),
+                timestamp: Buffer.from('1234567890'),
+            },
+        ]
+        const result = parseKafkaHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            distinct_id: 'user-123',
+            timestamp: '1234567890',
+        })
+    })
+
+    it('should parse multiple header objects', () => {
+        const headers: MessageHeader[] = [
+            { token: Buffer.from('test-token') },
+            { distinct_id: Buffer.from('user-123') },
+            { timestamp: Buffer.from('1234567890') },
+        ]
+        const result = parseKafkaHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            distinct_id: 'user-123',
+            timestamp: '1234567890',
+        })
+    })
+
+    it('should handle arbitrary header keys', () => {
+        const headers: MessageHeader[] = [
+            {
+                custom_header: Buffer.from('custom-value'),
+                another_key: Buffer.from('another-value'),
+            },
+        ]
+        const result = parseKafkaHeaders(headers)
+        expect(result).toEqual({
+            custom_header: 'custom-value',
+            another_key: 'another-value',
+        })
+    })
+
+    it('should handle non-string buffer values', () => {
+        const headers: MessageHeader[] = [{ numeric: Buffer.from('123') }, { boolean: Buffer.from('true') }]
+        const result = parseKafkaHeaders(headers)
+        expect(result).toEqual({
+            numeric: '123',
+            boolean: 'true',
+        })
+    })
+
+    it('should handle empty buffer values', () => {
+        const headers: MessageHeader[] = [{ empty: Buffer.from('') }]
+        const result = parseKafkaHeaders(headers)
+        expect(result).toEqual({
+            empty: '',
+        })
+    })
+
+    it('should handle duplicate keys by overwriting', () => {
+        const headers: MessageHeader[] = [{ token: Buffer.from('first-token') }, { token: Buffer.from('second-token') }]
+        const result = parseKafkaHeaders(headers)
+        expect(result).toEqual({
+            token: 'second-token',
+        })
+    })
+})
+
+describe('parseEventHeaders', () => {
+    it('should return empty object when headers is undefined', () => {
+        const result = parseEventHeaders(undefined)
+        expect(result).toEqual({})
+    })
+
+    it('should return empty object when headers is empty array', () => {
+        const result = parseEventHeaders([])
+        expect(result).toEqual({})
+    })
+
+    it('should parse token header only', () => {
+        const headers: MessageHeader[] = [{ token: Buffer.from('test-token') }]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+        })
+    })
+
+    it('should parse distinct_id header only', () => {
+        const headers: MessageHeader[] = [{ distinct_id: Buffer.from('user-123') }]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            distinct_id: 'user-123',
+        })
+    })
+
+    it('should parse timestamp header only', () => {
+        const headers: MessageHeader[] = [{ timestamp: Buffer.from('1234567890') }]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            timestamp: '1234567890',
+        })
+    })
+
+    it('should parse all supported headers', () => {
+        const headers: MessageHeader[] = [
+            {
+                token: Buffer.from('test-token'),
+                distinct_id: Buffer.from('user-123'),
+                timestamp: Buffer.from('1234567890'),
+            },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            distinct_id: 'user-123',
+            timestamp: '1234567890',
+        })
+    })
+
+    it('should parse supported headers from multiple objects', () => {
+        const headers: MessageHeader[] = [
+            { token: Buffer.from('test-token') },
+            { distinct_id: Buffer.from('user-123') },
+            { timestamp: Buffer.from('1234567890') },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            distinct_id: 'user-123',
+            timestamp: '1234567890',
+        })
+    })
+
+    it('should ignore unsupported headers', () => {
+        const headers: MessageHeader[] = [
+            {
+                token: Buffer.from('test-token'),
+                custom_header: Buffer.from('ignored'),
+                another_key: Buffer.from('also-ignored'),
+                distinct_id: Buffer.from('user-123'),
+            },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            distinct_id: 'user-123',
+        })
+    })
+
+    it('should handle empty buffer values', () => {
+        const headers: MessageHeader[] = [
+            {
+                token: Buffer.from(''),
+                distinct_id: Buffer.from(''),
+                timestamp: Buffer.from(''),
+            },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: '',
+            distinct_id: '',
+            timestamp: '',
+        })
+    })
+
+    it('should handle duplicate keys by overwriting', () => {
+        const headers: MessageHeader[] = [
+            { token: Buffer.from('first-token') },
+            { token: Buffer.from('second-token') },
+            { distinct_id: Buffer.from('first-id') },
+            { distinct_id: Buffer.from('second-id') },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'second-token',
+            distinct_id: 'second-id',
+        })
+    })
+
+    it('should handle mixed supported and unsupported headers', () => {
+        const headers: MessageHeader[] = [
+            { unsupported1: Buffer.from('ignored') },
+            { token: Buffer.from('test-token') },
+            { unsupported2: Buffer.from('also-ignored') },
+            { timestamp: Buffer.from('1234567890') },
+            { unsupported3: Buffer.from('still-ignored') },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            timestamp: '1234567890',
+        })
+    })
+
+    it('should handle partial header sets', () => {
+        // Test with only token and timestamp (missing distinct_id)
+        const headers: MessageHeader[] = [
+            {
+                token: Buffer.from('test-token'),
+                timestamp: Buffer.from('1234567890'),
+            },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            timestamp: '1234567890',
+        })
+    })
+
+    it('should parse event header', () => {
+        const headers: MessageHeader[] = [{ event: Buffer.from('$pageview') }]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            event: '$pageview',
+        })
+    })
+
+    it('should parse uuid header', () => {
+        const headers: MessageHeader[] = [{ uuid: Buffer.from('123e4567-e89b-12d3-a456-426614174000') }]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            uuid: '123e4567-e89b-12d3-a456-426614174000',
+        })
+    })
+
+    it('should parse all headers including new event and uuid', () => {
+        const headers: MessageHeader[] = [
+            {
+                token: Buffer.from('test-token'),
+                distinct_id: Buffer.from('user-123'),
+                timestamp: Buffer.from('1234567890'),
+                event: Buffer.from('$pageview'),
+                uuid: Buffer.from('123e4567-e89b-12d3-a456-426614174000'),
+            },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            distinct_id: 'user-123',
+            timestamp: '1234567890',
+            event: '$pageview',
+            uuid: '123e4567-e89b-12d3-a456-426614174000',
+        })
+    })
+
+    it('should ignore unsupported headers but include event and uuid', () => {
+        const headers: MessageHeader[] = [
+            {
+                token: Buffer.from('test-token'),
+                custom_header: Buffer.from('ignored'),
+                event: Buffer.from('custom_event'),
+                another_key: Buffer.from('also-ignored'),
+                uuid: Buffer.from('uuid-value'),
+                distinct_id: Buffer.from('user-123'),
+            },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            distinct_id: 'user-123',
+            event: 'custom_event',
+            uuid: 'uuid-value',
+        })
+    })
+
+    it('should handle empty event and uuid headers', () => {
+        const headers: MessageHeader[] = [
+            {
+                token: Buffer.from('test-token'),
+                event: Buffer.from(''),
+                uuid: Buffer.from(''),
+            },
+        ]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual({
+            token: 'test-token',
+            event: '',
+            uuid: '',
         })
     })
 })

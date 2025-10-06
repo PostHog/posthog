@@ -77,6 +77,16 @@ case "$RS_SVC" in
     export ALLOW_INTERNAL_IPS="true"
     ;;
 
+  et-embedding-worker)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_CONSUMER_GROUP=embedding-worker
+    export KAFKA_CONSUMER_TOPIC="error_tracking_new_fingerprints"
+    export FRAME_CACHE_TTL_SECONDS=1
+    export BIND_PORT=3305 # HACK! avoid local-dev clash with property-defs-rs port
+    export ALLOW_INTERNAL_IPS="true"
+    ;;
+
   cyclotron-janitor)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
@@ -91,7 +101,7 @@ case "$RS_SVC" in
   feature-flags)
     # Download MaxMind DB if it doesn't exist
     ./bin/download-mmdb
-    
+
     export RUST_LOG=debug,tower=warn,maxminddb=warn
     export RUST_BACKTRACE=1
     export WRITE_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
@@ -101,6 +111,21 @@ case "$RS_SVC" in
     export ADDRESS=0.0.0.0:3001
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+    ;;
+
+  batch-import-worker)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS=localhost:9092
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export BIND_HOST=0.0.0.0
+    export BIND_PORT=3301
+    export ENCRYPTION_KEYS=00beef0000beef0000beef0000beef00
+    export KAFKA_TOPIC_MAIN=events_plugin_ingestion
+    export KAFKA_TOPIC_HISTORICAL=events_plugin_ingestion_historical
+    export KAFKA_TOPIC_OVERFLOW=events_plugin_ingestion_overflow
+    export DEBUG=1
     ;;
 
   *)

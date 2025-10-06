@@ -26,6 +26,11 @@
             "description": "The current assignee of an issue.",
             "label": "Issue assignee"
         },
+        "first_seen": {
+            "description": "The first time the issue was seen.",
+            "label": "Issue first seen",
+            "type": "DateTime"
+        },
         "issue_description": {
             "description": "The description of an issue.",
             "label": "Issue description"
@@ -3956,6 +3961,10 @@
             "description": "Number of clicks during the session",
             "label": "Clicks"
         },
+        "comment_text": {
+            "description": "Search for text within comments on the recording",
+            "label": "Comment text"
+        },
         "console_error_count": {
             "description": "Number of console errors during the session",
             "label": "Errors"
@@ -3981,62 +3990,112 @@
         "visited_page": {
             "description": "URL a user visited during their session",
             "label": "Visited page"
-        },
-        "comment_text": {
-            "description": "Search for text within comments on the recording",
-            "label": "Comment text"
         }
     },
     "revenue_analytics_properties": {
-        "amount": {
+        "revenue_analytics_customer.address": {
+            "description": "The address of the customer connected to the revenue event.",
+            "label": "Customer Address",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.cohort": {
+            "description": "The cohort of the customer connected to the revenue event.",
+            "label": "Customer Cohort",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.country": {
+            "description": "The country of the customer connected to the revenue event.",
+            "label": "Customer Country",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.email": {
+            "description": "The email of the customer connected to the revenue event.",
+            "label": "Customer Email",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.id": {
+            "description": "The ID of the customer connected to the revenue event.",
+            "label": "Customer ID",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.initial_coupon": {
+            "description": "The name of the coupon on the initial revenue event for the customer.",
+            "label": "Customer Initial Coupon",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.initial_coupon_id": {
+            "description": "The ID of the coupon on the initial revenue event for the customer.",
+            "label": "Customer Initial Coupon ID",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.name": {
+            "description": "The name of the customer connected to the revenue event.",
+            "label": "Customer Name",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.phone": {
+            "description": "The phone of the customer connected to the revenue event.",
+            "label": "Customer Phone",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_invoice_item.amount": {
             "description": "The amount of the revenue event.",
             "label": "Amount",
             "type": "Numeric",
             "virtual": true
         },
-        "cohort": {
-            "description": "The cohort of the customer connected to the revenue event.",
-            "label": "Cohort",
-            "type": "String",
-            "virtual": true
-        },
-        "country": {
-            "description": "The country of the customer connected to the revenue event.",
-            "label": "Country",
-            "type": "String",
-            "virtual": true
-        },
-        "coupon": {
-            "description": "The name of the coupon on the revenue event.",
+        "revenue_analytics_invoice_item.coupon": {
+            "description": "The name of the coupon connected to the revenue event.",
             "label": "Coupon",
             "type": "String",
             "virtual": true
         },
-        "coupon_id": {
-            "description": "The ID of the coupon on the revenue event.",
+        "revenue_analytics_invoice_item.coupon_id": {
+            "description": "The ID of the coupon connected to the revenue event.",
             "label": "Coupon ID",
             "type": "String",
             "virtual": true
         },
-        "initial_coupon": {
-            "description": "The name of the coupon on the initial revenue event for the customer. Not supported for event sources.",
-            "label": "Initial coupon",
+        "revenue_analytics_invoice_item.created_at": {
+            "description": "When the revenue event was created.",
+            "label": "Created At",
+            "type": "DateTime",
+            "virtual": true
+        },
+        "revenue_analytics_invoice_item.timestamp": {
+            "description": "When the revenue event was executed.",
+            "label": "Timestamp",
+            "type": "DateTime",
+            "virtual": true
+        },
+        "revenue_analytics_product.name": {
+            "description": "The name of the product connected to the revenue event.",
+            "label": "Product Name",
             "type": "String",
             "virtual": true
         },
-        "initial_coupon_id": {
-            "description": "The ID of the coupon on the initial revenue event for the customer. Not supported for event sources.",
-            "label": "Initial coupon ID",
-            "type": "String",
+        "revenue_analytics_subscription.ended_at": {
+            "description": "The ended at date of the subscription connected to the revenue event.",
+            "label": "Subscription Ended At",
+            "type": "DateTime",
             "virtual": true
         },
-        "product": {
-            "description": "The product of the revenue event.",
-            "label": "Product",
-            "type": "String",
+        "revenue_analytics_subscription.started_at": {
+            "description": "The started at date of the subscription connected to the revenue event.",
+            "label": "Subscription Started At",
+            "type": "DateTime",
             "virtual": true
         },
-        "source": {
+        "source_label": {
             "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
             "label": "Source",
             "type": "String",

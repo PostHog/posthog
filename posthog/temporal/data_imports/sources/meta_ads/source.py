@@ -24,7 +24,7 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METAADS
 
-    def get_schemas(self, config: MetaAdsSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MetaAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -54,6 +54,7 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
             name=SchemaExternalDataSourceType.META_ADS,
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
+            iconPath="/static/services/meta-ads.png",
             fields=cast(
                 list[FieldType],
                 [
@@ -73,4 +74,5 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
                 ],
             ),
             betaSource=True,
+            featureFlag="meta-ads-dwh",
         )

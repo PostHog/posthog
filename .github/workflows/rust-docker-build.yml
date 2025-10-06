@@ -8,7 +8,6 @@ on:
             - '.github/workflows/rust-docker-build.yml'
         branches:
             - 'master'
-
 jobs:
     build:
         name: build ${{ matrix.image }}
@@ -39,6 +38,9 @@ jobs:
                     - image: cymbal
                       dockerfile: ./rust/Dockerfile
                       project: 8dq0xkk0ck
+                    - image: et-embedding-worker
+                      dockerfile: ./rust/Dockerfile
+                      project: 8dq0xkk0ck
                     - image: feature-flags
                       dockerfile: ./rust/Dockerfile
                       project: vglf58qgzw
@@ -67,6 +69,7 @@ jobs:
             hook-worker_digest: ${{ steps.digest.outputs.hook-worker_digest }}
             hook-migrator_digest: ${{ steps.digest.outputs.hook-migrator_digest }}
             cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
+            et-embedding-worker_digest: ${{ steps.digest.outputs.et-embedding-worker_digest }}
             feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
             log-capture_digest: ${{ steps.digest.outputs.log-capture_digest }}
             kafka-deduplicator_digest: ${{ steps.digest.outputs.kafka-deduplicator_digest }}
@@ -183,6 +186,10 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.cymbal_digest }}'
+                    - release: et-embedding-worker
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.et-embedding-worker_digest }}'
                     - release: hoghooks
                       values:
                           api_image:

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ErrorEventType, ErrorTrackingException } from 'lib/components/Errors/types'
@@ -14,9 +14,9 @@ import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationType } from '~/types'
 
-import { OriginProduct, TaskStatus, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { OriginProduct, TaskUpsertProps } from 'products/tasks/frontend/types'
 
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 export const IssueTasks = (): JSX.Element => {
     const { issue, issueLoading, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
@@ -30,7 +30,7 @@ export const IssueTasks = (): JSX.Element => {
     }
     return (
         <ScenePanelLabel title="Tasks">
-            <ButtonPrimitive fullWidth onClick={onClickCreateTask} disabled={issueLoading}>
+            <ButtonPrimitive fullWidth onClick={onClickCreateTask} disabled={issueLoading} variant="panel">
                 <IconPlus />
                 Create task in PostHog
             </ButtonPrimitive>
@@ -148,7 +148,6 @@ const createTaskForm = (
         initialValues: {
             title: issue.name ?? '',
             description: description ?? '',
-            status: TaskStatus.TODO,
             repositories: [],
         },
         content: (
@@ -160,15 +159,6 @@ const createTaskForm = (
                 <LemonField name="description" label="Description">
                     <LemonTextArea data-attr="task-description" placeholder="Start typing..." rows={8} />
                 </LemonField>
-                <LemonField name="status" label="Priority">
-                    <LemonSelect
-                        data-attr="task-status"
-                        options={[
-                            { value: 'todo', label: 'Fix now (Todo)' },
-                            { value: 'backlog', label: 'Add to backlog' },
-                        ]}
-                    />
-                </LemonField>
             </div>
         ),
         errors: {
@@ -178,12 +168,11 @@ const createTaskForm = (
                     ? 'You must choose a repository'
                     : undefined,
         },
-        onSubmit: async ({ title, description, status, repositories }) => {
+        onSubmit: async ({ title, description, repositories }) => {
             try {
                 const taskData: TaskUpsertProps = {
                     title,
                     description,
-                    status,
                     origin_product: OriginProduct.ERROR_TRACKING,
                 }
 

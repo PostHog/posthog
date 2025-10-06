@@ -9,6 +9,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import ANY
 
 from posthog.schema import CurrencyCode, HogQLQueryModifiers, RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
@@ -207,7 +208,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-            self.assertEqual(response.results, [(self.group0_id, Decimal("350.42"), Decimal("350.42"))])
+            self.assertEqual(
+                response.results,
+                [("lolol0:xxx", Decimal("350.42"), Decimal("350.42"))],
+            )
 
     def test_get_revenue_for_schema_source_for_id_join(self):
         self.setup_schema_sources()
@@ -230,8 +234,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(
                     response.results,
                     [
-                        ("cus_1", Decimal("429.7423999996")),
-                        ("cus_2", Decimal("477.2037499988")),
+                        ("cus_1", Decimal("297.0065541769")),
+                        ("cus_2", Decimal("482.2158673452")),
                         ("cus_3", Decimal("4171.09153")),
                         ("cus_4", Decimal("254.12345")),
                         ("cus_5", Decimal("1529.9212")),
@@ -267,9 +271,9 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response.results,
                 [
-                    ("jane.doe@example.com", Decimal("477.2037499988"), Decimal("477.2037499988")),
+                    ("jane.doe@example.com", Decimal("482.2158673452"), Decimal("482.2158673452")),
                     ("jane.smith@example.com", Decimal("254.12345"), Decimal("254.12345")),
-                    ("john.doe@example.com", Decimal("429.7423999996"), Decimal("429.7423999996")),
+                    ("john.doe@example.com", Decimal("297.0065541769"), Decimal("297.0065541769")),
                     ("john.doejr@example.com", Decimal("1529.9212"), Decimal("1529.9212")),
                     ("john.doejrjr@example.com", Decimal("2796.37014"), Decimal("2796.37014")),
                     ("john.smith@example.com", Decimal("4171.09153"), Decimal("4171.09153")),
@@ -304,8 +308,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response.results,
                 [
-                    ("cus_1_metadata", Decimal("429.7423999996"), Decimal("429.7423999996")),
-                    ("cus_2_metadata", Decimal("477.2037499988"), Decimal("477.2037499988")),
+                    ("cus_1_metadata", Decimal("297.0065541769"), Decimal("297.0065541769")),
+                    ("cus_2_metadata", Decimal("482.2158673452"), Decimal("482.2158673452")),
                     ("cus_3_metadata", Decimal("4171.09153"), Decimal("4171.09153")),
                     ("cus_4_metadata", Decimal("254.12345"), Decimal("254.12345")),
                     ("cus_5_metadata", Decimal("1529.9212"), Decimal("1529.9212")),
@@ -341,12 +345,12 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 results.results,
                 [
-                    ("jane.doe@example.com", Decimal("477.2037499988"), Decimal("130.0504749995")),
-                    ("jane.smith@example.com", Decimal("254.12345"), None),
-                    ("john.doe@example.com", Decimal("429.7423999996"), Decimal("41.0122916665")),
-                    ("john.doejr@example.com", Decimal("1529.9212"), None),
-                    ("john.doejrjr@example.com", Decimal("2796.37014"), None),
-                    ("john.smith@example.com", Decimal("4171.09153"), None),
+                    ("jane.doe@example.com", Decimal("482.2158673452"), ANY),
+                    ("jane.smith@example.com", Decimal("254.12345"), ANY),
+                    ("john.doe@example.com", Decimal("297.0065541769"), ANY),
+                    ("john.doejr@example.com", Decimal("1529.9212"), ANY),
+                    ("john.doejrjr@example.com", Decimal("2796.37014"), ANY),
+                    ("john.smith@example.com", Decimal("4171.09153"), ANY),
                 ],
             )
 

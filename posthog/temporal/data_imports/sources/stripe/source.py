@@ -40,9 +40,14 @@ You can find your account ID [in your Stripe dashboard](https://dashboard.stripe
 
 Currently, **read permissions are required** for the following resources:
 
-- Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customer**, **Product**, **Disputes**, and **Payouts**
-- Under the **Billing** resource type, select *read* for **Invoice**, **Price**, **Subscription**, and **Credit notes**
-- Under the **Connected** resource type, select *read* for the **entire resource**""",
+- Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
+- Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
+- Under the **Connect** resource type, select *read* for either the **entire resource** or **Application Fees** and **Transfers**
+
+You can also simplify the setup by selecting **read** for the **entire resource** under **Core**, **Billing**, and **Connect**.
+""",
+            iconPath="/static/services/stripe.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/stripe",
             fields=cast(
                 list[FieldType],
                 [
@@ -64,7 +69,7 @@ Currently, **read permissions are required** for the following resources:
             ),
         )
 
-    def get_schemas(self, config: StripeSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: StripeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

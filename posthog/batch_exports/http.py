@@ -1,5 +1,8 @@
+import typing
+import builtins
 import datetime as dt
 import dataclasses
+import collections.abc
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
@@ -9,7 +12,6 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
-from loginas.utils import is_impersonated_session
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -26,6 +28,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
+    DESTINATION_WORKFLOWS,
+    BaseBatchExportInputs,
     BatchExportIdError,
     BatchExportSchema,
     BatchExportServiceError,
@@ -40,12 +44,12 @@ from posthog.batch_exports.service import (
     sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
-from posthog.cdp.validation import has_data_pipelines_addon
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
 from posthog.models.signals import model_activity_signal
 from posthog.temporal.common.client import sync_connect
-from posthog.utils import relative_date_parse
+from posthog.utils import relative_date_parse, str_to_bool
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
@@ -179,14 +183,76 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
+    integration_id = serializers.PrimaryKeyRelatedField(
+        write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
+    )
+
     class Meta:
         model = BatchExportDestination
-        fields = ["type", "config"]
+        fields = ["type", "config", "integration", "integration_id"]
 
-    def create(self, validated_data: dict) -> BatchExportDestination:
+    def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
         export_destination = BatchExportDestination.objects.create(**validated_data)
         return export_destination
+
+    def validate(self, data: collections.abc.Mapping[str, typing.Any]) -> collections.abc.Mapping[str, typing.Any]:
+        """Validate the destination configuration based on workflow inputs.
+
+        Ensure that the submitted destination configuration passes the following checks:
+        * Does NOT contain fields that do not exist in workflow inputs.
+        * Contains all required fields as defined by workflow inputs.
+        * Provided values match types required by workflow inputs.
+
+        Raises:
+            A `serializers.ValidationError` if any of these checks fail.
+        """
+        export_type, config = data["type"], data["config"]
+        _, workflow_inputs = DESTINATION_WORKFLOWS[export_type]
+        base_field_names = {field.name for field in dataclasses.fields(BaseBatchExportInputs)}
+        workflow_fields = dataclasses.fields(workflow_inputs)
+        destination_fields = {field for field in workflow_fields if field.name not in base_field_names}
+
+        extra_fields = config.keys() - {field.name for field in destination_fields} - base_field_names
+        if extra_fields:
+            str_fields = ", ".join(f"'{extra_field}'" for extra_field in sorted(extra_fields))
+            raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
+
+        for destination_field in destination_fields:
+            is_required = (
+                destination_field.default == dataclasses.MISSING
+                and destination_field.default_factory == dataclasses.MISSING
+            )
+            if destination_field.name not in config:
+                is_patch = self.context["request"].method == "PATCH"
+                if is_required and not is_patch:
+                    # When patching we expect a partial configuration. So, we don't
+                    # error on missing required fields.
+                    raise serializers.ValidationError(
+                        f"Configuration missing required field: '{destination_field.name}'"
+                    )
+                else:
+                    continue
+
+            config_value = config[destination_field.name]
+            field_type = destination_field.type
+
+            if not isinstance(field_type, type):
+                # `dataclasses.Field.type` could be something we can't work with.
+                # TODO: Validate these ones too?
+                continue
+
+            if not isinstance(config_value, field_type):
+                config_value, success = try_convert_to_type(config_value, field_type)
+
+                if not success:
+                    raise serializers.ValidationError(
+                        f"Configuration has invalid type: got '{type(config_value).__name__}', expected '{field_type.__name__}'"
+                    )
+
+                config[destination_field.name] = config_value
+
+        return data
 
     def to_representation(self, instance: BatchExportDestination) -> dict:
         data = super().to_representation(instance)
@@ -194,6 +260,35 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             k: v for k, v in data["config"].items() if k not in BatchExportDestination.secret_fields[instance.type]
         }
         return data
+
+
+Success = bool
+
+
+def try_convert_to_type(value: typing.Any, target_type: type) -> tuple[typing.Any, Success]:
+    """Attempt to convert value to target type based on well-known casting functions.
+
+    This doesn't raise any exceptions but rather returns a tuple with a bool indicating
+    if the value in the first position was successfully casted to `target_type` or not.
+    If casting fails, the value in the first position is returned unchanged, otherwise a
+    new value of type `target_type` is returned.
+    """
+    current_type = type(value)
+
+    match (current_type, target_type):
+        case (builtins.str, builtins.bool):
+            cast_func: typing.Callable[[typing.Any], typing.Any] = str_to_bool
+        case (builtins.str, builtins.int):
+            cast_func = int
+        case _:
+            return (value, False)
+
+    try:
+        new_value = cast_func(value)
+    except Exception:
+        return (value, False)
+
+    return (new_value, True)
 
 
 class HogQLSelectQueryField(serializers.Field):
@@ -266,20 +361,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
-    def validate(self, attrs: dict) -> dict:
-        team = self.context["get_team"]()
-        attrs["team"] = team
-
-        has_addon = has_data_pipelines_addon(team, self.context["request"].user)
-
-        if not has_addon:
-            # Check if the user is impersonated - if so we allow changes as it could be an admin user fixing things
-
-            if not is_impersonated_session(self.context["request"]):
-                raise serializers.ValidationError("The Data Pipelines addon is required for batch exports.")
-
-        return attrs
-
+    # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
@@ -302,7 +384,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
-        if destination_attrs["type"] == BatchExportDestination.Destination.S3:
+        if destination_type == BatchExportDestination.Destination.S3:
             config = destination_attrs["config"]
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = config.get("file_format", "JSONLines")
@@ -316,6 +398,37 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
                 )
+        if destination_type == BatchExportDestination.Destination.DATABRICKS:
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "databricks-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("The Databricks destination is not enabled for this team.")
+
+            # validate the Integration is valid (this is mandatory for Databricks batch exports)
+            integration: Integration | None = destination_attrs.get("integration")
+            if integration is None:
+                raise serializers.ValidationError("integration is required for Databricks batch exports")
+            if integration.team_id != team_id:
+                raise serializers.ValidationError("Integration does not belong to this team.")
+            if integration.kind != Integration.IntegrationKind.DATABRICKS:
+                raise serializers.ValidationError("Integration is not a Databricks integration.")
+            # try instantiate the integration to check if it's valid
+            try:
+                DatabricksIntegration(integration)
+            except DatabricksIntegrationError as e:
+                raise serializers.ValidationError(str(e))
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
@@ -587,14 +700,25 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
         test_step = request.data.pop("step", 0)
 
-        serializer = self.get_serializer(data=request.data)
+        batch_export = self.get_object()
+
+        # Remove any additional fields from stored configuration
+        _, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
+        workflow_fields = {field.name for field in dataclasses.fields(BaseBatchExportInputs)} | {
+            field.name for field in dataclasses.fields(workflow_inputs)
+        }
+        stored_config = {k: v for k, v in batch_export.destination.config.items() if k in workflow_fields}
+
+        data = request.data
+        data["destination"]["config"] = {**stored_config, **data["destination"]["config"]}
+
+        serializer = self.get_serializer(data=data)
         _ = serializer.is_valid(raise_exception=True)
 
         destination_test = get_destination_test(
             destination=serializer.validated_data["destination"]["type"],
         )
-        batch_export = self.get_object()
-        test_configuration = {**batch_export.destination.config, **serializer.validated_data["destination"]["config"]}
+        test_configuration = serializer.validated_data["destination"]["config"]
         destination_test.configure(**test_configuration)
 
         result = destination_test.run_step(test_step)
@@ -722,10 +846,8 @@ def create_backfill(
     if start_at >= end_at:
         raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
-    if end_at > dt.datetime.now(dt.UTC) + batch_export.interval_time_delta:
-        raise ValidationError(
-            f"The provided 'end_at' ({end_at.isoformat()}) is too far into the future. Cannot backfill beyond 1 batch period into the future."
-        )
+    if end_at > dt.datetime.now(dt.UTC):
+        raise ValidationError(f"The provided 'end_at' ({end_at.isoformat()}) is in the future")
 
     try:
         return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)

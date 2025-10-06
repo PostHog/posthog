@@ -58,11 +58,11 @@ SELECT DISTINCT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND coho
 """
 
 GET_COHORTS_BY_PERSON_UUID = """
-SELECT DISTINCT cohort_id
-FROM cohortpeople
-WHERE team_id = %(team_id)s AND person_id = %(person_id)s
-GROUP BY person_id, cohort_id, team_id, version
-HAVING sum(sign) > 0
+SELECT cohort_id, argMax(version, version) as latest_version
+  FROM cohortpeople
+  WHERE team_id = %(team_id)s AND person_id = %(person_id)s
+  GROUP BY cohort_id
+  HAVING argMax(sign, version) > 0
 """
 
 GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID = f"""
@@ -85,11 +85,6 @@ WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
 """
 
-GET_STATIC_COHORT_SIZE_SQL = f"""
-SELECT count(DISTINCT person_id)
-FROM {PERSON_STATIC_COHORT_TABLE}
-WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
-"""
 
 STALE_COHORTPEOPLE = f"""
 SELECT team_id, count() AS stale_people_count FROM cohortpeople

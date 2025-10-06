@@ -1,7 +1,7 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
-import { formatLLMEventTitle, looksLikeXml, normalizeMessage } from './utils'
+import { formatLLMEventTitle, looksLikeXml, normalizeMessage, normalizeMessages, parseOpenAIToolCalls } from './utils'
 
 describe('LLM Analytics utils', () => {
     it('normalizeOutputMessage: parses OpenAI message', () => {
@@ -9,7 +9,7 @@ describe('LLM Analytics utils', () => {
             role: 'assistant',
             content: 'Hello, world!',
         }
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'assistant',
                 content: 'Hello, world!',
@@ -21,15 +21,13 @@ describe('LLM Analytics utils', () => {
         const message = {
             role: 'assistant',
         }
-        // When no defaultRole is provided, it defaults to 'user'
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'user',
                 content: JSON.stringify(message),
             },
         ])
 
-        // When 'assistant' is provided as defaultRole, it uses that
         expect(normalizeMessage(message, 'assistant')).toEqual([
             {
                 role: 'assistant',
@@ -61,7 +59,7 @@ describe('LLM Analytics utils', () => {
                 },
             ],
         }
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'assistant',
                 content: '',
@@ -94,7 +92,7 @@ describe('LLM Analytics utils', () => {
             tool_call_id: '456',
         }
 
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'tool',
                 content: 'response',
@@ -104,15 +102,13 @@ describe('LLM Analytics utils', () => {
     })
 
     it('normalizeOutputMessage: parses a string message', () => {
-        // When no defaultRole is provided, it defaults to 'user'
-        expect(normalizeMessage('foo')).toEqual([
+        expect(normalizeMessage('foo', 'user')).toEqual([
             {
                 role: 'user',
                 content: 'foo',
             },
         ])
 
-        // When 'assistant' is provided as defaultRole, it uses that
         expect(normalizeMessage('foo', 'assistant')).toEqual([
             {
                 role: 'assistant',
@@ -208,7 +204,7 @@ describe('LLM Analytics utils', () => {
             ],
         }
 
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'user',
                 content: 'foo',
@@ -231,7 +227,7 @@ describe('LLM Analytics utils', () => {
                 },
             ],
         }
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'user',
                 content: 'foo',
@@ -259,7 +255,7 @@ describe('LLM Analytics utils', () => {
             ],
         }
 
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'assistant')).toEqual([
             {
                 role: 'assistant',
                 content: [
@@ -492,6 +488,254 @@ describe('LLM Analytics utils', () => {
                 }
                 expect(formatLLMEventTitle(event)).toBe('Custom Action')
             })
+        })
+    })
+
+    describe('LiteLLM support', () => {
+        const litellmChoice = {
+            finish_reason: 'stop',
+            index: 0,
+            message: {
+                annotations: [],
+                content:
+                    "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                function_call: null,
+                role: 'assistant',
+                tool_calls: null,
+            },
+            provider_specific_fields: {},
+        }
+
+        const litellmResponse = {
+            choices: [litellmChoice],
+            model: 'gpt-3.5-turbo',
+            usage: { prompt_tokens: 10, completion_tokens: 25, total_tokens: 35 },
+        }
+
+        describe('normalizeMessage', () => {
+            it('should handle LiteLLM choice format', () => {
+                const result = normalizeMessage(litellmChoice, 'user')
+
+                expect(result).toHaveLength(1)
+                expect(result[0]).toMatchObject({
+                    role: 'assistant',
+                    content:
+                        "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                    function_call: null,
+                })
+                expect(result[0].tool_calls).toBeUndefined()
+            })
+
+            it('should handle LiteLLM choice with tool calls', () => {
+                const choiceWithTools = {
+                    ...litellmChoice,
+                    message: {
+                        ...litellmChoice.message,
+                        content: null,
+                        tool_calls: [
+                            {
+                                type: 'function',
+                                id: 'call_123',
+                                function: {
+                                    name: 'get_weather',
+                                    arguments: '{"location": "San Francisco"}',
+                                },
+                            },
+                        ],
+                    },
+                }
+
+                const result = normalizeMessage(choiceWithTools, 'user')
+
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('assistant')
+                expect(result[0].tool_calls).toHaveLength(1)
+                expect(result[0].tool_calls![0].function.name).toBe('get_weather')
+            })
+        })
+
+        describe('normalizeMessages', () => {
+            it('should handle LiteLLM response format', () => {
+                const result = normalizeMessages(litellmResponse, 'assistant')
+
+                expect(result).toHaveLength(1)
+                expect(result[0]).toMatchObject({
+                    role: 'assistant',
+                    content:
+                        "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                    function_call: null,
+                })
+                expect(result[0].tool_calls).toBeUndefined()
+            })
+
+            it('should handle LiteLLM response with multiple choices', () => {
+                const multiChoiceResponse = {
+                    choices: [
+                        litellmChoice,
+                        {
+                            ...litellmChoice,
+                            index: 1,
+                            message: {
+                                ...litellmChoice.message,
+                                content: 'Alternative response',
+                            },
+                        },
+                    ],
+                }
+
+                const result = normalizeMessages(multiChoiceResponse, 'assistant')
+
+                expect(result).toHaveLength(2)
+                expect(result[0].content).toBe(
+                    "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!"
+                )
+                expect(result[1].content).toBe('Alternative response')
+            })
+
+            it('should handle empty LiteLLM response gracefully', () => {
+                const emptyResponse = { choices: [] }
+                const result = normalizeMessages(emptyResponse, 'assistant')
+
+                expect(result).toHaveLength(0)
+            })
+        })
+
+        describe('Role normalization', () => {
+            it('should preserve system role in array-based content', () => {
+                const systemMessage = {
+                    role: 'system',
+                    content: [{ type: 'text', text: 'You are a helpful assistant.' }],
+                }
+
+                const result = normalizeMessage(systemMessage, 'user')
+
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('system')
+                expect(result[0].content).toEqual([{ type: 'text', text: 'You are a helpful assistant.' }])
+            })
+
+            it('should preserve system role in string content', () => {
+                const systemMessage = {
+                    role: 'system',
+                    content: 'You are a helpful assistant.',
+                }
+
+                const result = normalizeMessage(systemMessage, 'user')
+
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('system')
+                expect(result[0].content).toBe('You are a helpful assistant.')
+            })
+
+            it('should map known provider roles', () => {
+                const humanMessage = {
+                    role: 'human',
+                    content: 'Hello',
+                }
+
+                const result = normalizeMessage(humanMessage, 'user')
+
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('user')
+                expect(result[0].content).toBe('Hello')
+            })
+        })
+    })
+
+    describe('parseOpenAIToolCalls', () => {
+        it('should parse valid JSON arguments in tool calls', () => {
+            const toolCalls = [
+                {
+                    type: 'function' as const,
+                    id: 'call-123',
+                    function: {
+                        name: 'test_function',
+                        arguments: '{"key": "value", "number": 42}',
+                    },
+                },
+            ]
+
+            const result = parseOpenAIToolCalls(toolCalls)
+
+            expect(result).toEqual([
+                {
+                    type: 'function',
+                    id: 'call-123',
+                    function: {
+                        name: 'test_function',
+                        arguments: { key: 'value', number: 42 },
+                    },
+                },
+            ])
+        })
+
+        it('should handle malformed JSON arguments gracefully', () => {
+            const toolCalls = [
+                {
+                    type: 'function' as const,
+                    id: 'call-456',
+                    function: {
+                        name: 'test_function',
+                        arguments: 'invalid json {not valid}',
+                    },
+                },
+            ]
+
+            const result = parseOpenAIToolCalls(toolCalls)
+
+            // Should keep the original string if parsing fails
+            expect(result).toEqual([
+                {
+                    type: 'function',
+                    id: 'call-456',
+                    function: {
+                        name: 'test_function',
+                        arguments: 'invalid json {not valid}',
+                    },
+                },
+            ])
+        })
+
+        it('should handle mixed valid and invalid JSON in multiple tool calls', () => {
+            const toolCalls = [
+                {
+                    type: 'function' as const,
+                    id: 'call-1',
+                    function: {
+                        name: 'func1',
+                        arguments: '{"valid": "json"}',
+                    },
+                },
+                {
+                    type: 'function' as const,
+                    id: 'call-2',
+                    function: {
+                        name: 'func2',
+                        arguments: 'not valid json',
+                    },
+                },
+            ]
+
+            const result = parseOpenAIToolCalls(toolCalls)
+
+            expect(result).toEqual([
+                {
+                    type: 'function',
+                    id: 'call-1',
+                    function: {
+                        name: 'func1',
+                        arguments: { valid: 'json' },
+                    },
+                },
+                {
+                    type: 'function',
+                    id: 'call-2',
+                    function: {
+                        name: 'func2',
+                        arguments: 'not valid json',
+                    },
+                },
+            ])
         })
     })
 })

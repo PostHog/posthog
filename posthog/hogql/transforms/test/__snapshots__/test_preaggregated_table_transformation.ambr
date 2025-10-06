@@ -3,7 +3,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS p, uniqMerge(sessions_uniq_state) AS s, utm_medium AS m
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY m)
   '''
 # ---
@@ -11,7 +11,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY browser)
   '''
 # ---
@@ -19,7 +19,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY os)
   '''
 # ---
@@ -27,7 +27,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY viewport_width)
   '''
 # ---
@@ -35,7 +35,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY viewport_height)
   '''
 # ---
@@ -43,7 +43,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY country_code)
   '''
 # ---
@@ -51,7 +51,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY city_name)
   '''
 # ---
@@ -59,7 +59,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY region_code)
   '''
 # ---
@@ -67,7 +67,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY region_name)
   '''
 # ---
@@ -75,7 +75,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY utm_source)
   '''
 # ---
@@ -83,7 +83,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY utm_medium)
   '''
 # ---
@@ -91,7 +91,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY utm_campaign)
   '''
 # ---
@@ -99,7 +99,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY utm_term)
   '''
 # ---
@@ -107,7 +107,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY utm_content)
   '''
 # ---
@@ -115,7 +115,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY referring_domain)
   '''
 # ---
@@ -123,7 +123,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY mat_metadata_loggedIn)
   '''
 # ---
@@ -131,7 +131,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY mat_metadata_backend)
   '''
 # ---
@@ -139,7 +139,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY entry_pathname)
   '''
 # ---
@@ -147,7 +147,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY end_pathname)
   '''
 # ---
@@ -155,14 +155,14 @@
   '''
   sql
     (SELECT multiply(sumMerge(pageviews_count_state), 2) AS double_count
-     FROM web_stats_daily)
+     FROM web_pre_aggregated_stats)
   '''
 # ---
 # name: TestPreaggregatedTableTransformation.test_case_when_expressions
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), if(equals(utm_source, 'google'), 'search', 'other') AS source_type
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY source_type)
   '''
 # ---
@@ -170,14 +170,21 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state)
-     FROM web_stats_daily)
+     FROM web_pre_aggregated_stats)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_enable_for_integer_team_timezones
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats)
   '''
 # ---
 # name: TestPreaggregatedTableTransformation.test_equals_function
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily)
+     FROM web_pre_aggregated_stats)
   '''
 # ---
 # name: TestPreaggregatedTableTransformation.test_full_trends_line_query
@@ -188,7 +195,7 @@
        (SELECT sum(total) AS count, day_start
         FROM
           (SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start
-           FROM web_stats_daily AS e
+           FROM web_pre_aggregated_stats AS e
            WHERE and(greaterOrEquals(period_bucket, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1))), lessOrEquals(period_bucket, assumeNotNull(toDateTime('2025-07-17 23:59:59'))))
            GROUP BY day_start)
         GROUP BY day_start
@@ -205,7 +212,7 @@
        (SELECT sum(total) AS count, day_start
         FROM
           (SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start
-           FROM web_stats_daily AS e
+           FROM web_pre_aggregated_stats AS e
            WHERE and(greaterOrEquals(period_bucket, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1))), lessOrEquals(period_bucket, assumeNotNull(toDateTime('2025-07-17 23:59:59'))))
            GROUP BY day_start)
         GROUP BY day_start
@@ -218,7 +225,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), utm_source AS u
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY u)
   '''
 # ---
@@ -226,7 +233,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start, utm_source AS u
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      WHERE ifNull(u, 'null')
      GROUP BY day_start, u)
   '''
@@ -235,7 +242,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY utm_source, utm_campaign, entry_pathname, end_pathname)
   '''
 # ---
@@ -243,7 +250,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY day_start)
   '''
 # ---
@@ -251,7 +258,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY utm_source
      HAVING greater(c, 100))
   '''
@@ -260,7 +267,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      LIMIT 10
      OFFSET 5)
   '''
@@ -271,7 +278,7 @@
     (SELECT *
      FROM
        (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-        FROM web_stats_daily))
+        FROM web_pre_aggregated_stats))
   '''
 # ---
 # name: TestPreaggregatedTableTransformation.test_nested_select_queries
@@ -279,7 +286,7 @@
   sql
     (SELECT count() AS total,
        (SELECT sumMerge(pageviews_count_state)
-        FROM web_stats_daily) AS pageviews
+        FROM web_pre_aggregated_stats) AS pageviews
      FROM events
      WHERE equals(event, '$pageview'))
   '''
@@ -288,7 +295,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY utm_source
      ORDER BY c DESC)
   '''
@@ -297,14 +304,14 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state)
-     FROM web_stats_daily)
+     FROM web_pre_aggregated_stats)
   '''
 # ---
 # name: TestPreaggregatedTableTransformation.test_preaggregation_tables_group_by_session_property
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY entry_pathname)
   '''
 # ---
@@ -312,7 +319,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      GROUP BY utm_source)
   '''
 # ---
@@ -320,14 +327,14 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily)
+     FROM web_pre_aggregated_stats)
   '''
 # ---
 # name: TestPreaggregatedTableTransformation.test_simple_and_condition_transforms
   '''
   sql
     (SELECT sumMerge(pageviews_count_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      WHERE equals(plus(1, 2), 3))
   '''
 # ---
@@ -335,7 +342,23 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
+     WHERE greaterOrEquals(period_bucket, '2024-11-24'))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_start_of_hour_timestamp_with_condition
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE greaterOrEquals(toStartOfHour(period_bucket), '2024-11-24'))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_start_of_week_timestamp_with_condition
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
      WHERE greaterOrEquals(period_bucket, '2024-11-24'))
   '''
 # ---
@@ -343,23 +366,31 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      WHERE lessOrEquals(period_bucket, assumeNotNull(toDateTime('2024-11-24 23:59:59'))))
   '''
 # ---
-# name: TestPreaggregatedTableTransformation.test_timestamp_string_condition
+# name: TestPreaggregatedTableTransformation.test_timestamp_string_day_condition
   '''
   sql
     (SELECT sumMerge(pageviews_count_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      WHERE greaterOrEquals(period_bucket, '2024-11-24'))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_timestamp_string_hour_condition
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE greaterOrEquals(period_bucket, '2024-11-24T13:00:00'))
   '''
 # ---
 # name: TestPreaggregatedTableTransformation.test_timestamp_with_start_of_day_condition
   '''
   sql
     (SELECT sumMerge(pageviews_count_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      WHERE greaterOrEquals(period_bucket, toStartOfDay('2024-11-24')))
   '''
 # ---
@@ -367,7 +398,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      WHERE lessOrEquals(toStartOfDay('2024-11-24'), period_bucket))
   '''
 # ---
@@ -375,7 +406,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      WHERE greaterOrEquals(period_bucket, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1))))
   '''
 # ---
@@ -383,14 +414,14 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
-     FROM web_stats_daily AS e)
+     FROM web_pre_aggregated_stats AS e)
   '''
 # ---
 # name: TestPreaggregatedTableTransformation.test_trends_line_inner_query
   '''
   sql
     (SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start
-     FROM web_stats_daily AS e
+     FROM web_pre_aggregated_stats AS e
      WHERE and(greaterOrEquals(period_bucket, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1))), lessOrEquals(period_bucket, assumeNotNull(toDateTime('2025-07-17 23:59:59'))))
      GROUP BY day_start)
   '''
@@ -399,7 +430,7 @@
   '''
   sql
     (SELECT sumMerge(pageviews_count_state) AS total
-     FROM web_stats_daily AS e
+     FROM web_pre_aggregated_stats AS e
      WHERE and(equals(team_id, 99999), greaterOrEquals(period_bucket, toStartOfInterval(assumeNotNull(toDateTime('2025-07-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(period_bucket, assumeNotNull(toDateTime('2025-07-18 23:59:59', 'UTC'))))
      ORDER BY 1 DESC)
   '''
@@ -408,24 +439,24 @@
   '''
   sql
     (SELECT tuple(uniqMerge(persons_uniq_state), sumMerge(pageviews_count_state), uniqMerge(sessions_uniq_state)) AS daily_metrics
-     FROM web_stats_daily)
+     FROM web_pre_aggregated_stats)
   '''
 # ---
 # name: TestPreaggregatedTableTransformation.test_union_queries
   '''
   sql
     (SELECT sumMerge(pageviews_count_state)
-     FROM web_stats_daily
+     FROM web_pre_aggregated_stats
      UNION ALL SELECT sumMerge(pageviews_count_state)
-     FROM web_stats_daily)
+     FROM web_pre_aggregated_stats)
   '''
 # ---
 # name: TestPreaggregatedTableTransformationIntegration.test_basic_hogql_query
   '''
-  SELECT sumMerge(web_stats_daily.pageviews_count_state) AS `sumMerge(pageviews_count_state)`,
-         uniqMerge(web_stats_daily.persons_uniq_state) AS `uniqMerge(persons_uniq_state)`
-  FROM web_stats_daily
-  WHERE equals(web_stats_daily.team_id, 99999)
+  SELECT sumMerge(web_pre_aggregated_stats.pageviews_count_state) AS `sumMerge(pageviews_count_state)`,
+         uniqMerge(web_pre_aggregated_stats.persons_uniq_state) AS `uniqMerge(persons_uniq_state)`
+  FROM web_pre_aggregated_stats
+  WHERE equals(web_pre_aggregated_stats.team_id, 99999)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -440,16 +471,16 @@
 # ---
 # name: TestPreaggregatedTableTransformationIntegration.test_complex_hogql_select
   '''
-  SELECT sumMerge(web_stats_daily.pageviews_count_state) AS c,
-         uniqMerge(web_stats_daily.persons_uniq_state) AS p,
-         uniqMerge(web_stats_daily.sessions_uniq_state) AS s,
-         toStartOfDay(toTimeZone(web_stats_daily.period_bucket, 'UTC')) AS t,
-         web_stats_daily.utm_source AS u
-  FROM web_stats_daily
-  WHERE and(equals(web_stats_daily.team_id, 99999), ifNull(equals(web_stats_daily.utm_campaign, ''), 0))
+  SELECT sumMerge(web_pre_aggregated_stats.pageviews_count_state) AS c,
+         uniqMerge(web_pre_aggregated_stats.persons_uniq_state) AS p,
+         uniqMerge(web_pre_aggregated_stats.sessions_uniq_state) AS s,
+         toStartOfDay(toTimeZone(web_pre_aggregated_stats.period_bucket, 'UTC')) AS t,
+         web_pre_aggregated_stats.utm_source AS u
+  FROM web_pre_aggregated_stats
+  WHERE and(equals(web_pre_aggregated_stats.team_id, 99999), ifNull(equals(web_pre_aggregated_stats.utm_campaign, ''), 0))
   GROUP BY t,
            u,
-           web_stats_daily.utm_medium
+           web_pre_aggregated_stats.utm_medium
   HAVING and(ifNull(greater(c, 0), 0), ifNull(equals(u, ''), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -467,7 +498,7 @@
   '''
   SELECT sumMerge(e.pageviews_count_state) AS total,
          toStartOfDay(toTimeZone(e.period_bucket, 'UTC')) AS day_start
-  FROM web_stats_daily AS e
+  FROM web_pre_aggregated_stats AS e
   WHERE and(equals(e.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(e.period_bucket, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.period_bucket, 'UTC'), assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC'))), 0))
   GROUP BY day_start
   LIMIT 100 SETTINGS readonly=2,
@@ -493,7 +524,7 @@
      FROM
        (SELECT uniqMerge(e.persons_uniq_state) AS total,
                toStartOfDay(toTimeZone(e.period_bucket, 'UTC')) AS day_start
-        FROM web_stats_daily AS e
+        FROM web_pre_aggregated_stats AS e
         WHERE and(equals(e.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(e.period_bucket, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.period_bucket, 'UTC'), assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC'))), 0))
         GROUP BY day_start)
      GROUP BY day_start
@@ -522,7 +553,7 @@
      FROM
        (SELECT sumMerge(e.pageviews_count_state) AS total,
                toStartOfDay(toTimeZone(e.period_bucket, 'UTC')) AS day_start
-        FROM web_stats_daily AS e
+        FROM web_pre_aggregated_stats AS e
         WHERE and(equals(e.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(e.period_bucket, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.period_bucket, 'UTC'), assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC'))), 0))
         GROUP BY day_start)
      GROUP BY day_start

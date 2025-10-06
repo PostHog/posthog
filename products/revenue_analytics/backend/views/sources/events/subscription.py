@@ -5,16 +5,22 @@ from posthog.schema import SubscriptionDropoffMode
 from posthog.hogql import ast
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_event
+from products.revenue_analytics.backend.views.schemas.subscription import SCHEMA as SUBSCRIPTION_SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import events_expr_for_team
 
 
 def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     team = handle.team
     for event in team.revenue_analytics_config.events:
-        if event.subscriptionProperty is None:
-            continue
-
         prefix = view_prefix_for_event(event.eventName)
+
+        if event.subscriptionProperty is None:
+            yield BuiltQuery(
+                key=f"{event.eventName}.no_property",
+                prefix=prefix,
+                query=ast.SelectQuery.empty(columns=list(SUBSCRIPTION_SCHEMA.fields.keys())),
+            )
+            continue
 
         events_query = ast.SelectQuery(
             select=[

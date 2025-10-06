@@ -2,16 +2,10 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
-
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
-import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { ViewportResolution } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
-import {
-    parseEncodedSnapshots,
-    processAllSnapshots,
-} from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
+import { processAllSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -33,26 +27,20 @@ import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
-import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
-import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
+import { snapshotDataLogic } from './snapshotDataLogic'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
 const BLOB_SOURCE: SessionRecordingSnapshotSource = {
-    source: 'blob',
+    source: 'blob_v2',
     start_timestamp: '2023-08-11T12:03:36.097000Z',
     end_timestamp: '2023-08-11T12:04:52.268000Z',
-    blob_key: '1691755416097-1691755492268',
-}
-const REALTIME_SOURCE: SessionRecordingSnapshotSource = {
-    source: 'realtime',
-    start_timestamp: '2024-01-28T21:19:49.217000Z',
-    end_timestamp: undefined,
-    blob_key: undefined,
+    blob_key: '0',
 }
 
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
+    let snapshotLogic: ReturnType<typeof snapshotDataLogic.build>
 
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
@@ -60,27 +48,14 @@ describe('sessionRecordingDataLogic', () => {
             get: {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
                     // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
-                    } else if (req.url.searchParams.get('source') === 'realtime') {
-                        if (req.params.id === 'has-only-empty-realtime') {
-                            return res(ctx.json([]))
-                        }
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     }
 
-                    // with no source requested should return sources
-                    let sources = [BLOB_SOURCE]
-                    if (req.params.id === 'has-real-time-too') {
-                        sources.push(REALTIME_SOURCE)
-                    }
-                    if (req.params.id === 'has-only-empty-realtime') {
-                        sources = [REALTIME_SOURCE]
-                    }
                     return [
                         200,
                         {
-                            sources,
+                            sources: [BLOB_SOURCE],
                         },
                     ]
                 },
@@ -94,11 +69,12 @@ describe('sessionRecordingDataLogic', () => {
             },
         })
         initKeaTests()
-        logic = sessionRecordingDataLogic({
+        const props = {
             sessionRecordingId: '2',
-            // we don't want to wait for the default real-time polling interval in tests
-            realTimePollingIntervalMilliseconds: 10,
-        })
+            blobV2PollingDisabled: true,
+        }
+        logic = sessionRecordingDataLogic(props)
+        snapshotLogic = snapshotDataLogic(props)
         logic.mount()
         // Most of these tests assume the metadata is being loaded upfront which is the typical case
         logic.actions.loadRecordingMeta()
@@ -134,8 +110,8 @@ describe('sessionRecordingDataLogic', () => {
                     'loadSnapshots',
                     'loadSnapshotSources',
                     'loadRecordingMetaSuccess',
-                    'loadSnapshotSourcesSuccess',
-                    'loadSnapshotsForSourceSuccess',
+                    snapshotLogic.actionTypes.loadSnapshotSourcesSuccess,
+                    snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess,
                     'reportUsageIfFullyLoaded',
                 ])
                 .toFinishAllListeners()
@@ -171,6 +147,7 @@ describe('sessionRecordingDataLogic', () => {
                         durationMs: 0,
                         segments: [],
                         sessionRecordingId: '2',
+                        sessionRetentionPeriodDays: null,
                         person: null,
                         snapshotsByWindowId: {},
                         fullyLoaded: false,
@@ -192,7 +169,10 @@ describe('sessionRecordingDataLogic', () => {
             logic.actions.loadRecordingMeta()
             logic.actions.loadSnapshots()
 
-            await expectLogic(logic).toDispatchActions(['loadRecordingMetaSuccess', 'loadSnapshotSourcesFailure'])
+            await expectLogic(logic).toDispatchActions([
+                'loadRecordingMetaSuccess',
+                snapshotLogic.actionTypes.loadSnapshotSourcesFailure,
+            ])
             expect(logic.values.sessionPlayerData).toMatchObject({
                 person: recordingMetaJson.person,
                 durationMs: 11868,
@@ -210,11 +190,12 @@ describe('sessionRecordingDataLogic', () => {
             initKeaTests()
             useAvailableFeatures([])
             initKeaTests()
-            logic = sessionRecordingDataLogic({
+            const props = {
                 sessionRecordingId: '2',
-                // we don't want to wait for the default real time polling interval in tests
-                realTimePollingIntervalMilliseconds: 10,
-            })
+                blobV2PollingDisabled: true,
+            }
+            logic = sessionRecordingDataLogic(props)
+            snapshotLogic = snapshotDataLogic(props)
             logic.mount()
             logic.actions.loadRecordingMeta()
             await expectLogic(logic).toFinishAllListeners()
@@ -264,23 +245,11 @@ describe('sessionRecordingDataLogic', () => {
             })
                 .toDispatchActionsInAnyOrder([
                     'loadSnapshots',
-                    'loadSnapshotsForSourceSuccess',
+                    snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess,
                     'loadEvents',
                     'loadEventsSuccess',
                 ])
-                .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecording])
-        })
-
-        it('sends `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            })
-                .toDispatchActions(['loadSnapshotsForSourceSuccess'])
-                .toDispatchActionsInAnyOrder([
-                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // loaded
-                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // viewed
-                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // analyzed
-                ])
+                .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
         })
     })
 
@@ -309,10 +278,11 @@ describe('sessionRecordingDataLogic', () => {
                         source: { source: SnapshotSourceType.blob_v2, blob_key: 'blob-1' },
                         snapshots,
                     },
-                } as unknown as Record<SourceKey | 'processed', SessionRecordingSnapshotSourceResponse> | null,
+                } as Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+                {},
                 fakeViewportForTimestamp,
                 '12345'
-            )['processed'].snapshots
+            )
         }
 
         it('should remove duplicate snapshots and sort by timestamp', () => {
@@ -355,192 +325,6 @@ describe('sessionRecordingDataLogic', () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
 
             expect(callProcessing(snapshots)).toMatchSnapshot()
-        })
-    })
-
-    describe('blob and realtime loading', () => {
-        beforeEach(async () => {
-            // load a different session
-            logic = sessionRecordingDataLogic({
-                sessionRecordingId: 'has-real-time-too',
-                // we don't want to wait for the default real time polling interval in tests
-                realTimePollingIntervalMilliseconds: 10,
-            })
-            logic.mount()
-            // Most of these tests assume the metadata is being loaded upfront which is the typical case
-            logic.actions.loadRecordingMeta()
-        })
-
-        it('loads each source, and on success reports recording viewed', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-                // loading the snapshots will trigger a loadSnapshotsForSourceSuccess
-                // that will have the blob source
-                // that triggers loadNextSnapshotSource
-            }).toDispatchActions([
-                // the action we triggered
-                'loadSnapshots',
-                // the response to that triggers loading of the first item which is the blob source
-                (action) =>
-                    action.type === logic.actionTypes.loadSnapshotsForSource &&
-                    action.payload.sources?.[0]?.source === 'blob',
-                'loadSnapshotsForSourceSuccess',
-                // the response to the success action triggers loading of the second item which is the realtime source
-                (action) =>
-                    action.type === logic.actionTypes.loadSnapshotsForSource &&
-                    action.payload.sources?.[0]?.source === 'realtime',
-                'loadSnapshotsForSourceSuccess',
-                // having loaded any real time data we start polling to check for more
-                'pollRealtimeSnapshots',
-                // which in turn triggers another load
-                (action) =>
-                    action.type === logic.actionTypes.loadSnapshotsForSource &&
-                    action.payload.sources?.[0]?.source === 'realtime',
-                'loadSnapshotsForSourceSuccess',
-            ])
-        })
-    })
-
-    describe('empty realtime loading', () => {
-        beforeEach(async () => {
-            logic = sessionRecordingDataLogic({
-                sessionRecordingId: 'has-only-empty-realtime',
-                // we don't want to wait for the default real time polling interval in tests
-                realTimePollingIntervalMilliseconds: 10,
-            })
-            logic.mount()
-            // Most of these tests assume the metadata is being loaded upfront which is the typical case
-            logic.actions.loadRecordingMeta()
-        })
-
-        it('should start polling even though realtime is empty', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            }).toDispatchActions([
-                'loadSnapshots',
-                'loadSnapshotSourcesSuccess',
-                'loadNextSnapshotSource',
-                'pollRealtimeSnapshots',
-                'loadSnapshotsForSource',
-                'loadSnapshotsForSourceSuccess',
-            ])
-        })
-    })
-
-    describe('snapshot parsing', () => {
-        const sessionId = '12345'
-        const numberOfParsedLinesInData = 8
-        it('handles normal web data', async () => {
-            const parsed = await parseEncodedSnapshots(encodedWebSnapshotData, sessionId)
-            expect(parsed.length).toEqual(numberOfParsedLinesInData)
-            expect(parsed).toMatchSnapshot()
-        })
-
-        it('handles data with unparseable lines', async () => {
-            const parsed = await parseEncodedSnapshots(
-                encodedWebSnapshotData.map((line, index) => {
-                    return index == 0 ? line.substring(0, line.length / 2) : line
-                }),
-                sessionId
-            )
-
-            // unparseable lines are not returned
-            expect(encodedWebSnapshotData.length).toEqual(2)
-            expect(parsed.length).toEqual(numberOfParsedLinesInData / 2)
-
-            expect(parsed).toMatchSnapshot()
-        })
-    })
-
-    // TODO need chunking tests for blob_v2 sources before we deprecate blob_v1
-    describe('mutation chunking', () => {
-        const createMutationSnapshot = (addsCount: number): RecordingSnapshot =>
-            ({
-                type: EventType.IncrementalSnapshot,
-                timestamp: 1000,
-                data: {
-                    source: IncrementalSource.Mutation,
-                    adds: Array(addsCount).fill({ parentId: 1, nextId: null, node: { type: 1, tagName: 'div' } }),
-                    removes: [{ parentId: 1, id: 2 }],
-                    texts: [{ id: 3, value: 'text' }],
-                    attributes: [{ id: 4, attributes: { class: 'test' } }],
-                },
-                windowId: '1',
-            }) as RecordingSnapshot
-
-        it('does not chunk snapshots with adds below chunk size', () => {
-            const snapshot = createMutationSnapshot(100)
-            const chunks = chunkMutationSnapshot(snapshot)
-            expect(chunks).toEqual([snapshot])
-        })
-
-        it('chunks large mutation snapshots correctly', () => {
-            const addsCount = MUTATION_CHUNK_SIZE * 2 + 500 // Will create 3 chunks
-            const snapshot = createMutationSnapshot(addsCount)
-            const chunks = chunkMutationSnapshot(snapshot)
-
-            expect(chunks.length).toBe(3)
-
-            // First chunk
-            expect(chunks[0]).toMatchObject({
-                timestamp: 1000,
-                data: {
-                    adds: expect.arrayContaining([expect.any(Object)]),
-                    removes: (snapshot.data as mutationData).removes,
-                    texts: [],
-                    attributes: [],
-                },
-            })
-            expect((chunks[0].data as mutationData).adds.length).toBe(MUTATION_CHUNK_SIZE)
-
-            // Middle chunk
-            expect(chunks[1]).toMatchObject({
-                timestamp: 1000,
-                data: {
-                    adds: expect.arrayContaining([expect.any(Object)]),
-                    removes: [],
-                    texts: [],
-                    attributes: [],
-                },
-            })
-            expect((chunks[1].data as mutationData).adds.length).toBe(MUTATION_CHUNK_SIZE)
-
-            // Last chunk
-            expect(chunks[2]).toMatchObject({
-                timestamp: 1000,
-                data: {
-                    adds: expect.arrayContaining([expect.any(Object)]),
-                    removes: [],
-                    texts: (snapshot.data as mutationData).texts,
-                    attributes: (snapshot.data as mutationData).attributes,
-                },
-            })
-            expect((chunks[2].data as mutationData).adds.length).toBe(500)
-        })
-
-        it('handles delay correctly when chunking', () => {
-            const snapshot = createMutationSnapshot(MUTATION_CHUNK_SIZE * 2)
-            snapshot.delay = 100
-
-            const chunks = chunkMutationSnapshot(snapshot)
-
-            expect(chunks.length).toBe(2)
-            expect(chunks[0].delay).toBe(100)
-            expect(chunks[1].delay).toBe(100)
-        })
-
-        it('does not chunk non-mutation snapshots', () => {
-            const snapshot: RecordingSnapshot = {
-                type: EventType.FullSnapshot,
-                timestamp: 1000,
-                data: {
-                    node: { type: NodeType.Document, id: 1, childNodes: [] },
-                    initialOffset: { top: 0, left: 0 },
-                },
-                windowId: '1',
-            }
-            const chunks = chunkMutationSnapshot(snapshot)
-            expect(chunks).toEqual([snapshot])
         })
     })
 })

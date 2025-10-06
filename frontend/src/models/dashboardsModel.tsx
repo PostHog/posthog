@@ -95,6 +95,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         return { count: 0, next: null, previous: null, results: [] }
                     }
 
+                    if (!teamLogic.values.currentTeam) {
+                        return { count: 0, next: null, previous: null, results: [] }
+                    }
+
                     let apiUrl =
                         url ||
                         `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`

@@ -40,9 +40,11 @@ const EMOJI_INITIAL_REGEX =
 export function EnvironmentSwitcherOverlay({
     buttonProps = { className: 'font-semibold' },
     onClickInside,
+    iconOnly = false,
 }: {
     buttonProps?: ButtonPrimitiveProps
     onClickInside?: () => void
+    iconOnly?: boolean
 }): JSX.Element {
     const { searchedProjectsMap } = useValues(environmentSwitcherLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
@@ -261,15 +263,19 @@ export function EnvironmentSwitcherOverlay({
             <PopoverPrimitiveTrigger asChild>
                 <ButtonPrimitive
                     data-attr="environment-switcher-button"
-                    size="sm"
+                    size={iconOnly ? 'base' : 'sm'}
+                    iconOnly={iconOnly}
                     {...buttonProps}
-                    className={cn('flex-1 max-w-fit min-w-[40px]', buttonProps.className)}
+                    className={cn('flex-1 max-w-fit min-w-[40px]', iconOnly ? 'min-w-auto' : '', buttonProps.className)}
                 >
-                    <span className="truncate">{currentProject?.name ?? 'Project'}</span>
-                    <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
-                        <span className="truncate max-w-[100px]">{currentTeam.name}</span>
-                    </LemonTag>
-                    <DropdownMenuOpenIndicator />
+                    {iconOnly ? (
+                        <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 ">
+                            {currentTeam.name.slice(0, 1).toLocaleUpperCase()}
+                        </div>
+                    ) : (
+                        <span className="truncate">{currentProject?.name ?? 'Project'}</span>
+                    )}
+                    {!iconOnly && <DropdownMenuOpenIndicator />}
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
             <PopoverPrimitiveContent align="start" className="w-[300px] sm:w-[500px] max-w-[300px] sm:max-w-[500px]">

@@ -1,9 +1,10 @@
 import Fuse from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
-import { LemonMenuItem, lemonToast } from '@posthog/lemon-ui'
+import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -11,18 +12,29 @@ import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaField,
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseViewLink } from '~/types'
+import {
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDraft,
+    DataWarehouseViewLink,
+    FileSystemIconColor,
+    QueryTabState,
+} from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
@@ -42,6 +54,12 @@ const isPostHogTable = (
     table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
 ): table is DatabaseSchemaTable => {
     return 'type' in table && table.type === 'posthog'
+}
+
+const isSystemTable = (
+    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
+): table is DatabaseSchemaTable => {
+    return 'type' in table && table.type === 'system'
 }
 
 const isViewTable = (
@@ -68,6 +86,7 @@ const FUSE_OPTIONS: Fuse.IFuseOptions<any> = {
 }
 
 const posthogTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
+const systemTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
 const dataWarehouseTablesFuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], FUSE_OPTIONS)
 const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
 const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
@@ -141,7 +160,7 @@ const createViewNode = (
     isSearch = false
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
-    const isMaterializedView = 'sync_frequency' in view && view.sync_frequency !== null
+    const isMaterializedView = view.is_materialized === true
     const isManagedView = 'type' in view && view.type === 'managed_view'
 
     Object.values(view.columns).forEach((column: DatabaseSchemaField) => {
@@ -323,6 +342,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         selectSourceTable: (tableName: string) => ({ tableName }),
         setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
         setEditingDraft: (draftId: string) => ({ draftId }),
+        openUnsavedQuery: (record: Record<string, any>) => ({ record }),
+        deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
     }),
     connect(() => ({
         values: [
@@ -337,6 +358,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'viewsMapById',
                 'managedViews',
                 'databaseLoading',
+                'systemTables',
+                'systemTablesMap',
             ],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
@@ -344,14 +367,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['drafts', 'draftsResponseLoading', 'hasMoreDrafts'],
             featureFlagLogic,
             ['featureFlags'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             viewLinkLogic,
             ['toggleEditJoinModal', 'toggleJoinTableModal'],
-            databaseTableListLogic,
-            ['loadDatabase'],
-            dataWarehouseJoinsLogic,
-            ['loadJoins'],
+            dataWarehouseSettingsLogic,
+            ['deleteJoin'],
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
         ],
@@ -381,6 +404,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'views',
                 'managed-views',
                 'search-posthog',
+                'search-system',
                 'search-datawarehouse',
                 'search-views',
                 'search-managed-views',
@@ -411,6 +435,50 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        queryTabState: [
+            null as QueryTabState | null,
+            {
+                loadQueryTabState: async () => {
+                    if (!values.user) {
+                        return null
+                    }
+                    try {
+                        return await api.queryTabState.user(values.user?.uuid)
+                    } catch (e) {
+                        console.error(e)
+                        return null
+                    }
+                },
+                deleteUnsavedQuery: async ({ record }) => {
+                    const { queryTabState } = values
+                    if (!values.user || !queryTabState || !queryTabState.state || !queryTabState.id) {
+                        return null
+                    }
+                    try {
+                        const { editorModelsStateKey } = queryTabState.state
+                        const queries = JSON.parse(editorModelsStateKey)
+                        const newState = {
+                            ...queryTabState,
+                            state: {
+                                ...queryTabState.state,
+                                editorModelsStateKey: JSON.stringify(
+                                    queries.filter((q: any) => q.name !== record.name && q.path !== record.path)
+                                ),
+                            },
+                        }
+
+                        await api.queryTabState.update(queryTabState.id, newState)
+
+                        return newState
+                    } catch (e) {
+                        console.error(e)
+                        return queryTabState
+                    }
+                },
+            },
+        ],
+    })),
     selectors(({ actions }) => ({
         hasNonPosthogSources: [
             (s) => [s.dataWarehouseTables],
@@ -430,6 +498,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return posthogTables.map((table) => [table, null])
+            },
+        ],
+        relevantSystemTables: [
+            (s) => [s.systemTables, s.searchTerm],
+            (
+                systemTables: DatabaseSchemaTable[],
+                searchTerm: string
+            ): [DatabaseSchemaTable, FuseSearchMatch[] | null][] => {
+                if (searchTerm) {
+                    return systemTablesFuse
+                        .search(searchTerm)
+                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
+                }
+                return systemTables.map((table) => [table, null])
             },
         ],
         relevantDataWarehouseTables: [
@@ -491,6 +573,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         searchTreeData: [
             (s) => [
                 s.relevantPosthogTables,
+                s.relevantSystemTables,
                 s.relevantDataWarehouseTables,
                 s.relevantSavedQueries,
                 s.relevantManagedViews,
@@ -500,6 +583,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ],
             (
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
+                relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
                 relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][],
                 relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
@@ -518,6 +602,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 if (relevantPosthogTables.length > 0) {
                     expandedIds.push('search-posthog')
                     sourcesChildren.push(createSourceFolderNode('PostHog', [], relevantPosthogTables, true))
+                }
+
+                // Add System tables
+                if (relevantSystemTables.length > 0) {
+                    expandedIds.push('search-system')
+                    sourcesChildren.push(createSourceFolderNode('System', [], relevantSystemTables, true))
                 }
 
                 // Group data warehouse tables by source type
@@ -597,6 +687,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         treeData: [
             (s) => [
                 s.posthogTables,
+                s.systemTables,
                 s.dataWarehouseTables,
                 s.dataWarehouseSavedQueries,
                 s.managedViews,
@@ -606,9 +697,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.draftsResponseLoading,
                 s.hasMoreDrafts,
                 s.featureFlags,
+                s.queryTabState,
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
+                systemTables: DatabaseSchemaTable[],
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
                 managedViews: DatabaseSchemaManagedViewTable[],
@@ -617,7 +710,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 drafts: DataWarehouseSavedQueryDraft[],
                 draftsResponseLoading: boolean,
                 hasMoreDrafts: boolean,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                queryTabState: QueryTabState | null
             ): TreeDataItem[] => {
                 const sourcesChildren: TreeDataItem[] = []
 
@@ -635,6 +729,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     // Add PostHog tables
                     if (posthogTables.length > 0) {
                         sourcesChildren.push(createSourceFolderNode('PostHog', posthogTables))
+                    }
+
+                    // Add System tables
+                    if (systemTables.length > 0) {
+                        systemTables.sort((a, b) => a.name.localeCompare(b.name))
+                        sourcesChildren.push(createSourceFolderNode('System', systemTables))
                     }
 
                     // Group data warehouse tables by source type
@@ -694,6 +794,28 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     })
                 }
 
+                viewsChildren.sort((a, b) => a.name.localeCompare(b.name))
+                managedViewsChildren.sort((a, b) => a.name.localeCompare(b.name))
+
+                const states = queryTabState?.state?.editorModelsStateKey
+                const unsavedChildren: TreeDataItem[] = []
+                let i = 1
+                if (states) {
+                    try {
+                        for (const state of JSON.parse(states)) {
+                            unsavedChildren.push({
+                                id: `unsaved-${i++}`,
+                                name: state.name || 'Unsaved query',
+                                type: 'node',
+                                icon: <IconDocument />,
+                                record: { type: 'unsaved-query', ...state },
+                            })
+                        }
+                    } catch {
+                        // do nothing
+                    }
+                }
+
                 const draftsChildren: TreeDataItem[] = []
 
                 if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
@@ -735,9 +857,37 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }
 
                 return [
+                    {
+                        id: 'new-query',
+                        name: 'SQL editor',
+                        type: 'node',
+                        icon: iconForType('sql_editor', [
+                            'var(--color-product-data-warehouse-light)',
+                        ] as FileSystemIconColor),
+                        onClick: () => {
+                            newInternalTab(urls.sqlEditor())
+                        },
+                        record: {
+                            type: 'sql',
+                        },
+                    } as TreeDataItem,
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
                     ...(featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]
                         ? [createTopLevelFolderNode('drafts', draftsChildren, false)]
+                        : []),
+                    ...(unsavedChildren.length > 0
+                        ? [
+                              {
+                                  id: 'unsaved-folder',
+                                  name: 'Unsaved queries',
+                                  type: 'node',
+                                  icon: <IconDocument />,
+                                  record: {
+                                      type: 'unsaved-folder',
+                                  },
+                                  children: unsavedChildren,
+                              } as TreeDataItem,
+                          ]
                         : []),
                     createTopLevelFolderNode('views', viewsChildren),
                     createTopLevelFolderNode('managed-views', managedViewsChildren),
@@ -762,6 +912,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             (s) => [
                 s.selectedSchema,
                 s.posthogTablesMap,
+                s.systemTablesMap,
                 s.dataWarehouseTablesMap,
                 s.dataWarehouseSavedQueryMapById,
                 s.viewsMapById,
@@ -770,6 +921,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             (
                 selectedSchema,
                 posthogTablesMap,
+                systemTablesMap,
                 dataWarehouseTablesMap,
                 dataWarehouseSavedQueryMapById,
                 viewsMapById,
@@ -782,6 +934,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     null
                 if (isPostHogTable(selectedSchema)) {
                     table = posthogTablesMap[selectedSchema.name]
+                } else if (isSystemTable(selectedSchema)) {
+                    table = systemTablesMap[selectedSchema.name]
                 } else if (isDataWarehouseTable(selectedSchema)) {
                     table = dataWarehouseTablesMap[selectedSchema.name]
                 } else if (isManagedViewTable(selectedSchema)) {
@@ -808,19 +962,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                                   status: 'danger',
                                   onClick: () => {
                                       const join = joinsByFieldName[`${tableName}.${field.name}`]
-                                      void deleteWithUndo({
-                                          endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
-                                          object: {
-                                              id: join.id,
-                                              name: `${join.field_name} on ${join.source_table_name}`,
-                                          },
-                                          callback: () => {
-                                              actions.loadDatabase()
-                                              actions.loadJoins()
-                                          },
-                                      }).catch((e) => {
-                                          lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
-                                      })
+                                      actions.deleteJoin(join)
                                   },
                               },
                           ]
@@ -862,10 +1004,22 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             viewLinkLogic.actions.selectSourceTable(tableName)
             viewLinkLogic.actions.toggleJoinTableModal()
         },
+        openUnsavedQuery: ({ record }) => {
+            if (record.insight) {
+                sceneLogic.actions.newTab(urls.sqlEditor(undefined, undefined, record.insight.short_id))
+            } else if (record.view) {
+                sceneLogic.actions.newTab(urls.sqlEditor(undefined, record.view.id))
+            } else {
+                sceneLogic.actions.newTab(urls.sqlEditor(record.query))
+            }
+        },
     })),
     subscriptions({
         posthogTables: (posthogTables: DatabaseSchemaTable[]) => {
             posthogTablesFuse.setCollection(posthogTables)
+        },
+        systemTables: (systemTables: DatabaseSchemaTable[]) => {
+            systemTablesFuse.setCollection(systemTables)
         },
         dataWarehouseTables: (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]) => {
             dataWarehouseTablesFuse.setCollection(dataWarehouseTables)
@@ -885,6 +1039,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             if (values.featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
                 actions.loadDrafts()
             }
+            actions.loadQueryTabState()
         },
     })),
 ])

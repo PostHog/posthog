@@ -44,6 +44,7 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
+    SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -243,7 +244,8 @@ class FunnelCorrelationType(StrEnum):
 
 
 RETENTION_RECURRING = "retention_recurring"
-RETENTION_FIRST_TIME = "retention_first_time"
+RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = "retention_first_time"
+RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 DISTINCT_ID_FILTER = "distinct_id"
 PERSON_UUID_FILTER = "person_uuid"
@@ -258,12 +260,6 @@ UNIQUE_USERS = "dau"
 UNIQUE_GROUPS = "unique_group"
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
-
-
-class RetentionQueryType(StrEnum):
-    RETURNING = "returning"
-    TARGET = "target"
-    TARGET_FIRST_TIME = "target_first_time"
 
 
 class ExperimentNoResultsErrorKeys(StrEnum):
@@ -326,6 +322,7 @@ TASKS_TASK_QUEUE = "tasks-task-queue"
 TEST_TASK_QUEUE = "test-task-queue"
 BILLING_TASK_QUEUE = "billing-task-queue"
 VIDEO_EXPORT_TASK_QUEUE = "video-export-task-queue"
+MESSAGING_TASK_QUEUE = "messaging-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
@@ -358,4 +355,12 @@ DEFAULT_SURVEY_APPEARANCE = {
     "borderRadius": "10px",
     "shuffleQuestions": False,
     "surveyPopupDelaySeconds": None,
+}
+
+# Mapping of social_django backend names
+SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES = {
+    "google-oauth2": "Google OAuth",
+    "github": "GitHub",
+    "gitlab": "GitLab",
+    "saml": "SAML",
 }

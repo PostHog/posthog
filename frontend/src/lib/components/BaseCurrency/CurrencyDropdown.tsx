@@ -9,9 +9,16 @@ type CurrencyDropdownProps = {
     onChange: (currency: CurrencyCode) => void
     size?: LemonSelectProps<any>['size']
     visible?: boolean // Useful for stories to display the dropdown content
+    disabledReason?: string
 }
 
-export const CurrencyDropdown = ({ value, onChange, visible, size }: CurrencyDropdownProps): JSX.Element => {
+export const CurrencyDropdown = ({
+    value,
+    onChange,
+    visible,
+    size,
+    disabledReason,
+}: CurrencyDropdownProps): JSX.Element => {
     return (
         <LemonSelect
             visible={visible}
@@ -22,6 +29,8 @@ export const CurrencyDropdown = ({ value, onChange, visible, size }: CurrencyDro
                 { options: OPTIONS_FOR_OTHER_CURRENCIES, title: 'Other currencies' },
             ]}
             size={size}
+            disabledReason={disabledReason}
+            placeholder="Select currency"
         />
     )
 }

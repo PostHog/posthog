@@ -6,8 +6,6 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -47,14 +45,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     props({} as EarlyAccessFeatureLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            earlyAccessFeaturesLogic,
-            ['earlyAccessFeatures'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [teamLogic, ['currentTeamId'], earlyAccessFeaturesLogic, ['earlyAccessFeatures']],
     })),
     actions({
         setEarlyAccessFeatureMissing: true,
@@ -186,7 +177,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             },
         ],
     }),
-    selectors(({ values, actions }) => ({
+    selectors(({ actions }) => ({
         breadcrumbs: [
             (s) => [s.earlyAccessFeature, s.isEditingFeature],
             (earlyAccessFeature: EarlyAccessFeatureType, isEditingFeature: boolean): Breadcrumb[] => [
@@ -194,15 +185,16 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     key: 'EarlyAccessFeatures',
                     path: urls.earlyAccessFeatures(),
                     name: 'Early access features',
+                    iconType: 'early_access_feature',
                 },
                 {
                     key: ['EarlyAccessFeature', earlyAccessFeature.id || 'new'],
                     name: earlyAccessFeature.name,
                     forceEditMode: isEditingFeature,
-                    onRename:
-                        isEditingFeature || !!values.featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-                            ? async (newName) => actions.setEarlyAccessFeatureValue('name', newName)
-                            : undefined,
+                    onRename: isEditingFeature
+                        ? async (newName) => actions.setEarlyAccessFeatureValue('name', newName)
+                        : undefined,
+                    iconType: 'early_access_feature',
                 },
             ],
         ],
@@ -279,11 +271,15 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, props, values }) => ({
         [urls.earlyAccessFeature(props.id ?? 'new')]: (_, __, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
+                // When pushing to `/new` and the early access feature does not have id, do not load the flag again
+                if (props.id === 'new' && !('id' in values.earlyAccessFeature)) {
+                    return
+                }
                 if (props.id) {
                     actions.loadEarlyAccessFeature()
                 }

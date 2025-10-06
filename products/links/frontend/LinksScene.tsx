@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -14,6 +13,9 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LinkType, ProductKey } from '~/types'
 
 import { LinkMetricSparkline } from './LinkMetricSparkline'
@@ -91,13 +93,19 @@ export function LinksScene(): JSX.Element {
     ]
 
     return (
-        <>
-            <PageHeader
-                buttons={
+        <SceneContent>
+            <SceneTitleSection
+                name="Links"
+                description="Start creating links for your marketing campaigns, referral programs, and more."
+                resourceType={{
+                    type: 'link',
+                }}
+                actions={
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
                         onClick={() => router.actions.push(urls.link('new'))}
+                        size="small"
                         sideAction={{
                             dropdown: {
                                 overlay: (
@@ -121,6 +129,7 @@ export function LinksScene(): JSX.Element {
                     </LemonButton>
                 }
             />
+            <SceneDivider />
 
             <LemonBanner type="error" className="mb-2">
                 <h2>Links are extremely WIP</h2>
@@ -143,6 +152,6 @@ export function LinksScene(): JSX.Element {
             />
 
             {!shouldShowEmptyState && <LemonTable loading={linksLoading} columns={columns} dataSource={links} />}
-        </>
+        </SceneContent>
     )
 }

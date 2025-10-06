@@ -1,3 +1,4 @@
+use common_types::error_tracking::{ExceptionData, FrameData, FrameId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
@@ -99,6 +100,28 @@ impl ExceptionList {
             .and_then(|e| e.mechanism.as_ref())
             .and_then(|m| m.handled)
             .unwrap_or(false)
+    }
+}
+
+impl From<&ExceptionList> for Vec<ExceptionData> {
+    fn from(exception_list: &ExceptionList) -> Self {
+        exception_list
+            .iter()
+            .map(|exception| ExceptionData {
+                exception_type: exception.exception_type.clone(),
+                exception_value: exception.exception_message.clone(),
+                frames: exception
+                    .stack
+                    .as_ref()
+                    .map(|stack| match stack {
+                        Stacktrace::Raw { frames: _ } => vec![], // Exception
+                        Stacktrace::Resolved { frames } => {
+                            frames.clone().into_iter().map(FrameData::from).collect()
+                        }
+                    })
+                    .unwrap_or_default(),
+            })
+            .collect()
     }
 }
 
@@ -320,14 +343,14 @@ impl OutputErrProps {
 }
 
 impl Stacktrace {
-    pub fn resolve(&self, lookup_table: &HashMap<String, Frame>) -> Option<Self> {
+    pub fn resolve(&self, team_id: i32, lookup_table: &HashMap<FrameId, Frame>) -> Option<Self> {
         let Stacktrace::Raw { frames } = self else {
             return Some(self.clone());
         };
 
         let mut resolved_frames = Vec::with_capacity(frames.len());
         for frame in frames {
-            match lookup_table.get(&frame.frame_id()) {
+            match lookup_table.get(&frame.frame_id(team_id)) {
                 Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
                 None => return None,
             }

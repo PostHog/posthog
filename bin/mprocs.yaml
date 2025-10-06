@@ -13,6 +13,7 @@ procs:
 
     frontend:
         shell: './bin/start-frontend'
+        autorestart: true
 
     temporal-worker-general-purpose:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue general-purpose-task-queue'
@@ -31,8 +32,7 @@ procs:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-modeling-task-queue --metrics-port 8005'
 
     temporal-worker-max-ai:
-        # added a sleep to give the docker stuff time to start
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue max-ai-task-queue --metrics-port 8006'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue max-ai-task-queue --metrics-port 8006"'
 
     temporal-worker-tasks-agent:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue tasks-task-queue --metrics-port 8007'
@@ -41,7 +41,7 @@ procs:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue billing-task-queue --metrics-port 8008'
 
     temporal-worker-video-export:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue video-export-task-queue --metrics-port 8009'
+        shell: 'bin/check_video_deps && bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue video-export-task-queue --metrics-port 8009'
 
     dagster:
         shell: |-
@@ -65,6 +65,12 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service cymbal
 
+    et-embedding-worker:
+        shell: |-
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service et-embedding-worker
+        autostart: false
+
     feature-flags:
         shell: |-
             bin/check_postgres_up posthog && \
@@ -87,6 +93,12 @@ procs:
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service capture-replay
+
+    batch-import-worker:
+        shell: |-
+            bin/check_postgres_up && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service batch-import-worker
 
     migrate-postgres:
         shell: 'bin/check_postgres_up && python manage.py migrate' # This takes ~10 s

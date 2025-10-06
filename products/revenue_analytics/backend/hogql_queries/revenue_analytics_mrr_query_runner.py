@@ -18,7 +18,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsBaseView,
+    RevenueAnalyticsRevenueItemView,
+    RevenueAnalyticsSubscriptionView,
+)
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -43,13 +47,17 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     query: RevenueAnalyticsMRRQuery
     cached_response: CachedRevenueAnalyticsMRRQueryResponse
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
+        if not subqueries:
+            return ast.SelectQuery.empty(columns=["breakdown_by", "period_start", "amount"])
+
+        queries = [self._to_query_from(subquery) for subquery in subqueries]
+        return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
+
+    def _to_query_from(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
         with self.timings.measure("subquery"):
-            subquery = self._get_subquery()
-            if subquery is None:
-                return ast.SelectQuery.empty(
-                    columns=["breakdown_by", "date", "total", "new", "expansion", "contraction", "churn"]
-                )
+            subquery = self._get_subquery(view)
 
         return ast.SelectQuery(
             select=[
@@ -79,11 +87,9 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
             limit=ast.Constant(value=10000),
         )
 
-    def _get_subquery(self) -> ast.SelectQuery | None:
+    def _get_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
         with self.timings.measure("mrr_per_day_subquery"):
-            mrr_per_day_subquery = self._mrr_per_day_subquery()
-            if mrr_per_day_subquery is None:
-                return None
+            mrr_per_day_subquery = self._mrr_per_day_subquery(view)
 
         query = ast.SelectQuery(
             select=[
@@ -98,7 +104,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
                     alias="previous_amount",
                     expr=ast.WindowFunction(
                         name="lagInFrame",
-                        args=[
+                        exprs=[
                             ast.Field(chain=["amount"]),
                             ast.Constant(value=1),
                             ast.Call(name="assumeNotNull", args=[ZERO_IN_DECIMAL_PRECISION]),
@@ -184,11 +190,9 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     # so that we can know what's our MRR on each day (by summing up the amounts on each day)
     # This is extremely memory-intensive, but it's the best way to get the MRR to work
     # We'll need to improve this and materialize it in the future
-    def _mrr_per_day_subquery(self) -> ast.SelectQuery | None:
+    def _mrr_per_day_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
         with self.timings.measure("mrr_per_day_subquery"):
-            map_query = self._revenue_map_subquery()
-            if map_query is None:
-                return None
+            map_query = self._revenue_map_subquery(view)
 
         # Get all of the days in the date range,
         # this is useful because we can use it to know what's the MRR on each day
@@ -261,11 +265,9 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
 
     # Create a map of (date, amount) for each customer and subscription
     # This is useful because we can use it to know what's the MRR on each day
-    def _revenue_map_subquery(self) -> ast.SelectQuery | None:
+    def _revenue_map_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
         with self.timings.measure("revenue_item_subquery"):
-            subquery = self._revenue_item_subquery()
-            if subquery is None:
-                return None
+            subquery = self._revenue_item_subquery(view)
 
         # First, we need to group by day and sum the amounts
         grouped_by_day = ast.SelectQuery(
@@ -302,16 +304,33 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
                 ast.Alias(
                     alias="amount_map",
                     expr=ast.Call(
-                        name="mapFromArrays",
+                        name="ifNull",
                         args=[
                             ast.Call(
-                                name="groupArray",
-                                args=[ast.Call(name="toString", args=[ast.Field(chain=["grouped_by_day", "day"])])],
-                            ),
-                            ast.Call(
-                                name="groupArray",
+                                name="mapFromArrays",
                                 args=[
-                                    ast.Call(name="toNullable", args=[ast.Field(chain=["grouped_by_day", "amount"])])
+                                    ast.Call(
+                                        name="groupArray",
+                                        args=[
+                                            ast.Call(name="toString", args=[ast.Field(chain=["grouped_by_day", "day"])])
+                                        ],
+                                    ),
+                                    ast.Call(
+                                        name="groupArray",
+                                        args=[
+                                            ast.Call(
+                                                name="toNullable", args=[ast.Field(chain=["grouped_by_day", "amount"])]
+                                            )
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            # Empty map with the right types, but dummy values
+                            ast.Call(
+                                name="map",
+                                args=[
+                                    ast.Constant(value=""),
+                                    ast.Call(name="toNullable", args=[ZERO_IN_DECIMAL_PRECISION]),
                                 ],
                             ),
                         ],
@@ -329,11 +348,19 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     # This is slightly more complicated than normal because we need to include some extra 0-revenue
     # items at the end of the query for all of the subscriptions which ended in this period
     # to allow us to properly calculate churn
-    def _revenue_item_subquery(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
-        if self.revenue_subqueries.revenue_item is None:
-            return None
+    def _revenue_item_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery | ast.SelectSetQuery:
+        queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
+            ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])),
+            ),
+        ]
 
-        queries: list[ast.SelectQuery | ast.SelectSetQuery] = [self.revenue_subqueries.revenue_item]
+        subscription_views = self.revenue_subqueries(RevenueAnalyticsSubscriptionView)
+        subscription_view = next(
+            (subscription_view for subscription_view in subscription_views if subscription_view.prefix == view.prefix),
+            None,
+        )
 
         # If there's a subscription subquery, then add it to the list of queries
         #
@@ -341,7 +368,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
         # It doesn't NEED to include actual values for all fields, so we're only making effort to include the ones we need above
         # and including empty values for the rest to keep the structure the same
         # @see products/revenue_analytics/backend/views/schemas/revenue_item.py
-        if self.revenue_subqueries.subscription is not None:
+        if subscription_view is not None:
             churn_revenue_items_select = ast.SelectQuery(
                 select=[
                     ast.Alias(alias="id", expr=ast.Constant(value=None)),
@@ -371,7 +398,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
                     ast.Alias(alias="currency", expr=ast.Constant(value=None)),
                     ast.Alias(alias="amount", expr=ZERO_IN_DECIMAL_PRECISION),
                 ],
-                select_from=ast.JoinExpr(alias="subscription", table=self.revenue_subqueries.subscription),
+                select_from=ast.JoinExpr(alias="subscription", table=ast.Field(chain=[subscription_view.name])),
                 # Add extra days to ensure MRR calculations are correct
                 where=self.timestamp_where_clause(
                     chain=["subscription", "ended_at"], extra_days_before=LOOKBACK_PERIOD_DAYS
@@ -392,21 +419,22 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
 
         query = ast.SelectQuery(
             select=[
-                ast.Alias(
-                    alias="breakdown_by",
-                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "source_label"]),
+                self._build_breakdown_expr(
+                    "breakdown_by",
+                    ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "source_label"]),
+                    view,
                 ),
                 ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]),
                 ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "subscription_id"]),
                 ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]),
                 ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
             ],
-            select_from=self._append_joins(
+            select_from=self._with_where_property_and_breakdown_joins(
                 ast.JoinExpr(
                     alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
                     table=base_query,
                 ),
-                self.joins_for_properties(RevenueAnalyticsRevenueItemView),
+                view,
             ),
             where=ast.And(
                 exprs=[
@@ -422,16 +450,10 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
                         ),
                         right=ast.Constant(value=True),
                     ),
-                    *self.where_property_exprs,
+                    *self.where_property_exprs(view),
                 ]
             ),
         )
-
-        # Limit to 2 group bys at most for performance reasons
-        # This is also implemented in the frontend, but let's guarantee it here as well
-        with self.timings.measure("append_group_by"):
-            for group_by in self.query.groupBy[:2]:
-                query = self._append_group_by(query, RevenueAnalyticsRevenueItemView, group_by)
 
         return query
 
@@ -466,13 +488,21 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
 
         labels = [format_label_date(date, self.query_date_range, self.team.week_start_day) for date in dates]
 
-        def _build_result(breakdown: str, *, index: int, kind: str | None = None) -> dict:
+        def _build_result(breakdown: str, *, kind: str | None = None) -> dict:
             label = f"{kind} | {breakdown}" if kind else breakdown
+            index = {
+                None: 0,
+                "New": 1,
+                "Expansion": 2,
+                "Contraction": 3,
+                "Churn": 4,
+            }.get(kind, 0)
 
             results = grouped_results[breakdown]
             data = [results[date][index] for date in formatted_dates]
             return {
                 "action": {"days": dates, "id": label, "name": label},
+                "breakdown": {"property": breakdown, "kind": kind},
                 "data": data,
                 "days": formatted_dates,
                 "label": label,
@@ -481,11 +511,11 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
 
         return [
             RevenueAnalyticsMRRQueryResultItem(
-                total=_build_result(breakdown, index=0),
-                new=_build_result(breakdown, index=1, kind="New"),
-                expansion=_build_result(breakdown, index=2, kind="Expansion"),
-                contraction=_build_result(breakdown, index=3, kind="Contraction"),
-                churn=_build_result(breakdown, index=4, kind="Churn"),
+                total=_build_result(breakdown),
+                new=_build_result(breakdown, kind="New"),
+                expansion=_build_result(breakdown, kind="Expansion"),
+                contraction=_build_result(breakdown, kind="Contraction"),
+                churn=_build_result(breakdown, kind="Churn"),
             )
             for breakdown in breakdowns
         ]

@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::{sync::atomic::AtomicBool, time::Duration};
 
-use anyhow::{Context, Error};
+use anyhow::Error;
 use health::{HealthHandle, HealthRegistry};
 use sqlx::postgres::PgPoolOptions;
 use tracing::info;
 
-use crate::cache::{IdentifyCache, MemoryIdentifyCache, RedisIdentifyCache};
+use crate::cache::{GroupCache, IdentifyCache, MemoryGroupCache, MemoryIdentifyCache};
 use crate::config::Config;
 
 pub struct AppContext {
@@ -17,6 +17,7 @@ pub struct AppContext {
     pub running: AtomicBool, // Set to false on SIGTERM, etc.
     pub worker_liveness: Arc<HealthHandle>,
     pub identify_cache: Arc<dyn IdentifyCache>,
+    pub group_cache: Arc<dyn GroupCache>,
 }
 
 impl AppContext {
@@ -32,44 +33,25 @@ impl AppContext {
 
         let liveness = Arc::new(liveness);
 
-        // Initialize the identify cache - use Redis if configured, otherwise fall back to memory-only
-        let identify_cache: Arc<dyn IdentifyCache> = if config.redis_url.is_empty() {
-            info!(
-                "Redis URL not configured, using in-memory cache for identify events (capacity: {}, TTL: {}s)",
-                config.identify_memory_cache_capacity,
-                config.identify_memory_cache_ttl_seconds
-            );
-            Arc::new(MemoryIdentifyCache::new(
-                config.identify_memory_cache_capacity,
-                Duration::from_secs(config.identify_memory_cache_ttl_seconds),
-            ))
-        } else {
-            let redis_cache = RedisIdentifyCache::new(
-                &config.redis_url,
-                config.identify_redis_cache_ttl_seconds,
-                config.identify_memory_cache_capacity,
-                config.identify_memory_cache_ttl_seconds,
-            )
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to initialize Redis cache with URL: {} and TTL: {}s (memory: {} entries, {}s TTL)",
-                    config.redis_url,
-                    config.identify_redis_cache_ttl_seconds,
-                    config.identify_memory_cache_capacity,
-                    config.identify_memory_cache_ttl_seconds
-                )
-            })?;
+        // Initialize the identify cache - memory-only implementation
+        info!(
+            "Using in-memory cache for identify events (capacity: {}, TTL: {}s)",
+            config.identify_memory_cache_capacity, config.identify_memory_cache_ttl_seconds
+        );
+        let identify_cache: Arc<dyn IdentifyCache> = Arc::new(MemoryIdentifyCache::new(
+            config.identify_memory_cache_capacity,
+            Duration::from_secs(config.identify_memory_cache_ttl_seconds),
+        ));
 
-            info!(
-                "Using Redis cache for identify events at: {} with TTL: {}s (memory L1: {} entries, {}s TTL)",
-                config.redis_url,
-                config.identify_redis_cache_ttl_seconds,
-                config.identify_memory_cache_capacity,
-                config.identify_memory_cache_ttl_seconds
-            );
-            Arc::new(redis_cache)
-        };
+        // Initialize the group cache - memory-only implementation
+        info!(
+            "Using in-memory cache for group events (capacity: {}, TTL: {}s)",
+            config.group_memory_cache_capacity, config.group_memory_cache_ttl_seconds
+        );
+        let group_cache: Arc<dyn GroupCache> = Arc::new(MemoryGroupCache::new(
+            config.group_memory_cache_capacity,
+            Duration::from_secs(config.group_memory_cache_ttl_seconds),
+        ));
 
         let ctx = Self {
             config: config.clone(),
@@ -83,6 +65,7 @@ impl AppContext {
             running: AtomicBool::new(true),
             worker_liveness: liveness,
             identify_cache,
+            group_cache,
         };
 
         Ok(ctx)

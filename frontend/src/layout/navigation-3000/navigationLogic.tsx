@@ -36,9 +36,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -70,8 +71,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['sceneConfig'],
             navigationLogic,
             ['mobileLayout'],
-            savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home }),
+            sessionRecordingSavedFiltersLogic,
             ['savedFilters', 'savedFiltersLoading'],
+            organizationLogic,
+            ['isCurrentOrganizationUnavailable'],
         ],
         actions: [navigationLogic, ['closeAccountPopover'], sceneLogic, ['setScene']],
     })),
@@ -334,8 +337,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     })),
     selectors({
         mode: [
-            (s) => [s.sceneConfig],
-            (sceneConfig): Navigation3000Mode => {
+            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable],
+            (sceneConfig, isCurrentOrganizationUnavailable): Navigation3000Mode => {
+                if (isCurrentOrganizationUnavailable) {
+                    return 'minimal'
+                }
                 return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
                     ? 'minimal'
                     : sceneConfig?.layout !== 'plain'
@@ -456,17 +462,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
-
-                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
-                            ? {
-                                  identifier: Scene.RevenueAnalytics,
-                                  label: 'Revenue analytics',
-                                  icon: <IconPiggyBank />,
-                                  to: urls.revenueAnalytics(),
-                                  tag: 'beta' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/web-analytics/revenue-tracking',
-                              }
-                            : null,
+                        {
+                            identifier: Scene.RevenueAnalytics,
+                            label: 'Revenue analytics',
+                            icon: <IconPiggyBank />,
+                            to: urls.revenueAnalytics(),
+                            tag: 'beta' as const,
+                            tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
+                        },
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
@@ -583,10 +586,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {
-                            identifier: Scene.Pipeline,
+                            identifier: Scene.DataPipelines,
                             label: 'Data pipelines',
                             icon: <IconPlug />,
-                            to: urls.pipeline(),
+                            to: urls.dataPipelines('overview'),
                             tooltipDocLink: 'https://posthog.com/docs/cdp',
                         },
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]

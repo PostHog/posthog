@@ -1,8 +1,4 @@
-import { IconApps } from '@posthog/icons'
-
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { cn } from 'lib/utils/css-classes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -13,24 +9,30 @@ import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourc
 import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
 import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExternalDataSourceConfiguration'
 
-export function MarketingAnalyticsSettings(): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
+export function MarketingAnalyticsSettings({
+    hideTitle = false,
+    hideBaseCurrency = false,
+}: {
+    hideTitle?: boolean
+    hideBaseCurrency?: boolean
+}): JSX.Element {
     return (
-        <SceneContent className={cn(!newSceneLayout && 'gap-8 mb-10')}>
-            {newSceneLayout && (
+        <SceneContent>
+            {!hideTitle && (
                 <SceneTitleSection
-                    name="Marketing analytics"
+                    name="Marketing settings"
                     description={null}
                     resourceType={{
-                        type: 'marketing',
-                        typePlural: 'marketing',
-                        forceIcon: <IconApps />,
+                        type: 'marketing_settings',
                     }}
                 />
             )}
-            <SceneDivider />
-            <BaseCurrency />
+            {!hideBaseCurrency && (
+                <>
+                    <SceneDivider />
+                    <BaseCurrency />
+                </>
+            )}
             <SceneDivider />
             <ConversionGoalsConfiguration />
             <SceneDivider />

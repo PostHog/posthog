@@ -2,7 +2,7 @@ from collections.abc import Generator
 from typing import Any, Union, cast
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connections, transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -303,6 +303,16 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     else "replica"
 )
 
+# For person-related models (GroupTypeMapping), use persons DB if configured
+# It'll use `replica` until we set the PERSONS_DB_WRITER_URL env var
+READ_ONLY_DATABASE_FOR_PERSONS = (
+    "persons_db_reader"
+    if "persons_db_reader" in connections
+    else "replica"
+    if "replica" in connections and "local_evaluation" in settings.READ_REPLICA_OPT_IN
+    else "default"
+)  # Fallback if persons DB not configured
+
 flags_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
@@ -443,7 +453,7 @@ def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) 
         "flags": [MinimalFeatureFlagSerializer(feature_flag, context={}).data for feature_flag in flags],
         "group_type_mapping": {
             str(row.group_type_index): row.group_type
-            for row in GroupTypeMapping.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
+            for row in GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
                 project_id=team.project_id
             )
         },

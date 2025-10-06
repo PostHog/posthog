@@ -1277,6 +1277,7 @@ def zendesk_tickets():
             "next_page": "https://{subdomain}.zendesk.com/api/v2/incremental/tickets.json?per_page=3&start_time=1390362485",
             "tickets": [
                 {
+                    "generated_timestamp": 1,
                     "assignee_id": 235323,
                     "collaborator_ids": [
                         35334,

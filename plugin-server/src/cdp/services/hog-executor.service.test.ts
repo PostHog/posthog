@@ -4,7 +4,6 @@ import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
 import { CyclotronInvocationQueueParametersFetchType } from '~/schema/cyclotron'
-import { truth } from '~/tests/helpers/truth'
 import { logger } from '~/utils/logger'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
@@ -196,7 +195,7 @@ describe('Hog Executor', () => {
                   "{"foo":"***REDACTED***","null":null,"bool":false}",
                   "substring: ***REDACTED***",
                   "{"input_1":"test","secret_input_2":{"foo":"***REDACTED***","null":null,"bool":false},"secret_input_3":"***REDACTED***"}",
-                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 169 bytes. Ops: 28. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 0.17kb. Ops: 28. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
@@ -288,44 +287,6 @@ describe('Hog Executor', () => {
             )
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-
-        it('logs telemetry', async () => {
-            hub = await createHub({ CDP_HOG_FILTERS_TELEMETRY_TEAMS: '*' })
-            executor = new HogExecutorService(hub)
-
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.broken_filters,
-            })
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations(
-                [fn],
-                createHogExecutionGlobals({
-                    groups: {},
-                    event: {
-                        event: '$pageview',
-                        properties: {
-                            $current_url: 'https://posthog.com',
-                        },
-                    } as any,
-                })
-            )
-            expect(resultsShouldMatch.metrics).toHaveLength(1)
-            expect(resultsShouldMatch.logs[0].message).toMatchInlineSnapshot(
-                `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
-            )
-            expect(logger.debug).toHaveBeenCalledWith(
-                '🦔',
-                expect.stringContaining('Error filtering function'),
-                truth(
-                    (obj) =>
-                        'telemetry' in obj.result.state &&
-                        Array.isArray(obj.result.state.telemetry) &&
-                        obj.result.state.telemetry[0][3] === 'START'
-                )
-            )
         })
 
         it('can use elements_chain_texts', async () => {
@@ -674,7 +635,7 @@ describe('Hog Executor', () => {
             expect(cleanLogs(result?.logs.map((log) => log.message) ?? [])).toMatchInlineSnapshot(`
                 [
                   "postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.",
-                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 104 bytes. Ops: 15. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 0.1kb. Ops: 15. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })

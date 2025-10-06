@@ -13,14 +13,13 @@ import {
     IconGear,
     IconHome,
     IconPeople,
-    IconSearch,
     IconShortcut,
     IconToolbar,
 } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
+import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -36,17 +35,18 @@ import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
-import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
 import { navigationLogic } from '../navigation/navigationLogic'
+import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
+import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary relative',
+    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -60,7 +60,6 @@ const navBarStyles = cva({
 })
 
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
-    const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
         showLayoutPanel,
@@ -70,6 +69,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         showLayoutNavBar,
     } = useActions(panelLayoutLogic)
     const {
+        pathname,
         isLayoutPanelVisible,
         activePanelIdentifier,
         activePanelIdentifierFromUrl,
@@ -82,9 +82,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
-    const { location } = useValues(router)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -114,7 +114,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     }
 
     const isStaticNavItemActive = (itemIdentifier: string): boolean => {
-        const currentPath = removeProjectIdIfPresent(location.pathname)
+        const currentPath = removeProjectIdIfPresent(pathname)
 
         if (itemIdentifier === 'Home' && currentPath === '/') {
             return true
@@ -142,28 +142,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         tooltip?: React.ReactNode
         tooltipDocLink?: string
     }[] = [
-        ...(isLayoutNavCollapsed
-            ? [
-                  {
-                      identifier: 'Search',
-                      label: 'Search',
-                      icon: <IconSearch />,
-                      onClick: () => {
-                          toggleSearchBar()
-                      },
-                      tooltip: (
-                          <div className="flex flex-col gap-0.5">
-                              <span>
-                                  For search, press <KeyboardShortcut command k />
-                              </span>
-                              <span>
-                                  For commands, press <KeyboardShortcut command shift k />
-                              </span>
-                          </div>
-                      ),
-                  },
-              ]
-            : []),
         {
             identifier: 'ProjectHomepage',
             label: 'Home',
@@ -205,7 +183,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Database',
-            label: 'Database',
+            label: 'Data warehouse',
             icon: <IconDatabaseBolt />,
             onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -213,7 +191,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Database' ? 'Close database' : 'Open database',
+            tooltip:
+                isLayoutPanelVisible && activePanelIdentifier === 'Database'
+                    ? 'Close data warehouse'
+                    : 'Open data warehouse',
             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
         },
         {
@@ -284,39 +265,29 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     )}
                     ref={containerRef}
                 >
-                    <div className={`flex justify-between p-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}>
-                        <OrganizationDropdownMenu />
-
-                        {!isLayoutNavCollapsed && (
-                            <div
-                                className={`flex gap-px ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
-                                aria-label="Add a new item menu actions"
-                            >
-                                <ButtonPrimitive
-                                    iconOnly
-                                    onClick={toggleSearchBar}
-                                    data-attr="tree-navbar-search-button"
-                                    size="sm"
-                                    tooltip={
-                                        <div className="flex flex-col gap-0.5">
-                                            <span>
-                                                For search, press <KeyboardShortcut command k />
-                                            </span>
-                                            <span>
-                                                For commands, press <KeyboardShortcut command shift k />
-                                            </span>
-                                        </div>
-                                    }
-                                >
-                                    <IconSearch className="text-secondary size-4" />
-                                </ButtonPrimitive>
-                            </div>
-                        )}
+                    <div
+                        className={`flex justify-between p-1 pl-[5px] items-center ${isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'}`}
+                    >
+                        <div className={cn('flex gap-1 rounded-md w-full', isLayoutNavCollapsed && 'flex-col')}>
+                            <Tooltip title="Switch organization" closeDelayMs={0} placement="bottom">
+                                <div>
+                                    <OrganizationDropdownMenu showName={false} buttonProps={{ variant: 'panel' }} />
+                                </div>
+                            </Tooltip>
+                            <Tooltip title="Switch project" closeDelayMs={0} placement="bottom">
+                                <div>
+                                    <ProjectDropdownMenu
+                                        buttonProps={{ className: 'max-w-[175px]', variant: 'panel' }}
+                                        iconOnly={isLayoutNavCollapsed}
+                                    />
+                                </div>
+                            </Tooltip>
+                        </div>
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
                         <ScrollableShadows
-                            className="flex-1"
+                            className={cn('flex-1', !isLayoutPanelVisible && 'rounded-tr-sm')}
                             innerClassName="overflow-y-auto"
                             direction="vertical"
                             styledScrollbars
@@ -424,6 +395,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="p-1 flex flex-col gap-px items-center">
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            <NavPanelAdvertisement />
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <ButtonPrimitive
                                     menuItem={!isLayoutNavCollapsed}
@@ -534,6 +506,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
+                            className={cn({
+                                'top-[calc(var(--scene-layout-header-height)+4px)]': true,
+                                'top-0': isLayoutPanelVisible || sceneLayoutConfig?.layout === 'app-raw-no-header',
+                            })}
+                            offset={-1}
                         />
                     )}
                 </nav>

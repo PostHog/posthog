@@ -83,6 +83,18 @@ class Command(BaseCommand):
             default=False,
             help="Create a staff user",
         )
+        parser.add_argument(
+            "--skip-materialization",
+            action="store_true",
+            default=False,
+            help="Skip materializing common columns after data generation",
+        )
+        parser.add_argument(
+            "--skip-dagster",
+            action="store_true",
+            default=False,
+            help="Skip running dagster materializations after data generation",
+        )
 
     def handle(self, *args, **options):
         timer = monotonic()
@@ -163,11 +175,17 @@ class Command(BaseCommand):
                         f"http://localhost:8000/signup?email={user.email}\n"
                     )
                 )
-            print("Materializing common columns...")
-            self.materialize_common_columns(options["days_past"])
+            if not options.get("skip_materialization"):
+                print("Materializing common columns...")
+                self.materialize_common_columns(options["days_past"])
+            else:
+                print("Skipping materialization of common columns.")
 
-            print("Running dagster materializations...")
-            self.initialize_dagster_materialization(options["days_past"])
+            if not options.get("skip_dagster"):
+                print("Running dagster materializations...")
+                self.initialize_dagster_materialization(options["days_past"])
+            else:
+                print("Skipping dagster materializations.")
         else:
             print("Dry run - not saving results.")
 
@@ -313,13 +331,13 @@ class Command(BaseCommand):
             (end_date - dt.timedelta(days=backfill_days - i)).strftime("%Y-%m-%d") for i in range(backfill_days + 1)
         ]
 
-        daily_asset_names = ["web_analytics_stats_table_daily", "web_analytics_bounces_daily"]
+        asset_names = ["web_pre_aggregated_stats", "web_pre_aggregated_bounces"]
         result = client._execute(
             self.backfill_mutation_gql(),
             {
                 "backfillParams": {
                     "tags": [{"key": "generate_demo_data", "value": "true"}],
-                    "assetSelection": [{"path": [asset_name]} for asset_name in daily_asset_names],
+                    "assetSelection": [{"path": [asset_name]} for asset_name in asset_names],
                     "partitionNames": partition_list,
                     "fromFailure": False,
                 }

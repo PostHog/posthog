@@ -53,6 +53,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
+    AccessControlLevel,
     Breadcrumb,
     BreakdownAttributionType,
     BreakdownType,
@@ -89,6 +90,7 @@ import { addExposureToMetric, compose, getInsight, getQuery } from './metricQuer
 import { modalsLogic } from './modalsLogic'
 import {
     featureFlagEligibleForExperiment,
+    initializeMetricOrdering,
     isLegacyExperiment,
     percentageDistribution,
     transformFiltersForWinningVariant,
@@ -120,6 +122,7 @@ const NEW_EXPERIMENT: Experiment = {
     exposure_criteria: {
         filterTestAccounts: true,
     },
+    user_access_level: AccessControlLevel.Editor,
 }
 
 export const DEFAULT_MDE = 30
@@ -342,6 +345,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeSecondaryMetricModal',
                 'openPrimarySharedMetricModal',
                 'openSecondarySharedMetricModal',
+                'openStopExperimentModal',
                 'closeStopExperimentModal',
                 'closeShipVariantModal',
                 'openReleaseConditionsModal',
@@ -518,7 +522,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 feature_flag_variants: [
                                     ...updatedRolloutPercentageVariants,
                                     {
-                                        key: `test_group_${state.parameters.feature_flag_variants.length}`,
+                                        key: `test-${state.parameters.feature_flag_variants.length}`,
                                         rollout_percentage: newRolloutPercentages[newRolloutPercentages.length - 1],
                                     },
                                 ],
@@ -883,6 +887,12 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
+                    // Make experiment eligible for timeseries
+                    const statsConfig = {
+                        ...values.experiment?.stats_config,
+                        ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && { timeseries: true }),
+                    }
+
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
                         parameters:
@@ -901,6 +911,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 : values.experiment?.parameters,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
+                        stats_config: statsConfig,
                     })
 
                     if (response) {
@@ -1053,8 +1064,9 @@ export const experimentLogic = kea<experimentLogicType>([
             if (payload.shouldStopExperiment && !values.isExperimentStopped) {
                 actions.endExperiment()
             }
-            actions.loadExperiment()
             actions.reportExperimentVariantShipped(values.experiment)
+
+            actions.openStopExperimentModal()
         },
         shipVariantFailure: ({ error }) => {
             lemonToast.error(error)
@@ -1376,34 +1388,10 @@ export const experimentLogic = kea<experimentLogicType>([
                             }
                         }
 
-                        // Initialize primary_metrics_ordered_uuids if it's null
-                        if (response.primary_metrics_ordered_uuids === null) {
-                            const primaryMetrics = response.metrics || []
-                            const sharedPrimaryMetrics = (response.saved_metrics || []).filter(
-                                (sharedMetric: any) => sharedMetric.metadata.type === 'primary'
-                            )
+                        const responseWithMetricsOrdering = initializeMetricOrdering(response)
 
-                            const allMetrics = [...primaryMetrics, ...sharedPrimaryMetrics]
-                            response.primary_metrics_ordered_uuids = allMetrics
-                                .map((metric: any) => metric.uuid || metric.query?.uuid)
-                                .filter(Boolean)
-                        }
-
-                        // Initialize secondary_metrics_ordered_uuids if it's null
-                        if (response.secondary_metrics_ordered_uuids === null) {
-                            const secondaryMetrics = response.metrics_secondary || []
-                            const sharedSecondaryMetrics = (response.saved_metrics || []).filter(
-                                (sharedMetric: any) => sharedMetric.metadata.type === 'secondary'
-                            )
-
-                            const allMetrics = [...secondaryMetrics, ...sharedSecondaryMetrics]
-                            response.secondary_metrics_ordered_uuids = allMetrics
-                                .map((metric: any) => metric.uuid || metric.query?.uuid)
-                                .filter(Boolean)
-                        }
-
-                        actions.setUnmodifiedExperiment(structuredClone(response))
-                        return response
+                        actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                        return responseWithMetricsOrdering
                     } catch (error: any) {
                         if (error.status === 404) {
                             actions.setExperimentMissing()
@@ -1419,9 +1407,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     update
                 )
+                const responseWithMetricsOrdering = initializeMetricOrdering(response)
                 refreshTreeItem('experiment', String(values.experimentId))
-                actions.setUnmodifiedExperiment(structuredClone(response))
-                return response
+                actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                return responseWithMetricsOrdering
             },
         },
         exposureCohort: [
@@ -1531,25 +1520,19 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.experiment, s.experimentId, s.featureFlags],
-            (experiment, experimentId, featureFlags): Breadcrumb[] => {
-                const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+            (s) => [s.experiment, s.experimentId],
+            (experiment, experimentId): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Experiments,
                         name: 'Experiments',
                         path: urls.experiments(),
+                        iconType: 'experiment',
                     },
                     {
                         key: [Scene.Experiment, experimentId],
                         name: experiment?.name || '',
-                        ...(!newSceneLayout && {
-                            onRename: async (name: string) => {
-                                // :KLUDGE: work around a type error when using asyncActions accessed via a callback passed to selectors()
-                                const logic = experimentLogic({ experimentId })
-                                await logic.asyncActions.updateExperiment({ name })
-                            },
-                        }),
+                        iconType: 'experiment',
                     },
                 ]
             },

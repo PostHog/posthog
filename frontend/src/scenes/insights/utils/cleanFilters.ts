@@ -4,7 +4,7 @@ import {
     NON_TIME_SERIES_DISPLAY_TYPES,
     NON_VALUES_ON_SERIES_DISPLAY_TYPES,
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
-    RETENTION_FIRST_TIME,
+    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     RETENTION_MEAN_NONE,
     ShownAsValue,
 } from 'lib/constants'
@@ -303,7 +303,10 @@ export function cleanFilters(
             returning_entity: filters.returning_entity || { id: '$pageview', type: 'events', name: '$pageview' },
             date_to: filters.date_to,
             period: filters.period || RetentionPeriod.Day,
-            retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
+            retention_type:
+                filters.retention_type ||
+                (filters as any)['retentionType'] ||
+                RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,

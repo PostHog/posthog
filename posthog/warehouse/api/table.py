@@ -121,9 +121,10 @@ class TableSerializer(serializers.ModelSerializer):
         return table
 
     def validate_name(self, name):
-        name_exists_in_hogql_database = self.context["database"].has_table(name)
-        if name_exists_in_hogql_database:
-            raise serializers.ValidationError("A table with this name already exists.")
+        if not self.instance or self.instance.name != name:
+            name_exists_in_hogql_database = self.context["database"].has_table(name)
+            if name_exists_in_hogql_database:
+                raise serializers.ValidationError("A table with this name already exists.")
 
         return name
 

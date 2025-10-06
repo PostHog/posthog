@@ -4,8 +4,6 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { parseJSON } from '~/utils/json-parse'
-
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
@@ -272,6 +270,9 @@ describe('HogTransformer', () => {
             messages.forEach((x) => {
                 if (typeof x.value.message === 'string' && x.value.message.includes('Function completed in')) {
                     x.value.message = 'Function completed in [REPLACED]'
+                }
+                if (typeof x.value.message === 'string' && x.value.message.includes('geoip location data for ip')) {
+                    x.value.message = 'geoip location data for ip: [REPLACED]'
                 }
             })
             expect(forSnapshot(messages)).toMatchSnapshot()
@@ -647,7 +648,7 @@ describe('HogTransformer', () => {
             expect(result.event?.properties).not.toHaveProperty('$transformations_failed')
         })
 
-        it('should preserve existing transformation results when adding new ones', async () => {
+        it('should ignore existing transformation results when adding new ones', async () => {
             const successTemplate: HogFunctionTemplate = {
                 free: true,
                 status: 'beta',
@@ -684,7 +685,7 @@ describe('HogTransformer', () => {
                     event: 'test',
                     properties: {
                         $transformations_succeeded: ['Previous Success (prev-id)'],
-                        $transformations_failed: ['Previous Failure (prev-id)'],
+                        $transformations_failed: {}, // malformed value
                     },
                 },
                 teamId
@@ -694,10 +695,9 @@ describe('HogTransformer', () => {
 
             // Verify new results are appended to existing ones
             expect(result?.event?.properties?.$transformations_succeeded).toEqual([
-                'Previous Success (prev-id)',
                 `Success Template (${successFunction.id})`,
             ])
-            expect(result?.event?.properties?.$transformations_failed).toEqual(['Previous Failure (prev-id)'])
+            expect(result?.event?.properties?.$transformations_failed).toEqual(undefined)
         })
 
         it('should track skipped transformations when filter does not match', async () => {
@@ -739,7 +739,6 @@ describe('HogTransformer', () => {
                     event: 'does-not-match-me',
                     properties: {
                         original: true,
-                        $transformations_skipped: ['Previous Skip (prev-id)'],
                     },
                 },
                 teamId
@@ -750,7 +749,6 @@ describe('HogTransformer', () => {
             // Verify transformation was skipped and tracked
             expect(result.event?.properties?.should_not_be_set).toBeUndefined()
             expect(result.event?.properties?.$transformations_skipped).toEqual([
-                'Previous Skip (prev-id)',
                 `${hogFunction.name} (${hogFunction.id})`,
             ])
             expect(result.event?.properties?.original).toBe(true)
@@ -1216,20 +1214,40 @@ describe('HogTransformer', () => {
                 workingFunction.id,
             ])
 
+            const queueAppMetricsSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueAppMetrics')
+            const queueLogsSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueLogs')
+
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             // Verify one transformation was applied and the other was skipped
-            expect(result.event?.properties?.error_filter_property).toBeUndefined()
-            expect(result.invocationResults[0].error).toContain('Global variable not found')
             expect(result.event?.properties?.$transformations_skipped).toContain(
                 `${errorFunction.name} (${errorFunction.id})`
+            )
+            expect(queueAppMetricsSpy).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        metric_name: 'filtering_failed',
+                    }),
+                ]),
+                'hog_function'
+            )
+            expect(queueLogsSpy).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        message: expect.stringContaining('Global variable not found'),
+                    }),
+                ]),
+                'hog_function'
             )
 
             expect(result.event?.properties?.working_property).toBe('working')
             expect(result.event?.properties?.$transformations_succeeded).toContain(
                 `${workingFunction.name} (${workingFunction.id})`
             )
+
+            queueAppMetricsSpy.mockRestore()
+            queueLogsSpy.mockRestore()
         })
 
         it('should skip transformation when none of multiple filters match', async () => {
@@ -1673,7 +1691,7 @@ describe('HogTransformer', () => {
             executeHogFunctionSpy.mockRestore()
         })
 
-        it('should capture events with correct Kafka headers', async () => {
+        it('should throw when trying to capture events in transformations', async () => {
             // Create a transformation function that captures an event
             const captureTemplate: HogFunctionTemplate = {
                 free: true,
@@ -1718,44 +1736,9 @@ describe('HogTransformer', () => {
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'original-event', distinct_id: 'original_user' }, teamId)
-            await hogTransformer.transformEventAndProduceMessages(event)
-            await hogTransformer.processInvocationResults()
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            const messages = mockProducerObserver.getProducedKafkaMessages()
-
-            // Find the captured event message
-            const capturedEventMessage = messages.find((msg) => {
-                try {
-                    const data = parseJSON(msg.value.data as string)
-                    return data.event === 'captured_event' && data.distinct_id === 'captured_user'
-                } catch {
-                    return false
-                }
-            })
-
-            expect(capturedEventMessage).toBeDefined()
-
-            const capturedEventData = parseJSON(capturedEventMessage!.value.data as string)
-
-            expect(capturedEventData).toMatchObject({
-                event: 'captured_event',
-                distinct_id: 'captured_user',
-                properties: {
-                    source: 'hog_function',
-                    original_event: 'original-event',
-                    original_distinct_id: 'original_user',
-                    captured_at: '2024-01-01T00:00:00Z',
-                    $hog_function_execution_count: 1,
-                },
-                timestamp: '2025-01-01T00:00:00.000Z',
-            })
-
-            // Check that the Kafka headers are correct
-            expect(capturedEventMessage?.headers).toBeDefined()
-            expect(capturedEventMessage?.headers).toMatchObject({
-                distinct_id: 'captured_user',
-                token: 'THIS IS NOT A TOKEN FOR TEAM 2',
-            })
+            expect(result.invocationResults[0].error).toContain('posthogCapture is not supported in transformations')
         })
     })
 })

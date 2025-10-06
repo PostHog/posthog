@@ -1,17 +1,15 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBook, IconCompass, IconGraph, IconRewindPlay } from '@posthog/icons'
+import { IconBook, IconCompass, IconDashboard, IconGraph, IconRewindPlay } from '@posthog/icons'
 
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { routes } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 import { SidePanelTab } from '~/types'
 
@@ -71,6 +69,12 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         description: 'Query data by creating insights and SQL queries',
         icon: <IconGraph />,
     },
+    {
+        identifier: 'create_dashboard' as const,
+        name: TOOL_DEFINITIONS['create_dashboard'].name,
+        description: TOOL_DEFINITIONS['create_dashboard'].description,
+        icon: <IconDashboard />,
+    },
 ]
 
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
@@ -90,10 +94,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
-        setIsFloatingMaxExpanded: (isExpanded: boolean) => ({ isExpanded }),
-        setFloatingMaxPosition: (position: { x: number; y: number; side: 'left' | 'right' }) => ({ position }),
-        setShowFloatingMaxSuggestions: (value: boolean) => ({ value }),
-        setFloatingMaxDragState: (dragState: { isDragging: boolean; isAnimating: boolean }) => ({ dragState }),
     }),
     reducers({
         registeredToolMap: [
@@ -108,36 +108,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     delete newState[key]
                     return newState
                 },
-            },
-        ],
-        isFloatingMaxExpanded: [
-            true,
-            {
-                persist: true,
-            },
-            {
-                setIsFloatingMaxExpanded: (_, { isExpanded }) => isExpanded,
-            },
-        ],
-        floatingMaxPosition: [
-            null as { x: number; y: number; side: 'left' | 'right' } | null,
-            {
-                persist: true,
-            },
-            {
-                setFloatingMaxPosition: (_, { position }) => position,
-            },
-        ],
-        showFloatingMaxSuggestions: [
-            false,
-            {
-                setShowFloatingMaxSuggestions: (_, { value }) => value,
-            },
-        ],
-        floatingMaxDragState: [
-            { isDragging: false, isAnimating: false } as { isDragging: boolean; isAnimating: boolean },
-            {
-                setFloatingMaxDragState: (_, { dragState }) => dragState,
             },
         ],
     }),
@@ -156,24 +126,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         },
     })),
     selectors({
-        showFloatingMax: [
-            (s) => [
-                s.sceneId,
-                s.sceneConfig,
-                s.isFloatingMaxExpanded,
-                sidePanelLogic.selectors.sidePanelOpen,
-                sidePanelLogic.selectors.selectedTab,
-                s.featureFlags,
-            ],
-            (sceneId, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab, featureFlags) =>
-                sceneConfig &&
-                !sceneConfig.onlyUnauthenticated &&
-                sceneConfig.layout !== 'plain' &&
-                !(sceneId === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
-                !(sidePanelOpen && selectedTab === SidePanelTab.Max) && // The Max side panel is open
-                featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] &&
-                featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],
-        ],
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,

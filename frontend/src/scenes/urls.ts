@@ -3,20 +3,15 @@ import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { productUrls } from '~/products'
-import { ExternalDataSourceType, SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import {
-    ActivityTab,
-    AnnotationType,
-    CommentType,
-    OnboardingStepKey,
-    PipelineNodeTab,
-    PipelineStage,
-    PipelineTab,
-    ProductKey,
-    SDKKey,
-} from '~/types'
+import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, ProductKey, SDKKey } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
+import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
+import type { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
+import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
+import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
+import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
@@ -51,53 +46,32 @@ export const urls = {
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
-
-    pipelineNodeNew: (
-        stage: PipelineStage | ':stage',
-        { id, source }: { id?: string | number; source?: ExternalDataSourceType } = {}
-    ): string => {
-        let base = `/pipeline/new/${stage}`
-        if (id) {
-            base += `/${id}`
-        }
-
-        if (source) {
-            // we need to lowercase the source to match the kind in the sourceWizardLogic
-            const kind: Lowercase<ExternalDataSourceType> = source.toLowerCase() as Lowercase<ExternalDataSourceType>
-            return `${base}?kind=${kind}`
-        }
-
-        return base
-    },
-    pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
-    /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
-    pipelineNode: (
-        stage: PipelineStage | ':stage',
-        id: string | number,
-        nodeTab?: PipelineNodeTab | ':nodeTab'
-    ): string =>
-        `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
-            nodeTab ? `/${nodeTab}` : ''
-        }`,
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (query?: string, view_id?: string, insightShortId?: string, draftId?: string): string => {
+    sqlEditor: (
+        query?: string,
+        view_id?: string,
+        insightShortId?: string,
+        draftId?: string,
+        outputTab?: OutputTab
+    ): string => {
+        const params = new URLSearchParams()
+
         if (query) {
-            return `/sql?open_query=${encodeURIComponent(query)}`
+            params.set('open_query', query)
+        } else if (view_id) {
+            params.set('open_view', view_id)
+        } else if (insightShortId) {
+            params.set('open_insight', insightShortId)
+        } else if (draftId) {
+            params.set('open_draft', draftId)
         }
 
-        if (view_id) {
-            return `/sql?open_view=${view_id}`
+        if (outputTab) {
+            params.set('output_tab', outputTab)
         }
 
-        if (insightShortId) {
-            return `/sql?open_insight=${insightShortId}`
-        }
-
-        if (draftId) {
-            return `/sql?open_draft=${draftId}`
-        }
-
-        return '/sql'
+        const queryString = params.toString()
+        return `/sql${queryString ? `?${queryString}` : ''}`
     },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
@@ -133,6 +107,7 @@ export const urls = {
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
     organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
         combineUrl(`/organization/billing/${section}`).url,
+    advancedActivityLogs: (): string => '/activity-logs',
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
@@ -177,14 +152,14 @@ export const urls = {
     wizard: (): string => `/wizard`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
     oauthAuthorize: (): string => '/oauth/authorize',
-    dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
-    dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
-    dataWarehouse: (): string => '/data-warehouse',
-    dataWarehouseSource: (id: string, tab?: string): string => `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
-    dataWarehouseSourceNew: (): string => `/data-warehouse/new-source`,
-    batchExportNew: (service: string): string => `/data-pipelines/batch-exports/new/${service}`,
-    batchExport: (id: string): string => `/data-pipelines/batch-exports/${id}`,
-    legacyPlugin: (id: string): string => `/data-pipelines/plugins/${id}`,
-    hogFunction: (id: string): string => `/functions/${id}`,
+    dataPipelines: (kind: DataPipelinesSceneTab = 'overview'): string => `/pipeline/${kind}`,
+    dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
+    dataWarehouseSource: (id: string, tab?: DataWarehouseSourceSceneTab): string =>
+        `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
+    dataWarehouseSourceNew: (kind?: string): string => `/data-warehouse/new-source${kind ? `?kind=${kind}` : ''}`,
+    batchExportNew: (service: string): string => `/pipeline/batch-exports/new/${service}`,
+    batchExport: (id: string): string => `/pipeline/batch-exports/${id}`,
+    legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
+    hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
 }
