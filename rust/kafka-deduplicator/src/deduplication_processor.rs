@@ -11,6 +11,9 @@ use std::time::Duration;
 use tracing::{debug, error, warn};
 
 use crate::kafka::message::{AckableMessage, MessageProcessor};
+use crate::metrics::MetricsHelper;
+use crate::metrics_const::DEDUPLICATION_RESULT_COUNTER;
+use crate::store::deduplication_store::DeduplicationResult;
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
 use crate::store_manager::StoreManager;
 use crate::utils::timestamp;
@@ -95,11 +98,18 @@ impl DeduplicationProcessor {
         );
 
         // Use the store's handle_event_with_raw method which checks for duplicates, stores if new, and tracks metrics
-        let is_new_event = store.handle_event_with_raw(&raw_event)?;
-        let is_duplicate = !is_new_event;
+        let deduplication_result = store.handle_event_with_raw(&raw_event)?;
+
+        // Emit metrics for the deduplication result
+        self.emit_deduplication_result_metrics(ctx.topic, ctx.partition, &deduplication_result);
+
+        let is_duplicate = deduplication_result.is_duplicate();
 
         if is_duplicate {
-            debug!("Event {} is a duplicate, skipping", dedup_key);
+            debug!(
+                "Event {} is a duplicate (result: {:?}), skipping",
+                dedup_key, deduplication_result
+            );
             return Ok(false); // Event was a duplicate
         }
 
@@ -360,6 +370,47 @@ impl MessageProcessor for DeduplicationProcessor {
 }
 
 impl DeduplicationProcessor {
+    /// Emit metrics for deduplication results
+    fn emit_deduplication_result_metrics(
+        &self,
+        topic: &str,
+        partition: i32,
+        result: &DeduplicationResult,
+    ) {
+        let metrics = MetricsHelper::with_partition(topic, partition)
+            .with_label("service", "kafka-deduplicator");
+
+        match result {
+            DeduplicationResult::New => {
+                metrics
+                    .counter(DEDUPLICATION_RESULT_COUNTER)
+                    .with_label("result_type", "new")
+                    .increment(1);
+            }
+            DeduplicationResult::PotentialDuplicate(dedup_type) => {
+                metrics
+                    .counter(DEDUPLICATION_RESULT_COUNTER)
+                    .with_label("result_type", "potential_duplicate")
+                    .with_label("dedup_type", &dedup_type.to_string().to_lowercase())
+                    .increment(1);
+            }
+            DeduplicationResult::ConfirmedDuplicate(dedup_type, reason) => {
+                metrics
+                    .counter(DEDUPLICATION_RESULT_COUNTER)
+                    .with_label("result_type", "confirmed_duplicate")
+                    .with_label("dedup_type", &dedup_type.to_string().to_lowercase())
+                    .with_label("reason", &reason.to_string().to_lowercase())
+                    .increment(1);
+            }
+            DeduplicationResult::Skipped => {
+                metrics
+                    .counter(DEDUPLICATION_RESULT_COUNTER)
+                    .with_label("result_type", "skipped")
+                    .increment(1);
+            }
+        }
+    }
+
     /// Get the number of active stores
     pub async fn get_active_store_count(&self) -> usize {
         self.store_manager.get_active_store_count()

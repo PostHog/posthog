@@ -81,11 +81,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
-        DEDUPLICATION_REDIS_HOST: '127.0.0.1',
-        DEDUPLICATION_REDIS_PORT: 6379,
-        DEDUPLICATION_REDIS_PASSWORD: '',
-        DEDUPLICATION_TTL_SECONDS: 60,
-        DEDUPLICATION_REDIS_PREFIX: 'deduplication:',
         BASE_DIR: '..',
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
@@ -124,6 +119,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000, // 3 seconds
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000, // 3 seconds
+        EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000, // 10 seconds
+        EXTERNAL_REQUEST_CONNECTIONS: 500, // 500 connections
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,

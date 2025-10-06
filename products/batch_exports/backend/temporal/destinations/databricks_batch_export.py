@@ -38,7 +38,7 @@ from posthog.batch_exports.service import (
 from posthog.models.integration import DatabricksIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -49,12 +49,17 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
+from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer, TransformerProtocol
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    cast_record_batch_schema_json_columns,
+    handle_non_retryable_errors,
+)
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 NON_RETRYABLE_ERROR_TYPES: list[str] = [
@@ -961,14 +966,20 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     volume_path=volume_path,
                 )
 
+                transformer: TransformerProtocol = ParquetStreamTransformer(
+                    schema=cast_record_batch_schema_json_columns(
+                        record_batch_schema, json_columns=known_variant_columns
+                    ),
+                    compression="zstd",
+                    include_inserted_at=False,
+                )
+
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
                     schema=record_batch_schema,
-                    file_format="Parquet",
-                    compression="zstd",
-                    include_inserted_at=False,
+                    transformer=transformer,
                     max_file_size_bytes=settings.BATCH_EXPORT_DATABRICKS_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                 )

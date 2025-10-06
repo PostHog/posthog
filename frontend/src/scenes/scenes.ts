@@ -279,7 +279,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Settings',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
-        hideProjectNotice: true,
     },
     [Scene.ReplaySingle]: {
         projectBased: true,
@@ -292,7 +291,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Session replay',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
-        hideProjectNotice: true,
         layout: 'app-full-scene-height',
     },
     [Scene.RevenueAnalytics]: {

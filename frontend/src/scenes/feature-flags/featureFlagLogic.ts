@@ -72,7 +72,10 @@ import { teamLogic } from '../teamLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 
-export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
+export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & {
+    variants?: MultivariateFlagVariant[]
+    payloads?: Record<string, any>
+}
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -183,14 +186,25 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
     }
 }
 
+export const convertIndexBasedPayloadsToVariantKeys = (
+    variants: MultivariateFlagVariant[] = [],
+    payloads?: Record<string | number, JsonType>
+): Record<string, JsonType> => {
+    const newPayloads: Record<string, JsonType> = {}
+    variants.forEach(({ key }, index) => {
+        if (payloads?.[index] !== undefined) {
+            newPayloads[key] = payloads[index]
+        }
+    })
+    return newPayloads
+}
+
 export const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
     if (flag.filters?.multivariate) {
-        const newPayloads: Record<string, JsonType> = {}
-        flag.filters.multivariate.variants.forEach(({ key }, index) => {
-            if (flag.filters?.payloads?.[index] !== undefined) {
-                newPayloads[key] = flag.filters.payloads[index]
-            }
-        })
+        const newPayloads = convertIndexBasedPayloadsToVariantKeys(
+            flag.filters.multivariate.variants,
+            flag.filters.payloads || {}
+        )
         return {
             ...flag,
             filters: {
@@ -338,8 +352,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
             active: FeatureFlagType['active'] | null,
-            errors?: any
-        ) => ({ filters, active, errors }),
+            errors?: any,
+            variants?: MultivariateFlagVariant[] | null,
+            payloads?: Record<string, any> | null
+        ) => ({ filters, active, errors, variants, payloads }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setAccessDeniedToFeatureFlag: true,
     }),
@@ -633,12 +649,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 filters: { ...NEW_FLAG.filters },
                 active: NEW_FLAG.active,
+                variants: undefined,
+                payloads: undefined,
             } as ScheduleFlagPayload,
             {
-                setSchedulePayload: (state, { filters, active }) => {
+                setSchedulePayload: (state, { filters, active, variants, payloads }) => {
                     return {
                         filters: filters === null ? state.filters : filters,
                         active: active === null ? state.active : active,
+                        variants: variants === null ? state.variants : variants,
+                        payloads: payloads === null ? state.payloads : payloads,
                     }
                 },
             },
@@ -688,11 +708,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // Remove sourceId from URL
                     router.actions.replace(router.values.location.pathname)
 
-                    return {
+                    const duplicatedFlag = {
                         ...NEW_FLAG,
                         ...flagToKeep,
                         key: '',
                     } as FeatureFlagType
+
+                    return variantKeyToIndexFeatureFlagPayloads(duplicatedFlag)
                 }
 
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
@@ -929,18 +951,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             createScheduledChange: async () => {
                 const { scheduledChangeOperation, scheduleDateMarker, currentProjectId, schedulePayload } = values
 
-                const fields: Record<ScheduledChangeOperationType, keyof ScheduleFlagPayload> = {
+                const fields: Record<ScheduledChangeOperationType, keyof ScheduleFlagPayload | 'variants'> = {
                     [ScheduledChangeOperationType.UpdateStatus]: 'active',
                     [ScheduledChangeOperationType.AddReleaseCondition]: 'filters',
+                    [ScheduledChangeOperationType.UpdateVariants]: 'variants',
                 }
 
                 if (currentProjectId && scheduledChangeOperation) {
+                    let payloadValue: any
+                    if (scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants) {
+                        const preparedPayload = convertIndexBasedPayloadsToVariantKeys(
+                            schedulePayload.variants,
+                            schedulePayload.payloads
+                        )
+                        payloadValue = {
+                            variants: schedulePayload.variants || [],
+                            payloads: preparedPayload || {},
+                        }
+                    } else {
+                        payloadValue = schedulePayload[fields[scheduledChangeOperation]]
+                    }
+
                     const data = {
                         record_id: values.featureFlag.id,
                         model_name: 'FeatureFlag',
                         payload: {
                             operation: scheduledChangeOperation,
-                            value: schedulePayload[fields[scheduledChangeOperation]],
+                            value: payloadValue,
                         },
                         scheduled_at: scheduleDateMarker.toISOString(),
                     }
@@ -1131,19 +1168,40 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
-                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
+                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
             }
         },
-        setScheduledChangeOperation: () => {
+        setScheduledChangeOperation: ({ changeType }) => {
             // reset filters when operation changes
-            actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
+            if (changeType === ScheduledChangeOperationType.UpdateVariants && values.featureFlag?.id) {
+                const flagWithKeyBasedPayloads = indexToVariantKeyFeatureFlagPayloads(values.featureFlag)
+                const flagWithIndexBasedPayloads = variantKeyToIndexFeatureFlagPayloads(
+                    flagWithKeyBasedPayloads as FeatureFlagType
+                )
+                const currentVariants = values.featureFlag.filters.multivariate?.variants || []
+                const indexBasedPayloads = flagWithIndexBasedPayloads.filters.payloads || {}
+
+                const filtersWithPayloads = {
+                    ...NEW_FLAG.filters,
+                    payloads: indexBasedPayloads,
+                }
+                actions.setSchedulePayload(
+                    filtersWithPayloads,
+                    NEW_FLAG.active,
+                    {},
+                    currentVariants,
+                    indexBasedPayloads
+                )
+            } else {
+                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
+            }
         },
         setActiveTab: ({ tab }) => {
             // reset filters when opening schedule tab, and load scheduled changes
             if (tab === FeatureFlagsTab.SCHEDULE) {
-                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
+                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.loadScheduledChanges()
             }
         },

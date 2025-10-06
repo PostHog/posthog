@@ -919,7 +919,10 @@ export const billingLogic = kea<billingLogicType>([
             }
         },
         scrollToProduct: ({ productType }) => {
-            const element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
+            let element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
+            if (element == null) {
+                element = document.querySelector(`[data-attr="billing-product-${productType}"]`)
+            }
             element?.scrollIntoView({
                 behavior: 'smooth',
                 block: 'center',

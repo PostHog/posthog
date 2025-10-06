@@ -65,6 +65,12 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service cymbal
 
+    et-embedding-worker:
+        shell: |-
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service et-embedding-worker
+        autostart: false
+
     feature-flags:
         shell: |-
             bin/check_postgres_up posthog && \

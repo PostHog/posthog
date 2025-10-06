@@ -41,16 +41,17 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(seconds=10),
         )
 
-        await workflow.execute_activity(
-            delete_recording_blocks,
-            DeleteRecordingBlocksInput(recording=recording_input, blocks=recording_blocks),
-            start_to_close_timeout=timedelta(minutes=1),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
-            ),
-            heartbeat_timeout=timedelta(seconds=10),
-        )
+        if len(recording_blocks) > 0:
+            await workflow.execute_activity(
+                delete_recording_blocks,
+                DeleteRecordingBlocksInput(recording=recording_input, blocks=recording_blocks),
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(minutes=1),
+                ),
+                heartbeat_timeout=timedelta(seconds=10),
+            )
 
 
 @workflow.defn(name="delete-recordings-with-person")
@@ -77,10 +78,10 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
         async with asyncio.TaskGroup() as delete_recordings:
             for session_id in session_ids:
                 delete_recordings.create_task(
-                    workflow.execute_child_workflow(
+                    workflow.start_child_workflow(
                         DeleteRecordingWorkflow.run,
                         RecordingInput(session_id=session_id, team_id=input.team_id),
                         parent_close_policy=ParentClosePolicy.ABANDON,
-                        execution_timeout=timedelta(minutes=1),
+                        execution_timeout=timedelta(minutes=10),
                     )
                 )
